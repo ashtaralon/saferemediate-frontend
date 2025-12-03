@@ -36,6 +36,8 @@ import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivile
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
 import { SimulateFixModal } from "./issues/SimulateFixModal"
+import { SecurityFindingsList } from "./issues/security-findings-list"
+import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
 // =============================================================================
@@ -131,6 +133,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [remediatingPermission, setRemediatingPermission] = useState<string | null>(null)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
+  const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
+  const [loadingFindings, setLoadingFindings] = useState(true)
 
   const fallbackGapData: GapAnalysis = {
     allowed: 28,
@@ -208,7 +212,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         confidence,
       })
 
-      setUnusedActionsList(data.unused_actions_list || [])
+      const unusedActions = data.unused_actions_list || []
+      setUnusedActionsList(unusedActions)
 
       // Update severity counts - each unused action = 1 HIGH finding
       setSeverityCounts((prev) => ({
@@ -216,6 +221,24 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         high: gap,
         passing: Math.max(0, 100 - gap),
       }))
+
+      // Populate issues array from unused permissions (HIGH severity findings)
+      if (unusedActions.length > 0) {
+        const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
+          id: `high-${index}-${permission}`,
+          title: `Unused IAM Permission: ${permission}`,
+          impact: "Increases attack surface and violates least privilege principle",
+          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
+          safeToFix: 95,
+          fixTime: "< 5 min",
+          temporalAnalysis: `This permission has not been used in the last 7 days. Safe to remove with ${confidence}% confidence.`,
+          expanded: false,
+          selected: false,
+        }))
+        setIssues(highIssues)
+      } else {
+        setIssues([])
+      }
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       setGapAnalysis(fallbackGapData)
@@ -882,7 +905,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-red-500" />
                         <h3 className="text-lg font-semibold text-gray-900">
-                          CRITICAL ISSUES ({severityCounts.critical})
+                          {severityCounts.critical > 0 ? "CRITICAL" : "HIGH"} ISSUES ({severityCounts.critical > 0 ? severityCounts.critical : severityCounts.high})
                         </h3>
                       </div>
                       <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -898,14 +921,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
 
                   <div className="p-6">
-                    {severityCounts.critical === 0 ? (
+                    {issues.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                           <CheckCircle className="w-8 h-8 text-green-500" />
                         </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Critical Issues</h4>
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Security Issues</h4>
                         <p className="text-sm text-gray-500 max-w-md">
-                          Great news! This system has no critical security issues. Run a security scan to check for new
+                          Great news! This system has no security issues. Run a security scan to check for new
                           vulnerabilities.
                         </p>
                         <button
@@ -995,6 +1018,30 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
               </div>
             </div>
+
+            {/* Security Findings Section */}
+            {activeTab === "overview" && (
+              <div className="mt-6">
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-blue-500" />
+                      <h3 className="text-lg font-semibold text-gray-900">Security Findings</h3>
+                    </div>
+                    {loadingFindings && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+                    )}
+                  </div>
+                  {securityFindings.length > 0 ? (
+                    <SecurityFindingsList findings={securityFindings} />
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <p>No security findings found for this system.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
