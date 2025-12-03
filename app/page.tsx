@@ -251,12 +251,17 @@ export default function HomePage() {
               </div>
             </div>
             <SecurityIssuesOverview {...securityIssuesData} />
-            {securityFindings.length > 0 && (
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
+            <div className="bg-white rounded-lg p-6 border border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
+              {securityFindings.length > 0 ? (
                 <SecurityFindingsList findings={securityFindings} />
-              </div>
-            )}
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No security findings found.</p>
+                  <p className="text-sm mt-2">Check backend connection or run a security scan.</p>
+                </div>
+              )}
+            </div>
             <ComplianceCards systems={complianceSystems} />
             <TrendsActivity />
           </div>
@@ -277,7 +282,14 @@ export default function HomePage() {
             />
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">All Security Findings</h2>
-              <SecurityFindingsList findings={securityFindings} />
+              {securityFindings.length > 0 ? (
+                <SecurityFindingsList findings={securityFindings} />
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No security findings found.</p>
+                  <p className="text-sm mt-2">Check backend connection or run a security scan.</p>
+                </div>
+              )}
             </div>
           </div>
         )

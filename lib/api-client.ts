@@ -170,15 +170,16 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     const findings = Array.isArray(data) ? data : data.findings || []
 
     return findings.map((f: any) => ({
-      id: f.id || f.findingId || "",
-      title: f.title || f.name || "Security Finding",
-      severity: f.severity || "medium",
-      description: f.description || "",
-      resource: f.resource || f.resourceId || "",
-      resourceType: f.resourceType || "Resource",
+      id: f.id || f.findingId || f.finding_id || "",
+      title: f.title || f.name || f.type || "Security Finding",
+      severity: (f.severity || "MEDIUM").toUpperCase(),
+      description: f.description || f.desc || "",
+      resource: f.resource || f.resourceId || f.resource_id || "",
+      resourceType: f.resourceType || f.resource_type || "Resource",
       status: f.status || "open",
-      detectedAt: f.detectedAt || f.createdAt || new Date().toISOString(),
-      recommendation: f.recommendation || "",
+      category: f.category || f.type || "Security",
+      discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || f.created_at || f.detectedAt || new Date().toISOString(),
+      remediation: f.remediation || f.recommendation || "",
     }))
   } catch (error) {
     console.warn("[v0] Security findings endpoint not available:", error)
