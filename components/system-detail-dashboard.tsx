@@ -212,8 +212,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         confidence,
       })
 
-      const unusedActions = data.unused_actions_list || []
+      const unusedActions = data.unused_actions_list || data.unused_actions || []
       setUnusedActionsList(unusedActions)
+      console.log("[v0] Gap analysis - unused_actions_list:", unusedActions.length, "items")
 
       // Update severity counts - each unused action = 1 HIGH finding
       setSeverityCounts((prev) => ({
@@ -921,7 +922,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
 
                   <div className="p-6">
-                    {issues.length === 0 ? (
+                    {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                           <CheckCircle className="w-8 h-8 text-green-500" />
@@ -947,6 +948,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               Run Security Scan
                             </>
                           )}
+                        </button>
+                      </div>
+                    ) : issues.length === 0 && (severityCounts.high > 0 || unusedActionsList.length > 0) ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <AlertTriangle className="w-8 h-8 text-orange-500" />
+                        </div>
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">
+                          {severityCounts.high} High Severity Issues Found
+                        </h4>
+                        <p className="text-sm text-gray-500 max-w-md mb-4">
+                          {unusedActionsList.length > 0 
+                            ? `${unusedActionsList.length} unused IAM permissions detected. Click the HIGH card above to view details.`
+                            : `${severityCounts.high} high severity issues detected. Click the HIGH card above to view details.`}
+                        </p>
+                        <button
+                          onClick={() => setShowHighFindingsModal(true)}
+                          className="mt-4 flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View {unusedActionsList.length > 0 ? unusedActionsList.length : severityCounts.high} Issues
                         </button>
                       </div>
                     ) : (
