@@ -76,6 +76,27 @@ export default function HomePage() {
           confidence: Number(confidence),
           roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
         })
+
+        // If findings are empty, populate from gap analysis (unused permissions)
+        setSecurityFindings((prevFindings) => {
+          if (prevFindings.length === 0 && unused > 0) {
+            const unusedActions = gapJson.unused_actions_list || []
+            return unusedActions.map((permission: string, index: number): SecurityFinding => ({
+              id: `gap-${index}-${permission}`,
+              title: `Unused IAM Permission: ${permission}`,
+              severity: "HIGH",
+              description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
+              resource: "SafeRemediate-Lambda-Remediation-Role",
+              resourceType: "IAM Role",
+              status: "open",
+              category: "Least Privilege",
+              discoveredAt: new Date().toISOString(),
+              remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
+            }))
+          }
+          return prevFindings
+        })
+
         setLastRefresh(new Date())
       })
       .catch(() => {
