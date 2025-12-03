@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { TrendingDown } from "lucide-react"
 import { CriticalFindingsModal } from "./critical-findings-modal"
-import { SimulateFixModal } from "./simulate-fix-modal"
+import { SimulateFixModal } from "./issues/SimulateFixModal"
 
 export function SystemHealthSection() {
   const [showCriticalModal, setShowCriticalModal] = useState(false)
@@ -126,7 +126,7 @@ export function SystemHealthSection() {
 
       {selectedFinding && (
         <SimulateFixModal
-          isOpen={showSimulateModal}
+          open={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedFinding(null)
