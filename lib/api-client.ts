@@ -159,17 +159,23 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     })
 
     if (!response.ok) {
-      console.warn("[v0] Backend returned error for security findings:", response.status)
+      console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
       return []
     }
 
     const data = await response.json()
-    console.log("[v0] Successfully loaded security findings from backend")
-
+    console.log("[v0] Security findings response:", data)
+    
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
+    console.log(`[v0] Found ${findings.length} security findings`)
 
-    return findings.map((f: any) => ({
+    if (findings.length === 0) {
+      console.warn("[v0] No security findings returned from backend")
+      return []
+    }
+
+    const mappedFindings = findings.map((f: any) => ({
       id: f.id || f.findingId || f.finding_id || "",
       title: f.title || f.name || f.type || "Security Finding",
       severity: (f.severity || "MEDIUM").toUpperCase(),
@@ -181,8 +187,11 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || f.created_at || f.detectedAt || new Date().toISOString(),
       remediation: f.remediation || f.recommendation || "",
     }))
+    
+    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
+    return mappedFindings
   } catch (error) {
-    console.warn("[v0] Security findings endpoint not available:", error)
+    console.error("[v0] Security findings endpoint error:", error)
     return []
   }
 }
