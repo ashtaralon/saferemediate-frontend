@@ -35,6 +35,8 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
+import { SimulateFixModal } from "./issues/SimulateFixModal"
+import type { SecurityFinding } from "@/lib/types"
 
 // =============================================================================
 // API CONFIGURATION
@@ -127,6 +129,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [expandedPermission, setExpandedPermission] = useState<string | null>(null) // Expanded permission state
 
   const [remediatingPermission, setRemediatingPermission] = useState<string | null>(null)
+  const [showSimulateModal, setShowSimulateModal] = useState(false)
+  const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
 
   const fallbackGapData: GapAnalysis = {
     allowed: 28,
@@ -1491,6 +1495,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           {/* ACTIONS */}
                           <div className="flex gap-3 pt-2">
                             <button
+                              onClick={() => {
+                                setSelectedPermissionForSimulation(permission)
+                                setShowSimulateModal(true)
+                              }}
+                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm"
+                            >
+                              <Zap className="w-4 h-4" />
+                              Simulate Fix
+                            </button>
+                            <button
                               onClick={() => handleRemediateFromModal(permission)}
                               disabled={remediatingPermission === permission}
                               className="flex-1 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
@@ -1548,6 +1562,29 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
           </div>
         </div>
+      )}
+
+      {/* Simulate Fix Modal for unused permissions */}
+      {selectedPermissionForSimulation && (
+        <SimulateFixModal
+          open={showSimulateModal}
+          onClose={() => {
+            setShowSimulateModal(false)
+            setSelectedPermissionForSimulation(null)
+          }}
+          finding={{
+            id: `permission-${selectedPermissionForSimulation}`,
+            severity: "HIGH",
+            title: `Unused Permission: ${selectedPermissionForSimulation}`,
+            resource: "SafeRemediate-Lambda-Remediation-Role",
+            resourceType: "IAM Role",
+            description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
+            remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
+            category: "Least Privilege",
+            discoveredAt: new Date().toISOString(),
+            status: "open",
+          } as SecurityFinding}
+        />
       )}
     </div>
   )
