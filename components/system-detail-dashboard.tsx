@@ -1651,7 +1651,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             setSelectedPermissionForSimulation(null)
           }}
           finding={{
-            id: `permission-${selectedPermissionForSimulation}`,
+            id: `SafeRemediate-Lambda-Remediation-Role/${selectedPermissionForSimulation}`,
             severity: "HIGH",
             title: `Unused Permission: ${selectedPermissionForSimulation}`,
             resource: "SafeRemediate-Lambda-Remediation-Role",
