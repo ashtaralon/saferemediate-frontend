@@ -1573,6 +1573,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           <div className="flex gap-3 pt-2">
                             <button
                               onClick={() => {
+                                setShowHighFindingsModal(false)
                                 setSelectedPermissionForSimulation(permission)
                                 setShowSimulateModal(true)
                               }}
