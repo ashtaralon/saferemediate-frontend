@@ -1021,7 +1021,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             </div>
 
                             <div className="flex border-t border-gray-200">
-                              <button className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  // Extract permission from issue title (format: "Unused IAM Permission: permission:Action")
+                                  const permission = issue.title.replace("Unused IAM Permission: ", "")
+                                  setSelectedPermissionForSimulation(permission)
+                                  setShowSimulateModal(true)
+                                }}
+                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2"
+                              >
                                 <Play className="w-4 h-4" />
                                 SIMULATE FIX
                               </button>
