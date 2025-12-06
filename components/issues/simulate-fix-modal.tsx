@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useCallback, useMemo } from "react"
 import { X } from "lucide-react"
 
 interface SimulateFixModalProps {
@@ -46,10 +46,16 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
 
   // Get API base URL
   // Backend URL - MUST be absolute, never relative
-  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
-  const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
+  const API_BASE = useMemo(() => 
+    process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com',
+    []
+  )
+  const API_URL = useMemo(() => 
+    API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`,
+    [API_BASE]
+  )
 
-  const handleSimulate = async () => {
+  const handleSimulate = useCallback(async () => {
     if (!finding?.id) {
       console.error("No finding ID available for simulation")
       alert("Error: Finding ID is required for simulation")
@@ -80,7 +86,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     } finally {
       setLoading(false)
     }
-  }
+  }, [finding?.id, API_URL])
 
   const handleAutoFix = async () => {
     if (!finding?.id) {
@@ -240,7 +246,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       setHasRunInitialSimulation(true)
       handleSimulate()
     }
-  }, [isOpen, finding?.id, hasRunInitialSimulation])
+  }, [isOpen, finding?.id, hasRunInitialSimulation, isAnalyzing, showResults, handleSimulate])
 
   // Reset when modal closes
   React.useEffect(() => {
