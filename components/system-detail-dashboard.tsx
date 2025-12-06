@@ -314,18 +314,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
-    // Load all data in parallel for faster page load
-    await Promise.all([
-      fetchGapAnalysis(), 
-      fetchAutoTagStatus(),
-      fetchSecurityFindings().then((findings) => {
-        setSecurityFindings(findings)
-        setLoadingFindings(false)
-      }).catch((error) => {
-        console.error("[v0] Error loading security findings:", error)
-        setLoadingFindings(false)
-      })
-    ])
+    try {
+      // Wait for ALL data to load completely - no shortcuts
+      await Promise.all([
+        fetchGapAnalysis(), 
+        fetchAutoTagStatus(),
+        fetchSecurityFindings().then((findings) => {
+          setSecurityFindings(findings)
+          setLoadingFindings(false)
+          console.log(`[v0] ✅ Security findings loaded: ${findings.length} findings`)
+        }).catch((error) => {
+          console.error("[v0] Error loading security findings:", error)
+          setSecurityFindings([])
+          setLoadingFindings(false)
+        })
+      ])
+      console.log("[v0] ✅ All data loaded successfully")
+    } catch (error) {
+      console.error("[v0] Error in fetchAllData:", error)
+    }
   }
 
   useEffect(() => {

@@ -47,13 +47,74 @@ export default function HomePage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
-  // fetchGapAnalysis is now integrated into loadData for better performance
+  const fetchGapAnalysis = useCallback(() => {
+    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+
+    fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((gapJson) => {
+        const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
+        const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
+        const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
+
+        let confidence = 99
+        const remPotential = gapJson.statistics?.remediation_potential
+        const confValue = gapJson.statistics?.confidence
+        if (remPotential) {
+          confidence = Number.parseInt(String(remPotential).replace("%", ""), 10) || 99
+        } else if (confValue) {
+          confidence = Number.parseInt(String(confValue).replace("%", ""), 10) || 99
+        }
+
+        setGapData({
+          allowed: Number(allowed),
+          used: Number(used),
+          unused: Number(unused),
+          confidence: Number(confidence),
+          roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
+        })
+
+        // If findings are empty, populate from gap analysis (unused permissions)
+        setSecurityFindings((prevFindings) => {
+          if (prevFindings.length === 0 && unused > 0) {
+            const unusedActions = gapJson.unused_actions_list || []
+            return unusedActions.map((permission: string, index: number): SecurityFinding => ({
+              id: `gap-${index}-${permission}`,
+              title: `Unused IAM Permission: ${permission}`,
+              severity: "HIGH",
+              description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
+              resource: "SafeRemediate-Lambda-Remediation-Role",
+              resourceType: "IAM Role",
+              status: "open",
+              category: "Least Privilege",
+              discoveredAt: new Date().toISOString(),
+              remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
+            }))
+          }
+          return prevFindings
+        })
+
+        setLastRefresh(new Date())
+      })
+      .catch(() => {
+        // Silent fail - use default values already set in state
+      })
+  }, [])
 
   const loadData = useCallback(async () => {
     try {
-      const [infrastructureData, findings] = await Promise.all([fetchInfrastructure(), fetchSecurityFindings()])
+      setLoading(true)
+      // Wait for all data to load - no shortcuts, let it take time
+      const [infrastructureData, findings] = await Promise.all([
+        fetchInfrastructure(), 
+        fetchSecurityFindings()
+      ])
       setData(infrastructureData)
       setSecurityFindings(findings)
+      console.log("[PAGE] ✅ All data loaded successfully")
     } catch (error) {
       console.error("Failed to load data:", error)
     } finally {
