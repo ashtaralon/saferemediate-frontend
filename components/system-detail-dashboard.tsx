@@ -37,7 +37,7 @@ import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapT
 import { AllServicesTab } from "./all-services-tab"
 import { SimulateFixModal } from "./issues/simulate-fix-modal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
-import { fetchSecurityFindings } from "@/lib/api-client"
+import { fetchSecurityFindings, fetchGapAnalysis } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 // Import new modular components
 import { Header } from "./system-detail/header"
@@ -193,22 +193,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   // =============================================================================
   // =============================================================================
-  const fetchGapAnalysis = async () => {
+  const handleGapAnalysis = async () => {
     try {
-      // Use the provided backend URL
-      // Update backend URL and fetch logic
-      // Use absolute URL - never relative!
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
-      const absoluteUrl = `${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`
-      console.log("[v0] Fetching GAP from:", absoluteUrl)
-      const response = await fetch(absoluteUrl)
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      // </CHANGE> Removed debug console.log
+      // Use the imported fetchGapAnalysis from api-client.ts
+      const data = await fetchGapAnalysis("SafeRemediate-Lambda-Remediation-Role")
 
       const allowed = Number(data.allowed_actions) || 0
       const actual = Number(data.used_actions) || 0
@@ -336,8 +324,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     try {
       // Use Promise.allSettled to handle errors gracefully - don't fail all if one fails
       const [gapResult, autoTagResult, findingsResult] = await Promise.allSettled([
-        fetchGapAnalysis().catch(err => {
-          console.error("[v0] Error in fetchGapAnalysis:", err)
+        handleGapAnalysis().catch(err => {
+          console.error("[v0] Error in handleGapAnalysis:", err)
           return null
         }),
         fetchAutoTagStatus().catch(err => {
@@ -596,8 +584,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   loading={loadingGap}
                   error={gapError}
                   onRetry={() => {
-                    setLoadingGap(true)
-                    fetchGapAnalysis()
+                          setLoadingGap(true)
+                    handleGapAnalysis()
                   }}
                 />
 
@@ -1354,15 +1342,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       )}
 
       {/* Simulate Fix Modal for unused permissions */}
-      <SimulateFixModal
+        <SimulateFixModal
         isOpen={showSimulateModal}
-        onClose={() => {
-          setShowSimulateModal(false)
-          setSelectedPermissionForSimulation(null)
-        }}
+          onClose={() => {
+            setShowSimulateModal(false)
+            setSelectedPermissionForSimulation(null)
+          }}
         finding={selectedPermissionForSimulation ? {
-          id: `permission-${selectedPermissionForSimulation}`,
-          title: `Unused Permission: ${selectedPermissionForSimulation}`,
+            id: `permission-${selectedPermissionForSimulation}`,
+            title: `Unused Permission: ${selectedPermissionForSimulation}`,
           icon: "⚠️",
         } : null}
       />
