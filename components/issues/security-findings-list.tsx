@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
-import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
+import { SimulateFixModal } from "@/components/issues/simulate-fix-modal"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
@@ -51,9 +51,13 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   return (
     <>
       <SimulateFixModal
-        open={showModal}
+        isOpen={showModal}
         onClose={() => setShowModal(false)}
-        finding={selectedFinding}
+        finding={selectedFinding ? {
+          id: selectedFinding.id,
+          title: selectedFinding.title,
+          icon: "⚠️",
+        } : null}
       />
 
       <div className="space-y-3">
