@@ -51,118 +51,31 @@ export default function HomePage() {
 
   const loadData = useCallback(async () => {
     try {
-      setLoading(true)
-      
-      // Load all data in parallel for best performance
-      const infrastructurePromise = fetchInfrastructure().catch((error) => {
-        console.warn("Infrastructure fetch failed:", error)
-        return null
-      })
-      
-      const findingsPromise = fetchSecurityFindings().catch((error) => {
-        console.warn("Findings fetch failed:", error)
-        return []
-      })
-      
-      const gapAnalysisPromise = fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          return res.json()
-        })
-        .catch((error) => {
-          console.warn("Gap analysis fetch failed:", error)
-          return null
-        })
-      
-      // Wait for all promises (with reasonable timeout)
-      const [infrastructureData, findings, gapJson] = await Promise.all([
-        infrastructurePromise,
-        findingsPromise,
-        Promise.race([
-          gapAnalysisPromise,
-          new Promise((resolve) => setTimeout(() => resolve(null), 15000)) // 15s timeout for gap
-        ])
-      ])
-      
-      // Set infrastructure data (critical)
-      if (infrastructureData) {
-        setData(infrastructureData)
-        console.log("[PAGE] ✅ Infrastructure data loaded")
-      }
-      
-      // Set findings (from API or will be populated from gap analysis)
-      if (findings && findings.length > 0) {
-        setSecurityFindings(findings)
-        console.log(`[PAGE] ✅ Security findings loaded: ${findings.length} findings`)
-      }
-      
-      // Handle gap analysis
-      if (gapJson) {
-        const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
-        const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
-        const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
-
-        let confidence = 99
-        const remPotential = gapJson.statistics?.remediation_potential
-        const confValue = gapJson.statistics?.confidence
-        if (remPotential) {
-          confidence = Number.parseInt(String(remPotential).replace("%", ""), 10) || 99
-        } else if (confValue) {
-          confidence = Number.parseInt(String(confValue).replace("%", ""), 10) || 99
-        }
-
-        setGapData({
-          allowed: Number(allowed),
-          used: Number(used),
-          unused: Number(unused),
-          confidence: Number(confidence),
-          roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
-        })
-        
-        // If findings are empty and we have gap data, populate from gap analysis
-        setSecurityFindings((prevFindings) => {
-          if (prevFindings.length === 0 && unused > 0) {
-            const unusedActions = gapJson.unused_actions_list || []
-            const gapFindings = unusedActions.map((permission: string, index: number): SecurityFinding => ({
-              id: `gap-${index}-${permission}`,
-              title: `Unused IAM Permission: ${permission}`,
-              severity: "HIGH",
-              description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
-              resource: "SafeRemediate-Lambda-Remediation-Role",
-              resourceType: "IAM Role",
-              status: "open",
-              category: "Least Privilege",
-              discoveredAt: new Date().toISOString(),
-              remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
-            }))
-            console.log(`[PAGE] ✅ Populated ${gapFindings.length} findings from gap analysis`)
-            return gapFindings
-          }
-          return prevFindings
-        })
-        
-        setLastRefresh(new Date())
-      }
+      const [infrastructureData, findings] = await Promise.all([fetchInfrastructure(), fetchSecurityFindings()])
+      setData(infrastructureData)
+      setSecurityFindings(findings)
     } catch (error) {
-      console.error("[PAGE] ❌ Failed to load data:", error)
+      console.error("Failed to load data:", error)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    loadData() // Now includes gap analysis
-  }, [loadData])
+    loadData()
+    fetchGapAnalysis()
+  }, [loadData, fetchGapAnalysis])
 
   useEffect(() => {
     if (!autoRefresh) return
 
     const interval = setInterval(() => {
-      loadData() // Now includes gap analysis
-    }, 60000) // Increased to 60s to reduce load
+      loadData()
+      fetchGapAnalysis()
+    }, 30000)
 
     return () => clearInterval(interval)
-  }, [autoRefresh, loadData])
+  }, [autoRefresh, loadData, fetchGapAnalysis])
 
   const statsData = data?.stats || {
     avgHealthScore: 0,
