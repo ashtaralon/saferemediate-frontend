@@ -346,7 +346,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         setSecurityFindings([])
       }
 
-      // Note: fetchGapAnalysis and fetchAutoTagStatus update their own states internally
+      // Note: handleGapAnalysis and fetchAutoTagStatus update their own states internally
       console.log("[v0] ✅ All data fetch attempts completed")
     } catch (error) {
       console.error("[v0] Error in fetchAllData:", error)
