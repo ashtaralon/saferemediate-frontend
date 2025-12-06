@@ -1,6 +1,6 @@
 export async function simulateFix(findingId: string) {
-  // Use proxy route to avoid CORS issues
-  const url = "/api/proxy/simulate"
+  // Use rewrite route to avoid CORS issues
+  const url = "/backend/api/simulate"
 
   const res = await fetch(url, {
     method: "POST",
