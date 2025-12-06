@@ -39,15 +39,6 @@ import { SimulateFixModal } from "./issues/simulate-fix-modal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
-// Import new modular components
-import { Header } from "./system-detail/header"
-import { TabsNavigation } from "./system-detail/tabs-navigation"
-import { StatsRow } from "./system-detail/stats-row"
-import { GapAnalysisCard } from "./system-detail/gap-analysis-card"
-import { SystemInfoCard } from "./system-detail/system-info-card"
-import { ResourceTypesCard } from "./system-detail/resource-types-card"
-import { AutoTagCard } from "./system-detail/auto-tag-card"
-import { ComplianceCard } from "./system-detail/compliance-card"
 
 // =============================================================================
 // API CONFIGURATION
@@ -539,16 +530,81 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <Header
-        systemName={systemName}
-        severityCounts={severityCounts}
-        onBack={onBack}
-        onTagAll={() => setShowTagModal(true)}
-      />
-
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <TabsNavigation tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+          {" "}
+          {/* Added max-w and mx-auto for centering */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onBack}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Go back"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-2xl font-bold text-gray-900">{systemName}</h1>
+                  <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">PRODUCTION</span>{" "}
+                  {/* Simplified span */}
+                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                    MISSION CRITICAL
+                  </span>{" "}
+                  {/* Simplified span */}
+                  {severityCounts.critical > 0 && ( // Conditionally render critical alert
+                    <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      {severityCounts.critical} CRITICAL
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  AWS eu-west-1 • Production environment • Last scan: 2 min ago
+                </p>{" "}
+                {/* Hardcoded for now */}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowTagModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium" // Changed button style to match original
+              >
+                <Tag className="w-4 h-4" />
+                Tag All Resources
+              </button>
+
+              <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                <Download className="w-4 h-4" />
+                Generate Report
+              </button>
+              <button className="flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] transition-colors">
+                <Calendar className="w-4 h-4" />
+                Schedule Maintenance
+              </button>
+            </div>
+          </div>
+          {/* Tabs */}
+          <div className="flex items-center gap-1 mt-6 border-b border-gray-200 -mb-px">
+            {tabs.map((tab) => {
+              const IconComponent = tab.icon
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? "border-[#2D51DA] text-[#2D51DA]"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  <IconComponent className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
@@ -557,36 +613,311 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           {/* Main Content - Overview Tab */}
           <div className="max-w-[1800px] mx-auto px-8 py-6">
             {/* Stats Row - Updated with real severity counts */}
-            <StatsRow
-              healthScore={healthScore}
-              severityCounts={severityCounts}
-              totalChecks={totalChecks}
-              onHighClick={() => setShowHighFindingsModal(true)}
-            />
+            <div className="grid grid-cols-5 gap-4 mb-6">
+              {/* System Health */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-4">System Health</p>
+                <div className="flex items-center justify-center">
+                  <div className="relative w-24 h-24">
+                    <svg className="w-24 h-24 transform -rotate-90">
+                      <circle cx="48" cy="48" r="40" stroke="#E5E7EB" strokeWidth="8" fill="none" />
+                      <circle
+                        cx="48"
+                        cy="48"
+                        r="40"
+                        stroke={healthScore >= 80 ? "#10B981" : healthScore >= 60 ? "#F59E0B" : "#EF4444"}
+                        strokeWidth="8"
+                        fill="none"
+                        strokeDasharray={`${2 * Math.PI * 40}`}
+                        strokeDashoffset={`${2 * Math.PI * 40 * (1 - healthScore / 100)}`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-bold text-gray-900">{healthScore}</span>
+                      <span className="text-xs text-gray-500">Score</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-center mt-3">
+                  <span
+                    className={`text-sm font-medium ${healthScore >= 80 ? "text-green-600" : healthScore >= 60 ? "text-yellow-600" : "text-red-600"}`}
+                  >
+                    {healthScore >= 80 ? "HEALTHY" : healthScore >= 60 ? "WARNING" : "CRITICAL"}
+                  </span>
+                  <p className="text-xs text-gray-400">{totalChecks} checks</p>{" "}
+                  {/* totalChecks was used in original code */}
+                </div>
+              </div>
+
+              {/* Critical */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <p className="text-xs font-medium text-red-500 uppercase tracking-wide mb-2">Critical</p>
+                <p className="text-4xl font-bold text-red-500">{severityCounts.critical}</p>
+                <p className="text-sm text-gray-500 mt-1">Immediate action required</p>
+                <p className="text-xs text-green-600 mt-1">No critical issues</p> {/* Placeholder text */}
+              </div>
+
+              {/* High */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <p className="text-xs font-medium text-orange-500 uppercase tracking-wide mb-2">High</p>
+                {/* Make HIGH card clickable */}
+                <button
+                  onClick={() => setShowHighFindingsModal(true)}
+                  className="text-4xl font-bold text-orange-500 hover:text-orange-600 cursor-pointer transition-colors"
+                  title="Click to view unused permissions"
+                >
+                  {severityCounts.high}
+                </button>
+                <p className="text-sm text-gray-500 mt-1">Fix within 24 hours</p>
+                {/* Update placeholder text */}
+                <p className="text-xs text-orange-500 mt-2">Click to view details</p>
+              </div>
+
+              {/* Medium */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <p className="text-xs font-medium text-yellow-500 uppercase tracking-wide mb-2">Medium</p>
+                <p className="text-4xl font-bold text-yellow-500">{severityCounts.medium}</p>
+                <p className="text-sm text-gray-500 mt-1">Fix within 7 days</p>
+                <p className="text-xs text-yellow-500 mt-2">-1 from last scan</p> {/* Placeholder text */}
+              </div>
+
+              {/* Passing */}
+              <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <p className="text-xs font-medium text-green-500 uppercase tracking-wide mb-2">Passing</p>
+                <p className="text-4xl font-bold text-green-500">{severityCounts.passing}</p>
+                <p className="text-sm text-gray-500 mt-1">All checks passed</p>
+                <p className="text-xs text-green-500 mt-2">+5 from last scan</p> {/* Placeholder text */}
+              </div>
+            </div>
             {/* Two Column Layout */}
             <div className="grid grid-cols-3 gap-6">
               {/* Left Column - System Info */}
               <div className="space-y-6">
                 {/* GAP Analysis Card - Now uses live data */}
-                <GapAnalysisCard
-                  gapAnalysis={gapAnalysis}
-                  loading={loadingGap}
-                  error={gapError}
-                  onRetry={() => {
-                    setLoadingGap(true)
-                    fetchGapAnalysis()
-                  }}
-                />
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-purple-600" />
+                      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">GAP Analysis</h3>
+                    </div>
+                    {gapError ? (
+                      <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">Error</span>
+                    ) : (
+                      <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+                        {loadingGap ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
+                      </span>
+                    )}
+                  </div>
 
-                <SystemInfoCard gapAnalysis={gapAnalysis} />
+                  {loadingGap ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-purple-600 border-t-transparent"></div>
+                    </div>
+                  ) : gapError ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
+                        <AlertTriangle className="w-6 h-6 text-red-500" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-900 mb-1">Unable to load GAP Analysis</p>
+                      <p className="text-xs text-gray-500 mb-3">{gapError}</p>
+                      <button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setLoadingGap(true)
+                          fetchGapAnalysis()
+                        }}
+                        className="flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                        Retry
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* ALLOWED Bar */}
+                      <div className="mb-4">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm text-gray-500">ALLOWED (IAM Policies)</span>
+                          <span className="text-sm font-medium text-gray-600">{gapAnalysis.allowed} permissions</span>
+                        </div>
+                        <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-gray-400 rounded-full" style={{ width: "100%" }}></div>
+                        </div>
+                      </div>
 
-                <ResourceTypesCard resourceTypes={resourceTypes} />
+                      {/* ACTUAL Bar */}
+                      <div className="mb-4">
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm font-medium" style={{ color: "#8B5CF6" }}>
+                            ACTUAL (Used)
+                          </span>
+                          <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
+                            {gapAnalysis.actual} permissions
+                          </span>
+                        </div>
+                        <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${actualPercent}%`, backgroundColor: "#8B5CF6" }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      {/* GAP Highlight */}
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        {" "}
+                        {/* Changed bg and border color */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-red-700">GAP (Attack Surface)</span>
+                          <span className="text-sm font-bold text-red-700">{gapAnalysis.gap} unused permissions</span>
+                        </div>
+                        <p className="text-xs text-red-600 mt-1">
+                          {gapAnalysis.gapPercent}% reduction possible by removing unused permissions
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Server className="w-4 h-4 text-gray-500" />
+                    <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">System Info</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Account</span>
+                      <span className="text-sm font-medium text-gray-900">745783559495</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Region</span>
+                      <span className="text-sm font-medium text-gray-900">eu-west-1</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Environment</span>
+                      <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">
+                        Production
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Provider</span>
+                      <span className="text-sm font-medium text-gray-900">AWS</span>
+                    </div>
+                    <div className="border-t border-gray-100 pt-3 mt-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Graph Nodes</span>
+                        <span className="text-sm font-medium text-gray-900">60</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Relationships</span>
+                      <span className="text-sm font-medium text-gray-900">73</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">ACTUAL Behavior</span>
+                      <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
+                        {gapAnalysis.actual || 15}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Database className="w-4 h-4 text-gray-500" />
+                    <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Resource Types</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {resourceTypes.map((resource) => (
+                      <div key={resource.name} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${resource.color}`}>
+                            <resource.icon className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-sm text-gray-700">{resource.name}</span>
+                            <p className="text-xs text-gray-400">{resource.description}</p>
+                          </div>
+                        </div>
+                        <span className="text-sm font-medium text-gray-900">{resource.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 {/* Auto-Tag Service Card - Now uses live data */}
-                <AutoTagCard autoTagStatus={autoTagStatus} loading={loadingAutoTag} />
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-gray-500" />
+                      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Auto-Tag Service</h3>
+                    </div>
+                    <span
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        autoTagStatus.status === "running"
+                          ? "bg-green-100 text-green-700"
+                          : autoTagStatus.status === "error"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {loadingAutoTag
+                        ? "Loading..."
+                        : autoTagStatus.status === "running"
+                          ? "Running"
+                          : autoTagStatus.status === "error"
+                            ? "Error"
+                            : "Stopped"}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Total Cycles</span>
+                      <span className="text-sm font-medium text-gray-900">{autoTagStatus.totalCycles}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">ACTUAL Traffic Captured</span>
+                      <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
+                        {autoTagStatus.actualTrafficCaptured}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Last Sync</span>
+                      <span className="text-sm font-medium text-gray-900">{autoTagStatus.lastSync}</span>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Compliance Status Card */}
-                <ComplianceCard />
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
+                    Compliance Status
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-sm text-gray-700">PCI-DSS</span>
+                        <span className="text-sm font-medium text-gray-900">93%</span>
+                      </div>
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full" style={{ width: "93%" }}></div>
+                      </div>
+                      <button className="text-xs text-blue-600 hover:underline mt-1">View gaps & remediate →</button>
+                    </div>
+                    <div>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-sm text-gray-700">SOC 2</span>
+                        <span className="text-sm font-medium text-gray-900">89%</span>
+                      </div>
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-yellow-500 rounded-full" style={{ width: "89%" }}></div>
+                      </div>
+                      <button className="text-xs text-blue-600 hover:underline mt-1">View gaps & remediate →</button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Right Column - Critical Issues */}
