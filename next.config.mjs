@@ -2,26 +2,25 @@
 const nextConfig = {
   reactStrictMode: false,
 
-  experimental: {
-    // force webpack instead of turbopack
-    webpackBuild: true,
-    turbo: false,
+  images: {
+    unoptimized: true,
   },
-
-  productionBrowserSourceMaps: true,
 
   typescript: {
     ignoreBuildErrors: true,
   },
 
-  images: {
-    unoptimized: true,
+  experimental: {
+    turbo: false,        // ⛔ כבה Turbopack
+    webpackBuild: true,  // ✅ הפעל Webpack
   },
 
   webpack: (config) => {
-    config.devtool = 'source-map'
-    return config
+    config.devtool = "source-map"; // אפשר דיבאג אמיתי
+    return config;
   },
-}
 
-export default nextConfig
+  productionBrowserSourceMaps: true, // Source maps ב-production
+};
+
+export default nextConfig;
