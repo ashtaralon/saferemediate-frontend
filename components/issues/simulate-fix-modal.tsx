@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useCallback, useMemo } from "react"
+import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { X } from "lucide-react"
 
 interface SimulateFixModalProps {
@@ -14,6 +14,18 @@ interface SimulateFixModalProps {
 }
 
 export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalProps) {
+  // Client-side only rendering to prevent hydration mismatch
+  const [isClient, setIsClient] = useState(false)
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  // During SSR and first client render - don't render anything
+  if (!isClient) {
+    return null
+  }
+
   // CRITICAL: Early return if modal is not open - prevents any rendering issues
   if (!isOpen) return null
 
