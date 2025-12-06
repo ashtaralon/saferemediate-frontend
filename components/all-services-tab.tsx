@@ -139,7 +139,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     setLoading(true)
     try {
       // Use rewrite route to avoid CORS issues
-      const response = await fetch(`/backend/api/graph-data`)
+      // Correct endpoint: /graph/nodes (not /graph-data)
+      const response = await fetch(`/backend/api/graph/nodes`)
 
       if (!response.ok) throw new Error("Failed to fetch services")
 
@@ -178,16 +179,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   }
 
   const fetchGapData = async () => {
-    try {
-      // Use rewrite route to avoid CORS issues
-      const response = await fetch(`/backend/api/gap-analysis`)
-      if (response.ok) {
-        const data = await response.json()
-        setGapData(data)
-      }
-    } catch (error) {
-      console.error("Failed to fetch gap data:", error)
-    }
+    // gap-analysis endpoint not implemented in backend yet
+    // Skip fetching to avoid 404 errors
+    console.log("[all-services-tab] Gap analysis endpoint not available, skipping")
   }
 
   const computeServices = useMemo(() => {
