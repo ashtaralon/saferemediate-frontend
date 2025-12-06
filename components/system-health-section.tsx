@@ -34,15 +34,15 @@ export function SystemHealthSection() {
       return
     }
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
-    const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
+    // Use proxy route to avoid CORS issues
+    const API_URL = '/api/proxy'
 
     try {
       setLoading(true)
-      const res = await fetch(`${API_URL}/simulation/issue/remediate`, {
+      const res = await fetch(`${API_URL}/remediate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId, confirm: true }),
+        body: JSON.stringify({ finding_id: issueId, confirm: true }),
       })
 
       if (!res.ok) {

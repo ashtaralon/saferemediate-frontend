@@ -1,5 +1,6 @@
 export async function simulateFix(findingId: string) {
-  const url = `${process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"}/api/simulate`
+  // Use proxy route to avoid CORS issues
+  const url = "/api/proxy/simulate"
 
   const res = await fetch(url, {
     method: "POST",
@@ -15,4 +16,3 @@ export async function simulateFix(findingId: string) {
 
   return res.json()
 }
-

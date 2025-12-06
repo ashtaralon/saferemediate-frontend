@@ -1,9 +1,12 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
-// Backend URL - Direct to Render, no proxy
-const API_BASE = "https://saferemediate-backend.onrender.com"
-const BACKEND_URL = API_BASE
+// ============================================================================
+// PROXY-BASED API CLIENT - All calls go through Next.js API routes to avoid CORS
+// ============================================================================
+
+// Use relative paths for proxy routes (same-origin, no CORS issues)
+const PROXY_BASE = "/api/proxy"
 
 // ============================================================================
 // ⚡ CACHING & DEDUPLICATION
@@ -79,7 +82,8 @@ function clearCache(key?: string): void {
 
 // Generic API GET function with caching and deduplication
 export async function apiGet<T = any>(path: string, options?: { cache?: boolean; ttl?: number }): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  // Use proxy route for all calls
+  const url = path.startsWith("/api/proxy") ? path : `${PROXY_BASE}${path.startsWith("/") ? path : "/" + path}`
   const cacheKey = getCacheKey(url)
   const useCache = options?.cache !== false // Default to true
   const ttl = options?.ttl || CACHE_TTL.medium
@@ -104,12 +108,12 @@ export async function apiGet<T = any>(path: string, options?: { cache?: boolean;
       const res = await fetch(url, { cache: "no-store" })
       if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
       const data = await res.json()
-      
+
       // Cache the result
       if (useCache) {
         setCache(cacheKey, data, ttl)
       }
-      
+
       return data
     } finally {
       // Remove from active requests
@@ -125,7 +129,8 @@ export async function apiGet<T = any>(path: string, options?: { cache?: boolean;
 
 // Generic API POST function (no caching for POST)
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  // Use proxy route for all calls
+  const url = path.startsWith("/api/proxy") ? path : `${PROXY_BASE}${path.startsWith("/") ? path : "/" + path}`
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -201,27 +206,27 @@ export interface InfrastructureData {
 }
 
 // ============================================================================
-// FETCH FUNCTIONS WITH OPTIMIZED CACHING
+// FETCH FUNCTIONS WITH OPTIMIZED CACHING (via proxy routes)
 // ============================================================================
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel with caching
-    const [metricsResponse, nodesResponse] = await Promise.all([
-      apiGet(`${BACKEND_URL}/api/dashboard/metrics`, { cache: true, ttl: CACHE_TTL.short }),
-      apiGet(`${BACKEND_URL}/api/graph/nodes`, { cache: true, ttl: CACHE_TTL.medium }),
+    // Fetch dashboard metrics and graph data via proxy routes (no CORS!)
+    const [metricsResponse, graphResponse] = await Promise.all([
+      apiGet<{ success: boolean; metrics: any }>(`/api/proxy/dashboard-metrics`, { cache: true, ttl: CACHE_TTL.short }),
+      apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(`/api/proxy/graph-data`, { cache: true, ttl: CACHE_TTL.medium }),
     ])
 
-    let metrics: any = metricsResponse
+    const metrics: any = metricsResponse.metrics || metricsResponse
     let nodes: any[] = []
 
-    if (nodesResponse && Array.isArray(nodesResponse)) {
-      nodes = nodesResponse
-    } else if (nodesResponse && nodesResponse.nodes) {
-      nodes = nodesResponse.nodes
+    if (graphResponse && graphResponse.nodes) {
+      nodes = graphResponse.nodes
+    } else if (Array.isArray(graphResponse)) {
+      nodes = graphResponse
     }
 
-    console.log("[v0] Successfully loaded metrics and nodes from backend (cached)")
+    console.log("[v0] Successfully loaded metrics and nodes via proxy (cached)")
 
     // Map backend data to our InfrastructureData format
     const resources = nodes.map((node: any) => ({
@@ -287,15 +292,15 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    // Use caching for findings (they don't change very often)
-    const data = await apiGet<SecurityFinding[] | { findings: SecurityFinding[] }>(
-      `${BACKEND_URL}/api/findings`,
+    // Use proxy route for findings (no CORS!)
+    const data = await apiGet<{ success: boolean; findings: SecurityFinding[] }>(
+      `/api/proxy/findings`,
       { cache: true, ttl: CACHE_TTL.long } // 5 minutes cache
     )
 
     // Handle both array response and object with findings property
-    const findings = Array.isArray(data) ? data : data.findings || []
-    console.log(`[v0] Found ${findings.length} security findings (cached)`)
+    const findings = data.findings || (Array.isArray(data) ? data : [])
+    console.log(`[v0] Found ${findings.length} security findings via proxy (cached)`)
 
     if (findings.length === 0) {
       console.warn("[v0] No security findings returned from backend")
@@ -314,7 +319,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || f.created_at || f.detectedAt || new Date().toISOString(),
       remediation: f.remediation || f.recommendation || "",
     }))
-    
+
     console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
     return mappedFindings
   } catch (error) {
@@ -325,12 +330,12 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const data = await apiGet<any[] | { nodes: any[] }>(
-      `${BACKEND_URL}/api/graph/nodes`,
+    const data = await apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(
+      `/api/proxy/graph-data`,
       { cache: true, ttl: CACHE_TTL.medium }
     )
-    console.log("[v0] Successfully loaded graph nodes from backend (cached)")
-    return Array.isArray(data) ? data : data.nodes || []
+    console.log("[v0] Successfully loaded graph nodes via proxy (cached)")
+    return data.nodes || []
   } catch (error) {
     console.warn("[v0] Graph nodes endpoint not available:", error)
     return []
@@ -339,13 +344,12 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const data = await apiGet<any[] | { relationships: any[] } | { edges: any[] }>(
-      `${BACKEND_URL}/api/graph/relationships`,
+    const data = await apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(
+      `/api/proxy/graph-data`,
       { cache: true, ttl: CACHE_TTL.medium }
     )
-    console.log("[v0] Successfully loaded graph relationships from backend (cached)")
-    if (Array.isArray(data)) return data
-    return data.relationships || data.edges || []
+    console.log("[v0] Successfully loaded graph relationships via proxy (cached)")
+    return data.relationships || []
   } catch (error) {
     console.warn("[v0] Graph relationships endpoint not available:", error)
     return []
@@ -354,11 +358,11 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const data = await apiGet<{ status?: string }>(
-      `${BACKEND_URL}/health`,
+    const data = await apiGet<{ success: boolean; status?: string; message?: string }>(
+      `/api/proxy/health`,
       { cache: true, ttl: CACHE_TTL.short } // Short cache for health checks
     )
-    return { success: true, message: data.status || "healthy" }
+    return { success: data.success !== false, message: data.status || data.message || "healthy" }
   } catch (error: any) {
     return { success: false, message: error.message || "Connection failed" }
   }
@@ -366,11 +370,8 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 
 export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
   try {
-    // Trigger traffic ingestion first (background, don't wait)
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
-
-    // No caching for gap analysis (always fresh)
-    const response = await fetch(`${BACKEND_URL}/api/traffic/gap/${roleName}`, {
+    // Use proxy route for gap analysis (no CORS!)
+    const response = await fetch(`/api/proxy/gap-analysis?roleName=${encodeURIComponent(roleName)}`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -385,4 +386,3 @@ export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-
     throw error
   }
 }
-

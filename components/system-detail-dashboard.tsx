@@ -52,9 +52,7 @@ import { ComplianceCard } from "./system-detail/compliance-card"
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
-// Backend URL - MUST be absolute, never relative
-const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
-const API_URL = BACKEND_BASE_URL.endsWith('/api') ? BACKEND_BASE_URL : `${BACKEND_BASE_URL}/api`
+// All API calls now go through proxy routes in api-client.ts to avoid CORS issues
 
 // =============================================================================
 // TYPES
