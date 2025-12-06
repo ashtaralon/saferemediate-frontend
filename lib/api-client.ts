@@ -5,15 +5,125 @@ import { infrastructureData } from "./data"
 const API_BASE = "https://saferemediate-backend.onrender.com"
 const BACKEND_URL = API_BASE
 
-// Generic API GET function - Direct calls to Render
-export async function apiGet<T = any>(path: string): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
-  const res = await fetch(url, { cache: "no-store" })
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
-  return res.json()
+// ============================================================================
+// ⚡ CACHING & DEDUPLICATION
+// ============================================================================
+
+interface CacheEntry<T> {
+  data: T
+  timestamp: number
+  expiresAt: number
 }
 
-// Generic API POST function - Direct calls to Render
+// Cache storage
+const cache = new Map<string, CacheEntry<any>>()
+
+// Active requests (for deduplication)
+const activeRequests = new Map<string, Promise<any>>()
+
+// Cache TTL (Time To Live) in milliseconds
+const CACHE_TTL = {
+  short: 30 * 1000,   // 30 seconds for frequently changing data
+  medium: 60 * 1000,  // 60 seconds for moderately changing data
+  long: 5 * 60 * 1000, // 5 minutes for rarely changing data
+}
+
+// Get cache key from URL
+function getCacheKey(url: string): string {
+  return url
+}
+
+// Check if cache entry is valid
+function isCacheValid<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
+  if (!entry) return false
+  return Date.now() < entry.expiresAt
+}
+
+// Get from cache or return null
+function getFromCache<T>(key: string): T | null {
+  const entry = cache.get(key)
+  if (isCacheValid(entry)) {
+    console.log(`[CACHE] Hit: ${key}`)
+    return entry.data
+  }
+  if (entry) {
+    cache.delete(key) // Remove expired entry
+  }
+  return null
+}
+
+// Set cache entry
+function setCache<T>(key: string, data: T, ttl: number = CACHE_TTL.medium): void {
+  cache.set(key, {
+    data,
+    timestamp: Date.now(),
+    expiresAt: Date.now() + ttl,
+  })
+  console.log(`[CACHE] Set: ${key} (TTL: ${ttl}ms)`)
+}
+
+// Clear cache for a specific key or all cache
+function clearCache(key?: string): void {
+  if (key) {
+    cache.delete(key)
+    console.log(`[CACHE] Cleared: ${key}`)
+  } else {
+    cache.clear()
+    console.log(`[CACHE] Cleared all`)
+  }
+}
+
+// ============================================================================
+// API FUNCTIONS WITH CACHING & DEDUPLICATION
+// ============================================================================
+
+// Generic API GET function with caching and deduplication
+export async function apiGet<T = any>(path: string, options?: { cache?: boolean; ttl?: number }): Promise<T> {
+  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  const cacheKey = getCacheKey(url)
+  const useCache = options?.cache !== false // Default to true
+  const ttl = options?.ttl || CACHE_TTL.medium
+
+  // Check cache first
+  if (useCache) {
+    const cached = getFromCache<T>(cacheKey)
+    if (cached !== null) {
+      return cached
+    }
+  }
+
+  // Check if there's an active request for this URL (deduplication)
+  if (activeRequests.has(cacheKey)) {
+    console.log(`[DEDUP] Reusing active request: ${url}`)
+    return activeRequests.get(cacheKey) as Promise<T>
+  }
+
+  // Create new request
+  const requestPromise = (async () => {
+    try {
+      const res = await fetch(url, { cache: "no-store" })
+      if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
+      const data = await res.json()
+      
+      // Cache the result
+      if (useCache) {
+        setCache(cacheKey, data, ttl)
+      }
+      
+      return data
+    } finally {
+      // Remove from active requests
+      activeRequests.delete(cacheKey)
+    }
+  })()
+
+  // Store active request
+  activeRequests.set(cacheKey, requestPromise)
+
+  return requestPromise
+}
+
+// Generic API POST function (no caching for POST)
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
   const res = await fetch(url, {
@@ -25,6 +135,16 @@ export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
   if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
   return res.json()
 }
+
+// ============================================================================
+// EXPORT CACHE UTILITIES
+// ============================================================================
+
+export { clearCache, getFromCache, setCache }
+
+// ============================================================================
+// TYPES & INTERFACES
+// ============================================================================
 
 export interface InfrastructureData {
   resources: Array<{
@@ -80,37 +200,28 @@ export interface InfrastructureData {
   }>
 }
 
+// ============================================================================
+// FETCH FUNCTIONS WITH OPTIMIZED CACHING
+// ============================================================================
+
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel
+    // Fetch dashboard metrics and graph nodes in parallel with caching
     const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/dashboard/metrics`, {
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      }),
-      fetch(`${BACKEND_URL}/api/graph/nodes`, {
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      }),
+      apiGet(`${BACKEND_URL}/api/dashboard/metrics`, { cache: true, ttl: CACHE_TTL.short }),
+      apiGet(`${BACKEND_URL}/api/graph/nodes`, { cache: true, ttl: CACHE_TTL.medium }),
     ])
 
-    let metrics: any = {}
+    let metrics: any = metricsResponse
     let nodes: any[] = []
 
-    if (metricsResponse.ok) {
-      metrics = await metricsResponse.json()
-      console.log("[v0] Successfully loaded metrics from backend")
-    } else {
-      console.warn("[v0] Metrics endpoint returned error:", metricsResponse.status)
+    if (nodesResponse && Array.isArray(nodesResponse)) {
+      nodes = nodesResponse
+    } else if (nodesResponse && nodesResponse.nodes) {
+      nodes = nodesResponse.nodes
     }
 
-    if (nodesResponse.ok) {
-      const nodesData = await nodesResponse.json()
-      nodes = nodesData.nodes || nodesData || []
-      console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
-    } else {
-      console.warn("[v0] Nodes endpoint returned error:", nodesResponse.status)
-    }
+    console.log("[v0] Successfully loaded metrics and nodes from backend (cached)")
 
     // Map backend data to our InfrastructureData format
     const resources = nodes.map((node: any) => ({
@@ -176,22 +287,15 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/findings`, {
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-    })
+    // Use caching for findings (they don't change very often)
+    const data = await apiGet<SecurityFinding[] | { findings: SecurityFinding[] }>(
+      `${BACKEND_URL}/api/findings`,
+      { cache: true, ttl: CACHE_TTL.long } // 5 minutes cache
+    )
 
-    if (!response.ok) {
-      console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
-      return []
-    }
-
-    const data = await response.json()
-    console.log("[v0] Security findings response:", data)
-    
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
-    console.log(`[v0] Found ${findings.length} security findings`)
+    console.log(`[v0] Found ${findings.length} security findings (cached)`)
 
     if (findings.length === 0) {
       console.warn("[v0] No security findings returned from backend")
@@ -221,19 +325,12 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!response.ok) {
-      console.warn("[v0] Graph nodes endpoint returned error:", response.status)
-      return []
-    }
-
-    const data = await response.json()
-    console.log("[v0] Successfully loaded graph nodes from backend")
-    return data.nodes || data || []
+    const data = await apiGet<any[] | { nodes: any[] }>(
+      `${BACKEND_URL}/api/graph/nodes`,
+      { cache: true, ttl: CACHE_TTL.medium }
+    )
+    console.log("[v0] Successfully loaded graph nodes from backend (cached)")
+    return Array.isArray(data) ? data : data.nodes || []
   } catch (error) {
     console.warn("[v0] Graph nodes endpoint not available:", error)
     return []
@@ -242,19 +339,13 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!response.ok) {
-      console.warn("[v0] Graph relationships endpoint returned error:", response.status)
-      return []
-    }
-
-    const data = await response.json()
-    console.log("[v0] Successfully loaded graph relationships from backend")
-    return data.relationships || data.edges || data || []
+    const data = await apiGet<any[] | { relationships: any[] } | { edges: any[] }>(
+      `${BACKEND_URL}/api/graph/relationships`,
+      { cache: true, ttl: CACHE_TTL.medium }
+    )
+    console.log("[v0] Successfully loaded graph relationships from backend (cached)")
+    if (Array.isArray(data)) return data
+    return data.relationships || data.edges || []
   } catch (error) {
     console.warn("[v0] Graph relationships endpoint not available:", error)
     return []
@@ -263,16 +354,10 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!response.ok) {
-      return { success: false, message: `Backend returned ${response.status}` }
-    }
-
-    const data = await response.json()
+    const data = await apiGet<{ status?: string }>(
+      `${BACKEND_URL}/health`,
+      { cache: true, ttl: CACHE_TTL.short } // Short cache for health checks
+    )
     return { success: true, message: data.status || "healthy" }
   } catch (error: any) {
     return { success: false, message: error.message || "Connection failed" }
@@ -284,6 +369,7 @@ export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-
     // Trigger traffic ingestion first (background, don't wait)
     fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
 
+    // No caching for gap analysis (always fresh)
     const response = await fetch(`${BACKEND_URL}/api/traffic/gap/${roleName}`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
@@ -299,3 +385,4 @@ export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-
     throw error
   }
 }
+
