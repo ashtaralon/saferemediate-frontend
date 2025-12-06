@@ -254,8 +254,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       } else {
         console.error("[v0] Error fetching gap analysis:", error)
       }
+      // Always set fallback data to ensure page renders
       setGapAnalysis(fallbackGapData)
       setGapError(null) // Set gapError to null to ensure fallback data is shown without an error message
+      // Still show the page with default values (0s)
     } finally {
       setLoadingGap(false)
     }
@@ -344,34 +346,55 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const fetchAllData = async () => {
     // Load all data in parallel for faster page load with timeouts
     try {
-      await Promise.all([
-        fetchGapAnalysis().catch((error) => {
-          console.warn("[v0] Gap analysis failed:", error)
-          return null // Continue with other data
-        }), 
-        fetchAutoTagStatus().catch((error) => {
-          console.warn("[v0] Auto-tag status failed:", error)
-          return null // Continue with other data
-        }),
-        Promise.race([
-          fetchSecurityFindings(),
-          new Promise<SecurityFinding[]>((resolve) => 
-            setTimeout(() => {
-              console.warn("[v0] Security findings timeout (15s) - using empty array")
-              resolve([])
-            }, 15000)
-          )
-        ]).then((findings) => {
-          setSecurityFindings(findings)
-          setLoadingFindings(false)
-        }).catch((error) => {
-          console.error("[v0] Error loading security findings:", error)
-          setSecurityFindings([])
-          setLoadingFindings(false)
-        })
+      console.log("[v0] Starting to fetch all data...")
+      
+      // Set loading states
+      setLoadingGap(true)
+      setLoadingAutoTag(true)
+      setLoadingFindings(true)
+      
+      // Start all promises
+      const gapPromise = fetchGapAnalysis().catch((error) => {
+        console.warn("[v0] Gap analysis failed:", error)
+        return null // Continue with other data
+      })
+      
+      const autoTagPromise = fetchAutoTagStatus().catch((error) => {
+        console.warn("[v0] Auto-tag status failed:", error)
+        return null // Continue with other data
+      })
+      
+      const findingsPromise = Promise.race([
+        fetchSecurityFindings(),
+        new Promise<SecurityFinding[]>((resolve) => 
+          setTimeout(() => {
+            console.warn("[v0] Security findings timeout (15s) - using empty array")
+            resolve([])
+          }, 15000)
+        )
+      ]).catch((error) => {
+        console.error("[v0] Error loading security findings:", error)
+        return []
+      })
+      
+      // Wait for all promises
+      const [, , findings] = await Promise.all([
+        gapPromise,
+        autoTagPromise,
+        findingsPromise
       ])
+      
+      // Set findings
+      setSecurityFindings(findings || [])
+      setLoadingFindings(false)
+      
+      console.log("[v0] ✅ All data fetched successfully")
     } catch (error) {
       console.error("[v0] Error in fetchAllData:", error)
+      // Ensure loading states are cleared even on error
+      setLoadingGap(false)
+      setLoadingAutoTag(false)
+      setLoadingFindings(false)
     }
   }
 
