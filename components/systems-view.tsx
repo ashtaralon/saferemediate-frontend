@@ -287,6 +287,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         })
         setAvailableSystems(filtered)
         setBackendStatus("connected")
+      }
     } catch (error) {
       console.error("[v0] Failed to fetch available systems:", error)
       setBackendStatus("offline")
