@@ -1,49 +1,28 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
-// Backend URL - MUST be absolute, never relative
-// Priority: NEXT_PUBLIC_BACKEND_URL > NEXT_PUBLIC_API_URL > fallback
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
+// Backend URL - Direct to Render, no proxy
+const API_BASE = "https://saferemediate-backend.onrender.com"
 const BACKEND_URL = API_BASE
 
-// Helper to build full URL from path
-function buildUrl(path: string): string {
-  if (path.startsWith("http")) return path
-  if (!path.startsWith("/")) path = "/" + path
-  return `${API_BASE}${path}`
-}
-
-// Generic API GET function
+// Generic API GET function - Direct calls to Render
 export async function apiGet<T = any>(path: string): Promise<T> {
-  const res = await fetch(buildUrl(path), {
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  })
-
-  if (!res.ok) {
-    throw new Error(`GET ${path} failed: ${res.status} ${res.statusText}`)
-  }
-
+  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
   return res.json()
 }
 
-// Generic API POST function
+// Generic API POST function - Direct calls to Render
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
-  const res = await fetch(buildUrl(path), {
+  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store"
   })
-
-  if (!res.ok) {
-    throw new Error(`POST ${path} failed: ${res.status} ${res.statusText}`)
-  }
-
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
   return res.json()
 }
 
