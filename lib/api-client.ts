@@ -151,29 +151,23 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   }
 }
 
-// Cache for security findings (5 minutes)
+// Cache for security findings (5 minutes) - helps with slow API
 let findingsCache: { data: SecurityFinding[]; timestamp: number } | null = null
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
-  // Check cache first
+  // Check cache first - if fresh, return immediately
   if (findingsCache && Date.now() - findingsCache.timestamp < CACHE_DURATION) {
-    console.log("[v0] Using cached security findings")
+    console.log("[v0] Using cached security findings (fast)")
     return findingsCache.data
   }
 
   try {
-    // Add timeout (30 seconds max)
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000)
-
+    // Wait for API response (may take 30-40 seconds, but we wait)
     const response = await fetch(`${BACKEND_URL}/api/findings`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
     })
-
-    clearTimeout(timeoutId)
 
     if (!response.ok) {
       console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
@@ -215,19 +209,15 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       remediation: f.remediation || f.recommendation || "",
     }))
     
-    // Update cache
+    // Update cache for next time
     findingsCache = { data: mappedFindings, timestamp: Date.now() }
     console.log(`[v0] Mapped ${mappedFindings.length} findings successfully (cached)`)
     return mappedFindings
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      console.warn("[v0] Security findings request timeout (30s)")
-    } else {
-      console.error("[v0] Security findings endpoint error:", error)
-    }
+  } catch (error) {
+    console.error("[v0] Security findings endpoint error:", error)
     // Return cached data if available, even if expired
     if (findingsCache) {
-      console.log("[v0] Using cached data due to error/timeout")
+      console.log("[v0] Using cached data due to error")
       return findingsCache.data
     }
     return []
