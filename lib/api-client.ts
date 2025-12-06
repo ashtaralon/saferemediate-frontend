@@ -385,3 +385,86 @@ export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-
     }
   }
 }
+
+// ============================================================================
+// LEAST PRIVILEGE API FUNCTIONS
+// ============================================================================
+
+export interface SimulationResult {
+  success: boolean
+  roleName: string
+  allowed: string[]
+  used: string[]
+  unused: string[]
+  confidence: number
+  plan?: Array<{
+    action: string
+    permission: string
+    impact: string
+    reason: string
+  }>
+}
+
+export interface ApplyResult {
+  success: boolean
+  roleName: string
+  checkpoint: string
+  applied: number
+}
+
+/**
+ * Simulate removing unused IAM permissions
+ * Returns a plan of what would be changed without actually changing anything
+ */
+export async function simulateLeastPrivilege(roleName: string): Promise<SimulationResult> {
+  try {
+    const data = await apiPost<SimulationResult>('/least-privilege/simulate', { roleName })
+    return data
+  } catch (error) {
+    console.error("[api-client] Simulation failed:", error)
+    return {
+      success: false,
+      roleName,
+      allowed: [],
+      used: [],
+      unused: [],
+      confidence: 0,
+      plan: []
+    }
+  }
+}
+
+/**
+ * Apply the least privilege fix - actually removes unused permissions
+ * Creates a checkpoint for rollback before making changes
+ */
+export async function applyLeastPrivilege(roleName: string, permissions: string[]): Promise<ApplyResult> {
+  try {
+    const data = await apiPost<ApplyResult>('/least-privilege/apply', { roleName, permissions })
+    return data
+  } catch (error) {
+    console.error("[api-client] Apply fix failed:", error)
+    return {
+      success: false,
+      roleName,
+      checkpoint: "",
+      applied: 0
+    }
+  }
+}
+
+/**
+ * Rollback a previous fix using checkpoint ID
+ */
+export async function rollbackFix(checkpointId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const data = await apiPost<{ success: boolean; message: string }>('/least-privilege/rollback', { checkpointId })
+    return data
+  } catch (error) {
+    console.error("[api-client] Rollback failed:", error)
+    return {
+      success: false,
+      message: "Rollback failed"
+    }
+  }
+}
