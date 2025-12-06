@@ -20,7 +20,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
   const handleAutoTagClick = async (system: NewSystem) => {
     setConfirmDialog({ open: true, system, fullResources: null, loading: true })
     try {
-      const data = await apiGet(`/api/system-graph?systemName=${encodeURIComponent(system.systemName)}`)
+      const data = await apiGet(`/system-graph?systemName=${encodeURIComponent(system.systemName)}`)
       if (data.success && data.resources) {
         const allResources: SystemGraphResource[] = data.resources.map((r: any) => ({
           id: r.id, name: r.name, type: r.type,

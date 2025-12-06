@@ -251,7 +251,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchAutoTagStatus = async () => {
     try {
-      const data = await apiGet(`/api/auto-tag/status?systemName=${encodeURIComponent(systemName)}`)
+      const data = await apiGet(`/auto-tag/status?systemName=${encodeURIComponent(systemName)}`)
 
       if (data.error) {
         console.log("[v0] Auto-tag status backend error, using fallback data")

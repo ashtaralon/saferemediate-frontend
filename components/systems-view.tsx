@@ -80,7 +80,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     let unusedActions = 0
 
     try {
-      const gapJson = await apiGet("/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
+      const gapJson = await apiGet("/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
       if (gapJson) {
         unusedActions = gapJson.unused_actions ?? 0
         setGapData({
@@ -95,7 +95,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
 
     try {
-      const nodesData = await apiGet("/api/graph/nodes")
+      const nodesData = await apiGet("/graph/nodes")
       if (nodesData) {
         const nodes = nodesData.nodes || nodesData || []
 
@@ -284,7 +284,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const fetchAvailableSystems = async () => {
     setIsLoadingAvailable(true)
     try {
-      const data = await apiGet("/api/systems/available")
+      const data = await apiGet("/systems/available")
       if (data) {
         const systems = data.systems || data || []
         const existingNames = new Set(localSystems.map((s) => s.name.toLowerCase()))
