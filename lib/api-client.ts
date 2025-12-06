@@ -2,11 +2,12 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
 // ============================================================================
-// PROXY-BASED API CLIENT - All calls go through Next.js API routes to avoid CORS
+// REWRITE-BASED API CLIENT - All calls go through Next.js rewrites to avoid CORS
 // ============================================================================
 
-// Use relative paths for proxy routes (same-origin, no CORS issues)
-const PROXY_BASE = "/api/proxy"
+// Use /backend/* which gets rewritten to the actual backend (see next.config.js)
+// Browser sees same-origin request, Vercel proxies server-to-server
+const API_BASE = "/backend/api"
 
 // ============================================================================
 // ⚡ CACHING & DEDUPLICATION
@@ -82,8 +83,8 @@ function clearCache(key?: string): void {
 
 // Generic API GET function with caching and deduplication
 export async function apiGet<T = any>(path: string, options?: { cache?: boolean; ttl?: number }): Promise<T> {
-  // Use proxy route for all calls
-  const url = path.startsWith("/api/proxy") ? path : `${PROXY_BASE}${path.startsWith("/") ? path : "/" + path}`
+  // Use rewrite route for all calls (/backend/* → actual backend)
+  const url = path.startsWith("/backend") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
   const cacheKey = getCacheKey(url)
   const useCache = options?.cache !== false // Default to true
   const ttl = options?.ttl || CACHE_TTL.medium
@@ -129,8 +130,8 @@ export async function apiGet<T = any>(path: string, options?: { cache?: boolean;
 
 // Generic API POST function (no caching for POST)
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
-  // Use proxy route for all calls
-  const url = path.startsWith("/api/proxy") ? path : `${PROXY_BASE}${path.startsWith("/") ? path : "/" + path}`
+  // Use rewrite route for all calls (/backend/* → actual backend)
+  const url = path.startsWith("/backend") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -206,15 +207,15 @@ export interface InfrastructureData {
 }
 
 // ============================================================================
-// FETCH FUNCTIONS WITH OPTIMIZED CACHING (via proxy routes)
+// FETCH FUNCTIONS WITH OPTIMIZED CACHING (via rewrites)
 // ============================================================================
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph data via proxy routes (no CORS!)
+    // Fetch dashboard metrics and graph data via rewrites (no CORS!)
     const [metricsResponse, graphResponse] = await Promise.all([
-      apiGet<{ success: boolean; metrics: any }>(`/api/proxy/dashboard-metrics`, { cache: true, ttl: CACHE_TTL.short }),
-      apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(`/api/proxy/graph-data`, { cache: true, ttl: CACHE_TTL.medium }),
+      apiGet<{ success: boolean; metrics: any }>(`/dashboard-metrics`, { cache: true, ttl: CACHE_TTL.short }),
+      apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(`/graph-data`, { cache: true, ttl: CACHE_TTL.medium }),
     ])
 
     const metrics: any = metricsResponse.metrics || metricsResponse
@@ -226,7 +227,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       nodes = graphResponse
     }
 
-    console.log("[v0] Successfully loaded metrics and nodes via proxy (cached)")
+    console.log("[v0] Successfully loaded metrics and nodes via rewrites (cached)")
 
     // Map backend data to our InfrastructureData format
     const resources = nodes.map((node: any) => ({
@@ -292,15 +293,15 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    // Use proxy route for findings (no CORS!)
+    // Use rewrite route for findings (no CORS!)
     const data = await apiGet<{ success: boolean; findings: SecurityFinding[] }>(
-      `/api/proxy/findings`,
+      `/findings`,
       { cache: true, ttl: CACHE_TTL.long } // 5 minutes cache
     )
 
     // Handle both array response and object with findings property
     const findings = data.findings || (Array.isArray(data) ? data : [])
-    console.log(`[v0] Found ${findings.length} security findings via proxy (cached)`)
+    console.log(`[v0] Found ${findings.length} security findings via rewrites (cached)`)
 
     if (findings.length === 0) {
       console.warn("[v0] No security findings returned from backend")
@@ -331,10 +332,10 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
     const data = await apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(
-      `/api/proxy/graph-data`,
+      `/graph-data`,
       { cache: true, ttl: CACHE_TTL.medium }
     )
-    console.log("[v0] Successfully loaded graph nodes via proxy (cached)")
+    console.log("[v0] Successfully loaded graph nodes via rewrites (cached)")
     return data.nodes || []
   } catch (error) {
     console.warn("[v0] Graph nodes endpoint not available:", error)
@@ -345,10 +346,10 @@ export async function fetchGraphNodes(): Promise<any[]> {
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
     const data = await apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(
-      `/api/proxy/graph-data`,
+      `/graph-data`,
       { cache: true, ttl: CACHE_TTL.medium }
     )
-    console.log("[v0] Successfully loaded graph relationships via proxy (cached)")
+    console.log("[v0] Successfully loaded graph relationships via rewrites (cached)")
     return data.relationships || []
   } catch (error) {
     console.warn("[v0] Graph relationships endpoint not available:", error)
@@ -359,7 +360,7 @@ export async function fetchGraphEdges(): Promise<any[]> {
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
     const data = await apiGet<{ success: boolean; status?: string; message?: string }>(
-      `/api/proxy/health`,
+      `/health`,
       { cache: true, ttl: CACHE_TTL.short } // Short cache for health checks
     )
     return { success: data.success !== false, message: data.status || data.message || "healthy" }
@@ -370,8 +371,8 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 
 export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
   try {
-    // Use proxy route for gap analysis (no CORS!)
-    const response = await fetch(`/api/proxy/gap-analysis?roleName=${encodeURIComponent(roleName)}`, {
+    // Use rewrite route for gap analysis (no CORS!)
+    const response = await fetch(`/backend/api/gap-analysis?roleName=${encodeURIComponent(roleName)}`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })

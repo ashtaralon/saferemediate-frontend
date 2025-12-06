@@ -1,20 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Disable React Strict Mode to prevent double rendering
   reactStrictMode: false,
-
-  // Force Webpack (disable Turbopack)
-  experimental: {
-    // Explicitly disable Turbopack
-    turbo: undefined,
-  },
-
-  // Use Webpack for bundling
-  webpack: (config, { isServer }) => {
-    // Enable source maps for better debugging
-    config.devtool = 'source-map'
-    return config
-  },
 
   typescript: {
     ignoreBuildErrors: true,
@@ -24,9 +10,15 @@ const nextConfig = {
     unoptimized: true,
   },
 
-  // Ensure all API calls work correctly
+  // CORS SOLUTION: Rewrite /backend/* to the actual backend
+  // Browser sees same-origin, Vercel proxies server-to-server
   async rewrites() {
-    return []
+    return [
+      {
+        source: '/backend/:path*',
+        destination: 'https://saferemediate-backend.onrender.com/:path*',
+      },
+    ]
   },
 }
 
