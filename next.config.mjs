@@ -10,11 +10,18 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  webpack: (config) => {
+  // Enable source maps in production for debugging
+  productionBrowserSourceMaps: true,
+  webpack: (config, { dev, isServer }) => {
     if (isDebug) {
       console.log("🔧 Debug Mode Enabled — Development Build on Vercel");
       config.mode = "development";
       config.devtool = "source-map";
+    } else {
+      // Enable source maps even in production for debugging
+      if (!isServer) {
+        config.devtool = "source-map";
+      }
     }
     return config;
   },
