@@ -71,6 +71,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
+  const initialLoad = useRef(true)
   const { toast } = useToast()
 
   const fetchSystemsData = useCallback(async () => {
@@ -234,6 +235,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   }, [])
 
   useEffect(() => {
+    if (initialLoad.current) {
+      initialLoad.current = false
+      return
+    }
+
+    // שמירה רק אחרי שהמערכת כבר נטענה פעם אחת
     if (localSystems.length > 0) {
       localStorage.setItem("impactiq-systems", JSON.stringify(localSystems))
     }
