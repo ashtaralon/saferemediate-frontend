@@ -151,15 +151,37 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   }
 }
 
+// Cache for security findings (5 minutes)
+let findingsCache: { data: SecurityFinding[]; timestamp: number } | null = null
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
+  // Check cache first
+  if (findingsCache && Date.now() - findingsCache.timestamp < CACHE_DURATION) {
+    console.log("[v0] Using cached security findings")
+    return findingsCache.data
+  }
+
   try {
+    // Add timeout (30 seconds max)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
+
     const response = await fetch(`${BACKEND_URL}/api/findings`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     })
+
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
+      // Return cached data if available, even if expired
+      if (findingsCache) {
+        console.log("[v0] Using expired cache due to error")
+        return findingsCache.data
+      }
       return []
     }
 
@@ -172,6 +194,11 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
     if (findings.length === 0) {
       console.warn("[v0] No security findings returned from backend")
+      // Return cached data if available
+      if (findingsCache) {
+        console.log("[v0] Using cached data (empty response)")
+        return findingsCache.data
+      }
       return []
     }
 
@@ -188,12 +215,29 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       remediation: f.remediation || f.recommendation || "",
     }))
     
-    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
+    // Update cache
+    findingsCache = { data: mappedFindings, timestamp: Date.now() }
+    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully (cached)`)
     return mappedFindings
-  } catch (error) {
-    console.error("[v0] Security findings endpoint error:", error)
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      console.warn("[v0] Security findings request timeout (30s)")
+    } else {
+      console.error("[v0] Security findings endpoint error:", error)
+    }
+    // Return cached data if available, even if expired
+    if (findingsCache) {
+      console.log("[v0] Using cached data due to error/timeout")
+      return findingsCache.data
+    }
     return []
   }
+}
+
+// Function to clear cache (useful after remediation)
+export function clearFindingsCache() {
+  findingsCache = null
+  console.log("[v0] Security findings cache cleared")
 }
 
 export async function fetchGraphNodes(): Promise<any[]> {

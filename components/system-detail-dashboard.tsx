@@ -314,15 +314,26 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
+    // Load all data in parallel for faster page load
+    await Promise.all([
+      fetchGapAnalysis(), 
+      fetchAutoTagStatus(),
+      fetchSecurityFindings().then((findings) => {
+        setSecurityFindings(findings)
+        setLoadingFindings(false)
+      }).catch((error) => {
+        console.error("[v0] Error loading security findings:", error)
+        setLoadingFindings(false)
+      })
+    ])
   }
 
   useEffect(() => {
     // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
+    // Auto-refresh every 60 seconds (reduced frequency to improve performance)
+    const interval = setInterval(fetchAllData, 60000)
 
     return () => clearInterval(interval)
   }, [systemName])
