@@ -257,3 +257,24 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
     return { success: false, message: error.message || "Connection failed" }
   }
 }
+
+export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
+  try {
+    // Trigger traffic ingestion first (background, don't wait)
+    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+
+    const response = await fetch(`${BACKEND_URL}/api/traffic/gap/${roleName}`, {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("[api-client] Error fetching gap analysis:", error)
+    throw error
+  }
+}

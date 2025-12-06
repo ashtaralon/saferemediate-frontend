@@ -15,13 +15,14 @@ import { AutomationSection } from "@/components/automation-section"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
-import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
+import { fetchInfrastructure, fetchSecurityFindings, fetchGapAnalysis, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-const BACKEND_URL = "https://saferemediate-backend.onrender.com"
+// Backend URL - MUST use env variable, fallback to Render URL
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
 
 interface GapAnalysisData {
   allowed: number
@@ -47,61 +48,56 @@ export default function HomePage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
-  const fetchGapAnalysis = useCallback(() => {
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+  const handleGapAnalysis = useCallback(async () => {
+    try {
+      const gapJson = await fetchGapAnalysis("SafeRemediate-Lambda-Remediation-Role")
+      
+      const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
+      const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
+      const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
 
-    fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
+      let confidence = 99
+      const remPotential = gapJson.statistics?.remediation_potential
+      const confValue = gapJson.statistics?.confidence
+      if (remPotential) {
+        confidence = Number.parseInt(String(remPotential).replace("%", ""), 10) || 99
+      } else if (confValue) {
+        confidence = Number.parseInt(String(confValue).replace("%", ""), 10) || 99
+      }
+
+      setGapData({
+        allowed: Number(allowed),
+        used: Number(used),
+        unused: Number(unused),
+        confidence: Number(confidence),
+        roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
       })
-      .then((gapJson) => {
-        const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
-        const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
-        const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
 
-        let confidence = 99
-        const remPotential = gapJson.statistics?.remediation_potential
-        const confValue = gapJson.statistics?.confidence
-        if (remPotential) {
-          confidence = Number.parseInt(String(remPotential).replace("%", ""), 10) || 99
-        } else if (confValue) {
-          confidence = Number.parseInt(String(confValue).replace("%", ""), 10) || 99
+      // If findings are empty, populate from gap analysis (unused permissions)
+      setSecurityFindings((prevFindings) => {
+        if (prevFindings.length === 0 && unused > 0) {
+          const unusedActions = gapJson.unused_actions_list || []
+          return unusedActions.map((permission: string, index: number): SecurityFinding => ({
+            id: `gap-${index}-${permission}`,
+            title: `Unused IAM Permission: ${permission}`,
+            severity: "HIGH",
+            description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
+            resource: "SafeRemediate-Lambda-Remediation-Role",
+            resourceType: "IAM Role",
+            status: "open",
+            category: "Least Privilege",
+            discoveredAt: new Date().toISOString(),
+            remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
+          }))
         }
-
-        setGapData({
-          allowed: Number(allowed),
-          used: Number(used),
-          unused: Number(unused),
-          confidence: Number(confidence),
-          roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
-        })
-
-        // If findings are empty, populate from gap analysis (unused permissions)
-        setSecurityFindings((prevFindings) => {
-          if (prevFindings.length === 0 && unused > 0) {
-            const unusedActions = gapJson.unused_actions_list || []
-            return unusedActions.map((permission: string, index: number): SecurityFinding => ({
-              id: `gap-${index}-${permission}`,
-              title: `Unused IAM Permission: ${permission}`,
-              severity: "HIGH",
-              description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
-              resource: "SafeRemediate-Lambda-Remediation-Role",
-              resourceType: "IAM Role",
-              status: "open",
-              category: "Least Privilege",
-              discoveredAt: new Date().toISOString(),
-              remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
-            }))
-          }
-          return prevFindings
-        })
-
-        setLastRefresh(new Date())
+        return prevFindings
       })
-      .catch(() => {
-        // Silent fail - use default values already set in state
-      })
+
+      setLastRefresh(new Date())
+    } catch (error) {
+      // Silent fail - use default values already set in state
+      console.error("[page] Error fetching gap analysis:", error)
+    }
   }, [])
 
   const loadData = useCallback(async () => {
@@ -121,19 +117,19 @@ export default function HomePage() {
 
   useEffect(() => {
     loadData()
-    fetchGapAnalysis()
-  }, [loadData, fetchGapAnalysis])
+    handleGapAnalysis()
+  }, [loadData, handleGapAnalysis])
 
   useEffect(() => {
     if (!autoRefresh) return
 
     const interval = setInterval(() => {
       loadData()
-      fetchGapAnalysis()
+      handleGapAnalysis()
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [autoRefresh, loadData, fetchGapAnalysis])
+  }, [autoRefresh, loadData, handleGapAnalysis])
 
   const statsData = data?.stats || {
     avgHealthScore: 0,
