@@ -47,15 +47,46 @@ export default function HomePage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
-  const fetchGapAnalysis = useCallback(() => {
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+  // fetchGapAnalysis is now integrated into loadData for better performance
 
-    fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((gapJson) => {
+  const loadData = useCallback(async () => {
+    try {
+      // Load critical data first (fast endpoints)
+      const infrastructurePromise = fetchInfrastructure()
+      
+      // Start loading findings (may be slow - has timeout and cache)
+      const findingsPromise = fetchSecurityFindings()
+      
+      // Start gap analysis (non-critical, can load separately)
+      const gapAnalysisPromise = fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          return res.json()
+        })
+        .catch(() => null) // Silent fail - non-critical
+      
+      // Wait for critical data first
+      const infrastructureData = await infrastructurePromise
+      setData(infrastructureData)
+      
+      // Try to get findings (with timeout/cache)
+      try {
+        const findings = await Promise.race([
+          findingsPromise,
+          new Promise<SecurityFinding[]>((resolve) => 
+            setTimeout(() => resolve([]), 10000) // 10s timeout
+          )
+        ])
+        setSecurityFindings(findings)
+      } catch (error) {
+        console.warn("Findings load failed or timed out, using empty array:", error)
+        setSecurityFindings([])
+      }
+      
+      // Handle gap analysis (non-blocking)
+      gapAnalysisPromise.then((gapJson) => {
+        if (!gapJson) return
+        
         const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
         const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
         const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
@@ -76,8 +107,8 @@ export default function HomePage() {
           confidence: Number(confidence),
           roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
         })
-
-        // If findings are empty, populate from gap analysis (unused permissions)
+        
+        // Update findings if empty and we have gap data
         setSecurityFindings((prevFindings) => {
           if (prevFindings.length === 0 && unused > 0) {
             const unusedActions = gapJson.unused_actions_list || []
@@ -96,19 +127,11 @@ export default function HomePage() {
           }
           return prevFindings
         })
-
+        
         setLastRefresh(new Date())
+      }).catch(() => {
+        // Silent fail - gap analysis is non-critical
       })
-      .catch(() => {
-        // Silent fail - use default values already set in state
-      })
-  }, [])
-
-  const loadData = useCallback(async () => {
-    try {
-      const [infrastructureData, findings] = await Promise.all([fetchInfrastructure(), fetchSecurityFindings()])
-      setData(infrastructureData)
-      setSecurityFindings(findings)
     } catch (error) {
       console.error("Failed to load data:", error)
     } finally {
@@ -117,20 +140,18 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    loadData()
-    fetchGapAnalysis()
-  }, [loadData, fetchGapAnalysis])
+    loadData() // Now includes gap analysis
+  }, [loadData])
 
   useEffect(() => {
     if (!autoRefresh) return
 
     const interval = setInterval(() => {
-      loadData()
-      fetchGapAnalysis()
-    }, 30000)
+      loadData() // Now includes gap analysis
+    }, 60000) // Increased to 60s to reduce load
 
     return () => clearInterval(interval)
-  }, [autoRefresh, loadData, fetchGapAnalysis])
+  }, [autoRefresh, loadData])
 
   const statsData = data?.stats || {
     avgHealthScore: 0,
