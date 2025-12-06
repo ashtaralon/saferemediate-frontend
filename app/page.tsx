@@ -51,42 +51,53 @@ export default function HomePage() {
 
   const loadData = useCallback(async () => {
     try {
-      // Load critical data first (fast endpoints)
-      const infrastructurePromise = fetchInfrastructure()
+      setLoading(true)
       
-      // Start loading findings (may be slow - has timeout and cache)
-      const findingsPromise = fetchSecurityFindings()
+      // Load all data in parallel for best performance
+      const infrastructurePromise = fetchInfrastructure().catch((error) => {
+        console.warn("Infrastructure fetch failed:", error)
+        return null
+      })
       
-      // Start gap analysis (non-critical, can load separately)
+      const findingsPromise = fetchSecurityFindings().catch((error) => {
+        console.warn("Findings fetch failed:", error)
+        return []
+      })
+      
       const gapAnalysisPromise = fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           return res.json()
         })
-        .catch(() => null) // Silent fail - non-critical
+        .catch((error) => {
+          console.warn("Gap analysis fetch failed:", error)
+          return null
+        })
       
-      // Wait for critical data first
-      const infrastructureData = await infrastructurePromise
-      setData(infrastructureData)
-      
-      // Try to get findings (with timeout/cache)
-      try {
-        const findings = await Promise.race([
-          findingsPromise,
-          new Promise<SecurityFinding[]>((resolve) => 
-            setTimeout(() => resolve([]), 10000) // 10s timeout
-          )
+      // Wait for all promises (with reasonable timeout)
+      const [infrastructureData, findings, gapJson] = await Promise.all([
+        infrastructurePromise,
+        findingsPromise,
+        Promise.race([
+          gapAnalysisPromise,
+          new Promise((resolve) => setTimeout(() => resolve(null), 15000)) // 15s timeout for gap
         ])
-        setSecurityFindings(findings)
-      } catch (error) {
-        console.warn("Findings load failed or timed out, using empty array:", error)
-        setSecurityFindings([])
+      ])
+      
+      // Set infrastructure data (critical)
+      if (infrastructureData) {
+        setData(infrastructureData)
+        console.log("[PAGE] ✅ Infrastructure data loaded")
       }
       
-      // Handle gap analysis (non-blocking)
-      gapAnalysisPromise.then((gapJson) => {
-        if (!gapJson) return
-        
+      // Set findings (from API or will be populated from gap analysis)
+      if (findings && findings.length > 0) {
+        setSecurityFindings(findings)
+        console.log(`[PAGE] ✅ Security findings loaded: ${findings.length} findings`)
+      }
+      
+      // Handle gap analysis
+      if (gapJson) {
         const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
         const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
         const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
@@ -108,11 +119,11 @@ export default function HomePage() {
           roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
         })
         
-        // Update findings if empty and we have gap data
+        // If findings are empty and we have gap data, populate from gap analysis
         setSecurityFindings((prevFindings) => {
           if (prevFindings.length === 0 && unused > 0) {
             const unusedActions = gapJson.unused_actions_list || []
-            return unusedActions.map((permission: string, index: number): SecurityFinding => ({
+            const gapFindings = unusedActions.map((permission: string, index: number): SecurityFinding => ({
               id: `gap-${index}-${permission}`,
               title: `Unused IAM Permission: ${permission}`,
               severity: "HIGH",
@@ -124,16 +135,16 @@ export default function HomePage() {
               discoveredAt: new Date().toISOString(),
               remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
             }))
+            console.log(`[PAGE] ✅ Populated ${gapFindings.length} findings from gap analysis`)
+            return gapFindings
           }
           return prevFindings
         })
         
         setLastRefresh(new Date())
-      }).catch(() => {
-        // Silent fail - gap analysis is non-critical
-      })
+      }
     } catch (error) {
-      console.error("Failed to load data:", error)
+      console.error("[PAGE] ❌ Failed to load data:", error)
     } finally {
       setLoading(false)
     }
