@@ -232,6 +232,92 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     )
   }
 
+  // Initial screen - before simulation
+  if (!showResults && !isAnalyzing && !showSuccess) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
+        <div
+          className="relative w-[600px] max-h-[90vh] overflow-y-auto rounded-2xl p-8 shadow-2xl"
+          style={{ background: "var(--bg-secondary)" }}
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                Simulate Fix
+              </h2>
+              <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+                Preview the impact before applying changes
+              </p>
+            </div>
+            <button
+              onClick={handleClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Finding Info */}
+          <div className="space-y-4 mb-6">
+            <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
+              <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>
+                Issue
+              </div>
+              <div className="text-base" style={{ color: "var(--text-primary)" }}>
+                {safeFinding.title}
+              </div>
+            </div>
+
+            <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
+              <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>
+                Description
+              </div>
+              <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                This will simulate the impact of applying the fix to your infrastructure.
+              </div>
+            </div>
+
+            {finding?.id && (
+              <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
+                <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>
+                  Finding ID
+                </div>
+                <div className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                  {finding.id}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Action Button */}
+          <div className="flex items-center justify-end gap-3 pt-6 border-t" style={{ borderColor: "var(--border)" }}>
+            <button
+              onClick={handleClose}
+              className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
+              style={{
+                color: "var(--text-secondary)",
+                borderColor: "var(--border)",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSimulate}
+              disabled={loading || !finding?.id}
+              className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: "var(--action-primary)" }}
+            >
+              {loading ? "Running..." : "Run Simulation"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (showResults) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
