@@ -48,7 +48,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setError(null)
       setLoading(true)
 
-      const data = await apiGet("/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
+      const data = await apiGet("/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
 
       if (data.success === false) {
         setError(data.error || "Failed to fetch data from backend")
