@@ -184,10 +184,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
+      setLoadingGap(true)
       // Use the provided backend URL
       // Update backend URL and fetch logic
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
-      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+      
+      // Add timeout (15 seconds)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
+      
+      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`, {
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId))
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -240,8 +248,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       } else {
         setIssues([])
       }
-    } catch (error) {
-      console.error("[v0] Error fetching gap analysis:", error)
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.warn("[v0] Gap analysis request timeout (15s) - using fallback data")
+      } else {
+        console.error("[v0] Error fetching gap analysis:", error)
+      }
       setGapAnalysis(fallbackGapData)
       setGapError(null) // Set gapError to null to ensure fallback data is shown without an error message
     } finally {
@@ -251,7 +263,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchAutoTagStatus = async () => {
     try {
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
+      setLoadingAutoTag(true)
+      // Add timeout (10 seconds)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+      
+      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`, {
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId))
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
       const data = await response.json()
 
       if (!response.ok || data.error) {
@@ -266,8 +290,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
       })
-    } catch (error) {
-      console.error("[v0] Error fetching auto-tag status:", error)
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.warn("[v0] Auto-tag status request timeout (10s) - using fallback data")
+      } else {
+        console.error("[v0] Error fetching auto-tag status:", error)
+      }
       setAutoTagStatus(fallbackAutoTagStatus)
     } finally {
       setLoadingAutoTag(false)
@@ -314,18 +342,37 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
-    // Load all data in parallel for faster page load
-    await Promise.all([
-      fetchGapAnalysis(), 
-      fetchAutoTagStatus(),
-      fetchSecurityFindings().then((findings) => {
-        setSecurityFindings(findings)
-        setLoadingFindings(false)
-      }).catch((error) => {
-        console.error("[v0] Error loading security findings:", error)
-        setLoadingFindings(false)
-      })
-    ])
+    // Load all data in parallel for faster page load with timeouts
+    try {
+      await Promise.all([
+        fetchGapAnalysis().catch((error) => {
+          console.warn("[v0] Gap analysis failed:", error)
+          return null // Continue with other data
+        }), 
+        fetchAutoTagStatus().catch((error) => {
+          console.warn("[v0] Auto-tag status failed:", error)
+          return null // Continue with other data
+        }),
+        Promise.race([
+          fetchSecurityFindings(),
+          new Promise<SecurityFinding[]>((resolve) => 
+            setTimeout(() => {
+              console.warn("[v0] Security findings timeout (15s) - using empty array")
+              resolve([])
+            }, 15000)
+          )
+        ]).then((findings) => {
+          setSecurityFindings(findings)
+          setLoadingFindings(false)
+        }).catch((error) => {
+          console.error("[v0] Error loading security findings:", error)
+          setSecurityFindings([])
+          setLoadingFindings(false)
+        })
+      ])
+    } catch (error) {
+      console.error("[v0] Error in fetchAllData:", error)
+    }
   }
 
   useEffect(() => {
