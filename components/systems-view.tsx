@@ -201,7 +201,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         owner: "Platform Team",
       },
     ])
-  }
+  };
 
   useEffect(() => {
     fetchSystemsData()
@@ -294,7 +294,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     } finally {
       setIsLoadingAvailable(false)
     }
-  }
+  };
 
   const handleAddSystemClick = async () => {
     setIsDropdownOpen(!isDropdownOpen)
@@ -340,7 +340,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     if (onSystemSelect) {
       onSystemSelect(systemName)
     }
-  }
+  };
 
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
