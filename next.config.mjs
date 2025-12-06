@@ -1,11 +1,22 @@
 /** @type {import('next').NextConfig} */
+/** Enable React Dev Mode for debugging */
+const isDebug = process.env.NEXT_PUBLIC_DEBUG === "true";
+
 const nextConfig = {
-  reactStrictMode: false, // Disable strict mode to prevent double rendering in dev
+  reactStrictMode: true,
   typescript: {
     ignoreBuildErrors: true,
   },
   images: {
     unoptimized: true,
+  },
+  webpack: (config) => {
+    if (isDebug) {
+      console.log("🔧 Debug Mode Enabled — Development Build on Vercel");
+      config.mode = "development";
+      config.devtool = "source-map";
+    }
+    return config;
   },
 }
 

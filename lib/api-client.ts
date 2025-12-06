@@ -80,6 +80,7 @@ function clearCache(key?: string): void {
 // Generic API GET function with caching and deduplication
 export async function apiGet<T = any>(path: string, options?: { cache?: boolean; ttl?: number }): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  console.log("API Request →", path);
   const cacheKey = getCacheKey(url)
   const useCache = options?.cache !== false // Default to true
   const ttl = options?.ttl || CACHE_TTL.medium
@@ -126,6 +127,7 @@ export async function apiGet<T = any>(path: string, options?: { cache?: boolean;
 // Generic API POST function (no caching for POST)
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
+  console.log("API Request →", path);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
