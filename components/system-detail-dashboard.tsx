@@ -314,27 +314,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
+    console.log("[v0] Starting to fetch all data...")
+    setLoadingGap(true)
+    setLoadingAutoTag(true)
+    setLoadingFindings(true)
+
     try {
-      setLoadingGap(true)
-      setLoadingAutoTag(true)
-      setLoadingFindings(true)
-      
-      // Load sequentially - wait for each to complete before starting the next
-      console.log("[v0] Starting to load gap analysis...")
-      await fetchGapAnalysis()
-      
-      console.log("[v0] Gap analysis loaded, now loading auto-tag status...")
-      await fetchAutoTagStatus()
-      
-      console.log("[v0] Auto-tag status loaded, now loading security findings...")
-      const findings = await fetchSecurityFindings()
-      setSecurityFindings(findings)
-      setLoadingFindings(false)
-      console.log(`[v0] ✅ Security findings loaded: ${findings.length} findings`)
-      
-      console.log("[v0] ✅ All data loaded successfully")
+      const [gapDataResult, autoTagStatusResult, findingsResult] = await Promise.all([
+        fetchGapAnalysis(),
+        fetchAutoTagStatus(),
+        fetchSecurityFindings(),
+      ])
+
+      // Note: fetchGapAnalysis and fetchAutoTagStatus update their own states internally
+      // findingsResult is handled here
+      setSecurityFindings(findingsResult || [])
+      console.log("[v0] ✅ All data fetched successfully")
     } catch (error) {
       console.error("[v0] Error in fetchAllData:", error)
+    } finally {
       setLoadingGap(false)
       setLoadingAutoTag(false)
       setLoadingFindings(false)

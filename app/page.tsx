@@ -106,17 +106,12 @@ export default function HomePage() {
 
   const loadData = useCallback(async () => {
     try {
-      setLoading(true)
-      // Load sequentially - wait for each to complete before starting the next
-      console.log("[PAGE] Starting to load infrastructure data...")
-      const infrastructureData = await fetchInfrastructure()
+      const [infrastructureData, findings] = await Promise.all([
+        fetchInfrastructure(), 
+        fetchSecurityFindings()
+      ])
       setData(infrastructureData)
-      console.log("[PAGE] Infrastructure loaded, now loading security findings...")
-      
-      // Wait for security findings (this takes 30-40 seconds)
-      const findings = await fetchSecurityFindings()
       setSecurityFindings(findings)
-      console.log("[PAGE] ✅ All data loaded successfully")
     } catch (error) {
       console.error("Failed to load data:", error)
     } finally {
