@@ -52,7 +52,9 @@ import { ComplianceCard } from "./system-detail/compliance-card"
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+// Backend URL - MUST be absolute, never relative
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
+const API_URL = BACKEND_BASE_URL.endsWith('/api') ? BACKEND_BASE_URL : `${BACKEND_BASE_URL}/api`
 
 // =============================================================================
 // TYPES
@@ -195,8 +197,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     try {
       // Use the provided backend URL
       // Update backend URL and fetch logic
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
-      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+      // Use absolute URL - never relative!
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
+      const absoluteUrl = `${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`
+      console.log("[v0] Fetching GAP from:", absoluteUrl)
+      const response = await fetch(absoluteUrl)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)

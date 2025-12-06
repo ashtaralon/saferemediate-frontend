@@ -1,7 +1,9 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
-const BACKEND_URL = "https://saferemediate-backend.onrender.com"
+// Backend URL - MUST be absolute, never relative
+// Priority: NEXT_PUBLIC_BACKEND_URL > NEXT_PUBLIC_API_URL > fallback
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
 
 export interface InfrastructureData {
   resources: Array<{
