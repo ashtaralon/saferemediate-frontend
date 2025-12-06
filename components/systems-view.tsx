@@ -334,7 +334,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     } catch (error) {
       console.error("[v0] Failed to notify backend:", error)
     }
-  }
+  };
 
   const handleViewDashboard = (systemName: string) => {
     if (onSystemSelect) {
