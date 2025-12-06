@@ -151,19 +151,8 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   }
 }
 
-// Cache for security findings (5 minutes) - helps with slow API
-let findingsCache: { data: SecurityFinding[]; timestamp: number } | null = null
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
-
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
-  // Check cache first - if fresh, return immediately
-  if (findingsCache && Date.now() - findingsCache.timestamp < CACHE_DURATION) {
-    console.log("[v0] Using cached security findings (fast)")
-    return findingsCache.data
-  }
-
   try {
-    // Wait for API response (may take 30-40 seconds, but we wait)
     const response = await fetch(`${BACKEND_URL}/api/findings`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
@@ -171,11 +160,6 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
     if (!response.ok) {
       console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
-      // Return cached data if available, even if expired
-      if (findingsCache) {
-        console.log("[v0] Using expired cache due to error")
-        return findingsCache.data
-      }
       return []
     }
 
@@ -188,11 +172,6 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
     if (findings.length === 0) {
       console.warn("[v0] No security findings returned from backend")
-      // Return cached data if available
-      if (findingsCache) {
-        console.log("[v0] Using cached data (empty response)")
-        return findingsCache.data
-      }
       return []
     }
 
@@ -209,25 +188,12 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       remediation: f.remediation || f.recommendation || "",
     }))
     
-    // Update cache for next time
-    findingsCache = { data: mappedFindings, timestamp: Date.now() }
-    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully (cached)`)
+    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
     return mappedFindings
   } catch (error) {
     console.error("[v0] Security findings endpoint error:", error)
-    // Return cached data if available, even if expired
-    if (findingsCache) {
-      console.log("[v0] Using cached data due to error")
-      return findingsCache.data
-    }
     return []
   }
-}
-
-// Function to clear cache (useful after remediation)
-export function clearFindingsCache() {
-  findingsCache = null
-  console.log("[v0] Security findings cache cleared")
 }
 
 export async function fetchGraphNodes(): Promise<any[]> {
