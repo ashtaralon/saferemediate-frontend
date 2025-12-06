@@ -329,19 +329,37 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setLoadingFindings(true)
 
     try {
-      const [gapDataResult, autoTagStatusResult, findingsResult] = await Promise.all([
-        fetchGapAnalysis(),
-        fetchAutoTagStatus(),
-        fetchSecurityFindings(),
+      // Use Promise.allSettled to handle errors gracefully - don't fail all if one fails
+      const [gapResult, autoTagResult, findingsResult] = await Promise.allSettled([
+        fetchGapAnalysis().catch(err => {
+          console.error("[v0] Error in fetchGapAnalysis:", err)
+          return null
+        }),
+        fetchAutoTagStatus().catch(err => {
+          console.error("[v0] Error in fetchAutoTagStatus:", err)
+          return null
+        }),
+        fetchSecurityFindings().catch(err => {
+          console.error("[v0] Error in fetchSecurityFindings:", err)
+          return []
+        }),
       ])
 
+      // Handle findings result
+      if (findingsResult.status === "fulfilled") {
+        setSecurityFindings(findingsResult.value || [])
+      } else {
+        console.error("[v0] Findings fetch failed:", findingsResult.reason)
+        setSecurityFindings([])
+      }
+
       // Note: fetchGapAnalysis and fetchAutoTagStatus update their own states internally
-      // findingsResult is handled here
-      setSecurityFindings(findingsResult || [])
-      console.log("[v0] ✅ All data fetched successfully")
+      console.log("[v0] ✅ All data fetch attempts completed")
     } catch (error) {
       console.error("[v0] Error in fetchAllData:", error)
     } finally {
+      // Only set loading to false after all attempts complete (they set their own loading states in finally blocks)
+      // But we also set them here as a safety measure
       setLoadingGap(false)
       setLoadingAutoTag(false)
       setLoadingFindings(false)
