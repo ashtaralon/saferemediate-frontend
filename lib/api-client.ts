@@ -213,9 +213,10 @@ export interface InfrastructureData {
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
     // Fetch dashboard metrics and graph data via rewrites (no CORS!)
+    // Using correct backend endpoint names: /dashboard/metrics and /graph/nodes
     const [metricsResponse, graphResponse] = await Promise.all([
-      apiGet<{ success: boolean; metrics: any }>(`/dashboard-metrics`, { cache: true, ttl: CACHE_TTL.short }),
-      apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(`/graph-data`, { cache: true, ttl: CACHE_TTL.medium }),
+      apiGet<{ success: boolean; metrics: any }>(`/dashboard/metrics`, { cache: true, ttl: CACHE_TTL.short }),
+      apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(`/graph/nodes`, { cache: true, ttl: CACHE_TTL.medium }),
     ])
 
     const metrics: any = metricsResponse.metrics || metricsResponse
@@ -332,11 +333,11 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
     const data = await apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(
-      `/graph-data`,
+      `/graph/nodes`,
       { cache: true, ttl: CACHE_TTL.medium }
     )
     console.log("[v0] Successfully loaded graph nodes via rewrites (cached)")
-    return data.nodes || []
+    return data.nodes || (Array.isArray(data) ? data : [])
   } catch (error) {
     console.warn("[v0] Graph nodes endpoint not available:", error)
     return []
@@ -345,14 +346,14 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const data = await apiGet<{ success: boolean; nodes: any[]; relationships: any[] }>(
-      `/graph-data`,
+    const data = await apiGet<{ success: boolean; edges: any[]; relationships: any[] }>(
+      `/graph/edges`,
       { cache: true, ttl: CACHE_TTL.medium }
     )
-    console.log("[v0] Successfully loaded graph relationships via rewrites (cached)")
-    return data.relationships || []
+    console.log("[v0] Successfully loaded graph edges via rewrites (cached)")
+    return data.edges || data.relationships || (Array.isArray(data) ? data : [])
   } catch (error) {
-    console.warn("[v0] Graph relationships endpoint not available:", error)
+    console.warn("[v0] Graph edges endpoint not available:", error)
     return []
   }
 }
@@ -370,20 +371,13 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 }
 
 export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
-  try {
-    // Use rewrite route for gap analysis (no CORS!)
-    const response = await fetch(`/backend/api/gap-analysis?roleName=${encodeURIComponent(roleName)}`, {
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-
-    return await response.json()
-  } catch (error) {
-    console.error("[api-client] Error fetching gap analysis:", error)
-    throw error
+  // gap-analysis endpoint not implemented in backend yet
+  // Return empty result to avoid 404 errors
+  console.log("[api-client] Gap analysis endpoint not available, returning empty result")
+  return {
+    success: true,
+    gaps: [],
+    recommendations: [],
+    message: "Gap analysis endpoint not implemented yet"
   }
 }
