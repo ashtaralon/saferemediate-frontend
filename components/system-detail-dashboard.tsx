@@ -52,7 +52,7 @@ import { ComplianceCard } from "./system-detail/compliance-card"
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://your-ngrok-url.ngrok-free.dev"
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
 // =============================================================================
 // TYPES
