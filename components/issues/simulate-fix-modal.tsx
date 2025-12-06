@@ -43,6 +43,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const [simulationResult, setSimulationResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [hasRunInitialSimulation, setHasRunInitialSimulation] = useState(false)
+  const [simulationError, setSimulationError] = useState<string | null>(null)
 
   // Use rewrite routes to avoid CORS issues
   const API_URL = useMemo(() => '/backend/api', [])
@@ -50,12 +51,14 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const handleSimulate = useCallback(async () => {
     if (!finding?.id) {
       console.error("No finding ID available for simulation")
-      alert("Error: Finding ID is required for simulation")
+      setSimulationError("Finding ID is required for simulation")
+      setShowResults(true)
       return
     }
 
     setIsAnalyzing(true)
     setLoading(true)
+    setSimulationError(null)
     try {
       // Use proxy route for simulation to avoid CORS
       const res = await fetch(`${API_URL}/simulate`, {
@@ -65,7 +68,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       })
 
       if (!res.ok) {
-        throw new Error(`Simulation failed: ${res.status} ${res.statusText}`)
+        const errorData = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(errorData.detail || `Simulation failed: ${res.status}`)
       }
 
       const data = await res.json()
@@ -75,7 +79,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     } catch (err) {
       console.error("Simulation failed", err)
       setIsAnalyzing(false)
-      alert(`Simulation failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setSimulationError(err instanceof Error ? err.message : 'Unknown error')
+      setShowResults(true) // Show results view with error state
     } finally {
       setLoading(false)
     }
@@ -150,6 +155,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     setActiveTab("overview")
     setShowExtendedSim(false)
     setExtendedSimProgress(0)
+    setSimulationError(null)
+    setSimulationResult(null)
     onClose()
   }
 
@@ -248,6 +255,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       setHasRunInitialSimulation(false)
       setShowResults(false)
       setIsAnalyzing(false)
+      setSimulationError(null)
+      setSimulationResult(null)
     }
   }, [isOpen])
 
@@ -312,67 +321,105 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
           {/* Tab Content */}
           {activeTab === "overview" && (
             <>
-              {/* Status Badge */}
-              <div
-                className="rounded-xl p-8 mb-6 border-2 text-center animate-pulse"
-                style={{
-                  background: "rgba(16, 185, 129, 0.15)",
-                  borderColor: "#10B981",
-                  boxShadow: "0 0 30px rgba(16, 185, 129, 0.3)",
-                }}
-              >
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <span className="text-4xl">✅</span>
-                  <div className="text-3xl font-bold" style={{ color: "#10B981" }}>
-                    SAFE TO APPLY
+              {/* Error State */}
+              {simulationError && (
+                <div
+                  className="rounded-xl p-8 mb-6 border-2 text-center"
+                  style={{
+                    background: "rgba(239, 68, 68, 0.15)",
+                    borderColor: "#EF4444",
+                    boxShadow: "0 0 30px rgba(239, 68, 68, 0.3)",
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <span className="text-4xl">❌</span>
+                    <div className="text-2xl font-bold" style={{ color: "#EF4444" }}>
+                      SIMULATION FAILED
+                    </div>
+                  </div>
+                  <div className="text-base mt-3" style={{ color: "#EF4444" }}>
+                    {simulationError}
+                  </div>
+                  <button
+                    onClick={handleSimulate}
+                    disabled={loading}
+                    className="mt-4 px-6 py-2 rounded-lg text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                    style={{ background: "#EF4444" }}
+                  >
+                    Retry Simulation
+                  </button>
+                </div>
+              )}
+
+              {/* Status Badge - Show when no error */}
+              {!simulationError && (
+                <div
+                  className="rounded-xl p-8 mb-6 border-2 text-center animate-pulse"
+                  style={{
+                    background: simulationResult?.safe !== false ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                    borderColor: simulationResult?.safe !== false ? "#10B981" : "#EF4444",
+                    boxShadow: simulationResult?.safe !== false ? "0 0 30px rgba(16, 185, 129, 0.3)" : "0 0 30px rgba(239, 68, 68, 0.3)",
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <span className="text-4xl">{simulationResult?.safe !== false ? "✅" : "⚠️"}</span>
+                    <div className="text-3xl font-bold" style={{ color: simulationResult?.safe !== false ? "#10B981" : "#EF4444" }}>
+                      {simulationResult?.safe !== false ? "SAFE TO APPLY" : "REVIEW REQUIRED"}
+                    </div>
+                  </div>
+                  <div className="text-base" style={{ color: simulationResult?.safe !== false ? "#10B981" : "#EF4444" }}>
+                    {simulationResult?.confidence ? `${simulationResult.confidence}% confidence` : "Simulation complete"}
                   </div>
                 </div>
-                <div className="text-base" style={{ color: "#10B981" }}>
-                  99% confidence
-                </div>
-              </div>
+              )}
 
               {/* What will happen */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  What will happen:
-                </h3>
-                <div className="space-y-2">
+              {!simulationError && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+                    What will happen:
+                  </h3>
+                  <div className="space-y-2">
+                    {(simulationResult?.plan || [
+                      { action: "apply", description: "Enable S3 Block Public Access", impact: "positive" },
+                      { action: "apply", description: "Update bucket policy", impact: "positive" },
+                      { action: "verify", description: "Internal services keep access", impact: "positive" },
+                      { action: "verify", description: "CloudTrail keeps working", impact: "positive" },
+                      { action: "warn", description: "External monitor loses access", impact: "warning" },
+                    ]).map((item: any, i: number) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span style={{ color: item.impact === "warning" ? "#F59E0B" : "#10B981" }}>
+                          {item.impact === "warning" ? "⚠️" : "✅"}
+                        </span>
+                        <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                          {item.description || item.text || item}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick metrics */}
+              {!simulationError && (
+                <div className="grid grid-cols-2 gap-3 mb-6">
                   {[
-                    { icon: "✅", text: "Enable S3 Block Public Access", color: "#10B981" },
-                    { icon: "✅", text: "Update bucket policy", color: "#10B981" },
-                    { icon: "✅", text: "Internal services keep access", color: "#10B981" },
-                    { icon: "✅", text: "CloudTrail keeps working", color: "#10B981" },
-                    { icon: "⚠️", text: "External monitor loses access", color: "#F59E0B" },
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span style={{ color: item.color }}>{item.icon}</span>
-                      <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                        {item.text}
-                      </span>
+                    { label: "Services affected", value: simulationResult?.affected_services?.toString() || "0" },
+                    { label: "Risk level", value: simulationResult?.risk_level || "Very Low" },
+                    { label: "Apply time", value: simulationResult?.estimated_time || "< 30 sec" },
+                    { label: "Rollback", value: "Always available" },
+                  ].map((metric, i) => (
+                    <div key={i} className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
+                      <div className="text-xs mb-1" style={{ color: "var(--text-secondary)" }}>
+                        {metric.label}
+                      </div>
+                      <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                        {metric.value}
+                      </div>
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* Quick metrics */}
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                {[
-                  { label: "Services affected", value: "0" },
-                  { label: "Risk level", value: "Very Low" },
-                  { label: "Apply time", value: "< 30 sec" },
-                  { label: "Rollback", value: "Always available" },
-                ].map((metric, i) => (
-                  <div key={i} className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-                    <div className="text-xs mb-1" style={{ color: "var(--text-secondary)" }}>
-                      {metric.label}
-                    </div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {metric.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              )}
             </>
           )}
 
@@ -774,7 +821,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                 >
                   Cancel
                 </button>
-                {!showExtendedSim && (
+                {!showExtendedSim && !simulationError && (
                   <button
                     onClick={handleExtendedSimulation}
                     className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
@@ -789,11 +836,11 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
               </div>
               <button
                 onClick={handleAutoFix}
-                disabled={loading}
+                disabled={loading || !!simulationError}
                 className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: "var(--action-primary)" }}
+                style={{ background: simulationError ? "#6B7280" : "var(--action-primary)" }}
               >
-                {loading ? "Applying..." : "AUTO-FIX"}
+                {loading ? "Applying..." : simulationError ? "Fix Unavailable" : "AUTO-FIX"}
               </button>
             </div>
           )}
