@@ -371,13 +371,17 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 }
 
 export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
-  // gap-analysis endpoint not implemented in backend yet
-  // Return empty result to avoid 404 errors
-  console.log("[api-client] Gap analysis endpoint not available, returning empty result")
-  return {
-    success: true,
-    gaps: [],
-    recommendations: [],
-    message: "Gap analysis endpoint not implemented yet"
+  try {
+    // Call the backend gap-analysis endpoint
+    const data = await apiGet(`/gap-analysis?roleName=${encodeURIComponent(roleName)}`, { cache: true, ttl: CACHE_TTL.medium })
+    return data
+  } catch (error) {
+    console.error("[api-client] Error fetching gap analysis:", error)
+    return {
+      success: false,
+      gaps: [],
+      recommendations: [],
+      message: "Gap analysis failed"
+    }
   }
 }

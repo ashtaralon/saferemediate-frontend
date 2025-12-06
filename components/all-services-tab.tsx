@@ -179,9 +179,16 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   }
 
   const fetchGapData = async () => {
-    // gap-analysis endpoint not implemented in backend yet
-    // Skip fetching to avoid 404 errors
-    console.log("[all-services-tab] Gap analysis endpoint not available, skipping")
+    try {
+      // Use rewrite route to avoid CORS issues
+      const response = await fetch(`/backend/api/gap-analysis`)
+      if (response.ok) {
+        const data = await response.json()
+        setGapData(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch gap data:", error)
+    }
   }
 
   const computeServices = useMemo(() => {
