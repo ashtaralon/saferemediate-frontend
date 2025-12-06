@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { SystemsView } from '@/components/systems-view'
 
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
+// Use proxy routes to avoid CORS issues
 
 export default function SystemsPage() {
   const [systems, setSystems] = useState<any[]>([])
@@ -13,7 +13,8 @@ export default function SystemsPage() {
     const fetchSystems = async () => {
       try {
         setLoading(true)
-        const response = await fetch(`${API_URL}/api/systems`)
+        // Use proxy route to avoid CORS
+        const response = await fetch('/api/proxy/systems')
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)

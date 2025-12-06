@@ -21,8 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-// Backend URL - MUST use env variable, fallback to Render URL
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
+// All API calls now go through proxy routes in api-client.ts to avoid CORS issues
 
 interface GapAnalysisData {
   allowed: number

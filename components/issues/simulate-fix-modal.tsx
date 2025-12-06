@@ -44,16 +44,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const [loading, setLoading] = useState(false)
   const [hasRunInitialSimulation, setHasRunInitialSimulation] = useState(false)
 
-  // Get API base URL
-  // Backend URL - MUST be absolute, never relative
-  const API_BASE = useMemo(() => 
-    process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com',
-    []
-  )
-  const API_URL = useMemo(() => 
-    API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`,
-    [API_BASE]
-  )
+  // Use proxy routes to avoid CORS issues
+  const API_URL = useMemo(() => '/api/proxy', [])
 
   const handleSimulate = useCallback(async () => {
     if (!finding?.id) {
@@ -65,10 +57,11 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     setIsAnalyzing(true)
     setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/simulation/issue/preview`, {
+      // Use proxy route for simulation to avoid CORS
+      const res = await fetch(`${API_URL}/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId: finding.id }),
+        body: JSON.stringify({ finding_id: finding.id }),
       })
 
       if (!res.ok) {
@@ -104,10 +97,11 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     setApplyStep(1)
 
     try {
-      const res = await fetch(`${API_URL}/simulation/issue/remediate`, {
+      // Use proxy route for remediation to avoid CORS
+      const res = await fetch(`${API_URL}/remediate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId: finding.id, confirm: true }),
+        body: JSON.stringify({ finding_id: finding.id, confirm: true }),
       })
 
       if (!res.ok) {
