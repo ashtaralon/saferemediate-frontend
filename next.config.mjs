@@ -2,12 +2,12 @@
 const nextConfig = {
   reactStrictMode: false,
 
-  // ✅ Force Webpack instead of Turbopack (critical for Next.js 16)
   experimental: {
+    // force webpack instead of turbopack
     webpackBuild: true,
+    turbo: false,
   },
 
-  // Enable production source maps for debugging
   productionBrowserSourceMaps: true,
 
   typescript: {
@@ -17,6 +17,11 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-};
 
-export default nextConfig;
+  webpack: (config) => {
+    config.devtool = 'source-map'
+    return config
+  },
+}
+
+export default nextConfig
