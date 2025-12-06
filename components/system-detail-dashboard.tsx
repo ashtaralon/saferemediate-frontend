@@ -35,7 +35,7 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
-import { SimulateFixModal } from "./issues/SimulateFixModal"
+import { SimulateFixModal } from "./issues/simulate-fix-modal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
@@ -1640,27 +1640,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       )}
 
       {/* Simulate Fix Modal for unused permissions */}
-      {selectedPermissionForSimulation && (
-        <SimulateFixModal
-          open={showSimulateModal}
-          onClose={() => {
-            setShowSimulateModal(false)
-            setSelectedPermissionForSimulation(null)
-          }}
-          finding={{
-            id: `permission-${selectedPermissionForSimulation}`,
-            severity: "HIGH",
-            title: `Unused Permission: ${selectedPermissionForSimulation}`,
-            resource: "SafeRemediate-Lambda-Remediation-Role",
-            resourceType: "IAM Role",
-            description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
-            remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
-            category: "Least Privilege",
-            discoveredAt: new Date().toISOString(),
-            status: "open",
-          } as SecurityFinding}
-        />
-      )}
+      <SimulateFixModal
+        isOpen={showSimulateModal}
+        onClose={() => {
+          setShowSimulateModal(false)
+          setSelectedPermissionForSimulation(null)
+        }}
+        finding={selectedPermissionForSimulation ? {
+          id: `permission-${selectedPermissionForSimulation}`,
+          title: `Unused Permission: ${selectedPermissionForSimulation}`,
+          icon: "⚠️",
+        } : null}
+      />
     </div>
   )
 }
