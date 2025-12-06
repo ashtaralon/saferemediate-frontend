@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { SystemsView } from '@/components/systems-view'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
 
 export default function SystemsPage() {
   const [systems, setSystems] = useState<any[]>([])

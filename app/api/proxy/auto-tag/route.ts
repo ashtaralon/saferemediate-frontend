@@ -1,7 +1,9 @@
 export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
+export const revalidate = 0
 
 export async function POST(request: Request) {
-  const backendUrl = process.env.BACKEND_API_URL || "https://unnitrogenous-preshrunk-gena.ngrok-free.dev"
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend.onrender.com"
 
   try {
     const body = await request.json()
