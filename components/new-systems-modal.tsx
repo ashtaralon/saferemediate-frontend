@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { X, Tag, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { apiGet, apiPost } from "@/lib/api-client"
 
 interface Resource { id: string; name: string; type: string; source?: "seed" | "derived" }
 interface NewSystem { systemName: string; resourceCount: number; resources?: Resource[] }
@@ -19,8 +20,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
   const handleAutoTagClick = async (system: NewSystem) => {
     setConfirmDialog({ open: true, system, fullResources: null, loading: true })
     try {
-      const response = await fetch(`/api/proxy/system-graph?systemName=${encodeURIComponent(system.systemName)}`)
-      const data = await response.json()
+      const data = await apiGet(`/api/system-graph?systemName=${encodeURIComponent(system.systemName)}`)
       if (data.success && data.resources) {
         const allResources: SystemGraphResource[] = data.resources.map((r: any) => ({
           id: r.id, name: r.name, type: r.type,
@@ -43,12 +43,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
     setConfirmDialog({ open: false, system: null, fullResources: null, loading: false })
     
     try {
-      const response = await fetch("/api/proxy/auto-tag", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemName, resourceIds }),
-      })
-      const data = await response.json()
+      const data = await apiPost("/api/auto-tag", { systemName, resourceIds })
       const results = data.results || resourceIds.map((id: string) => ({ resourceId: id, success: true }))
       setTaggingResults({ open: true, results, successCount: results.filter((r: any) => r.success).length, totalCount: resourceIds.length })
     } catch (error) {

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { apiGet, apiPost } from "@/lib/api-client"
 import {
   Download,
   Plus,
@@ -78,9 +79,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     let unusedActions = 0
 
     try {
-      const gapRes = await fetch("/api/proxy/gap-analysis")
-      if (gapRes.ok) {
-        const gapJson = await gapRes.json()
+      const gapJson = await apiGet("/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
+      if (gapJson) {
         unusedActions = gapJson.unused_actions ?? 0
         setGapData({
           allowed: gapJson.allowed_actions ?? 0,
@@ -94,10 +94,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
 
     try {
-      const nodesRes = await fetch("/api/proxy/graph-data")
-
-      if (nodesRes.ok) {
-        const nodesData = await nodesRes.json()
+      const nodesData = await apiGet("/api/graph/nodes")
+      if (nodesData) {
         const nodes = nodesData.nodes || nodesData || []
 
         const infraNodes = nodes.filter((node: any) =>
@@ -267,14 +265,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const checkBackendStatus = async () => {
     setBackendStatus("checking")
     try {
-      const response = await fetch("/api/proxy/test")
-      if (response.ok) {
-        setBackendStatus("connected")
-        return true
-      } else {
-        setBackendStatus("offline")
-        return false
-      }
+      await apiGet("/health")
+      setBackendStatus("connected")
+      return true
     } catch {
       setBackendStatus("offline")
       return false
@@ -284,9 +277,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const fetchAvailableSystems = async () => {
     setIsLoadingAvailable(true)
     try {
-      const response = await fetch("/api/proxy/systems/available")
-      if (response.ok) {
-        const data = await response.json()
+      const data = await apiGet("/api/systems/available")
+      if (data) {
         const systems = data.systems || data || []
         const existingNames = new Set(localSystems.map((s) => s.name.toLowerCase()))
         const filtered = systems.filter((sys: AvailableSystem) => {
@@ -340,11 +332,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     })
 
     try {
-      await fetch("/api/proxy/systems/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemName }),
-      })
+      await apiPost("/api/systems/add", { systemName })
     } catch (error) {
       console.error("[v0] Failed to notify backend:", error)
     }

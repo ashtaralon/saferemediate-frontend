@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { apiGet } from "@/lib/api-client"
 import {
   Search,
   RefreshCw,
@@ -133,8 +134,7 @@ export function DependencyMapTab({ systemName }: { systemName: string }) {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await fetch("/api/proxy/dependency-map")
-      const result = await response.json()
+      const result = await apiGet("/api/dependency-map")
 
       if (result.error && result.nodes?.length === 0) {
         setError("Backend unavailable")
@@ -156,8 +156,7 @@ export function DependencyMapTab({ systemName }: { systemName: string }) {
 
   const fetchBlastRadius = useCallback(async (nodeId: string) => {
     try {
-      const response = await fetch(`/api/proxy/dependency-map/blast-radius/${encodeURIComponent(nodeId)}`)
-      const result = await response.json()
+      const result = await apiGet(`/api/dependency-map/blast-radius/${encodeURIComponent(nodeId)}`)
       setBlastRadius(result)
     } catch (err) {
       console.error("[v0] Failed to fetch blast radius:", err)

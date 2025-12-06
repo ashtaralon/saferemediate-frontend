@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { AlertCircle, Loader2, CheckCircle2, RotateCcw } from 'lucide-react'
+import { apiPost } from '@/lib/api-client'
 
 interface RemediateButtonProps {
   findingId: string
@@ -28,20 +29,10 @@ export function RemediateButton({
     setResult(null)
 
     try {
-      const response = await fetch('/api/proxy/safe-remediate/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          finding_id: findingId,
-          resource_type: resourceType 
-        }),
+      const data = await apiPost('/api/safe-remediate/execute', {
+        finding_id: findingId,
+        resource_type: resourceType 
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Remediation failed')
-      }
 
       setResult(data)
       
@@ -68,21 +59,11 @@ export function RemediateButton({
     setError(null)
 
     try {
-      const response = await fetch('/api/proxy/safe-remediate/rollback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          execution_id: result.execution_id,
-          snapshot_id: result.snapshot_id,
-          resource_type: resourceType,
-        }),
+      const data = await apiPost('/api/safe-remediate/rollback', {
+        execution_id: result.execution_id,
+        snapshot_id: result.snapshot_id,
+        resource_type: resourceType,
       })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Rollback failed')
-      }
 
       setResult(null)
       alert('✅ Rollback successful!')

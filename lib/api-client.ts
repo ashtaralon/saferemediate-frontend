@@ -3,7 +3,49 @@ import { infrastructureData } from "./data"
 
 // Backend URL - MUST be absolute, never relative
 // Priority: NEXT_PUBLIC_BACKEND_URL > NEXT_PUBLIC_API_URL > fallback
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com"
+const BACKEND_URL = API_BASE
+
+// Helper to build full URL from path
+function buildUrl(path: string): string {
+  if (path.startsWith("http")) return path
+  if (!path.startsWith("/")) path = "/" + path
+  return `${API_BASE}${path}`
+}
+
+// Generic API GET function
+export async function apiGet<T = any>(path: string): Promise<T> {
+  const res = await fetch(buildUrl(path), {
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+
+  if (!res.ok) {
+    throw new Error(`GET ${path} failed: ${res.status} ${res.statusText}`)
+  }
+
+  return res.json()
+}
+
+// Generic API POST function
+export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
+  const res = await fetch(buildUrl(path), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: body ? JSON.stringify(body) : undefined,
+  })
+
+  if (!res.ok) {
+    throw new Error(`POST ${path} failed: ${res.status} ${res.statusText}`)
+  }
+
+  return res.json()
+}
 
 export interface InfrastructureData {
   resources: Array<{

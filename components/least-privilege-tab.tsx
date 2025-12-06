@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { apiGet, apiPost } from "@/lib/api-client"
 import {
   AlertTriangle,
   CheckCircle,
@@ -47,8 +48,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setError(null)
       setLoading(true)
 
-      const response = await fetch("/api/proxy/least-privilege")
-      const data = await response.json()
+      const data = await apiGet("/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
 
       if (data.success === false) {
         setError(data.error || "Failed to fetch data from backend")
@@ -79,17 +79,11 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
     setRemediating(permission)
 
     try {
-      const response = await fetch("/api/proxy/remediate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roleName: roleName,
-          permission: permission,
-          action: "remove",
-        }),
+      const result = await apiPost("/api/remediate", {
+        roleName: roleName,
+        permission: permission,
+        action: "remove",
       })
-
-      const result = await response.json()
       console.log("[v0] Remediation result:", result)
 
       if (result.success) {

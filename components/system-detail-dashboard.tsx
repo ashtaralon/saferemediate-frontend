@@ -37,7 +37,7 @@ import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapT
 import { AllServicesTab } from "./all-services-tab"
 import { SimulateFixModal } from "./issues/simulate-fix-modal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
-import { fetchSecurityFindings, fetchGapAnalysis } from "@/lib/api-client"
+import { fetchSecurityFindings, fetchGapAnalysis, apiGet, apiPost } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 // Import new modular components
 import { Header } from "./system-detail/header"
@@ -253,10 +253,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchAutoTagStatus = async () => {
     try {
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
-      const data = await response.json()
+      const data = await apiGet(`/api/auto-tag/status?systemName=${encodeURIComponent(systemName)}`)
 
-      if (!response.ok || data.error) {
+      if (data.error) {
         console.log("[v0] Auto-tag status backend error, using fallback data")
         setAutoTagStatus(fallbackAutoTagStatus)
         return
@@ -280,17 +279,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setRemediatingPermission(permission)
 
     try {
-      const response = await fetch("/api/proxy/remediate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roleName: "SafeRemediate-Lambda-Remediation-Role",
-          permission: permission,
-          action: "remove",
-        }),
+      const result = await apiPost("/api/remediate", {
+        roleName: "SafeRemediate-Lambda-Remediation-Role",
+        permission: permission,
+        action: "remove",
       })
-
-      const result = await response.json()
       console.log("[v0] Remediation result:", result)
 
       if (result.success) {
@@ -399,23 +392,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         tags[tag.key] = tag.value
       })
 
-      const response = await fetch("/api/proxy/auto-tag", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          systemName,
-          tags,
-        }),
+      const data = await apiPost("/api/auto-tag", {
+        systemName,
+        tags,
       })
-
-      if (!response.ok) {
-        const errData = await response.json()
-        throw new Error(errData.error || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
       setTagResults(data)
 
       if (data.success) {
@@ -442,15 +422,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     try {
       setTriggeringAutoTag(true)
 
-      const response = await fetch("/api/proxy/auto-tag-trigger", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ systemName }),
-      })
-
-      const data = await response.json()
+      const data = await apiPost("/api/auto-tag-trigger", { systemName })
 
       if (data.success) {
         // Update status immediately and then refresh all data
