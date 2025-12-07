@@ -15,21 +15,35 @@ import { AutomationSection } from "@/components/automation-section"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
-import { fetchInfrastructure, fetchSecurityFindings, fetchGapAnalysis, type InfrastructureData } from "@/lib/api-client"
+
+import {
+  fetchInfrastructure,
+  fetchSecurityFindings,
+  fetchGapAnalysis,
+  type InfrastructureData,
+} from "@/lib/api-client"
+
 import type { SecurityFinding } from "@/lib/types"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-// All API calls now go through proxy routes in api-client.ts to avoid CORS issues
+// ---------------------------------------------------------
+// TYPES
+// ---------------------------------------------------------
 
 interface GapAnalysisData {
   allowed: number
   used: number
   unused: number
   confidence: number
-  roleName: string
+  systemName: string
 }
+
+// ---------------------------------------------------------
+// MAIN PAGE COMPONENT
+// ---------------------------------------------------------
 
 export default function HomePage() {
   const [activeSection, setActiveSection] = useState("home")
@@ -37,20 +51,35 @@ export default function HomePage() {
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
+
   const [gapData, setGapData] = useState<GapAnalysisData>({
     allowed: 0,
     used: 0,
     unused: 0,
     confidence: 0,
-    roleName: "Loading...",
+    systemName: "Loading...",
   })
+
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
+  // ---------------------------------------------------------
+  // GAP ANALYSIS LOADER
+  // ---------------------------------------------------------
+
   const handleGapAnalysis = useCallback(async () => {
     try {
-      const gapJson = await fetchGapAnalysis("SafeRemediate-Lambda-Remediation-Role")
-      
+      // pick first available system
+      const systemName =
+        data?.systems?.[0]?.systemName || "SafeRemediate-Test"
+
+      if (!systemName) {
+        console.warn("[gap-analysis] No systemName available.")
+        return
+      }
+
+      const gapJson = await fetchGapAnalysis(systemName)
+
       const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 0
       const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
       const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 0
@@ -58,10 +87,11 @@ export default function HomePage() {
       let confidence = 99
       const remPotential = gapJson.statistics?.remediation_potential
       const confValue = gapJson.statistics?.confidence
+
       if (remPotential) {
-        confidence = Number.parseInt(String(remPotential).replace("%", ""), 10) || 99
+        confidence = Number(String(remPotential).replace("%", "")) || 99
       } else if (confValue) {
-        confidence = Number.parseInt(String(confValue).replace("%", ""), 10) || 99
+        confidence = Number(String(confValue).replace("%", "")) || 99
       }
 
       setGapData({
@@ -69,43 +99,46 @@ export default function HomePage() {
         used: Number(used),
         unused: Number(unused),
         confidence: Number(confidence),
-        roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
+        systemName,
       })
 
-      // If findings are empty, populate from gap analysis (unused permissions)
-      setSecurityFindings((prevFindings) => {
-        if (prevFindings.length === 0 && unused > 0) {
+      // Populate findings if empty
+      setSecurityFindings((prev) => {
+        if (prev.length === 0 && unused > 0) {
           const unusedActions = gapJson.unused_actions_list || []
           return unusedActions.map((permission: string, index: number): SecurityFinding => ({
             id: `gap-${index}-${permission}`,
             title: `Unused IAM Permission: ${permission}`,
             severity: "HIGH",
-            description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
-            resource: "SafeRemediate-Lambda-Remediation-Role",
+            description: `Permission "${permission}" was unused recently. Safe to remove with ${confidence}% confidence.`,
+            resource: systemName,
             resourceType: "IAM Role",
-            status: "open",
             category: "Least Privilege",
+            status: "open",
             discoveredAt: new Date().toISOString(),
-            remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
+            remediation: `Remove unused permission "${permission}".`,
           }))
         }
-        return prevFindings
+        return prev
       })
 
       setLastRefresh(new Date())
     } catch (error) {
-      // Silent fail - use default values already set in state
       console.error("[page] Error fetching gap analysis:", error)
     }
-  }, [])
+  }, [data])
+
+  // ---------------------------------------------------------
+  // LOAD INFRASTRUCTURE + SECURITY FINDINGS
+  // ---------------------------------------------------------
 
   const loadData = useCallback(async () => {
     try {
-      const [infrastructureData, findings] = await Promise.all([
-        fetchInfrastructure(), 
-        fetchSecurityFindings()
+      const [infra, findings] = await Promise.all([
+        fetchInfrastructure(),
+        fetchSecurityFindings(),
       ])
-      setData(infrastructureData)
+      setData(infra)
       setSecurityFindings(findings)
     } catch (error) {
       console.error("Failed to load data:", error)
@@ -114,25 +147,30 @@ export default function HomePage() {
     }
   }, [])
 
+  // Load on mount
   useEffect(() => {
     loadData()
     handleGapAnalysis()
   }, [loadData, handleGapAnalysis])
 
+  // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return
-
     const interval = setInterval(() => {
       loadData()
       handleGapAnalysis()
     }, 30000)
-
     return () => clearInterval(interval)
   }, [autoRefresh, loadData, handleGapAnalysis])
 
-  // Calculate issues from actual findings
-  const criticalCount = securityFindings.filter(f => f.severity === "CRITICAL").length
-  const highCount = securityFindings.filter(f => f.severity === "HIGH").length
+  // ---------------------------------------------------------
+  // DERIVED STATS
+  // ---------------------------------------------------------
+
+  const criticalCount = securityFindings.filter((f) => f.severity === "CRITICAL").length
+  const highCount = securityFindings.filter((f) => f.severity === "HIGH").length
+  const mediumCount = securityFindings.filter((f) => f.severity === "MEDIUM").length
+  const lowCount = securityFindings.filter((f) => f.severity === "LOW").length
   const totalIssuesCount = securityFindings.length
 
   const statsData = {
@@ -157,10 +195,6 @@ export default function HomePage() {
     objectStorage: 0,
   }
 
-  // Calculate security issues from actual findings
-  const mediumCount = securityFindings.filter(f => f.severity === "MEDIUM").length
-  const lowCount = securityFindings.filter(f => f.severity === "LOW").length
-
   const securityIssuesData = {
     critical: criticalCount,
     high: highCount,
@@ -177,16 +211,12 @@ export default function HomePage() {
 
   const complianceSystems = data?.complianceSystems || []
 
-  const handleSystemSelect = (systemName: string) => {
-    setSelectedSystem(systemName)
-  }
-
-  const handleBackFromSystem = () => {
-    setSelectedSystem(null)
-  }
+  // ---------------------------------------------------------
+  // SYSTEM DETAIL VIEW
+  // ---------------------------------------------------------
 
   if (selectedSystem) {
-    return <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
+    return <SystemDetailDashboard systemName={selectedSystem} onBack={() => setSelectedSystem(null)} />
   }
 
   if (loading) {
@@ -203,6 +233,10 @@ export default function HomePage() {
     )
   }
 
+  // ---------------------------------------------------------
+  // AUTO-REFRESH TOGGLE
+  // ---------------------------------------------------------
+
   const AutoRefreshToggle = () => (
     <div className="flex items-center gap-3 bg-white rounded-lg px-4 py-2 border border-gray-200 shadow-sm">
       <RefreshCw className={`h-4 w-4 text-gray-500 ${autoRefresh ? "animate-spin" : ""}`} />
@@ -212,25 +246,32 @@ export default function HomePage() {
     </div>
   )
 
+  // ---------------------------------------------------------
+  // RENDER HOME CONTENT
+  // ---------------------------------------------------------
+
   const renderContent = () => {
     switch (activeSection) {
       case "home":
-        const gapAllowed = gapData?.allowed ?? 0
-        const gapUsed = gapData?.used ?? 0
-        const gapUnused = gapData?.unused ?? 0
-        const gapConfidence = gapData?.confidence ?? 0
-        const gapRoleName = gapData?.roleName ?? "Loading..."
+        const gapAllowed = gapData.allowed
+        const gapUsed = gapData.used
+        const gapUnused = gapData.unused
+        const gapConfidence = gapData.confidence
+        const gapSystemName = gapData.systemName
 
         return (
           <div className="space-y-6">
             <div className="flex justify-end">
               <AutoRefreshToggle />
             </div>
+
             <HomeStatsBanner {...statsData} />
+
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               <div className="lg:col-span-3">
                 <InfrastructureOverview stats={infrastructureStats} />
               </div>
+
               <div className="lg:col-span-1">
                 <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
                   <CardHeader className="pb-2">
@@ -239,22 +280,29 @@ export default function HomePage() {
                         <Shield className="h-5 w-5 text-indigo-600" />
                         Gap Analysis
                       </CardTitle>
-                      <span className="text-xs bg-indigo-600 text-white px-2 py-1 rounded-full font-medium">LIVE</span>
+
+                      <span className="text-xs bg-indigo-600 text-white px-2 py-1 rounded-full font-medium">
+                        LIVE
+                      </span>
                     </div>
-                    <p className="text-xs text-indigo-600 truncate" title={gapRoleName}>
-                      {gapRoleName}
+
+                    <p className="text-xs text-indigo-600 truncate" title={gapSystemName}>
+                      {gapSystemName}
                     </p>
                   </CardHeader>
+
                   <CardContent>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/60 rounded-lg p-3 text-center">
                         <div className="text-2xl font-bold text-gray-900">{gapAllowed}</div>
                         <div className="text-xs text-gray-600">Allowed</div>
                       </div>
+
                       <div className="bg-white/60 rounded-lg p-3 text-center">
                         <div className="text-2xl font-bold text-green-600">{gapUsed}</div>
                         <div className="text-xs text-gray-600">Used</div>
                       </div>
+
                       <div className="bg-white/60 rounded-lg p-3 text-center">
                         <div className="text-2xl font-bold text-red-600">{gapUnused}</div>
                         <div className="text-xs text-gray-600 flex items-center justify-center gap-1">
@@ -262,11 +310,13 @@ export default function HomePage() {
                           Unused
                         </div>
                       </div>
+
                       <div className="bg-white/60 rounded-lg p-3 text-center">
                         <div className="text-2xl font-bold text-indigo-600">{gapConfidence}%</div>
                         <div className="text-xs text-gray-600">Confidence</div>
                       </div>
                     </div>
+
                     {gapUnused > 0 && gapAllowed > 0 && (
                       <div className="mt-3 p-2 bg-amber-100 rounded-lg text-center">
                         <span className="text-xs font-medium text-amber-800">
@@ -278,9 +328,12 @@ export default function HomePage() {
                 </Card>
               </div>
             </div>
+
             <SecurityIssuesOverview {...securityIssuesData} />
+
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
+
               {securityFindings.length > 0 ? (
                 <SecurityFindingsList findings={securityFindings} />
               ) : (
@@ -290,10 +343,12 @@ export default function HomePage() {
                 </div>
               )}
             </div>
+
             <ComplianceCards systems={complianceSystems} />
             <TrendsActivity />
           </div>
         )
+
       case "issues":
         return (
           <div className="space-y-6">
@@ -308,8 +363,10 @@ export default function HomePage() {
               totalCritical={securityIssuesData.critical}
               missionCriticalCount={0}
             />
+
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">All Security Findings</h2>
+
               {securityFindings.length > 0 ? (
                 <SecurityFindingsList findings={securityFindings} />
               ) : (
@@ -321,8 +378,10 @@ export default function HomePage() {
             </div>
           </div>
         )
+
       case "systems":
-        return <SystemsView systems={[]} onSystemSelect={handleSystemSelect} />
+        return <SystemsView systems={[]} onSystemSelect={setSelectedSystem} />
+
       case "compliance":
         return (
           <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -333,12 +392,16 @@ export default function HomePage() {
             />
           </div>
         )
+
       case "identities":
         return <IdentitiesSection />
+
       case "automation":
         return <AutomationSection />
+
       case "integrations":
         return <IntegrationsSection />
+
       default:
         return (
           <div>
@@ -348,9 +411,17 @@ export default function HomePage() {
     }
   }
 
+  // ---------------------------------------------------------
+  // PAGE LAYOUT
+  // ---------------------------------------------------------
+
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={statsData.totalIssues} />
+      <LeftSidebarNav
+        activeItem={activeSection}
+        onItemClick={setActiveSection}
+        issuesCount={statsData.totalIssues}
+      />
       <div className="flex-1 p-8">{renderContent()}</div>
     </div>
   )
