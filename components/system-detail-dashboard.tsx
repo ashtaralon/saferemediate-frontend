@@ -195,7 +195,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const handleGapAnalysis = async () => {
     try {
       // Use the imported fetchGapAnalysis from api-client.ts with systemName
-      const data = await fetchGapAnalysis(systemName, "SafeRemediate-Lambda-Remediation-Role")
+      const data = await fetchGapAnalysis(systemName)
 
       // The response is now normalized by api-client:
       // { success, confidence, allowed: [], used: [], unused: [], gap }

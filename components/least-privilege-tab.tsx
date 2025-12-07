@@ -56,7 +56,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setLoading(true)
 
       // Use the new fetchGapAnalysis function with systemName
-      const data = await fetchGapAnalysis(systemName, "SafeRemediate-Lambda-Remediation-Role")
+      const data = await fetchGapAnalysis(systemName)
 
       if (data.success === false) {
         setError("Failed to fetch data from backend")
@@ -129,7 +129,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setIsSimulating(true)
       setSimulation(null)
 
-      const result = await simulateLeastPrivilege(systemName, roleName || undefined)
+      const result = await simulateLeastPrivilege(systemName)
       setSimulation(result)
 
       console.log("[LeastPrivilegeTab] Simulation result:", result)
@@ -158,9 +158,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
 
       const result = await applyLeastPrivilege(
         systemName,
-        simulation?.checkpointId || simulation?.planId,
-        roleName || undefined,
-        unusedActionsList
+        simulation?.checkpointId || simulation?.planId
       )
 
       console.log("[LeastPrivilegeTab] Apply result:", result)
