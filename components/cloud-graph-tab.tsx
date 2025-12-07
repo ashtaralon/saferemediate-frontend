@@ -430,9 +430,11 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       setIsLoading(true)
       setError(null)
       
-      // Use Next.js proxy endpoint only
+      // Try multiple endpoints
       const endpoints = [
         "/api/proxy/graph-data",
+        "https://saferemediate-backend-1.onrender.com/api/graph/snapshot",
+        "https://saferemediate-backend-1.onrender.com/api/graph/live",
       ]
       
       let data = null

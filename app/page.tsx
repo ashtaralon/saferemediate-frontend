@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
 import { InfrastructureOverview } from "@/components/infrastructure-overview"
@@ -13,7 +13,7 @@ import { IntegrationsSection } from "@/components/integrations-section"
 import { IdentitiesSection } from "@/components/identities-section"
 import { AutomationSection } from "@/components/automation-section"
 import { EmptyState } from "@/components/empty-state"
-import { SecurityFindingsList } from "@/components/issues/security-findings-list"
+import { SecurityFindingsList } from "@/components/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
@@ -21,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-// All API calls go through /api/proxy/* to avoid CORS
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
 
 interface GapAnalysisData {
   allowed: number
@@ -48,10 +48,9 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    // Ingest is optional, skip for now
-    // fetch(`/api/proxy/auto-tag-trigger`).catch(() => {})
+    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
 
-    fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent("SafeRemediate-Lambda-Remediation-Role")}`)
+    fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -77,27 +76,6 @@ export default function HomePage() {
           confidence: Number(confidence),
           roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
         })
-
-        // If findings are empty, populate from gap analysis (unused permissions)
-        setSecurityFindings((prevFindings) => {
-          if (prevFindings.length === 0 && unused > 0) {
-            const unusedActions = gapJson.unused_actions_list || []
-            return unusedActions.map((permission: string, index: number): SecurityFinding => ({
-              id: `gap-${index}-${permission}`,
-              title: `Unused IAM Permission: ${permission}`,
-              severity: "HIGH",
-              description: `This IAM permission has not been used in the last 7 days and increases the attack surface. Safe to remove with ${confidence}% confidence.`,
-              resource: "SafeRemediate-Lambda-Remediation-Role",
-              resourceType: "IAM Role",
-              status: "open",
-              category: "Least Privilege",
-              discoveredAt: new Date().toISOString(),
-              remediation: `Remove the unused permission "${permission}" from the IAM role to reduce the attack surface and follow least privilege principles.`,
-            }))
-          }
-          return prevFindings
-        })
-
         setLastRefresh(new Date())
       })
       .catch(() => {
@@ -105,13 +83,7 @@ export default function HomePage() {
       })
   }, [])
 
-  // Use ref to prevent concurrent fetches
-  const loadingRef = useRef(false)
-
   const loadData = useCallback(async () => {
-    if (loadingRef.current) return
-    loadingRef.current = true
-
     try {
       const [infrastructureData, findings] = await Promise.all([fetchInfrastructure(), fetchSecurityFindings()])
       setData(infrastructureData)
@@ -120,29 +92,24 @@ export default function HomePage() {
       console.error("Failed to load data:", error)
     } finally {
       setLoading(false)
-      loadingRef.current = false
     }
   }, [])
 
-  // Load data once on mount - NO dependencies to prevent infinite loop
   useEffect(() => {
     loadData()
     fetchGapAnalysis()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Empty deps - only run once on mount
+  }, [loadData, fetchGapAnalysis])
 
-  // Auto-refresh only when autoRefresh is enabled
   useEffect(() => {
     if (!autoRefresh) return
 
     const interval = setInterval(() => {
       loadData()
       fetchGapAnalysis()
-    }, 30000) // 30 seconds, not every render
+    }, 30000)
 
     return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh]) // Only depend on autoRefresh, not the functions
+  }, [autoRefresh, loadData, fetchGapAnalysis])
 
   const statsData = data?.stats || {
     avgHealthScore: 0,
@@ -284,23 +251,12 @@ export default function HomePage() {
               </div>
             </div>
             <SecurityIssuesOverview {...securityIssuesData} />
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
-              {securityFindings.length > 0 ? (
-                <SecurityFindingsList 
-                  findings={securityFindings} 
-                  onRefresh={async () => {
-                    await loadData()
-                    await fetchGapAnalysis()
-                  }}
-                />
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No security findings found.</p>
-                  <p className="text-sm mt-2">Check backend connection or run a security scan.</p>
-                </div>
-              )}
-            </div>
+            {securityFindings.length > 0 && (
+              <div className="bg-white rounded-lg p-6 border border-gray-200">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
+                <SecurityFindingsList findings={securityFindings} />
+              </div>
+            )}
             <ComplianceCards systems={complianceSystems} />
             <TrendsActivity />
           </div>
@@ -321,20 +277,7 @@ export default function HomePage() {
             />
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">All Security Findings</h2>
-              {securityFindings.length > 0 ? (
-                <SecurityFindingsList 
-                  findings={securityFindings} 
-                  onRefresh={async () => {
-                    await loadData()
-                    await fetchGapAnalysis()
-                  }}
-                />
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No security findings found.</p>
-                  <p className="text-sm mt-2">Check backend connection or run a security scan.</p>
-                </div>
-              )}
+              <SecurityFindingsList findings={securityFindings} />
             </div>
           </div>
         )

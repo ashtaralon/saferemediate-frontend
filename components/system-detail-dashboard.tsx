@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect } from "react"
 import {
   ArrowLeft,
   Download,
@@ -35,10 +35,6 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
-import { SimulateFixModal } from "./issues/SimulateFixModal"
-import { SecurityFindingsList } from "./issues/security-findings-list"
-import { fetchSecurityFindings } from "@/lib/api-client"
-import type { SecurityFinding } from "@/lib/types"
 
 // =============================================================================
 // API CONFIGURATION
@@ -131,19 +127,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [expandedPermission, setExpandedPermission] = useState<string | null>(null) // Expanded permission state
 
   const [remediatingPermission, setRemediatingPermission] = useState<string | null>(null)
-  const [showSimulateModal, setShowSimulateModal] = useState(false)
-  const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
-  const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
-  const [loadingFindings, setLoadingFindings] = useState(true)
-
-  // Debug: Log when modal state changes
-  useEffect(() => {
-    console.log("[SIMULATE] Modal state changed:", {
-      showSimulateModal,
-      selectedPermissionForSimulation,
-      shouldRender: showSimulateModal && !!selectedPermissionForSimulation
-    })
-  }, [showSimulateModal, selectedPermissionForSimulation])
 
   const fallbackGapData: GapAnalysis = {
     allowed: 28,
@@ -191,6 +174,77 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   // =============================================================================
   // =============================================================================
+  const fetchGapAnalysis = async () => {
+    try {
+      // Use the provided backend URL
+      // Update backend URL and fetch logic
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      // </CHANGE> Removed debug console.log
+
+      const allowed = Number(data.allowed_actions) || 0
+      const actual = Number(data.used_actions) || 0
+      const gap = Number(data.unused_actions) || 0
+      const confidence =
+        typeof data.statistics?.remediation_potential === "string"
+          ? Number.parseInt(data.statistics.remediation_potential.replace("%", ""))
+          : data.statistics?.confidence || 99
+
+      setGapAnalysis({
+        allowed,
+        actual,
+        gap,
+        gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
+        confidence,
+      })
+
+      setUnusedActionsList(data.unused_actions_list || [])
+
+      // Update severity counts - each unused action = 1 HIGH finding
+      setSeverityCounts((prev) => ({
+        ...prev,
+        high: gap,
+        passing: Math.max(0, 100 - gap),
+      }))
+    } catch (error) {
+      console.error("[v0] Error fetching gap analysis:", error)
+      setGapAnalysis(fallbackGapData)
+      setGapError(null) // Set gapError to null to ensure fallback data is shown without an error message
+    } finally {
+      setLoadingGap(false)
+    }
+  }
+
+  const fetchAutoTagStatus = async () => {
+    try {
+      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
+      const data = await response.json()
+
+      if (!response.ok || data.error) {
+        console.log("[v0] Auto-tag status backend error, using fallback data")
+        setAutoTagStatus(fallbackAutoTagStatus)
+        return
+      }
+
+      setAutoTagStatus({
+        status: data.status || "stopped",
+        totalCycles: data.total_cycles || data.totalCycles || 0,
+        actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
+        lastSync: data.last_sync || data.lastSync || "Never",
+      })
+    } catch (error) {
+      console.error("[v0] Error fetching auto-tag status:", error)
+      setAutoTagStatus(fallbackAutoTagStatus)
+    } finally {
+      setLoadingAutoTag(false)
+    }
+  }
 
   const handleRemediateFromModal = async (permission: string) => {
     setRemediatingPermission(permission)
@@ -200,7 +254,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          systemName: systemName,
+          roleName: "SafeRemediate-Lambda-Remediation-Role",
           permission: permission,
           action: "remove",
         }),
@@ -231,133 +285,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setRemediatingPermission(null)
   }
 
-
-  const refreshFindings = async () => {
-    await loadSecurityFindingsMemo()
-    await fetchGapAnalysisMemo()
+  const fetchAllData = async () => {
+    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
-  // Use ref to prevent concurrent fetches
-  const fetchingRef = useRef(false)
-
-  // Memoize fetch functions to prevent recreation on every render
-  const fetchGapAnalysisMemo = useCallback(async () => {
-    // Note: fetchingRef check is now only in fetchAllData to avoid conflicts
-    try {
-      // Use Next.js proxy endpoint
-      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      const allowed = Number(data.allowed_actions) || 0
-      const actual = Number(data.used_actions) || 0
-      const gap = Number(data.unused_actions) || 0
-      const confidence =
-        typeof data.statistics?.remediation_potential === "string"
-          ? Number.parseInt(data.statistics.remediation_potential.replace("%", ""))
-          : data.statistics?.confidence || 99
-
-      setGapAnalysis({
-        allowed,
-        actual,
-        gap,
-        gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
-        confidence,
-      })
-
-      const unusedActions = data.unused_actions_list || data.unused_actions || []
-      setUnusedActionsList(unusedActions)
-
-      // Update severity counts
-      setSeverityCounts((prev) => ({
-        ...prev,
-        high: gap,
-        passing: Math.max(0, 100 - gap),
-      }))
-
-      // Populate issues array
-      if (unusedActions.length > 0) {
-        const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
-          id: `high-${index}-${permission}`,
-          title: `Unused IAM Permission: ${permission}`,
-          impact: "Increases attack surface and violates least privilege principle",
-          affected: `IAM Role: ${systemName}`,
-          safeToFix: 95,
-          fixTime: "< 5 min",
-          temporalAnalysis: `This permission has not been used in the last 7 days. Safe to remove with ${confidence}% confidence.`,
-          expanded: false,
-          selected: false,
-        }))
-        setIssues(highIssues)
-      } else {
-        setIssues([])
-      }
-    } catch (error) {
-      console.error("[v0] Error fetching gap analysis:", error)
-      setGapAnalysis(fallbackGapData)
-      setGapError(null)
-    } finally {
-      setLoadingGap(false)
-    }
-  }, [systemName])
-
-  const fetchAutoTagStatusMemo = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
-      const data = await response.json()
-
-      if (!response.ok || data.error) {
-        setAutoTagStatus(fallbackAutoTagStatus)
-        return
-      }
-
-      setAutoTagStatus({
-        status: data.status || "stopped",
-        totalCycles: data.total_cycles || data.totalCycles || 0,
-        actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
-        lastSync: data.last_sync || data.lastSync || "Never",
-      })
-    } catch (error) {
-      console.error("[v0] Error fetching auto-tag status:", error)
-      setAutoTagStatus(fallbackAutoTagStatus)
-    } finally {
-      setLoadingAutoTag(false)
-    }
-  }, [systemName])
-
-  const loadSecurityFindingsMemo = useCallback(async () => {
-    try {
-      setLoadingFindings(true)
-      const findings = await fetchSecurityFindings()
-      setSecurityFindings(findings)
-    } catch (error) {
-      console.error("[v0] Error loading security findings:", error)
-      setSecurityFindings([])
-    } finally {
-      setLoadingFindings(false)
-    }
-  }, [])
-
-  const fetchAllData = useCallback(async () => {
-    if (fetchingRef.current) return
-    fetchingRef.current = true
-
-    try {
-      await Promise.all([fetchGapAnalysisMemo(), fetchAutoTagStatusMemo(), loadSecurityFindingsMemo()])
-    } finally {
-      fetchingRef.current = false
-    }
-  }, [fetchGapAnalysisMemo, fetchAutoTagStatusMemo, loadSecurityFindingsMemo])
-
-  // Fetch on mount and when systemName changes - NO auto-refresh to prevent loops
   useEffect(() => {
+    // Fetch on mount
     fetchAllData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemName]) // Only depend on systemName - fetchAllData is stable
+
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchAllData, 30000)
+
+    return () => clearInterval(interval)
+  }, [systemName])
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
@@ -736,7 +676,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                         size="sm"
                         onClick={() => {
                           setLoadingGap(true)
-                          fetchGapAnalysisMemo()
+                          fetchGapAnalysis()
                         }}
                         className="flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
                       >
@@ -938,7 +878,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-red-500" />
                         <h3 className="text-lg font-semibold text-gray-900">
-                          {severityCounts.critical > 0 ? "CRITICAL" : "HIGH"} ISSUES ({severityCounts.critical > 0 ? severityCounts.critical : severityCounts.high})
+                          CRITICAL ISSUES ({severityCounts.critical})
                         </h3>
                       </div>
                       <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -954,14 +894,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
 
                   <div className="p-6">
-                    {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
+                    {severityCounts.critical === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                           <CheckCircle className="w-8 h-8 text-green-500" />
                         </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Security Issues</h4>
+                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Critical Issues</h4>
                         <p className="text-sm text-gray-500 max-w-md">
-                          Great news! This system has no security issues. Run a security scan to check for new
+                          Great news! This system has no critical security issues. Run a security scan to check for new
                           vulnerabilities.
                         </p>
                         <button
@@ -980,27 +920,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               Run Security Scan
                             </>
                           )}
-                        </button>
-                      </div>
-                    ) : issues.length === 0 && (severityCounts.high > 0 || unusedActionsList.length > 0) ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <AlertTriangle className="w-8 h-8 text-orange-500" />
-                        </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">
-                          {severityCounts.high} High Severity Issues Found
-                        </h4>
-                        <p className="text-sm text-gray-500 max-w-md mb-4">
-                          {unusedActionsList.length > 0 
-                            ? `${unusedActionsList.length} unused IAM permissions detected. Click the HIGH card above to view details.`
-                            : `${severityCounts.high} high severity issues detected. Click the HIGH card above to view details.`}
-                        </p>
-                        <button
-                          onClick={() => setShowHighFindingsModal(true)}
-                          className="mt-4 flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
-                        >
-                          <Eye className="w-4 h-4" />
-                          View {unusedActionsList.length > 0 ? unusedActionsList.length : severityCounts.high} Issues
                         </button>
                       </div>
                     ) : (
@@ -1053,31 +972,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             </div>
 
                             <div className="flex border-t border-gray-200">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  // Extract permission from issue title (format: "Unused IAM Permission: permission:Action")
-                                  const permission = issue.title.replace("Unused IAM Permission: ", "")
-                                  
-                                  console.log("[SIMULATE] ===== BUTTON CLICKED =====")
-                                  console.log("[SIMULATE] Permission:", permission)
-                                  console.log("[SIMULATE] Issue:", issue)
-                                  
-                                  // Set state immediately
-                                  setSelectedPermissionForSimulation(permission)
-                                  setShowSimulateModal(true)
-                                  
-                                  console.log("[SIMULATE] State set - should open modal now")
-                                  
-                                  // Debug: Check state after a brief delay
-                                  setTimeout(() => {
-                                    console.log("[SIMULATE] State check after 100ms")
-                                  }, 100)
-                                }}
-                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                              >
+                              <button className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2">
                                 <Play className="w-4 h-4" />
                                 SIMULATE FIX
                               </button>
@@ -1096,33 +991,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
               </div>
             </div>
-
-            {/* Security Findings Section */}
-            {activeTab === "overview" && (
-              <div className="mt-6">
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                      <Shield className="w-5 h-5 text-blue-500" />
-                      <h3 className="text-lg font-semibold text-gray-900">Security Findings</h3>
-                    </div>
-                    {loadingFindings && (
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-                    )}
-                  </div>
-                  {securityFindings.length > 0 ? (
-                    <SecurityFindingsList 
-                      findings={securityFindings} 
-                      onRefresh={refreshFindings}
-                    />
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <p>No security findings found for this system.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </>
       )}
@@ -1515,7 +1383,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             <p className="text-gray-600">
                               Part of the{" "}
                               <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm">
-                                {systemName}
+                                SafeRemediate-Lambda-Remediation-Role
                               </code>{" "}
                               policy. This role was likely created with broad permissions for security monitoring and
                               remediation tasks.
@@ -1623,16 +1491,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           {/* ACTIONS */}
                           <div className="flex gap-3 pt-2">
                             <button
-                              onClick={() => {
-                                setSelectedPermissionForSimulation(permission)
-                                setShowSimulateModal(true)
-                              }}
-                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm"
-                            >
-                              <Zap className="w-4 h-4" />
-                              Simulate Fix
-                            </button>
-                            <button
                               onClick={() => handleRemediateFromModal(permission)}
                               disabled={remediatingPermission === permission}
                               className="flex-1 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
@@ -1690,31 +1548,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
           </div>
         </div>
-      )}
-
-      {/* Simulate Fix Modal for unused permissions */}
-      {selectedPermissionForSimulation && (
-        <SimulateFixModal
-          open={showSimulateModal}
-          onClose={() => {
-            console.log("[SIMULATE] Modal closing")
-            setShowSimulateModal(false)
-            setSelectedPermissionForSimulation(null)
-          }}
-          finding={{
-            // Use backend format: systemName/action (e.g., "SafeRemediate-Lambda-Remediation-Role/iam:DeleteUser")
-            id: `${systemName}/${selectedPermissionForSimulation}`,
-            severity: "HIGH",
-            title: `Unused Permission: ${selectedPermissionForSimulation}`,
-            resource: systemName,
-            resourceType: "IAM Role",
-            description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
-            remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
-            category: "Least Privilege",
-            discoveredAt: new Date().toISOString(),
-            status: "open",
-          } as SecurityFinding}
-        />
       )}
     </div>
   )

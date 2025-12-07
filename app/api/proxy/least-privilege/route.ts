@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server"
 
-export async function GET(request: Request) {
+export async function GET() {
   const backendUrl =
-    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
 
   try {
-    // Extract systemName from query parameters
-    const { searchParams } = new URL(request.url)
-    const systemName = searchParams.get("systemName") || "SafeRemediate-Lambda-Remediation-Role"
-    
-    const response = await fetch(`${backendUrl}/api/traffic/gap/${systemName}`, {
+    const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
     })

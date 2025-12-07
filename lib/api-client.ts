@@ -1,7 +1,7 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
 
 export interface InfrastructureData {
   resources: Array<{
@@ -59,13 +59,13 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel - via Next.js proxy
+    // Fetch dashboard metrics and graph nodes in parallel
     const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch("/api/proxy/dashboard-metrics", {
+      fetch(`${BACKEND_URL}/api/dashboard/metrics`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
-      fetch("/api/proxy/graph-data", {
+      fetch(`${BACKEND_URL}/api/graph/nodes`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
@@ -153,52 +153,42 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    const response = await fetch("/api/proxy/findings", {
+    const response = await fetch(`${BACKEND_URL}/api/findings`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
 
     if (!response.ok) {
-      console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
+      console.warn("[v0] Backend returned error for security findings:", response.status)
       return []
     }
 
     const data = await response.json()
-    console.log("[v0] Security findings response:", data)
-    
+    console.log("[v0] Successfully loaded security findings from backend")
+
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
-    console.log(`[v0] Found ${findings.length} security findings`)
 
-    if (findings.length === 0) {
-      console.warn("[v0] No security findings returned from backend")
-      return []
-    }
-
-    const mappedFindings = findings.map((f: any) => ({
-      id: f.id || f.findingId || f.finding_id || "",
-      title: f.title || f.name || f.type || "Security Finding",
-      severity: (f.severity || "MEDIUM").toUpperCase(),
-      description: f.description || f.desc || "",
-      resource: f.resource || f.resourceId || f.resource_id || "",
-      resourceType: f.resourceType || f.resource_type || "Resource",
+    return findings.map((f: any) => ({
+      id: f.id || f.findingId || "",
+      title: f.title || f.name || "Security Finding",
+      severity: f.severity || "medium",
+      description: f.description || "",
+      resource: f.resource || f.resourceId || "",
+      resourceType: f.resourceType || "Resource",
       status: f.status || "open",
-      category: f.category || f.type || "Security",
-      discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || f.created_at || f.detectedAt || new Date().toISOString(),
-      remediation: f.remediation || f.recommendation || "",
+      detectedAt: f.detectedAt || f.createdAt || new Date().toISOString(),
+      recommendation: f.recommendation || "",
     }))
-    
-    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
-    return mappedFindings
   } catch (error) {
-    console.error("[v0] Security findings endpoint error:", error)
+    console.warn("[v0] Security findings endpoint not available:", error)
     return []
   }
 }
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetch("/api/proxy/graph-data", {
+    const response = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -219,8 +209,7 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    // Note: relationships endpoint might need a proxy route if it doesn't exist
-    const response = await fetch("/api/proxy/graph-data", {
+    const response = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -241,7 +230,7 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch("/api/proxy/health", {
+    const response = await fetch(`${BACKEND_URL}/health`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -255,54 +244,4 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
   } catch (error: any) {
     return { success: false, message: error.message || "Connection failed" }
   }
-}
-
-// ============================================================================
-// SIMULATION & REMEDIATION API CLIENT
-// ============================================================================
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
-
-export async function simulateIssue(findingId: string) {
-  // Use the Next.js proxy endpoint which handles backend communication
-  const res = await fetch("/api/proxy/simulate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ finding_id: findingId }),
-  })
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-    throw new Error(error.error || error.detail || "Simulation failed")
-  }
-
-  const data = await res.json()
-  return data
-}
-
-export async function fixIssue(issueId: string, systemId?: string) {
-  const res = await fetch("/api/proxy/remediate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ issueId, systemId, confirm: true }),
-  })
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-    throw new Error(error.detail || "Fix failed")
-  }
-
-  return res.json()
-}
-
-export async function getSimulationStatus(issueId: string) {
-  // Use simulate endpoint with status check
-  const res = await fetch(`/api/proxy/simulate?issueId=${encodeURIComponent(issueId)}`)
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-    throw new Error(error.detail || "Status fetch failed")
-  }
-
-  return res.json()
 }
