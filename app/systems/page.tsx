@@ -4,8 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { SystemsView } from "@/components/systems-view"
 
-const API_URL = "https://saferemediate-backend.onrender.com"
-
+// Use proxy route to avoid CORS
 const INFRASTRUCTURE_TYPES = [
   "EC2Instance",
   "RDSInstance",
@@ -35,11 +34,13 @@ export default function SystemsPage() {
   useEffect(() => {
     async function fetchSystems() {
       try {
-        console.log("[v0] Fetching systems from:", `${API_URL}/api/graph/nodes`)
-        const response = await fetch(`${API_URL}/api/graph/nodes`)
+        // Use Next.js proxy to avoid CORS
+        console.log("[v0] Fetching systems from proxy: /api/proxy/graph-data")
+        const response = await fetch("/api/proxy/graph-data")
         if (!response.ok) throw new Error("Failed to fetch nodes")
 
-        const nodes = await response.json()
+        const data = await response.json()
+        const nodes = data.nodes || data || []
         console.log("[v0] Raw nodes received:", nodes.length, "Sample:", nodes[0])
 
         const infraNodes = nodes.filter((node: any) => {
