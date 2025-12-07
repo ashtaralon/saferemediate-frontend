@@ -34,8 +34,8 @@ export function SystemHealthSection() {
       return
     }
 
-    // Use rewrite route to avoid CORS issues
-    const API_URL = '/backend/api'
+    // Use proxy route to avoid CORS issues
+    const API_URL = '/api/proxy'
 
     try {
       setLoading(true)

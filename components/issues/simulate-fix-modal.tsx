@@ -46,7 +46,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const [simulationError, setSimulationError] = useState<string | null>(null)
 
   // Use rewrite routes to avoid CORS issues
-  const API_URL = useMemo(() => '/backend/api', [])
+  const API_URL = useMemo(() => '/api/proxy', [])
 
   const handleSimulate = useCallback(async () => {
     if (!finding?.id) {

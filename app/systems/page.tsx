@@ -14,7 +14,7 @@ export default function SystemsPage() {
       try {
         setLoading(true)
         // Use rewrite route to avoid CORS
-        const response = await fetch('/backend/api/systems')
+        const response = await fetch('/api/proxy/systems')
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)

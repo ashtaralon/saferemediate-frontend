@@ -140,7 +140,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     try {
       // Use rewrite route to avoid CORS issues
       // Correct endpoint: /graph/nodes (not /graph-data)
-      const response = await fetch(`/backend/api/graph/nodes`)
+      const response = await fetch(`/api/proxy/graph/nodes`)
 
       if (!response.ok) throw new Error("Failed to fetch services")
 
@@ -181,7 +181,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const fetchGapData = async () => {
     try {
       // Use rewrite route to avoid CORS issues
-      const response = await fetch(`/backend/api/gap-analysis`)
+      const response = await fetch(`/api/proxy/gap-analysis`)
       if (response.ok) {
         const data = await response.json()
         setGapData(data)
