@@ -9,47 +9,70 @@ const BACKEND_URL =
 
 export async function GET(request: Request) {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`, {
+    // Get systemName from query params
+    const { searchParams } = new URL(request.url)
+    const systemName = searchParams.get("systemName")
+
+    if (!systemName) {
+      return NextResponse.json({
+        success: false,
+        allowed: [],
+        used: [],
+        unused: [],
+        confidence: 0,
+        message: "systemName parameter is required",
+      })
+    }
+
+    // Call the new backend endpoint with systemName
+    const backendUrl = `${BACKEND_URL}/api/gap-analysis?systemName=${encodeURIComponent(systemName)}`
+    console.log("[proxy] Calling gap-analysis:", backendUrl)
+
+    const response = await fetch(backendUrl, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
     })
 
-    // If endpoint doesn't exist, return empty data (not hardcoded 28)
+    // If endpoint doesn't exist, return empty data
     if (response.status === 404) {
-      console.log("[v0] Gap analysis endpoint not found, returning empty data")
+      console.log("[proxy] Gap analysis endpoint not found, returning empty data")
       return NextResponse.json({
         success: false,
-        allowed_actions: 0,
-        used_actions: 0,
-        unused_actions: 0,
+        allowed: [],
+        used: [],
+        unused: [],
+        confidence: 0,
         message: "Gap analysis endpoint not available",
       })
     }
 
     if (!response.ok) {
-      console.log("[v0] Gap analysis backend error")
+      console.log("[proxy] Gap analysis backend error:", response.status)
       return NextResponse.json({
         success: false,
-        allowed_actions: 0,
-        used_actions: 0,
-        unused_actions: 0,
+        allowed: [],
+        used: [],
+        unused: [],
+        confidence: 0,
         message: `Backend returned ${response.status}`,
       })
     }
 
     const data = await response.json()
-    console.log("[v0] Gap analysis data:", data)
+    console.log("[proxy] Gap analysis data received:", JSON.stringify(data).slice(0, 200))
+
     return NextResponse.json({
       success: true,
       ...data,
     })
   } catch (error: any) {
-    console.error("[v0] Gap analysis fetch error:", error)
+    console.error("[proxy] Gap analysis fetch error:", error)
     return NextResponse.json({
       success: false,
-      allowed_actions: 0,
-      used_actions: 0,
-      unused_actions: 0,
+      allowed: [],
+      used: [],
+      unused: [],
+      confidence: 0,
       message: error.message || "Connection failed",
     })
   }
