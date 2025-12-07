@@ -10,9 +10,10 @@ import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
+  onRefresh?: () => void
 }
 
-export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
+export function SecurityFindingsList({ findings, onRefresh }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
 
@@ -54,6 +55,7 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
         open={showModal}
         onClose={() => setShowModal(false)}
         finding={selectedFinding}
+        onRunFix={onRefresh}
       />
 
       <div className="space-y-3">

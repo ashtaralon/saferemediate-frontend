@@ -205,16 +205,34 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     ])
   }
 
-  useEffect(() => {
-    fetchSystemsData()
+  // Use ref to prevent concurrent fetches
+  const fetchingRef = useRef(false)
+
+  const safeFetchSystemsData = useCallback(async () => {
+    if (fetchingRef.current) return
+    fetchingRef.current = true
+
+    try {
+      await fetchSystemsData()
+    } finally {
+      fetchingRef.current = false
+    }
   }, [fetchSystemsData])
 
+  // Fetch on mount only
+  useEffect(() => {
+    safeFetchSystemsData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - only run once on mount
+
+  // Auto-refresh every 30 seconds (not on every render)
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchSystemsData()
+      safeFetchSystemsData()
     }, 30000)
     return () => clearInterval(interval)
-  }, [fetchSystemsData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - interval doesn't need to restart
 
   useEffect(() => {
     const countdown = setInterval(() => {

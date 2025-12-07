@@ -1,11 +1,19 @@
 import { NextResponse } from "next/server"
 
-const BACKEND_URL =
-  process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
-
 export async function GET(request: Request) {
+  // Get backend URL and ensure it doesn't have /backend/api duplication
+  let backendUrl =
+    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+  
+  // Remove trailing slashes and /backend if present
+  backendUrl = backendUrl.replace(/\/+$/, "").replace(/\/backend$/, "")
+
   try {
-    const response = await fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`, {
+    // Extract systemName from query parameters
+    const { searchParams } = new URL(request.url)
+    const systemName = searchParams.get("systemName") || "SafeRemediate-Lambda-Remediation-Role"
+    
+    const response = await fetch(`${backendUrl}/api/traffic/gap/${systemName}`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
     })

@@ -9,8 +9,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { CheckCircle, AlertTriangle, Zap, Clock, TrendingUp } from "lucide-react"
+import { CheckCircle, AlertTriangle, Zap, Clock, TrendingUp, Wrench } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
+import { simulateIssue, fixIssue } from "@/lib/api-client"
+import { useToast } from "@/hooks/use-toast"
 
 interface SimulateFixModalProps {
   open: boolean
@@ -39,12 +41,18 @@ interface SimulationResult {
   }>
   impact_summary?: string
   simulated?: boolean
+  safeToRemediate?: boolean
+  affectedResources?: number
+  brokenCalls?: number
+  recommendation?: string
 }
 
 export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateFixModalProps) {
   const [loading, setLoading] = useState(false)
+  const [fixing, setFixing] = useState(false)
   const [simulation, setSimulation] = useState<SimulationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const { toast } = useToast()
 
   async function handleSimulate() {
     if (!finding) return
@@ -54,25 +62,77 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
       setError(null)
       setSimulation(null)
 
-      const response = await fetch("/api/proxy/simulate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ finding_id: finding.id }),
+      // Use the new simulation endpoint
+      const data = await simulateIssue(finding.id)
+      
+      // Map the response to our SimulationResult format
+      setSimulation({
+        success: true,
+        confidence: data.confidence?.score || data.confidence || 85,
+        before_state: data.beforeState || data.before_state || "Current configuration",
+        after_state: data.afterState || data.after_state || "Remediated configuration",
+        estimated_time: data.estimatedTime || data.estimated_time || "2-3 minutes",
+        temporal_info: data.temporalInfo || data.temporal_info,
+        warnings: data.warnings || [],
+        resource_changes: data.resourceChanges || data.resource_changes || [],
+        impact_summary: data.impactSummary || data.impact_summary || "1 resource will be modified",
+        safeToRemediate: data.safeToRemediate !== false,
+        affectedResources: data.affectedResources || data.affected_resources || 1,
+        brokenCalls: data.brokenCalls || data.broken_calls || 0,
+        recommendation: data.recommendation || "Safe to remediate",
       })
-
-      if (!response.ok) {
-        throw new Error(`Simulation failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      setSimulation(data)
     } catch (err) {
       console.error("Simulation error", err)
-      setError(err instanceof Error ? err.message : "Failed to run simulation")
+      const errorMessage = err instanceof Error ? err.message : "Failed to run simulation"
+      setError(errorMessage)
+      toast({
+        title: "Simulation Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleFix() {
+    if (!finding) return
+
+    if (!simulation || !simulation.safeToRemediate) {
+      toast({
+        title: "Cannot Fix",
+        description: "Run simulation first or issue is unsafe to fix",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setFixing(true)
+      await fixIssue(finding.id)
+      
+      toast({
+        title: "Success",
+        description: "Issue fixed successfully!",
+      })
+
+      // Call refresh callback if provided
+      if (onRunFix) {
+        onRunFix()
+      }
+
+      // Close modal after successful fix
+      handleClose()
+    } catch (err) {
+      console.error("Fix error", err)
+      const errorMessage = err instanceof Error ? err.message : "Failed to remediate"
+      toast({
+        title: "Remediation Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setFixing(false)
     }
   }
 
@@ -167,22 +227,63 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
           {simulation && (
             <div className="space-y-4">
               {/* Success header with confidence */}
-              <div className="p-4 border rounded-lg bg-green-50 border-green-200">
-                <div className="flex items-center gap-2 text-green-700">
-                  <CheckCircle className="w-5 h-5" />
+              <div className={`p-4 border rounded-lg ${
+                simulation.safeToRemediate 
+                  ? "bg-green-50 border-green-200" 
+                  : "bg-orange-50 border-orange-200"
+              }`}>
+                <div className={`flex items-center gap-2 ${
+                  simulation.safeToRemediate ? "text-green-700" : "text-orange-700"
+                }`}>
+                  {simulation.safeToRemediate ? (
+                    <CheckCircle className="w-5 h-5" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5" />
+                  )}
                   <span className="font-semibold">
-                    Simulation Successful
+                    Simulation {simulation.safeToRemediate ? "Successful" : "Warning"}
                     {simulation.confidence !== undefined && (
-                      <span className="ml-2 text-green-800">
+                      <span className={`ml-2 ${
+                        simulation.safeToRemediate ? "text-green-800" : "text-orange-800"
+                      }`}>
                         ({simulation.confidence}% Confidence)
                       </span>
                     )}
                   </span>
                 </div>
+                {simulation.recommendation && (
+                  <p className={`text-sm mt-2 ${
+                    simulation.safeToRemediate ? "text-green-800" : "text-orange-800"
+                  }`}>
+                    {simulation.recommendation}
+                  </p>
+                )}
                 {simulation.simulated && (
-                  <p className="text-xs text-green-600 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     Note: This is a simulated response (backend endpoint pending)
                   </p>
+                )}
+              </div>
+
+              {/* Key Metrics */}
+              <div className="grid grid-cols-2 gap-3">
+                {simulation.affectedResources !== undefined && (
+                  <div className="p-3 border rounded-lg bg-white">
+                    <p className="text-xs text-gray-500 mb-1">Affected Resources</p>
+                    <p className="text-lg font-semibold text-gray-900">{simulation.affectedResources}</p>
+                  </div>
+                )}
+                {simulation.brokenCalls !== undefined && (
+                  <div className={`p-3 border rounded-lg ${
+                    simulation.brokenCalls > 0 ? "bg-red-50 border-red-200" : "bg-white"
+                  }`}>
+                    <p className="text-xs text-gray-500 mb-1">Broken Calls</p>
+                    <p className={`text-lg font-semibold ${
+                      simulation.brokenCalls > 0 ? "text-red-700" : "text-gray-900"
+                    }`}>
+                      {simulation.brokenCalls}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -289,19 +390,24 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
               {/* Action Buttons */}
               <div className="flex gap-3 pt-2">
                 <Button
-                  onClick={() => {
-                    if (onRunFix) {
-                      onRunFix()
-                    }
-                    handleClose()
-                  }}
+                  onClick={handleFix}
+                  disabled={fixing || !simulation?.safeToRemediate}
                   className="flex-1"
                   size="lg"
                 >
-                  <Zap className="w-4 h-4" />
-                  Run Safe Fix
+                  {fixing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                      Fixing...
+                    </>
+                  ) : (
+                    <>
+                      <Wrench className="w-4 h-4 mr-2" />
+                      Run Safe Fix
+                    </>
+                  )}
                 </Button>
-                <Button onClick={handleClose} variant="outline" className="flex-1" size="lg">
+                <Button onClick={handleClose} variant="outline" className="flex-1" size="lg" disabled={fixing}>
                   Cancel
                 </Button>
               </div>

@@ -47,7 +47,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setError(null)
       setLoading(true)
 
-      const response = await fetch("/api/proxy/least-privilege")
+      const response = await fetch(`/api/proxy/least-privilege?systemName=${encodeURIComponent(systemName)}`)
       const data = await response.json()
 
       if (data.success === false) {
@@ -55,7 +55,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
         return
       }
 
-      setRoleName(data.role_name || "SafeRemediate-Lambda-Remediation-Role")
+      setRoleName(data.role_name || systemName)
       setAllowedActions(data.allowed_actions ?? 0)
       setUsedActions(data.used_actions ?? 0)
       setUnusedActions(data.unused_actions ?? 0)

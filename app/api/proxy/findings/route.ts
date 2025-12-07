@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 
 export async function GET() {
-  const backendUrl =
+  // Get backend URL and ensure it doesn't have /backend/api duplication
+  let backendUrl =
     process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+  
+  // Remove trailing slashes and /backend if present
+  backendUrl = backendUrl.replace(/\/+$/, "").replace(/\/backend$/, "")
 
   try {
     const response = await fetch(`${backendUrl}/api/findings`, {

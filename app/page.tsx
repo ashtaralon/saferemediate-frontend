@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
 import { InfrastructureOverview } from "@/components/infrastructure-overview"
@@ -48,9 +48,10 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+    // Ingest is optional, skip for now
+    // fetch(`/api/proxy/auto-tag-trigger`).catch(() => {})
 
-    fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+    fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent("SafeRemediate-Lambda-Remediation-Role")}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -104,7 +105,13 @@ export default function HomePage() {
       })
   }, [])
 
+  // Use ref to prevent concurrent fetches
+  const loadingRef = useRef(false)
+
   const loadData = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
+
     try {
       const [infrastructureData, findings] = await Promise.all([fetchInfrastructure(), fetchSecurityFindings()])
       setData(infrastructureData)
@@ -113,24 +120,29 @@ export default function HomePage() {
       console.error("Failed to load data:", error)
     } finally {
       setLoading(false)
+      loadingRef.current = false
     }
   }, [])
 
+  // Load data once on mount - NO dependencies to prevent infinite loop
   useEffect(() => {
     loadData()
     fetchGapAnalysis()
-  }, [loadData, fetchGapAnalysis])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - only run once on mount
 
+  // Auto-refresh only when autoRefresh is enabled
   useEffect(() => {
     if (!autoRefresh) return
 
     const interval = setInterval(() => {
       loadData()
       fetchGapAnalysis()
-    }, 30000)
+    }, 30000) // 30 seconds, not every render
 
     return () => clearInterval(interval)
-  }, [autoRefresh, loadData, fetchGapAnalysis])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh]) // Only depend on autoRefresh, not the functions
 
   const statsData = data?.stats || {
     avgHealthScore: 0,
@@ -275,7 +287,13 @@ export default function HomePage() {
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
               {securityFindings.length > 0 ? (
-                <SecurityFindingsList findings={securityFindings} />
+                <SecurityFindingsList 
+                  findings={securityFindings} 
+                  onRefresh={async () => {
+                    await loadData()
+                    await fetchGapAnalysis()
+                  }}
+                />
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   <p>No security findings found.</p>
@@ -304,7 +322,13 @@ export default function HomePage() {
             <div className="bg-white rounded-lg p-6 border border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">All Security Findings</h2>
               {securityFindings.length > 0 ? (
-                <SecurityFindingsList findings={securityFindings} />
+                <SecurityFindingsList 
+                  findings={securityFindings} 
+                  onRefresh={async () => {
+                    await loadData()
+                    await fetchGapAnalysis()
+                  }}
+                />
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   <p>No security findings found.</p>
