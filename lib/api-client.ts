@@ -245,3 +245,42 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
     return { success: false, message: error.message || "Connection failed" }
   }
 }
+
+// ============================================================================
+// HTTP POST Helper & Simulation/Fix Functions
+// ============================================================================
+
+async function httpPost<T>(path: string, body: any): Promise<T> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Request to ${path} failed (${res.status}): ${text}`)
+  }
+
+  return res.json() as Promise<T>
+}
+
+/**
+ * Simulate a fix for a finding
+ * payload can be:
+ * { finding_id, change_type, resource_id, proposed_state }
+ */
+export async function simulateIssue(payload: any) {
+  return httpPost("/api/simulate", payload)
+}
+
+/**
+ * Execute remediation for a finding
+ * Usually you send something like:
+ * { finding_id: "...", ... }
+ */
+export async function fixIssue(payload: any) {
+  return httpPost("/api/execute", payload)
+}
