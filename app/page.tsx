@@ -21,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-const BACKEND_URL = "https://saferemediate-backend.onrender.com"
+// All API calls go through /api/proxy/* to avoid CORS
 
 interface GapAnalysisData {
   allowed: number
