@@ -80,7 +80,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     let unusedActions = 0
 
     try {
-      const gapJson = await apiGet("/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
+      const gapJson = await apiGet("/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role")
       if (gapJson) {
         unusedActions = gapJson.unused_actions ?? 0
         setGapData({
