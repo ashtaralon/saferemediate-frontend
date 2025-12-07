@@ -366,24 +366,115 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
   }
 }
 
-export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
+// ============================================================================
+// GAP ANALYSIS TYPES
+// ============================================================================
+
+export interface GapPermission {
+  action: string
+  resource?: string
+  condition?: Record<string, any>
+  source?: string
+}
+
+export interface GapAnalysisResponse {
+  success: boolean
+  systemName?: string
+  roleName?: string
+  confidence: number
+  allowed: GapPermission[]
+  used: GapPermission[]
+  unused: GapPermission[]
+  gap: number
+  reductionPercent: number
+}
+
+export interface LeastPrivilegeSimulationResult {
+  success: boolean
+  systemName?: string
+  roleName?: string
+  checkpointId?: string
+  unusedCount: number
+  reductionPercent: number
+  confidence: number
+  plan: GapPermission[]
+}
+
+// ============================================================================
+// GAP ANALYSIS API FUNCTIONS
+// ============================================================================
+
+export async function fetchGapAnalysis(
+  systemName?: string,
+  roleName: string = "SafeRemediate-Lambda-Remediation-Role",
+): Promise<GapAnalysisResponse> {
+  const params = new URLSearchParams()
+  if (systemName) params.set("systemName", systemName)
+  if (roleName) params.set("roleName", roleName)
+
+  const qs = params.toString()
+  const path = qs ? `/api/gap-analysis?${qs}` : "/api/gap-analysis"
+
   try {
-    // Trigger traffic ingestion first (background, don't wait)
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+    const data = await apiGet(path, { cache: false })
 
-    // No caching for gap analysis (always fresh)
-    const response = await fetch(`${BACKEND_URL}/api/traffic/gap/${roleName}`, {
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+    return {
+      success: data.success ?? true,
+      systemName: data.systemName,
+      roleName: data.roleName,
+      confidence: data.confidence ?? 95,
+      allowed: data.allowed ?? [],
+      used: data.used ?? [],
+      unused: data.unused ?? [],
+      gap: data.gap ?? (data.unused?.length ?? 0),
+      reductionPercent:
+        data.reductionPercent ??
+        (data.allowed && data.unused && data.allowed.length > 0
+          ? Math.round((data.unused.length / data.allowed.length) * 100)
+          : 0),
     }
-
-    return await response.json()
   } catch (error) {
-    console.error("[api-client] Error fetching gap analysis:", error)
+    console.error("[api-client] gap-analysis error:", error)
+    return {
+      success: false,
+      systemName,
+      roleName,
+      confidence: 0,
+      allowed: [],
+      used: [],
+      unused: [],
+      gap: 0,
+      reductionPercent: 0,
+    }
+  }
+}
+
+export async function simulateLeastPrivilege(
+  systemName?: string,
+  roleName?: string
+): Promise<LeastPrivilegeSimulationResult> {
+  try {
+    const data = await apiPost("/api/least-privilege/simulate", {
+      systemName,
+      roleName,
+    })
+    return data
+  } catch (error) {
+    console.error("[api-client] simulate least privilege error:", error)
+    throw error
+  }
+}
+
+export async function applyLeastPrivilege(payload: {
+  systemName?: string
+  roleName?: string
+  planId?: string
+}): Promise<{ success: boolean; checkpointId?: string; message?: string }> {
+  try {
+    const data = await apiPost("/api/least-privilege/apply", payload)
+    return data
+  } catch (error) {
+    console.error("[api-client] apply least privilege error:", error)
     throw error
   }
 }
