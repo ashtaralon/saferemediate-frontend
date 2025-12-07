@@ -1,7 +1,7 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
 export interface InfrastructureData {
   resources: Array<{
