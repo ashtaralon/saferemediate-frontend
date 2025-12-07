@@ -2,11 +2,12 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
 // ============================================================================
-// REWRITE-BASED API CLIENT - All calls go through Next.js rewrites to avoid CORS
+// PROXY-BASED API CLIENT - All calls go through Next.js API routes to avoid CORS
 // ============================================================================
 
-// Browser calls /backend/* → Next.js rewrites to real backend (see next.config.js)
-const API_BASE = "/backend/api"
+// Use /api/proxy/* which gets forwarded to the actual backend
+// Browser sees same-origin request, Next.js API routes proxy server-to-server
+const API_BASE = "/api/proxy"
 
 // ============================================================================
 // ⚡ CACHING & DEDUPLICATION
@@ -73,7 +74,7 @@ export async function apiGet<T = any>(
   path: string,
   options?: { cache?: boolean; ttl?: number }
 ): Promise<T> {
-  const url = path.startsWith("/backend")
+  const url = path.startsWith("/backend") || path.startsWith("/api/proxy")
     ? path
     : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
 
@@ -108,7 +109,7 @@ export async function apiGet<T = any>(
 }
 
 export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
-  const url = path.startsWith("/backend")
+  const url = path.startsWith("/backend") || path.startsWith("/api/proxy")
     ? path
     : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
 
@@ -209,7 +210,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       nodes = graphResponse
     }
 
-    console.log("[api-client] Loaded metrics and nodes via rewrites")
+    console.log("[api-client] Loaded metrics and nodes via proxy")
 
     const resources = nodes.map((node: any) => ({
       id: node.id || node.nodeId || "",
@@ -353,31 +354,45 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 }
 
 // ============================================================================
-// GAP ANALYSIS (SYSTEM-BASED, NOT ROLE-BASED)
+// GAP ANALYSIS TYPES & FUNCTIONS
 // ============================================================================
 
-export async function fetchGapAnalysis(systemName: string): Promise<any> {
+export interface GapAnalysisResponse {
+  success: boolean
+  confidence: number
+  allowed: any[]
+  used: any[]
+  unused: any[]
+  gap: number
+}
+
+export async function fetchGapAnalysis(
+  systemName: string
+): Promise<GapAnalysisResponse> {
   try {
-    const data = await apiGet(
-      `/gap-analysis?systemName=${encodeURIComponent(systemName)}`,
-      {
-        cache: false,          // תמיד עדכני
-        ttl: CACHE_TTL.short,
-      }
-    )
-    return data
+    // Backend expects systemName as required parameter
+    const data = await apiGet(`/gap-analysis?systemName=${encodeURIComponent(systemName)}`, { cache: false })
+
+    return {
+      success: data.success ?? true,
+      confidence: data.confidence ?? data.confidenceScore ?? 99,
+      allowed: data.allowed ?? data.allowedPermissions ?? [],
+      used: data.used ?? data.usedPermissions ?? [],
+      unused: data.unused ?? data.unusedPermissions ?? [],
+      gap:
+        data.gap ??
+        data.reductions_possible ??
+        (data.unused ? data.unused.length : data.unusedPermissions?.length ?? 0),
+    }
   } catch (error) {
-    console.error("[api-client] Error fetching gap analysis:", error)
+    console.error("[api-client] gap-analysis error:", error)
     return {
       success: false,
-      statistics: {
-        total_allowed: 0,
-        total_used: 0,
-        total_unused: 0,
-        confidence: 0,
-      },
-      unused_actions_list: [],
-      message: "Gap analysis failed",
+      confidence: 0,
+      allowed: [],
+      used: [],
+      unused: [],
+      gap: 0,
     }
   }
 }
@@ -388,7 +403,7 @@ export async function fetchGapAnalysis(systemName: string): Promise<any> {
 
 export interface SimulationResult {
   success: boolean
-  roleName?: string        // נשאיר לתאימות אחורה
+  roleName?: string
   systemName?: string
   allowed: string[]
   used: string[]
@@ -413,12 +428,21 @@ export interface ApplyResult {
 /**
  * Simulate removing unused IAM permissions for a system
  */
-export async function simulateLeastPrivilege(systemName: string): Promise<SimulationResult> {
+export async function simulateLeastPrivilege(
+  systemName: string
+): Promise<SimulationResult> {
   try {
-    const data = await apiPost<SimulationResult>("/least-privilege/simulate", {
-      systemName,
-    })
-    return data
+    const data = await apiPost<SimulationResult>('/least-privilege/simulate', { systemName })
+    return {
+      success: data.success ?? true,
+      systemName: data.systemName || systemName,
+      roleName: data.roleName || "",
+      allowed: data.allowed ?? [],
+      used: data.used ?? [],
+      unused: data.unused ?? [],
+      confidence: data.confidence ?? 99,
+      plan: data.plan ?? [],
+    }
   } catch (error) {
     console.error("[api-client] Simulation failed:", error)
     return {
@@ -438,13 +462,13 @@ export async function simulateLeastPrivilege(systemName: string): Promise<Simula
  */
 export async function applyLeastPrivilege(
   systemName: string,
-  permissions: string[]
+  planId?: string
 ): Promise<ApplyResult> {
   try {
-    const data = await apiPost<ApplyResult>("/least-privilege/apply", {
-      systemName,
-      permissions,
-    })
+    const body: any = { systemName }
+    if (planId) body.planId = planId
+
+    const data = await apiPost<ApplyResult>('/least-privilege/apply', body)
     return data
   } catch (error) {
     console.error("[api-client] Apply fix failed:", error)

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { apiGet, apiPost } from "@/lib/api-client"
+import { apiGet, apiPost, fetchGapAnalysis, simulateLeastPrivilege, applyLeastPrivilege, GapAnalysisResponse } from "@/lib/api-client"
 import {
   AlertTriangle,
   CheckCircle,
@@ -18,6 +18,7 @@ import {
   Copy,
   Check,
   Wrench,
+  Play,
 } from "lucide-react"
 
 interface LeastPrivilegeTabProps {
@@ -43,25 +44,45 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
   const [roleName, setRoleName] = useState<string>("")
 
+  // Simulation state
+  const [isSimulating, setIsSimulating] = useState(false)
+  const [isApplying, setIsApplying] = useState(false)
+  const [simulation, setSimulation] = useState<any | null>(null)
+  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisResponse | null>(null)
+
   const fetchData = async () => {
     try {
       setError(null)
       setLoading(true)
 
-      const data = await apiGet("/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
+      // Use the new fetchGapAnalysis function with systemName
+      const data = await fetchGapAnalysis(systemName, "SafeRemediate-Lambda-Remediation-Role")
 
       if (data.success === false) {
-        setError(data.error || "Failed to fetch data from backend")
+        setError("Failed to fetch data from backend")
         return
       }
 
-      setRoleName(data.role_name || "SafeRemediate-Lambda-Remediation-Role")
-      setAllowedActions(data.allowed_actions ?? 0)
-      setUsedActions(data.used_actions ?? 0)
-      setUnusedActions(data.unused_actions ?? 0)
-      setAllowedActionsList(data.allowed_actions_list || [])
-      setUsedActionsList(data.actual_actions_list || data.used_actions_list || [])
-      setUnusedActionsList(data.unused_actions_list || [])
+      setGapAnalysis(data)
+
+      // Extract permission lists from normalized response
+      const allowedList = Array.isArray(data.allowed)
+        ? data.allowed.map((p: any) => typeof p === 'string' ? p : p.permission || p.name || String(p))
+        : []
+      const usedList = Array.isArray(data.used)
+        ? data.used.map((p: any) => typeof p === 'string' ? p : p.permission || p.name || String(p))
+        : []
+      const unusedList = Array.isArray(data.unused)
+        ? data.unused.map((p: any) => typeof p === 'string' ? p : p.permission || p.name || String(p))
+        : []
+
+      setRoleName("SafeRemediate-Lambda-Remediation-Role")
+      setAllowedActions(allowedList.length)
+      setUsedActions(usedList.length)
+      setUnusedActions(unusedList.length)
+      setAllowedActionsList(allowedList)
+      setUsedActionsList(usedList)
+      setUnusedActionsList(unusedList)
 
       setLastUpdated(new Date())
     } catch (err) {
@@ -101,12 +122,67 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
     setRemediating(null)
   }
 
+  // Simulate removing unused permissions
+  const handleSimulate = async () => {
+    if (!systemName) return
+    try {
+      setIsSimulating(true)
+      setSimulation(null)
+
+      const result = await simulateLeastPrivilege(systemName, roleName || undefined)
+      setSimulation(result)
+
+      console.log("[LeastPrivilegeTab] Simulation result:", result)
+    } catch (e) {
+      console.error("[LeastPrivilegeTab] simulate failed", e)
+      setError("Simulation failed")
+    } finally {
+      setIsSimulating(false)
+    }
+  }
+
+  // Apply the least privilege fix
+  const handleApply = async () => {
+    if (!systemName) return
+    if (!simulation && unusedActions === 0) {
+      alert("Please run a simulation first or ensure there are permissions to remove")
+      return
+    }
+
+    if (!confirm("Are you sure you want to apply this fix? This will modify IAM policies.")) {
+      return
+    }
+
+    try {
+      setIsApplying(true)
+
+      const result = await applyLeastPrivilege(
+        systemName,
+        simulation?.checkpointId || simulation?.planId,
+        roleName || undefined,
+        unusedActionsList
+      )
+
+      console.log("[LeastPrivilegeTab] Apply result:", result)
+
+      if (result.success) {
+        // Refresh data after successful apply
+        setSimulation(null)
+        await fetchData()
+      } else {
+        setError("Failed to apply changes")
+      }
+    } catch (e) {
+      console.error("[LeastPrivilegeTab] apply failed", e)
+      setError("Apply failed")
+    } finally {
+      setIsApplying(false)
+    }
+  }
+
   const handleRemediateAll = async () => {
-    setRemediating("all")
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setUnusedActionsList([])
-    setUnusedActions(0)
-    setRemediating(null)
+    // Use the new handleApply function
+    await handleApply()
   }
 
   const getPermissionDescription = (permission: string): string => {
@@ -388,21 +464,38 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 mb-4">
         <button
-          onClick={handleRemediateAll}
-          disabled={remediating === "all" || unusedActions === 0}
-          className="flex-1 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3 font-semibold text-lg shadow-lg"
+          onClick={handleSimulate}
+          disabled={isSimulating || unusedActions === 0}
+          className="px-6 py-4 bg-white border-2 border-blue-500 text-blue-600 rounded-xl hover:bg-blue-50 transition-colors flex items-center gap-3 font-semibold disabled:opacity-50"
         >
-          {remediating === "all" ? (
+          {isSimulating ? (
             <>
               <RefreshCw className="w-5 h-5 animate-spin" />
-              Applying Remediation...
+              Simulating...
+            </>
+          ) : (
+            <>
+              <Play className="w-5 h-5" />
+              Simulate Fix
+            </>
+          )}
+        </button>
+        <button
+          onClick={handleApply}
+          disabled={isApplying || unusedActions === 0}
+          className="flex-1 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3 font-semibold text-lg shadow-lg"
+        >
+          {isApplying ? (
+            <>
+              <RefreshCw className="w-5 h-5 animate-spin" />
+              Applying...
             </>
           ) : (
             <>
               <Zap className="w-5 h-5" />
-              Apply Remediation
+              Apply Auto-Fix
             </>
           )}
         </button>
@@ -418,6 +511,66 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
           Generate Report
         </button>
       </div>
+
+      {/* Simulation Results */}
+      {simulation && (
+        <div className="rounded-xl border bg-blue-50 border-blue-200 p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-semibold text-blue-800 flex items-center gap-2">
+              <CheckCircle className="w-5 h-5" />
+              Simulation Complete
+            </h4>
+            <span className="text-sm text-blue-600">
+              {simulation.confidence || gapAnalysis?.confidence || 99}% confidence
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <span className="text-gray-600">Permissions to remove:</span>
+              <span className="ml-2 font-semibold text-red-600">
+                {simulation.unusedCount || simulation.unused?.length || unusedActions}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-600">Expected reduction:</span>
+              <span className="ml-2 font-semibold text-green-600">
+                {simulation.reductionPercent || reductionPercent}%
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-600">Safe to apply:</span>
+              <span className="ml-2 font-semibold text-green-600">
+                {simulation.success !== false ? "Yes" : "No"}
+              </span>
+            </div>
+          </div>
+          {simulation.checkpointId && (
+            <div className="mt-3 text-xs text-blue-600">
+              Checkpoint ID: {simulation.checkpointId}
+            </div>
+          )}
+          {simulation.plan && simulation.plan.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-blue-200">
+              <div className="text-sm font-medium text-blue-800 mb-2">Proposed changes:</div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {simulation.plan.slice(0, 5).map((item: any, i: number) => (
+                  <div key={i} className="text-xs text-gray-700 flex items-center gap-2">
+                    <span className={item.impact === 'warning' ? 'text-amber-500' : 'text-green-500'}>
+                      {item.impact === 'warning' ? '⚠️' : '✅'}
+                    </span>
+                    {item.description || item.permission || item.action}
+                  </div>
+                ))}
+                {simulation.plan.length > 5 && (
+                  <div className="text-xs text-gray-500">
+                    ... and {simulation.plan.length - 5} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Policy Diff View */}
       {showPolicyDiff && (

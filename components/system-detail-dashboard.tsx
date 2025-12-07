@@ -37,7 +37,7 @@ import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapT
 import { AllServicesTab } from "./all-services-tab"
 import { SimulateFixModal } from "./issues/simulate-fix-modal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
-import { fetchSecurityFindings, fetchGapAnalysis, apiGet, apiPost } from "@/lib/api-client"
+import { fetchSecurityFindings, fetchGapAnalysis, apiGet, apiPost, GapAnalysisResponse } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 // Import new modular components
 import { Header } from "./system-detail/header"
@@ -190,37 +190,40 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [totalChecks, setTotalChecks] = useState(0) // Declared totalChecks variable
 
   // =============================================================================
+  // FETCH GAP ANALYSIS - uses normalized response from api-client
   // =============================================================================
   const handleGapAnalysis = async () => {
     try {
-      // Use the imported fetchGapAnalysis from api-client.ts
-      const data = await fetchGapAnalysis("SafeRemediate-Lambda-Remediation-Role")
+      // Use the imported fetchGapAnalysis from api-client.ts with systemName
+      const data = await fetchGapAnalysis(systemName, "SafeRemediate-Lambda-Remediation-Role")
 
-      const allowed = Number(data.allowed_actions) || 0
-      const actual = Number(data.used_actions) || 0
-      const gap = Number(data.unused_actions) || 0
-      const confidence =
-        typeof data.statistics?.remediation_potential === "string"
-          ? Number.parseInt(data.statistics.remediation_potential.replace("%", ""))
-          : data.statistics?.confidence || 99
+      // The response is now normalized by api-client:
+      // { success, confidence, allowed: [], used: [], unused: [], gap }
+      const allowedCount = Array.isArray(data.allowed) ? data.allowed.length : 0
+      const usedCount = Array.isArray(data.used) ? data.used.length : 0
+      const unusedCount = Array.isArray(data.unused) ? data.unused.length : 0
+      const confidence = data.confidence || 99
 
       setGapAnalysis({
-        allowed,
-        actual,
-        gap,
-        gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
+        allowed: allowedCount,
+        actual: usedCount,
+        gap: unusedCount,
+        gapPercent: allowedCount > 0 ? Math.round((unusedCount / allowedCount) * 100) : 0,
         confidence,
       })
 
-      const unusedActions = data.unused_actions_list || data.unused_actions || []
+      // Get unused actions list (array of permission strings)
+      const unusedActions = Array.isArray(data.unused)
+        ? data.unused.map((p: any) => typeof p === 'string' ? p : p.permission || p.name || String(p))
+        : []
       setUnusedActionsList(unusedActions)
-      console.log("[v0] Gap analysis - unused_actions_list:", unusedActions.length, "items")
+      console.log("[v0] Gap analysis - unused permissions:", unusedActions.length, "items, confidence:", confidence)
 
       // Update severity counts - each unused action = 1 HIGH finding
       setSeverityCounts((prev) => ({
         ...prev,
-        high: gap,
-        passing: Math.max(0, 100 - gap),
+        high: unusedCount,
+        passing: Math.max(0, 100 - unusedCount),
       }))
 
       // Populate issues array from unused permissions (HIGH severity findings)
