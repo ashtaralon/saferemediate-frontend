@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 const BACKEND_URL =
-  process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+  process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)

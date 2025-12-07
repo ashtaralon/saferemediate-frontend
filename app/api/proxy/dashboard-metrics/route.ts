@@ -6,7 +6,7 @@ export const revalidate = 0
 
 export async function GET() {
   const backendUrl =
-    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
     // Add timeout to prevent hanging

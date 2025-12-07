@@ -138,7 +138,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const fetchServices = async () => {
     setLoading(true)
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
       const response = await fetch(`${backendUrl}/api/graph/nodes?limit=1000`)
 
       if (!response.ok) throw new Error("Failed to fetch services")
@@ -179,7 +179,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
   const fetchGapData = async () => {
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
       const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
       if (response.ok) {
         const data = await response.json()

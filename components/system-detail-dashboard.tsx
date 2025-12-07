@@ -178,7 +178,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     try {
       // Use the provided backend URL
       // Update backend URL and fetch logic
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
       const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
 
       if (!response.ok) {
