@@ -47,7 +47,12 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setError(null)
       setLoading(true)
 
-      const response = await fetch("/api/proxy/least-privilege")
+      // Use systemName from props in the API call
+      const apiUrl = systemName 
+        ? `/api/proxy/least-privilege?systemName=${encodeURIComponent(systemName)}`
+        : "/api/proxy/least-privilege"
+      
+      const response = await fetch(apiUrl)
       const data = await response.json()
 
       if (data.success === false) {
