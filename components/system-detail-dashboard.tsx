@@ -242,9 +242,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   // Memoize fetch functions to prevent recreation on every render
   const fetchGapAnalysisMemo = useCallback(async () => {
-    if (fetchingRef.current) return
-    fetchingRef.current = true
-
+    // Note: fetchingRef check is now only in fetchAllData to avoid conflicts
     try {
       // Use Next.js proxy endpoint
       const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
@@ -304,7 +302,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       setGapError(null)
     } finally {
       setLoadingGap(false)
-      fetchingRef.current = false
     }
   }, [systemName])
 
