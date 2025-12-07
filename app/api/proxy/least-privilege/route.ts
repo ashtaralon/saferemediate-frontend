@@ -4,19 +4,41 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-export async function GET(request: Request) {
-  const backendUrl =
-    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+const RAW_BACKEND_URL =
+  process.env.BACKEND_API_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "https://saferemediate-backend-1.onrender.com"
 
+function getBackendBase() {
+  return RAW_BACKEND_URL.replace(/\/+$/, "").replace(/\/backend$/, "")
+}
+
+// Map system names to IAM role names
+// TODO: In production, this should come from a database or backend API
+const SYSTEM_TO_ROLE_MAP: Record<string, string> = {
+  "alon-prod": "SafeRemediate-Lambda-Remediation-Role",
+  "SafeRemediate-Test": "SafeRemediate-Lambda-Remediation-Role",
+  "SafeRemediate-Lambda": "SafeRemediate-Lambda-Remediation-Role",
+}
+
+function getRoleName(systemName: string): string {
+  // Check if we have a mapping, otherwise use the systemName as-is
+  return SYSTEM_TO_ROLE_MAP[systemName] || systemName
+}
+
+export async function GET(request: Request) {
   try {
     // Get systemName from query parameters
     const { searchParams } = new URL(request.url)
     const systemName = searchParams.get("systemName") || "SafeRemediate-Lambda-Remediation-Role"
 
-    // Clean backend URL
-    let cleanBackendUrl = backendUrl.replace(/\/+$/, "").replace(/\/backend$/, "")
+    // Map systemName to role name
+    const roleName = getRoleName(systemName)
 
-    const response = await fetch(`${cleanBackendUrl}/api/traffic/gap/${encodeURIComponent(systemName)}`, {
+    // Clean backend URL
+    const cleanBackendUrl = getBackendBase()
+
+    const response = await fetch(`${cleanBackendUrl}/api/traffic/gap/${encodeURIComponent(roleName)}`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
     })
