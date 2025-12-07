@@ -37,7 +37,7 @@ import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapT
 import { AllServicesTab } from "./all-services-tab"
 import { SimulateFixModal } from "./issues/simulate-fix-modal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
-import { fetchSecurityFindings, fetchGapAnalysis, apiGet, apiPost } from "@/lib/api-client"
+import { fetchSecurityFindings, fetchGapAnalysis, apiGet, apiPost, type GapAnalysisResponse } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 // Import new modular components
 import { Header } from "./system-detail/header"
@@ -195,28 +195,30 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const handleGapAnalysis = async () => {
     try {
-      // Use the imported fetchGapAnalysis from api-client.ts
-      const data = await fetchGapAnalysis("SafeRemediate-Lambda-Remediation-Role")
+      setLoadingGap(true)
+      setGapError(null)
+      
+      // Use the new fetchGapAnalysis with systemName
+      const data: GapAnalysisResponse = await fetchGapAnalysis(systemName)
 
-      const allowed = Number(data.allowed_actions) || 0
-      const actual = Number(data.used_actions) || 0
-      const gap = Number(data.unused_actions) || 0
-      const confidence =
-        typeof data.statistics?.remediation_potential === "string"
-          ? Number.parseInt(data.statistics.remediation_potential.replace("%", ""))
-          : data.statistics?.confidence || 99
+      // Extract data from the response
+      const allowed = data.allowed?.length || 0
+      const actual = data.used?.length || 0
+      const gap = data.unused?.length || data.gap || 0
+      const confidence = data.confidence || 0
+      const reductionPercent = data.reductionPercent || (allowed > 0 ? Math.round((gap / allowed) * 100) : 0)
 
       setGapAnalysis({
         allowed,
         actual,
         gap,
-        gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
+        gapPercent: reductionPercent,
         confidence,
       })
-
-      const unusedActions = data.unused_actions_list || data.unused_actions || []
+      
+      const unusedActions = data.unused?.map(p => p.action) || []
       setUnusedActionsList(unusedActions)
-      console.log("[v0] Gap analysis - unused_actions_list:", unusedActions.length, "items")
+      console.log("[v0] Gap analysis - unused permissions:", unusedActions.length, "items")
 
       // Update severity counts - each unused action = 1 HIGH finding
       setSeverityCounts((prev) => ({
@@ -231,8 +233,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           id: `high-${index}-${permission}`,
           title: `Unused IAM Permission: ${permission}`,
           impact: "Increases attack surface and violates least privilege principle",
-          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
-          safeToFix: 95,
+          affected: `IAM Role: ${data.roleName || "SafeRemediate-Lambda-Remediation-Role"}`,
+          safeToFix: confidence,
           fixTime: "< 5 min",
           temporalAnalysis: `This permission has not been used in the last 7 days. Safe to remove with ${confidence}% confidence.`,
           expanded: false,
@@ -242,10 +244,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       } else {
         setIssues([])
       }
+      
+      setGapError(null)
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
+      setGapError(error instanceof Error ? error.message : "Failed to load gap analysis")
       setGapAnalysis(fallbackGapData)
-      setGapError(null) // Set gapError to null to ensure fallback data is shown without an error message
     } finally {
       setLoadingGap(false)
     }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { apiGet, apiPost } from "@/lib/api-client"
+import { apiGet, apiPost, fetchGapAnalysis, simulateLeastPrivilege, applyLeastPrivilege, type GapAnalysisResponse, type LeastPrivilegeSimulationResult } from "@/lib/api-client"
 import {
   AlertTriangle,
   CheckCircle,
@@ -48,20 +48,21 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       setError(null)
       setLoading(true)
 
-      const data = await apiGet("/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role")
+      // Use the new fetchGapAnalysis with systemName
+      const data: GapAnalysisResponse = await fetchGapAnalysis(systemName)
 
-      if (data.success === false) {
-        setError(data.error || "Failed to fetch data from backend")
+      if (!data.success) {
+        setError("Failed to fetch gap analysis data")
         return
       }
 
-      setRoleName(data.role_name || "SafeRemediate-Lambda-Remediation-Role")
-      setAllowedActions(data.allowed_actions ?? 0)
-      setUsedActions(data.used_actions ?? 0)
-      setUnusedActions(data.unused_actions ?? 0)
-      setAllowedActionsList(data.allowed_actions_list || [])
-      setUsedActionsList(data.actual_actions_list || data.used_actions_list || [])
-      setUnusedActionsList(data.unused_actions_list || [])
+      setRoleName(data.roleName || "SafeRemediate-Lambda-Remediation-Role")
+      setAllowedActions(data.allowed?.length || 0)
+      setUsedActions(data.used?.length || 0)
+      setUnusedActions(data.unused?.length || data.gap || 0)
+      setAllowedActionsList(data.allowed?.map(p => p.action) || [])
+      setUsedActionsList(data.used?.map(p => p.action) || [])
+      setUnusedActionsList(data.unused?.map(p => p.action) || [])
 
       setLastUpdated(new Date())
     } catch (err) {
