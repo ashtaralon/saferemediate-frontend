@@ -90,7 +90,6 @@ export default function HomePage() {
         setLastRefresh(new Date())
       })
       .catch((err) => {
-        clearTimeout(timeoutId)
         // Silent fail - use default values already set in state
         console.warn("Gap analysis fetch failed:", err)
       })
