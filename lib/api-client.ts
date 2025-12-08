@@ -155,8 +155,17 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       },
       complianceSystems: metrics.complianceSystems || [],
     }
+    } catch (error: any) {
+      clearTimeout(timeoutId)
+      if (error.name === 'AbortError') {
+        console.warn("[v0] Request timeout - using fallback data")
+      } else {
+        console.warn("[v0] Backend not available, using mock data. Error:", error)
+      }
+      return infrastructureData
+    }
   } catch (error) {
-    console.warn("[v0] Backend not available, using mock data. Error:", error)
+    console.warn("[v0] Unexpected error, using fallback data:", error)
     return infrastructureData
   }
 }
