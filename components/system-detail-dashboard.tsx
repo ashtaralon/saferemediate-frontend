@@ -212,6 +212,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         high: gap,
         passing: Math.max(0, 100 - gap),
       }))
+<<<<<<< HEAD
+=======
+
+      // Populate issues array from unused permissions (HIGH severity findings)
+      if (unusedActions.length > 0) {
+        const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
+          id: `high-${index}-${permission}`,
+          title: `Unused IAM Permission: ${permission}`,
+          impact: "Increases attack surface and violates least privilege principle",
+          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
+          safeToFix: 95,
+          fixTime: "< 5 min",
+          temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with ${confidence}% confidence.`,
+          expanded: false,
+          selected: false,
+        }))
+        setIssues(highIssues)
+      } else {
+        setIssues([])
+      }
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       setGapAnalysis(fallbackGapData)
@@ -973,6 +994,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                             <div className="flex border-t border-gray-200">
                               <button
+<<<<<<< HEAD
                                 onClick={async () => {
                                   if (simulatingIssue === issue.id) return
                                   setSimulatingIssue(issue.id)
@@ -1023,6 +1045,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                     SIMULATE
                                   </>
                                 )}
+=======
+                                onClick={() => {
+                                  // Extract permission from issue title (format: "Unused IAM Permission: permission:Action")
+                                  const permission = issue.title.replace("Unused IAM Permission: ", "")
+                                  setSelectedPermissionForSimulation(permission)
+                                  setShowSimulateModal(true)
+                                }}
+                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2"
+                              >
+                                <Play className="w-4 h-4" />
+                                SIMULATE FIX
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
                               </button>
                               <button
                                 onClick={async () => {
@@ -1579,6 +1613,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           {/* ACTIONS */}
                           <div className="flex gap-3 pt-2">
                             <button
+<<<<<<< HEAD
+=======
+                              onClick={() => {
+                                setShowHighFindingsModal(false)
+                                setSelectedPermissionForSimulation(permission)
+                                setShowSimulateModal(true)
+                              }}
+                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm"
+                            >
+                              <Zap className="w-4 h-4" />
+                              Simulate Fix
+                            </button>
+                            <button
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
                               onClick={() => handleRemediateFromModal(permission)}
                               disabled={remediatingPermission === permission}
                               className="flex-1 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
@@ -1637,6 +1685,32 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           </div>
         </div>
       )}
+<<<<<<< HEAD
+=======
+
+      {/* Simulate Fix Modal for unused permissions */}
+      {selectedPermissionForSimulation && (
+        <SimulateFixModal
+          open={showSimulateModal}
+          onClose={() => {
+            setShowSimulateModal(false)
+            setSelectedPermissionForSimulation(null)
+          }}
+          finding={{
+            id: `SafeRemediate-Lambda-Remediation-Role/${selectedPermissionForSimulation}`,
+            severity: "HIGH",
+            title: `Unused Permission: ${selectedPermissionForSimulation}`,
+            resource: "SafeRemediate-Lambda-Remediation-Role",
+            resourceType: "IAM Role",
+            description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
+            remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
+            category: "Least Privilege",
+            discoveredAt: new Date().toISOString(),
+            status: "open",
+          } as SecurityFinding}
+        />
+      )}
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
     </div>
   )
 }

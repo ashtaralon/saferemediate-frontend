@@ -1,9 +1,9 @@
-"use client"
+'use client'
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { SystemsView } from "@/components/systems-view"
+import { useState, useEffect } from 'react'
+import { SystemsView } from '@/components/systems-view'
 
+<<<<<<< HEAD
 // Use proxy route to avoid CORS
 const INFRASTRUCTURE_TYPES = [
   "EC2Instance",
@@ -21,19 +21,18 @@ const INFRASTRUCTURE_TYPES = [
   "ELB",
   "ALB",
 ]
+=======
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
 
 export default function SystemsPage() {
-  const router = useRouter()
   const [systems, setSystems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  const handleSystemSelect = (name: string) => {
-    router.push(`/systems/${encodeURIComponent(name)}`)
-  }
-
   useEffect(() => {
-    async function fetchSystems() {
+    const fetchSystems = async () => {
       try {
+<<<<<<< HEAD
         // Use Next.js proxy to avoid CORS
         console.log("[v0] Fetching systems from proxy: /api/proxy/graph-data")
         const response = await fetch("/api/proxy/graph-data")
@@ -75,6 +74,19 @@ export default function SystemsPage() {
         setSystems(systemsList)
       } catch (err) {
         console.error("[v0] Failed to fetch systems:", err)
+=======
+        setLoading(true)
+        const response = await fetch(`${API_URL}/api/systems`)
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+        
+        const data = await response.json()
+        setSystems(data.systems || [])
+      } catch (error) {
+        console.error('Error fetching systems:', error)
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
         setSystems([])
       } finally {
         setLoading(false)
@@ -84,16 +96,16 @@ export default function SystemsPage() {
     fetchSystems()
   }, [])
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading systems from Neo4j...</p>
-        </div>
-      </div>
-    )
+  const handleSystemSelect = (systemName: string) => {
+    // Navigate to system detail page
+    window.location.href = `/systems/${encodeURIComponent(systemName)}`
   }
 
-  return <SystemsView systems={systems} onSystemSelect={handleSystemSelect} />
+  return (
+    <div className="space-y-6 p-6">
+      {/* Systems View */}
+      <SystemsView systems={systems} onSystemSelect={handleSystemSelect} />
+    </div>
+  )
 }
+

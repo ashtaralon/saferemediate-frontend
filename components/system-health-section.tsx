@@ -9,11 +9,58 @@ export function SystemHealthSection() {
   const [showCriticalModal, setShowCriticalModal] = useState(false)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
 
   const handleSimulateFix = (finding: any) => {
-    setSelectedFinding(finding)
+    // Ensure finding has required properties including id
+    const safeFinding = {
+      id: finding?.id || finding?.findingId || `finding-${Date.now()}`,
+      title: finding?.title || finding?.description || "Security Finding",
+      icon: finding?.icon || "⚠️"
+    }
+    setSelectedFinding(safeFinding)
     setShowCriticalModal(false)
     setShowSimulateModal(true)
+  }
+
+  const handleAutoFix = async (finding: any) => {
+    const issueId = finding?.id || finding?.findingId
+    if (!issueId) {
+      alert("Error: Finding ID is required for auto-fix")
+      return
+    }
+
+    if (!confirm(`Are you sure you want to automatically fix "${finding?.title || 'this issue'}"? This will modify your infrastructure.`)) {
+      return
+    }
+
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
+    const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
+
+    try {
+      setLoading(true)
+      const res = await fetch(`${API_URL}/simulation/issue/remediate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ issueId, confirm: true }),
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(errorData.detail || `Fix failed: ${res.status} ${res.statusText}`)
+      }
+
+      const data = await res.json()
+      if (data.status === "success") {
+        alert("Issue fixed successfully! The page will reload to show updated status.")
+        window.location.reload()
+      }
+    } catch (err) {
+      console.error("Fix failed", err)
+      alert(`Auto-fix failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -122,6 +169,7 @@ export function SystemHealthSection() {
         isOpen={showCriticalModal}
         onClose={() => setShowCriticalModal(false)}
         onSimulateFix={handleSimulateFix}
+        onAutoFix={handleAutoFix}
       />
 
       {selectedFinding && (

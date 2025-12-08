@@ -1,4 +1,5 @@
 # dependencies
+<<<<<<< HEAD
 node_modules/
 /.pnp
 .pnp.js
@@ -12,6 +13,21 @@ node_modules/
 
 # production
 /build
+=======
+node_modules
+.pnp
+.pnp.js
+
+# testing
+coverage
+
+# next.js
+.next/
+out/
+
+# production
+build
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
 
 # misc
 .DS_Store
@@ -24,7 +40,10 @@ yarn-error.log*
 
 # local env files
 .env*.local
+<<<<<<< HEAD
 .vercel
+=======
+>>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
 
 # typescript
 *.tsbuildinfo

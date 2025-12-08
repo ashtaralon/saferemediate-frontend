@@ -48,7 +48,10 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    // Use proxy route to avoid CORS issues
+    // Trigger traffic ingestion (non-blocking)
+    fetch(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
+
+    // Fetch gap analysis via proxy route to avoid CORS issues
     fetch("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role")
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)

@@ -155,6 +155,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           })
         })
 
+        // Always ensure alon-prod system exists
+        const hasAlonProd = systems.some(s => s.name.toLowerCase().includes("alon"))
+        if (!hasAlonProd) {
+          // alon-prod should always be shown - it's the main production system
+          systems.unshift({
+            name: "alon-prod",
+            criticality: 5,
+            criticalityLabel: "MISSION CRITICAL",
+            environment: "Production",
+            health: calculatedHealthScore,
+            critical: 0,
+            high: highFindingsFromGap,
+            total: infraNodes.length > 0 ? infraNodes.length : 16,
+            lastScan: "Just now",
+            owner: "Platform Team",
+          })
+        }
+
         if (systems.length > 0) {
           setLocalSystems(systems)
           setBackendStatus("connected")
