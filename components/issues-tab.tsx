@@ -14,7 +14,6 @@ import {
   Flame,
   RefreshCw,
   Search,
-  Filter,
   ChevronDown,
 } from "lucide-react"
 
