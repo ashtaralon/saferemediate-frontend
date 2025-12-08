@@ -35,7 +35,8 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
-import { SimulateFixModal } from "./issues/SimulateFixModal"
+import { SimulationEngine } from "./simulation/SimulationEngine"
+import { SnapshotsRecoveryTab } from "./snapshots/SnapshotsRecoveryTab"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
@@ -1316,15 +1317,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📸</span>
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Snapshots & Recovery</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
-              View and manage system snapshots, backup schedules, and recovery points. Coming soon.
-            </p>
-          </div>
+          <SnapshotsRecoveryTab systemName={systemName} />
         </div>
       )}
 
@@ -1857,11 +1850,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {/* Simulate Fix Modal for unused permissions */}
       {selectedPermissionForSimulation && (
-        <SimulateFixModal
+        <SimulationEngine
           open={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedPermissionForSimulation(null)
+          }}
+          systemName={systemName}
+          onFixApplied={() => {
+            // Refresh gap analysis after fix is applied
+            fetchGapAnalysis()
           }}
           finding={{
             id: `SafeRemediate-Lambda-Remediation-Role/${selectedPermissionForSimulation}`,
