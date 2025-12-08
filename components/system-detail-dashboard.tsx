@@ -455,10 +455,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // Add Dependency Map tab to the tabs array
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "issues", label: "Issues", icon: AlertTriangle, count: severityCounts.critical + severityCounts.high + severityCounts.medium },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "all-services", label: "All Services", icon: Server },
-    { id: "dependency-map", label: "Dependency Map", icon: Map }, // Added Dependency Map tab
+    { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
     { id: "config-history", label: "Configuration History", icon: History },
     { id: "disaster-recovery", label: "Disaster Recovery", icon: ShieldAlert },
@@ -579,6 +580,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 >
                   <IconComponent className="w-4 h-4" />
                   {tab.label}
+                  {tab.count !== undefined && tab.count > 0 && (
+                    <span className={`ml-1 px-2 py-0.5 text-xs font-bold rounded-full ${
+                      activeTab === tab.id
+                        ? "bg-[#2D51DA] text-white"
+                        : "bg-red-100 text-red-600"
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
                 </button>
               )
             })}
@@ -1074,6 +1084,209 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             )}
           </div>
         </>
+      )}
+
+      {/* Issues Tab */}
+      {activeTab === "issues" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          {/* Issues Summary Cards */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-red-500 uppercase tracking-wide">Critical</p>
+                  <p className="text-3xl font-bold text-red-500 mt-1">{severityCounts.critical}</p>
+                </div>
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-red-500" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Immediate action required</p>
+            </div>
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-orange-500 uppercase tracking-wide">High</p>
+                  <p className="text-3xl font-bold text-orange-500 mt-1">{severityCounts.high}</p>
+                </div>
+                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-orange-500" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Fix within 24 hours</p>
+            </div>
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-yellow-500 uppercase tracking-wide">Medium</p>
+                  <p className="text-3xl font-bold text-yellow-500 mt-1">{severityCounts.medium}</p>
+                </div>
+                <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-yellow-500" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Fix within 7 days</p>
+            </div>
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-green-500 uppercase tracking-wide">Passing</p>
+                  <p className="text-3xl font-bold text-green-500 mt-1">{severityCounts.passing}</p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6 text-green-500" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">All checks passed</p>
+            </div>
+          </div>
+
+          {/* Issues List */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-orange-500" />
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    All Issues for {systemName}
+                  </h3>
+                  <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-medium rounded-full">
+                    {severityCounts.critical + severityCounts.high + severityCounts.medium} total
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="all">All Severities</option>
+                    <option value="critical">Critical Only</option>
+                    <option value="high">High Only</option>
+                    <option value="medium">Medium Only</option>
+                  </select>
+                  <label className="flex items-center gap-2 text-sm text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={issues.length > 0 && issues.every((i) => i.selected)}
+                      onChange={selectAllIssues}
+                      className="rounded border-gray-300"
+                    />
+                    Select All
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-8 h-8 text-green-500" />
+                  </div>
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">No Security Issues</h4>
+                  <p className="text-sm text-gray-500 max-w-md">
+                    Great news! This system has no security issues. All permissions are in use and properly configured.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {issues.map((issue) => (
+                    <div key={issue.id} className="border border-gray-200 rounded-lg overflow-hidden hover:border-gray-300 transition-colors">
+                      <div className="p-4">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={issue.selected}
+                            onChange={() => toggleIssueSelected(issue.id)}
+                            className="mt-1 rounded border-gray-300"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded">HIGH</span>
+                              <h4 className="font-medium text-gray-900">{issue.title}</h4>
+                            </div>
+                            <p className="text-sm text-red-600">
+                              <span className="font-medium">Impact:</span> {issue.impact}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              <span className="font-medium">Affected:</span> {issue.affected}
+                            </p>
+                            <div className="flex items-center gap-4 mt-2">
+                              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />
+                                SAFE TO FIX • {issue.safeToFix}%
+                              </span>
+                              <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {issue.fixTime}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {issue.expanded && (
+                          <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-100">
+                            <p className="text-xs font-semibold text-purple-700 uppercase mb-1">
+                              Temporal Analysis
+                            </p>
+                            <p className="text-sm text-purple-800">{issue.temporalAnalysis}</p>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => toggleIssueExpanded(issue.id)}
+                          className="mt-3 text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                        >
+                          {issue.expanded ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          {issue.expanded ? "Hide" : "View"} Details
+                          <ChevronDown className={`w-3 h-3 transition-transform ${issue.expanded ? "rotate-180" : ""}`} />
+                        </button>
+                      </div>
+
+                      <div className="flex border-t border-gray-200">
+                        <button
+                          onClick={() => {
+                            const permission = issue.title.replace("Unused IAM Permission: ", "")
+                            setSelectedPermissionForSimulation(permission)
+                            setShowSimulateModal(true)
+                          }}
+                          className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2"
+                        >
+                          <Play className="w-4 h-4" />
+                          SIMULATE FIX
+                        </button>
+                        <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
+                          <Zap className="w-4 h-4" />
+                          AUTO-FIX
+                        </button>
+                        <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
+                          <MessageSquare className="w-4 h-4" />
+                          REQUEST
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bulk Actions Footer */}
+            {issues.some(i => i.selected) && (
+              <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                <span className="text-sm text-gray-600">
+                  {issues.filter(i => i.selected).length} issues selected
+                </span>
+                <div className="flex items-center gap-3">
+                  <button className="px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] text-sm font-medium flex items-center gap-2">
+                    <Play className="w-4 h-4" />
+                    Simulate All
+                  </button>
+                  <button className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium flex items-center gap-2">
+                    <Zap className="w-4 h-4" />
+                    Auto-Fix All
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Render the LeastPrivilegeTab component */}
