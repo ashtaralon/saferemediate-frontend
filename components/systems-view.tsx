@@ -155,36 +155,22 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           })
         })
 
-        // Always ensure alon-prod system exists
-        const hasAlonProd = systems.some(s => s.name.toLowerCase().includes("alon"))
-        if (!hasAlonProd) {
-          // alon-prod should always be shown - it's the main production system
-          systems.unshift({
-            name: "alon-prod",
-            criticality: 5,
-            criticalityLabel: "MISSION CRITICAL",
-            environment: "Production",
-            health: calculatedHealthScore,
-            critical: 0,
-            high: highFindingsFromGap,
-            total: infraNodes.length > 0 ? infraNodes.length : 16,
-            lastScan: "Just now",
-            owner: "Platform Team",
-          })
-        }
-
+        // Only show systems that actually exist in Neo4j - no hardcoded fallbacks
         if (systems.length > 0) {
           setLocalSystems(systems)
           setBackendStatus("connected")
         } else {
-          setFallbackSystems(unusedActions)
+          // No systems found - show empty state
+          setLocalSystems([])
+          setBackendStatus("connected")
         }
       } else {
-        setFallbackSystems(unusedActions)
+        // Backend offline - show empty state
+        setLocalSystems([])
         setBackendStatus("offline")
       }
     } catch (fetchErr) {
-      setFallbackSystems(unusedActions)
+      setLocalSystems([])
       setBackendStatus("offline")
     } finally {
       setIsLoadingData(false)
@@ -192,36 +178,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
   }, [])
 
-  // Helper function for fallback systems
-  const setFallbackSystems = (unusedActions: number) => {
-    const calculatedHealthScore = Math.max(0, 100 - unusedActions * 2)
-    setLocalSystems([
-      {
-        name: "alon-prod",
-        criticality: 5,
-        criticalityLabel: "MISSION CRITICAL",
-        environment: "Production",
-        health: calculatedHealthScore,
-        critical: 0,
-        high: unusedActions,
-        total: 16,
-        lastScan: "Just now",
-        owner: "Platform Team",
-      },
-      {
-        name: "Ungrouped",
-        criticality: 3,
-        criticalityLabel: "3 - Medium",
-        environment: "Production",
-        health: 100,
-        critical: 0,
-        high: 0,
-        total: 8,
-        lastScan: "Just now",
-        owner: "Platform Team",
-      },
-    ])
-  }
 
   useEffect(() => {
     fetchSystemsData()

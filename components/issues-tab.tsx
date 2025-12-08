@@ -27,224 +27,12 @@ interface Issue {
   resources: number
   lastDetected: string
   icon: string
+  resourceIds: string[]
 }
 
 interface IssuesTabProps {
   systemName: string
 }
-
-// Demo issues data - in production this would come from the backend
-const ALL_ISSUES: Issue[] = [
-  {
-    id: "1",
-    title: "S3 bucket is publicly accessible",
-    system: "Payment-Prod",
-    category: "Data Exposure",
-    severity: "Critical",
-    confidence: 99,
-    resources: 1,
-    lastDetected: "2 hours ago",
-    icon: "bucket",
-  },
-  {
-    id: "2",
-    title: "IAM role has excessive permissions",
-    system: "Payment-Prod",
-    category: "Access Control",
-    severity: "Critical",
-    confidence: 95,
-    resources: 1,
-    lastDetected: "5 hours ago",
-    icon: "key",
-  },
-  {
-    id: "3",
-    title: "Root account without MFA",
-    system: "Auth-Service",
-    category: "Authentication",
-    severity: "Critical",
-    confidence: 100,
-    resources: 1,
-    lastDetected: "1 day ago",
-    icon: "shield",
-  },
-  {
-    id: "4",
-    title: "CloudTrail logging disabled",
-    system: "Analytics-Service",
-    category: "Compliance",
-    severity: "Critical",
-    confidence: 100,
-    resources: 1,
-    lastDetected: "3 hours ago",
-    icon: "file",
-  },
-  {
-    id: "5",
-    title: "Database publicly accessible",
-    system: "User-Portal",
-    category: "Network Security",
-    severity: "Critical",
-    confidence: 98,
-    resources: 2,
-    lastDetected: "1 hour ago",
-    icon: "database",
-  },
-  {
-    id: "6",
-    title: "Unencrypted secrets in environment variables",
-    system: "Billing-API",
-    category: "Secrets Management",
-    severity: "Critical",
-    confidence: 100,
-    resources: 3,
-    lastDetected: "4 hours ago",
-    icon: "lock",
-  },
-  {
-    id: "7",
-    title: "Admin credentials hardcoded in source code",
-    system: "Data-Pipeline",
-    category: "Secrets Management",
-    severity: "Critical",
-    confidence: 100,
-    resources: 1,
-    lastDetected: "6 hours ago",
-    icon: "key",
-  },
-  {
-    id: "8",
-    title: "Firewall allows all inbound traffic",
-    system: "Health-Records",
-    category: "Network Security",
-    severity: "Critical",
-    confidence: 97,
-    resources: 1,
-    lastDetected: "2 hours ago",
-    icon: "flame",
-  },
-  {
-    id: "9",
-    title: "Encryption at rest disabled",
-    system: "Payment-Prod",
-    category: "Data Protection",
-    severity: "Critical",
-    confidence: 100,
-    resources: 4,
-    lastDetected: "8 hours ago",
-    icon: "lock",
-  },
-  {
-    id: "10",
-    title: "No backup configured for critical database",
-    system: "User-Portal",
-    category: "Business Continuity",
-    severity: "Critical",
-    confidence: 100,
-    resources: 1,
-    lastDetected: "1 day ago",
-    icon: "database",
-  },
-  {
-    id: "11",
-    title: "Outdated SSL/TLS version in use",
-    system: "API-Gateway",
-    category: "Cryptography",
-    severity: "Critical",
-    confidence: 96,
-    resources: 2,
-    lastDetected: "5 hours ago",
-    icon: "lock",
-  },
-  {
-    id: "12",
-    title: "Privileged container running as root",
-    system: "Kubernetes-Prod",
-    category: "Container Security",
-    severity: "Critical",
-    confidence: 94,
-    resources: 5,
-    lastDetected: "3 hours ago",
-    icon: "server",
-  },
-  {
-    id: "13",
-    title: "Exposed API keys in public repository",
-    system: "Mobile-Backend",
-    category: "Secrets Management",
-    severity: "Critical",
-    confidence: 100,
-    resources: 2,
-    lastDetected: "30 min ago",
-    icon: "key",
-  },
-  {
-    id: "14",
-    title: "SQL injection vulnerability detected",
-    system: "User-Portal",
-    category: "Application Security",
-    severity: "Critical",
-    confidence: 92,
-    resources: 1,
-    lastDetected: "2 hours ago",
-    icon: "bug",
-  },
-  {
-    id: "15",
-    title: "Lambda function with overly permissive role",
-    system: "alon-prod",
-    category: "Access Control",
-    severity: "Critical",
-    confidence: 95,
-    resources: 3,
-    lastDetected: "1 hour ago",
-    icon: "key",
-  },
-  {
-    id: "16",
-    title: "Security group allows SSH from anywhere",
-    system: "alon-prod",
-    category: "Network Security",
-    severity: "Critical",
-    confidence: 100,
-    resources: 2,
-    lastDetected: "4 hours ago",
-    icon: "globe",
-  },
-  {
-    id: "17",
-    title: "RDS instance without encryption",
-    system: "alon-prod",
-    category: "Data Protection",
-    severity: "Critical",
-    confidence: 100,
-    resources: 1,
-    lastDetected: "2 hours ago",
-    icon: "database",
-  },
-  {
-    id: "18",
-    title: "IAM user with console access and no MFA",
-    system: "alon-prod",
-    category: "Authentication",
-    severity: "High",
-    confidence: 98,
-    resources: 2,
-    lastDetected: "6 hours ago",
-    icon: "shield",
-  },
-  {
-    id: "19",
-    title: "S3 bucket without versioning enabled",
-    system: "alon-prod",
-    category: "Data Protection",
-    severity: "Medium",
-    confidence: 100,
-    resources: 4,
-    lastDetected: "1 day ago",
-    icon: "bucket",
-  },
-]
 
 const getIcon = (iconType: string) => {
   switch (iconType) {
@@ -288,26 +76,287 @@ const getSeverityBadge = (severity: string) => {
   }
 }
 
+// Analyze nodes to find real security issues
+function deriveIssuesFromNodes(nodes: any[], systemName: string): Issue[] {
+  const issues: Issue[] = []
+  let issueId = 1
+
+  // Filter nodes for this system
+  const systemNodes = nodes.filter((node: any) => {
+    const nodeSystem = node.systemName || node.system_name || node.properties?.systemName || "Ungrouped"
+    return nodeSystem.toLowerCase().includes(systemName.toLowerCase()) ||
+           systemName.toLowerCase().includes(nodeSystem.toLowerCase()) ||
+           systemName.toLowerCase() === "ungrouped"
+  })
+
+  // If no nodes match this system, analyze all nodes
+  const nodesToAnalyze = systemNodes.length > 0 ? systemNodes : nodes
+
+  // Check Security Groups for public ingress (0.0.0.0/0)
+  const securityGroups = nodesToAnalyze.filter((n: any) =>
+    n.type === "SecurityGroup" || n.labels?.includes("SecurityGroup")
+  )
+
+  const publicSGs = securityGroups.filter((sg: any) =>
+    sg.has_public_ingress || sg.properties?.has_public_ingress
+  )
+
+  if (publicSGs.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "Security group allows inbound traffic from 0.0.0.0/0",
+      system: systemName,
+      category: "Network Security",
+      severity: "Critical",
+      confidence: 100,
+      resources: publicSGs.length,
+      lastDetected: "Just now",
+      icon: "globe",
+      resourceIds: publicSGs.map((sg: any) => sg.id || sg.properties?.id)
+    })
+  }
+
+  // Check for EC2 instances with public IPs
+  const ec2Instances = nodesToAnalyze.filter((n: any) =>
+    n.type === "EC2" || n.labels?.includes("EC2")
+  )
+
+  const publicEC2 = ec2Instances.filter((ec2: any) =>
+    ec2.public_ip || ec2.properties?.public_ip
+  )
+
+  if (publicEC2.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "EC2 instance has public IP address",
+      system: systemName,
+      category: "Network Security",
+      severity: "High",
+      confidence: 95,
+      resources: publicEC2.length,
+      lastDetected: "Just now",
+      icon: "server",
+      resourceIds: publicEC2.map((ec2: any) => ec2.id || ec2.properties?.id)
+    })
+  }
+
+  // Check for S3 buckets (potentially public or unencrypted)
+  const s3Buckets = nodesToAnalyze.filter((n: any) =>
+    n.type === "S3" || n.type === "S3Bucket" || n.labels?.includes("S3")
+  )
+
+  const publicS3 = s3Buckets.filter((s3: any) =>
+    s3.public || s3.properties?.public || s3.is_public || s3.properties?.is_public
+  )
+
+  if (publicS3.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "S3 bucket is publicly accessible",
+      system: systemName,
+      category: "Data Exposure",
+      severity: "Critical",
+      confidence: 99,
+      resources: publicS3.length,
+      lastDetected: "Just now",
+      icon: "bucket",
+      resourceIds: publicS3.map((s3: any) => s3.id || s3.properties?.id)
+    })
+  }
+
+  const unencryptedS3 = s3Buckets.filter((s3: any) =>
+    !s3.encryption_enabled && !s3.properties?.encryption_enabled
+  )
+
+  if (unencryptedS3.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "S3 bucket without server-side encryption",
+      system: systemName,
+      category: "Data Protection",
+      severity: "High",
+      confidence: 100,
+      resources: unencryptedS3.length,
+      lastDetected: "Just now",
+      icon: "lock",
+      resourceIds: unencryptedS3.map((s3: any) => s3.id || s3.properties?.id)
+    })
+  }
+
+  // Check for RDS instances
+  const rdsInstances = nodesToAnalyze.filter((n: any) =>
+    n.type === "RDS" || n.labels?.includes("RDS")
+  )
+
+  const publicRDS = rdsInstances.filter((rds: any) =>
+    rds.publicly_accessible || rds.properties?.publicly_accessible
+  )
+
+  if (publicRDS.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "RDS database is publicly accessible",
+      system: systemName,
+      category: "Network Security",
+      severity: "Critical",
+      confidence: 100,
+      resources: publicRDS.length,
+      lastDetected: "Just now",
+      icon: "database",
+      resourceIds: publicRDS.map((rds: any) => rds.id || rds.properties?.id)
+    })
+  }
+
+  const unencryptedRDS = rdsInstances.filter((rds: any) =>
+    !rds.storage_encrypted && !rds.properties?.storage_encrypted
+  )
+
+  if (unencryptedRDS.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "RDS instance without encryption at rest",
+      system: systemName,
+      category: "Data Protection",
+      severity: "Critical",
+      confidence: 100,
+      resources: unencryptedRDS.length,
+      lastDetected: "Just now",
+      icon: "database",
+      resourceIds: unencryptedRDS.map((rds: any) => rds.id || rds.properties?.id)
+    })
+  }
+
+  // Check Lambda functions
+  const lambdaFunctions = nodesToAnalyze.filter((n: any) =>
+    n.type === "Lambda" || n.type === "LambdaFunction" || n.labels?.includes("Lambda")
+  )
+
+  if (lambdaFunctions.length > 0) {
+    // Check for Lambda with admin-like roles
+    const adminLambda = lambdaFunctions.filter((fn: any) => {
+      const role = fn.role || fn.properties?.role || ""
+      return role.toLowerCase().includes("admin") || role.includes("*")
+    })
+
+    if (adminLambda.length > 0) {
+      issues.push({
+        id: String(issueId++),
+        title: "Lambda function with overly permissive IAM role",
+        system: systemName,
+        category: "Access Control",
+        severity: "High",
+        confidence: 90,
+        resources: adminLambda.length,
+        lastDetected: "Just now",
+        icon: "key",
+        resourceIds: adminLambda.map((fn: any) => fn.id || fn.properties?.id)
+      })
+    }
+  }
+
+  // Check IAM roles/policies
+  const iamRoles = nodesToAnalyze.filter((n: any) =>
+    n.type === "IAMRole" || n.labels?.includes("IAMRole")
+  )
+
+  const iamPolicies = nodesToAnalyze.filter((n: any) =>
+    n.type === "IAMPolicy" || n.labels?.includes("IAMPolicy")
+  )
+
+  // Check for overly permissive IAM policies (with * actions)
+  const permissivePolicies = iamPolicies.filter((policy: any) => {
+    const policyDoc = policy.policy_document || policy.properties?.policy_document
+    if (policyDoc) {
+      const docStr = typeof policyDoc === "string" ? policyDoc : JSON.stringify(policyDoc)
+      return docStr.includes('"Action": "*"') || docStr.includes('"Action":"*"')
+    }
+    return false
+  })
+
+  if (permissivePolicies.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "IAM policy with wildcard (*) permissions",
+      system: systemName,
+      category: "Access Control",
+      severity: "Critical",
+      confidence: 100,
+      resources: permissivePolicies.length,
+      lastDetected: "Just now",
+      icon: "key",
+      resourceIds: permissivePolicies.map((p: any) => p.id || p.properties?.id)
+    })
+  }
+
+  // Check VPCs
+  const vpcs = nodesToAnalyze.filter((n: any) =>
+    n.type === "VPC" || n.labels?.includes("VPC")
+  )
+
+  const defaultVPCs = vpcs.filter((vpc: any) =>
+    vpc.is_default || vpc.properties?.is_default
+  )
+
+  if (defaultVPCs.length > 0) {
+    issues.push({
+      id: String(issueId++),
+      title: "Resources running in default VPC",
+      system: systemName,
+      category: "Network Security",
+      severity: "Medium",
+      confidence: 100,
+      resources: defaultVPCs.length,
+      lastDetected: "Just now",
+      icon: "globe",
+      resourceIds: defaultVPCs.map((vpc: any) => vpc.id || vpc.properties?.id)
+    })
+  }
+
+  return issues
+}
+
 export function IssuesTab({ systemName }: IssuesTabProps) {
   const [issues, setIssues] = useState<Issue[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [severityFilter, setSeverityFilter] = useState<string>("all")
   const [selectedIssues, setSelectedIssues] = useState<Set<string>>(new Set())
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Filter issues for this system
-    setLoading(true)
-    setTimeout(() => {
-      const filtered = ALL_ISSUES.filter(
-        (issue) =>
-          issue.system.toLowerCase() === systemName.toLowerCase() ||
-          issue.system.toLowerCase().includes(systemName.toLowerCase()) ||
-          systemName.toLowerCase().includes(issue.system.toLowerCase())
-      )
-      setIssues(filtered.length > 0 ? filtered : ALL_ISSUES.slice(0, 5)) // Show some demo issues if none match
-      setLoading(false)
-    }, 500)
+    const fetchIssues = async () => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        // Fetch real nodes from backend
+        const response = await fetch("/api/proxy/graph-data")
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.status}`)
+        }
+
+        const data = await response.json()
+        const nodes = data.nodes || data || []
+
+        console.log("[IssuesTab] Fetched", nodes.length, "nodes from backend")
+
+        // Derive security issues from real nodes
+        const derivedIssues = deriveIssuesFromNodes(nodes, systemName)
+
+        console.log("[IssuesTab] Derived", derivedIssues.length, "issues for system:", systemName)
+
+        setIssues(derivedIssues)
+      } catch (err) {
+        console.error("[IssuesTab] Error fetching issues:", err)
+        setError(err instanceof Error ? err.message : "Failed to fetch issues")
+        setIssues([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchIssues()
   }, [systemName])
 
   const filteredIssues = issues.filter((issue) => {
@@ -340,6 +389,16 @@ export function IssuesTab({ systemName }: IssuesTabProps) {
     return (
       <div className="flex items-center justify-center py-20">
         <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
+        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <h3 className="text-lg font-semibold text-red-800 mb-2">Failed to Load Issues</h3>
+        <p className="text-red-600">{error}</p>
       </div>
     )
   }
@@ -465,8 +524,13 @@ export function IssuesTab({ systemName }: IssuesTabProps) {
 
         {filteredIssues.length === 0 && (
           <div className="py-12 text-center">
-            <AlertTriangle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No issues found matching your criteria</p>
+            <Shield className="w-12 h-12 text-green-400 mx-auto mb-4" />
+            <p className="text-gray-600 font-medium">No security issues found</p>
+            <p className="text-gray-400 text-sm mt-1">
+              {issues.length === 0
+                ? "No resources found in Neo4j to analyze"
+                : "All resources passed security checks"}
+            </p>
           </div>
         )}
       </div>
