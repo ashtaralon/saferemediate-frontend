@@ -17,6 +17,28 @@ import {
 import type { SecurityFinding } from "@/lib/types"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const FETCH_TIMEOUT = 8000 // 8 second timeout for simulation steps
+
+// Helper function to fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`)
+    }
+    throw error
+  }
+}
 
 // ============================================================================
 // TYPES
@@ -110,8 +132,11 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       // Step 1: Load temporal graph data from Neo4j
       setSteps(prev => prev.map(s => s.id === 1 ? { ...s, status: "running" } : s))
 
-      const graphResponse = await fetch(`${BACKEND_URL}/api/graph/nodes`)
-      const graphData = graphResponse.ok ? await graphResponse.json() : { nodes: [] }
+      let graphData = { nodes: [] }
+      try {
+        const graphResponse = await fetchWithTimeout(`${BACKEND_URL}/api/graph/nodes`)
+        graphData = graphResponse.ok ? await graphResponse.json() : { nodes: [] }
+      } catch { /* timeout - use empty data */ }
       const nodeCount = graphData.nodes?.length || graphData.length || 0
 
       await new Promise(r => setTimeout(r, 800))
@@ -125,8 +150,11 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       // Step 2: Analyze dependencies
       setSteps(prev => prev.map(s => s.id === 2 ? { ...s, status: "running" } : s))
 
-      const relResponse = await fetch(`${BACKEND_URL}/api/graph/relationships`)
-      const relData = relResponse.ok ? await relResponse.json() : { relationships: [] }
+      let relData = { relationships: [] }
+      try {
+        const relResponse = await fetchWithTimeout(`${BACKEND_URL}/api/graph/relationships`)
+        relData = relResponse.ok ? await relResponse.json() : { relationships: [] }
+      } catch { /* timeout - use empty data */ }
       const relCount = relData.relationships?.length || relData.length || 0
 
       // Count services that connect to the affected resource
@@ -143,8 +171,11 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       // Step 3: Check usage patterns from gap analysis
       setSteps(prev => prev.map(s => s.id === 3 ? { ...s, status: "running" } : s))
 
-      const gapResponse = await fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
-      const gapData = gapResponse.ok ? await gapResponse.json() : {}
+      let gapData: any = {}
+      try {
+        const gapResponse = await fetchWithTimeout(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+        gapData = gapResponse.ok ? await gapResponse.json() : {}
+      } catch { /* timeout - use empty data */ }
       const daysAnalyzed = gapData.days_analyzed || 7
       const lastUsed = gapData.last_used || "Never"
 
@@ -160,16 +191,19 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       setSteps(prev => prev.map(s => s.id === 4 ? { ...s, status: "running" } : s))
 
       // Call actual simulate endpoint
-      const simResponse = await fetch(`${BACKEND_URL}/api/simulate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          finding_id: finding.id,
-          resource: finding.resource,
-          type: finding.category || "iam_policy_tighten"
+      let simData = { success: true }
+      try {
+        const simResponse = await fetchWithTimeout(`${BACKEND_URL}/api/simulate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            finding_id: finding.id,
+            resource: finding.resource,
+            type: finding.category || "iam_policy_tighten"
+          })
         })
-      })
-      const simData = simResponse.ok ? await simResponse.json() : { success: true }
+        simData = simResponse.ok ? await simResponse.json() : { success: true }
+      } catch { /* timeout - use default */ }
 
       await new Promise(r => setTimeout(r, 500))
       setSteps(prev => prev.map(s => s.id === 4 ? {
@@ -261,15 +295,17 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       if (createCheckpoint) {
         setApplyProgress(prev => prev.map((s, i) => i === 0 ? { ...s, done: false } : s))
 
-        await fetch("/api/proxy/snapshots", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemName,
-            type: "AUTO PRE-FIX",
-            description: `Auto snapshot before ${finding.title} fix`,
+        try {
+          await fetchWithTimeout("/api/proxy/snapshots", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemName,
+              type: "AUTO PRE-FIX",
+              description: `Auto snapshot before ${finding.title} fix`,
+            })
           })
-        })
+        } catch { /* timeout - continue anyway */ }
 
         await new Promise(r => setTimeout(r, 1000))
         setApplyProgress(prev => prev.map((s, i) => i === 0 ? { ...s, done: true } : s))
@@ -280,15 +316,17 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       // Step 2: Apply fix
       await new Promise(r => setTimeout(r, 800))
 
-      await fetch(`${BACKEND_URL}/api/remediate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          finding_id: finding.id,
-          resource: finding.resource,
-          action: "apply"
+      try {
+        await fetchWithTimeout(`${BACKEND_URL}/api/remediate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            finding_id: finding.id,
+            resource: finding.resource,
+            action: "apply"
+          })
         })
-      }).catch(() => {}) // Silent fail - demo mode
+      } catch { /* timeout - continue anyway */ }
 
       setApplyProgress(prev => prev.map((s, i) => i === 1 ? { ...s, done: true } : s))
 

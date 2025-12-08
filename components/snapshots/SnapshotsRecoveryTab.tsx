@@ -13,6 +13,28 @@ import {
 } from "lucide-react"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const FETCH_TIMEOUT = 10000 // 10 second timeout
+
+// Helper function to fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`)
+    }
+    throw error
+  }
+}
 
 // ============================================================================
 // TYPES
@@ -86,7 +108,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
   const fetchSnapshots = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/proxy/snapshots?systemName=${encodeURIComponent(systemName)}`)
+      const response = await fetchWithTimeout(`/api/proxy/snapshots?systemName=${encodeURIComponent(systemName)}`)
       const data = await response.json()
 
       if (data.snapshots) {
@@ -113,7 +135,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
 
     try {
       setCreating(true)
-      const response = await fetch("/api/proxy/snapshots", {
+      const response = await fetchWithTimeout("/api/proxy/snapshots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
