@@ -58,13 +58,6 @@ export default function HomePage() {
       console.warn("[v0] Gap analysis timeout - using default values")
     }, 5000) // 5 second timeout - very aggressive
 
-    // Fetch gap analysis via proxy route with aggressive timeout
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      controller.abort()
-      console.warn("[v0] Gap analysis timeout - using default values")
-    }, 5000) // 5 second timeout - very aggressive
-
     fetch("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {
       signal: controller.signal,
     })
