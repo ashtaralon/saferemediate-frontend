@@ -59,17 +59,26 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel via proxy routes
-    const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch("/api/proxy/dashboard-metrics", {
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      }),
-      fetch("/api/proxy/graph-data", {
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      }),
-    ])
+    // Fetch with timeout to prevent hanging
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout
+
+    try {
+      // Fetch dashboard metrics and graph nodes in parallel via proxy routes
+      const [metricsResponse, nodesResponse] = await Promise.all([
+        fetch("/api/proxy/dashboard-metrics", {
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        }),
+        fetch("/api/proxy/graph-data", {
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        }),
+      ])
+      
+      clearTimeout(timeoutId)
 
     let metrics: any = {}
     let nodes: any[] = []

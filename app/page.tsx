@@ -86,13 +86,33 @@ export default function HomePage() {
   }, [])
 
   const loadData = useCallback(async () => {
+    // Set timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      console.warn("Data loading timeout - setting loading to false")
+      setLoading(false)
+    }, 10000) // 10 seconds timeout
+
     try {
-      const [infrastructureData, findings] = await Promise.all([fetchInfrastructure(), fetchSecurityFindings()])
+      const [infrastructureData, findings] = await Promise.all([
+        fetchInfrastructure().catch((err) => {
+          console.error("Infrastructure fetch failed:", err)
+          return null
+        }),
+        fetchSecurityFindings().catch((err) => {
+          console.error("Findings fetch failed:", err)
+          return []
+        })
+      ])
+      
+      clearTimeout(timeoutId)
+      
       setData(infrastructureData)
-      setSecurityFindings(findings)
+      setSecurityFindings(findings || [])
     } catch (error) {
       console.error("Failed to load data:", error)
+      clearTimeout(timeoutId)
     } finally {
+      clearTimeout(timeoutId)
       setLoading(false)
     }
   }, [])
