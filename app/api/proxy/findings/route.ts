@@ -7,7 +7,7 @@ export const revalidate = 0
 const BACKEND_URL =
   process.env.BACKEND_API_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend-1.onrender.com"
+  "https://saferemediate-backend.onrender.com"
 
 // Demo findings for when backend returns empty
 const DEMO_FINDINGS = [

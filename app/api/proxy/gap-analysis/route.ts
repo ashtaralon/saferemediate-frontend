@@ -6,7 +6,7 @@ export const revalidate = 0
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "https://saferemediate-backend-1.onrender.com"
+  "https://saferemediate-backend.onrender.com"
 
 // Map system names to IAM role names
 const SYSTEM_TO_ROLE_MAP: Record<string, string> = {
