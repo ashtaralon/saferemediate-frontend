@@ -566,7 +566,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
           </div>
           {/* Tabs */}
-          <div className="flex items-center gap-1 mt-6 border-b border-gray-200 -mb-px">
+          <div className="flex items-center gap-1 mt-6 border-b border-gray-200 -mb-px overflow-x-auto">
             {tabs.map((tab) => {
               const IconComponent = tab.icon
               return (
