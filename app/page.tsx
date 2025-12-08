@@ -48,13 +48,15 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    // TEMPORARILY DISABLED - Backend endpoint is timing out
-    // This prevents the entire site from hanging
-    console.log("[v0] Gap analysis fetch disabled to prevent timeout")
-    return
-    
     // Trigger traffic ingestion (non-blocking)
     fetch(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
+
+    // Fetch gap analysis via proxy route with aggressive timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+      console.warn("[v0] Gap analysis timeout - using default values")
+    }, 5000) // 5 second timeout - very aggressive
 
     // Fetch gap analysis via proxy route with aggressive timeout
     const controller = new AbortController()
