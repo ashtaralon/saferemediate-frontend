@@ -244,6 +244,45 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }
   }
 
+  const fetchFindings = async () => {
+    try {
+      const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`)
+      const data = await response.json()
+
+      if (!response.ok || data.error) {
+        console.log("[v0] Findings backend error, using fallback")
+        return
+      }
+
+      // Count findings by severity
+      const findings = data.findings || []
+      const criticalCount = findings.filter((f: { severity: string }) => f.severity === "critical").length
+      const mediumCount = findings.filter((f: { severity: string }) => f.severity === "medium").length
+
+      // Update severity counts with actual findings
+      setSeverityCounts((prev) => ({
+        ...prev,
+        critical: criticalCount,
+        medium: mediumCount,
+      }))
+
+      // Update issues list for display
+      setIssues(
+        findings
+          .filter((f: { severity: string }) => f.severity === "critical")
+          .map((f: { id: string; title: string; description: string; resource: string; resourceId?: string }) => ({
+            id: f.id,
+            title: f.title,
+            description: f.description,
+            service: f.resource || f.resourceId || "Unknown",
+            severity: "critical" as const,
+          }))
+      )
+    } catch (error) {
+      console.error("[v0] Error fetching findings:", error)
+    }
+  }
+
   const handleRemediateFromModal = async (permission: string) => {
     setRemediatingPermission(permission)
 
@@ -284,7 +323,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
+    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
   }
 
   useEffect(() => {
