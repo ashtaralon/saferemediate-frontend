@@ -35,6 +35,7 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
+import { IssuesTab } from "./issues-tab"
 
 // =============================================================================
 // API CONFIGURATION
@@ -465,6 +466,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
+    { id: "issues", label: "Issues", icon: AlertTriangle },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "dependency-map", label: "Dependency Map", icon: Map }, // Added Dependency Map tab
@@ -1042,6 +1044,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "cloud-graph" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <CloudGraphTab systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "issues" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <IssuesTab systemName={systemName} />
         </div>
       )}
 
