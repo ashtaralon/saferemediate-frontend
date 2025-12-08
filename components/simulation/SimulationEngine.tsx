@@ -136,7 +136,7 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       try {
         const graphResponse = await fetchWithTimeout(`${BACKEND_URL}/api/graph/nodes`)
         graphData = graphResponse.ok ? await graphResponse.json() : { nodes: [] }
-      } catch { /* timeout - use empty data */ }
+      } catch (_e) { /* timeout - use empty data */ }
       const nodeCount = graphData.nodes?.length || graphData.length || 0
 
       await new Promise(r => setTimeout(r, 800))
@@ -154,7 +154,7 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       try {
         const relResponse = await fetchWithTimeout(`${BACKEND_URL}/api/graph/relationships`)
         relData = relResponse.ok ? await relResponse.json() : { relationships: [] }
-      } catch { /* timeout - use empty data */ }
+      } catch (_e) { /* timeout - use empty data */ }
       const relCount = relData.relationships?.length || relData.length || 0
 
       // Count services that connect to the affected resource
@@ -175,7 +175,7 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       try {
         const gapResponse = await fetchWithTimeout(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
         gapData = gapResponse.ok ? await gapResponse.json() : {}
-      } catch { /* timeout - use empty data */ }
+      } catch (_e) { /* timeout - use empty data */ }
       const daysAnalyzed = gapData.days_analyzed || 7
       const lastUsed = gapData.last_used || "Never"
 
@@ -203,7 +203,7 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
           })
         })
         simData = simResponse.ok ? await simResponse.json() : { success: true }
-      } catch { /* timeout - use default */ }
+      } catch (_e) { /* timeout - use default */ }
 
       await new Promise(r => setTimeout(r, 500))
       setSteps(prev => prev.map(s => s.id === 4 ? {
@@ -305,7 +305,7 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
               description: `Auto snapshot before ${finding.title} fix`,
             })
           })
-        } catch { /* timeout - continue anyway */ }
+        } catch (_e) { /* timeout - continue anyway */ }
 
         await new Promise(r => setTimeout(r, 1000))
         setApplyProgress(prev => prev.map((s, i) => i === 0 ? { ...s, done: true } : s))
@@ -326,7 +326,7 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
             action: "apply"
           })
         })
-      } catch { /* timeout - continue anyway */ }
+      } catch (_e) { /* timeout - continue anyway */ }
 
       setApplyProgress(prev => prev.map((s, i) => i === 1 ? { ...s, done: true } : s))
 
