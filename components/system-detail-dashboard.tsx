@@ -35,6 +35,7 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
+import { IssuesTab } from "./issues-tab"
 import { SimulateFixModal } from "./issues/SimulateFixModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
@@ -455,10 +456,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // Add Dependency Map tab to the tabs array
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "issues", label: "Issues", icon: AlertTriangle },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "all-services", label: "All Services", icon: Server },
-    { id: "dependency-map", label: "Dependency Map", icon: Map }, // Added Dependency Map tab
+    { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
     { id: "config-history", label: "Configuration History", icon: History },
     { id: "disaster-recovery", label: "Disaster Recovery", icon: ShieldAlert },
@@ -1074,6 +1076,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             )}
           </div>
         </>
+      )}
+
+      {/* Render the IssuesTab component */}
+      {activeTab === "issues" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <IssuesTab systemName={systemName} />
+        </div>
       )}
 
       {/* Render the LeastPrivilegeTab component */}
