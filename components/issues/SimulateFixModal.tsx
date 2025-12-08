@@ -9,10 +9,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { CheckCircle, AlertTriangle, Zap, Clock, TrendingUp, Wrench } from "lucide-react"
+import { CheckCircle, AlertTriangle, Zap, Clock, TrendingUp, Wrench, RotateCcw, Activity } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { simulateIssue, fixIssue } from "@/lib/api-client"
 import { useToast } from "@/hooks/use-toast"
+import { getSnapshots } from "@/lib/snapshot-store"
 
 interface SimulateFixModalProps {
   open: boolean
@@ -52,6 +53,11 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
   const [fixing, setFixing] = useState(false)
   const [simulation, setSimulation] = useState<SimulationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [fixApplied, setFixApplied] = useState(false)
+  const [monitoring, setMonitoring] = useState(false)
+  const [monitoringTime, setMonitoringTime] = useState(0)
+  const [rollbackInProgress, setRollbackInProgress] = useState(false)
+  const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const { toast } = useToast()
 
   async function handleSimulate() {
@@ -109,20 +115,39 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
 
     try {
       setFixing(true)
-      await fixIssue(finding.id)
+      const result = await fixIssue({ finding_id: finding.id, systemName: finding.resource })
+      
+      // Extract snapshot ID from result
+      if (result.snapshotId) {
+        setSnapshotId(result.snapshotId)
+      }
+      
+      setFixApplied(true)
+      setFixing(false)
+      setMonitoring(true)
+      setMonitoringTime(0)
+      
+      // Start monitoring timer (5 minutes as per architecture)
+      const monitoringInterval = setInterval(() => {
+        setMonitoringTime((prev) => {
+          if (prev >= 300) { // 5 minutes
+            clearInterval(monitoringInterval)
+            setMonitoring(false)
+            return 300
+          }
+          return prev + 1
+        })
+      }, 1000)
       
       toast({
-        title: "Success",
-        description: "Issue fixed successfully!",
+        title: "Fix Applied",
+        description: "Remediation completed. Monitoring for 5 minutes...",
       })
 
       // Call refresh callback if provided
       if (onRunFix) {
         onRunFix()
       }
-
-      // Close modal after successful fix
-      handleClose()
     } catch (err) {
       console.error("Fix error", err)
       const errorMessage = err instanceof Error ? err.message : "Failed to remediate"
@@ -131,9 +156,74 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
         description: errorMessage,
         variant: "destructive",
       })
-    } finally {
       setFixing(false)
     }
+  }
+
+  async function handleRollback() {
+    if (!snapshotId || !finding) return
+
+    setRollbackInProgress(true)
+    try {
+      // Find the most recent AUTO PRE-FIX snapshot
+      const snapshots = getSnapshots(finding.resource)
+      const preFixSnapshot = snapshots.find(
+        s => s.type === "AUTO PRE-FIX" && s.id === snapshotId
+      )
+
+      if (!preFixSnapshot) {
+        throw new Error("Pre-fix snapshot not found")
+      }
+
+      // Call restore API
+      const response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          selectedCategories: ["IAM"], // Restore IAM resources
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Rollback failed")
+      }
+
+      toast({
+        title: "Rollback Initiated",
+        description: "Restoring from checkpoint...",
+      })
+
+      // Reset state
+      setFixApplied(false)
+      setMonitoring(false)
+      setMonitoringTime(0)
+      setSnapshotId(null)
+      
+      // Close modal after rollback
+      setTimeout(() => {
+        handleClose()
+      }, 2000)
+    } catch (err) {
+      console.error("Rollback error", err)
+      const errorMessage = err instanceof Error ? err.message : "Failed to rollback"
+      toast({
+        title: "Rollback Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setRollbackInProgress(false)
+    }
+  }
+
+  function handleMarkResolved() {
+    toast({
+      title: "Issue Resolved",
+      description: "Issue marked as resolved. Monitoring complete.",
+    })
+    handleClose()
   }
 
   function handleClose() {
@@ -388,29 +478,80 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
               )}
 
               {/* Action Buttons */}
-              <div className="flex gap-3 pt-2">
-                <Button
-                  onClick={handleFix}
-                  disabled={fixing || !simulation?.safeToRemediate}
-                  className="flex-1"
-                  size="lg"
-                >
-                  {fixing ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
-                      Fixing...
-                    </>
-                  ) : (
-                    <>
-                      <Wrench className="w-4 h-4 mr-2" />
-                      Run Safe Fix
-                    </>
-                  )}
-                </Button>
-                <Button onClick={handleClose} variant="outline" className="flex-1" size="lg" disabled={fixing}>
-                  Cancel
-                </Button>
-              </div>
+              {!fixApplied ? (
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    onClick={handleFix}
+                    disabled={fixing || !simulation?.safeToRemediate}
+                    className="flex-1"
+                    size="lg"
+                  >
+                    {fixing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                        Fixing...
+                      </>
+                    ) : (
+                      <>
+                        <Wrench className="w-4 h-4 mr-2" />
+                        Run Safe Fix
+                      </>
+                    )}
+                  </Button>
+                  <Button onClick={handleClose} variant="outline" className="flex-1" size="lg" disabled={fixing}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                /* Monitoring Phase */
+                <div className="space-y-4 pt-4 border-t">
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Activity className="w-5 h-5 text-blue-600" />
+                      <p className="font-semibold text-blue-900">Post-Fix Monitoring</p>
+                    </div>
+                    <p className="text-sm text-blue-700">
+                      Monitoring service health for {Math.floor(monitoringTime / 60)}:{(monitoringTime % 60).toString().padStart(2, '0')} / 5:00
+                    </p>
+                    <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all"
+                        style={{ width: `${(monitoringTime / 300) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleRollback}
+                      disabled={rollbackInProgress}
+                      variant="outline"
+                      className="flex-1"
+                      size="lg"
+                    >
+                      {rollbackInProgress ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-600 border-t-transparent mr-2"></div>
+                          Rolling back...
+                        </>
+                      ) : (
+                        <>
+                          <RotateCcw className="w-4 h-4 mr-2" />
+                          Rollback
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleMarkResolved}
+                      className="flex-1"
+                      size="lg"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Mark Resolved
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

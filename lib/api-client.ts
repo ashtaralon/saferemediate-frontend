@@ -2,6 +2,42 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const FETCH_TIMEOUT = 10000 // 10 second timeout
+const MAX_RETRIES = 3
+
+// Helper function to fetch with retry and exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  retries = MAX_RETRIES
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    
+    // Retry on network errors or timeouts
+    if (retries > 0 && (error.name === 'AbortError' || error.message?.includes('fetch'))) {
+      const delay = Math.pow(2, MAX_RETRIES - retries) * 1000 // Exponential backoff: 2s, 4s, 8s
+      console.warn(`[api-client] Retry ${MAX_RETRIES - retries + 1}/${MAX_RETRIES} after ${delay}ms`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+      return fetchWithRetry(url, options, retries - 1)
+    }
+    
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${FETCH_TIMEOUT}ms`)
+    }
+    throw error
+  }
+}
 
 export interface InfrastructureData {
   resources: Array<{
