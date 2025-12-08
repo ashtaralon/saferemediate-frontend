@@ -35,6 +35,8 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
+import { SnapshotsRecoveryTab } from "./snapshots-recovery-tab"
+import { useToast } from "@/hooks/use-toast"
 
 // =============================================================================
 // API CONFIGURATION
@@ -970,12 +972,108 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             </div>
 
                             <div className="flex border-t border-gray-200">
-                              <button className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2">
-                                <Play className="w-4 h-4" />
-                                SIMULATE FIX
+                              <button
+                                onClick={async () => {
+                                  if (simulatingIssue === issue.id) return
+                                  setSimulatingIssue(issue.id)
+                                  try {
+                                    const response = await fetch(
+                                      `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
+                                      { method: "POST" }
+                                    )
+                                    if (!response.ok) throw new Error("Simulation failed")
+                                    const result = await response.json()
+                                    
+                                    // Store snapshot ID for this issue
+                                    if (result.snapshot_id) {
+                                      setLatestSnapshotByIssue((prev) => ({
+                                        ...prev,
+                                        [issue.id]: result.snapshot_id,
+                                      }))
+                                    }
+                                    
+                                    // Show success toast with impact summary
+                                    const impact = result.impact || result.simulation?.impact_summary || {}
+                                    toast({
+                                      title: "Simulation Completed",
+                                      description: `Affected Resources: ${impact.affected_resources || 0}, Risk Reduction: ${impact.risk_reduction_score || 0}%`,
+                                      duration: 5000,
+                                    })
+                                  } catch (err: any) {
+                                    toast({
+                                      title: "Simulation Failed",
+                                      description: err.message || "Failed to run simulation",
+                                      variant: "destructive",
+                                    })
+                                  } finally {
+                                    setSimulatingIssue(null)
+                                  }
+                                }}
+                                disabled={simulatingIssue === issue.id}
+                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {simulatingIssue === issue.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    SIMULATING...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Sparkles className="w-4 h-4" />
+                                    SIMULATE
+                                  </>
+                                )}
                               </button>
-                              <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
-                                ✨ AUTO-FIX
+                              <button
+                                onClick={async () => {
+                                  const snapshotId = latestSnapshotByIssue[issue.id]
+                                  if (!snapshotId) {
+                                    alert("Please run simulation first")
+                                    return
+                                  }
+                                  if (applyingIssue === issue.id) return
+                                  if (!confirm("Are you sure you want to apply this remediation?")) return
+                                  
+                                  setApplyingIssue(issue.id)
+                                  try {
+                                    const response = await fetch(
+                                      `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
+                                      { method: "POST" }
+                                    )
+                                    if (!response.ok) throw new Error("Apply failed")
+                                    const result = await response.json()
+                                    toast({
+                                      title: "Remediation Applied",
+                                      description: result.result?.message || "Snapshot applied successfully",
+                                      duration: 5000,
+                                    })
+                                    // Refresh data
+                                    fetchAllData()
+                                  } catch (err: any) {
+                                    toast({
+                                      title: "Apply Failed",
+                                      description: err.message || "Failed to apply snapshot",
+                                      variant: "destructive",
+                                    })
+                                  } finally {
+                                    setApplyingIssue(null)
+                                  }
+                                }}
+                                disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
+                                className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={latestSnapshotByIssue[issue.id] ? "Apply remediation" : "Run simulation first"}
+                              >
+                                {applyingIssue === issue.id ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    APPLYING...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    APPLY
+                                  </>
+                                )}
                               </button>
                               <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
                                 👥 REQUEST
@@ -1020,15 +1118,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📸</span>
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Snapshots & Recovery</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
-              View and manage system snapshots, backup schedules, and recovery points. Coming soon.
-            </p>
-          </div>
+          <SnapshotsRecoveryTab systemName={systemName} />
         </div>
       )}
 
