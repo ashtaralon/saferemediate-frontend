@@ -59,33 +59,72 @@ export async function GET(req: NextRequest) {
         )
         clearTimeout(timeoutId2)
     
-    if (res.ok) {
-      const data = await res.json()
-      // Transform least-privilege response to gap-analysis format
-      const role = data.roles?.[0] || {}
+        if (res.ok) {
+          const data = await res.json()
+          // Transform least-privilege response to gap-analysis format
+          const role = data.roles?.[0] || {}
+          return NextResponse.json({
+            role_name: role.roleName || roleName,
+            allowed_actions: role.allowed || 0,
+            used_actions: role.used || 0,
+            unused_actions: role.unused || 0,
+            statistics: {
+              total_allowed: role.allowed || 0,
+              total_used: role.used || 0,
+              total_unused: role.unused || 0,
+              confidence: role.gap || 0,
+              remediation_potential: `${role.gap || 0}%`,
+            },
+          })
+        }
+      } catch (e) {
+        clearTimeout(timeoutId2)
+        // Fallback to default response
+        return NextResponse.json({
+          role_name: roleName,
+          allowed_actions: 0,
+          used_actions: 0,
+          unused_actions: 0,
+          statistics: {
+            total_allowed: 0,
+            total_used: 0,
+            total_unused: 0,
+            confidence: 0,
+          },
+        })
+      }
+    }
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: "Backend error", status: res.status },
+        { status: res.status }
+      )
+    }
+
+    const data = await res.json()
+    return NextResponse.json(data)
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      // Timeout - return default response instead of error
       return NextResponse.json({
-        role_name: role.roleName || roleName,
-        allowed_actions: role.allowed || 0,
-        used_actions: role.used || 0,
-        unused_actions: role.unused || 0,
+        role_name: roleName,
+        allowed_actions: 0,
+        used_actions: 0,
+        unused_actions: 0,
         statistics: {
-          total_allowed: role.allowed || 0,
-          total_used: role.used || 0,
-          total_unused: role.unused || 0,
-          confidence: role.gap || 0,
-          remediation_potential: `${role.gap || 0}%`,
+          total_allowed: 0,
+          total_used: 0,
+          total_unused: 0,
+          confidence: 0,
         },
       })
     }
-  }
-
-  if (!res.ok) {
+    // Other error - return error response
     return NextResponse.json(
-      { error: "Backend error", status: res.status },
-      { status: res.status }
+      { error: "Backend unavailable", status: 503 },
+      { status: 503 }
     )
   }
-
-  const data = await res.json()
-  return NextResponse.json(data)
 }
