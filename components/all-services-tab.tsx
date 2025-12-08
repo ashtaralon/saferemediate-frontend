@@ -133,7 +133,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   useEffect(() => {
     fetchServices()
     fetchGapData()
-  }, [])
+  }, [systemName])  // Re-fetch when systemName changes
 
   const fetchServices = async () => {
     setLoading(true)
