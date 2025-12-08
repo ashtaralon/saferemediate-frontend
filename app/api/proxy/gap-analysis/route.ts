@@ -29,16 +29,35 @@ export async function GET(req: NextRequest) {
   // Map systemName to role name
   const roleName = getRoleName(systemName)
 
-  // Try /api/traffic/gap/{roleName} first, fallback to /api/least-privilege
-  let res = await fetch(
-    `${BACKEND_URL}/api/traffic/gap/${encodeURIComponent(roleName)}`
-  )
+  // Add timeout to prevent Vercel 300s timeout
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
-  // If 404, try the least-privilege endpoint which returns similar data
-  if (!res.ok && res.status === 404) {
-    res = await fetch(
-      `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`
+  try {
+    // Try /api/traffic/gap/{roleName} first, fallback to /api/least-privilege
+    let res = await fetch(
+      `${BACKEND_URL}/api/traffic/gap/${encodeURIComponent(roleName)}`,
+      {
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+      }
     )
+
+    clearTimeout(timeoutId)
+
+    // If 404, try the least-privilege endpoint which returns similar data
+    if (!res.ok && res.status === 404) {
+      const controller2 = new AbortController()
+      const timeoutId2 = setTimeout(() => controller2.abort(), 10000)
+      try {
+        res = await fetch(
+          `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,
+          {
+            signal: controller2.signal,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+        clearTimeout(timeoutId2)
     
     if (res.ok) {
       const data = await res.json()

@@ -51,9 +51,15 @@ export default function HomePage() {
     // Trigger traffic ingestion (non-blocking)
     fetch(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
 
-    // Fetch gap analysis via proxy route to avoid CORS issues
-    fetch("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role")
+    // Fetch gap analysis via proxy route with timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout
+
+    fetch("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {
+      signal: controller.signal,
+    })
       .then((res) => {
+        clearTimeout(timeoutId)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
       })
@@ -80,8 +86,10 @@ export default function HomePage() {
         })
         setLastRefresh(new Date())
       })
-      .catch(() => {
+      .catch((err) => {
+        clearTimeout(timeoutId)
         // Silent fail - use default values already set in state
+        console.warn("Gap analysis fetch failed:", err)
       })
   }, [])
 
