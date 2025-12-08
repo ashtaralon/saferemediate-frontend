@@ -1,7 +1,7 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
 export interface InfrastructureData {
   resources: Array<{
@@ -59,13 +59,13 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel
+    // Fetch dashboard metrics and graph nodes in parallel via proxy routes
     const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/dashboard/metrics`, {
+      fetch("/api/proxy/dashboard-metrics", {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
-      fetch(`${BACKEND_URL}/api/graph/nodes`, {
+      fetch("/api/proxy/graph-data", {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
@@ -83,6 +83,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
     if (nodesResponse.ok) {
       const nodesData = await nodesResponse.json()
+      // graph-data returns { nodes: [...], relationships: [...] }
       nodes = nodesData.nodes || nodesData || []
       console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
     } else {
@@ -153,7 +154,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/findings`, {
+    const response = await fetch("/api/proxy/findings", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -188,7 +189,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
+    const response = await fetch("/api/proxy/graph-data", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -209,7 +210,7 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
+    const response = await fetch("/api/proxy/graph-data", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -230,7 +231,7 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
+    const response = await fetch("/api/proxy/health", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -273,7 +274,20 @@ async function httpPost<T>(path: string, body: any): Promise<T> {
  * { finding_id, change_type, resource_id, proposed_state }
  */
 export async function simulateIssue(payload: any) {
-  return httpPost("/api/simulate", payload)
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/simulate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Simulation failed: ${res.status}`)
+  }
+
+  return res.json()
 }
 
 /**
@@ -282,5 +296,18 @@ export async function simulateIssue(payload: any) {
  * { finding_id: "...", ... }
  */
 export async function fixIssue(payload: any) {
-  return httpPost("/api/execute", payload)
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/remediate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Fix failed: ${res.status}`)
+  }
+
+  return res.json()
 }

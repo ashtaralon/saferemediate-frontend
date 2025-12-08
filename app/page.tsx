@@ -21,7 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
 interface GapAnalysisData {
   allowed: number
@@ -48,9 +48,8 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
-
-    fetch(`${BACKEND_URL}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+    // Use proxy route to avoid CORS issues
+    fetch("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role")
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()

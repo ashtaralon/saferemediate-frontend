@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 export async function GET() {
   const backendUrl =
-    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
     // Fetch nodes and edges in parallel

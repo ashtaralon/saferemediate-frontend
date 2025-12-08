@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
-  const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
+  const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
     const { searchParams } = new URL(request.url)

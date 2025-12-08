@@ -433,8 +433,8 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       // Try multiple endpoints
       const endpoints = [
         "/api/proxy/graph-data",
-        "https://saferemediate-backend-1.onrender.com/api/graph/snapshot",
-        "https://saferemediate-backend-1.onrender.com/api/graph/live",
+        "https://saferemediate-backend.onrender.com/api/graph/snapshot",
+        "https://saferemediate-backend.onrender.com/api/graph/live",
       ]
       
       let data = null

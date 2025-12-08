@@ -176,10 +176,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
-      // Use the provided backend URL
-      // Update backend URL and fetch logic
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-1.onrender.com"
-      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+      // Use proxy route to avoid CORS issues
+      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
