@@ -245,3 +245,37 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
     return { success: false, message: error.message || "Connection failed" }
   }
 }
+
+export async function simulateIssue(payload: any) {
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/simulate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Simulation failed: ${res.status}`)
+  }
+
+  return res.json()
+}
+
+export async function fixIssue(payload: any) {
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/remediate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Fix failed: ${res.status}`)
+  }
+
+  return res.json()
+}
