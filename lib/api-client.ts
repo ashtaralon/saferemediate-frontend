@@ -231,7 +231,7 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
+    const response = await fetch("/api/proxy/health", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
