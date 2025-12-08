@@ -107,6 +107,12 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       console.warn("[v0] Nodes endpoint failed or timed out")
     }
 
+    // If no nodes from backend, use fallback data
+    if (nodes.length === 0 && (!metricsResponse.value || !metricsResponse.value.ok)) {
+      console.warn("[v0] No data from backend, using fallback data")
+      return infrastructureData
+    }
+
     // Map backend data to our InfrastructureData format
     const resources = nodes.map((node: any) => ({
       id: node.id || node.nodeId || "",
@@ -164,7 +170,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       complianceSystems: metrics.complianceSystems || [],
     }
   } catch (error) {
-    console.warn("[v0] Backend not available, using mock data. Error:", error)
+    console.warn("[v0] Backend not available, using fallback data. Error:", error)
     return infrastructureData
   }
 }
