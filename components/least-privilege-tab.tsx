@@ -150,9 +150,9 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
         r.roleArn?.includes("SafeRemediate-Lambda-Remediation-Role")
       ) || role
       
-      const allowed = targetRole.allowed || targetRole.allowed_actions ?? 0
-      const used = targetRole.used || targetRole.used_actions ?? 0
-      const unused = targetRole.unused || targetRole.unused_actions ?? 0
+      const allowed = (targetRole.allowed || targetRole.allowed_actions) ?? 0
+      const used = (targetRole.used || targetRole.used_actions) ?? 0
+      const unused = (targetRole.unused || targetRole.unused_actions) ?? 0
       
       // If backend returns empty data (all zeros), use demo data
       if (allowed === 0 && used === 0 && unused === 0) {
