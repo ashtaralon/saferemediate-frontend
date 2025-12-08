@@ -59,13 +59,13 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel
+    // Fetch dashboard metrics and graph nodes in parallel via proxy routes
     const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/dashboard/metrics`, {
+      fetch("/api/proxy/dashboard-metrics", {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
-      fetch(`${BACKEND_URL}/api/graph/nodes`, {
+      fetch("/api/proxy/graph-data", {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
@@ -83,6 +83,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
     if (nodesResponse.ok) {
       const nodesData = await nodesResponse.json()
+      // graph-data returns { nodes: [...], relationships: [...] }
       nodes = nodesData.nodes || nodesData || []
       console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
     } else {
@@ -153,7 +154,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/findings`, {
+    const response = await fetch("/api/proxy/findings", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -188,7 +189,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
+    const response = await fetch("/api/proxy/graph-data", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -209,7 +210,7 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
+    const response = await fetch("/api/proxy/graph-data", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
