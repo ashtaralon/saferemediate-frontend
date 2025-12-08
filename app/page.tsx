@@ -22,6 +22,28 @@ import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const FETCH_TIMEOUT = 10000 // 10 second timeout
+
+// Helper function to fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`)
+    }
+    throw error
+  }
+}
 
 interface GapAnalysisData {
   allowed: number
@@ -49,20 +71,11 @@ export default function HomePage() {
 
   const fetchGapAnalysis = useCallback(() => {
     // Trigger traffic ingestion (non-blocking)
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
+    fetchWithTimeout(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
 
-    // Fetch gap analysis via proxy route with aggressive timeout
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      controller.abort()
-      console.warn("[v0] Gap analysis timeout - using default values")
-    }, 5000) // 5 second timeout - very aggressive
-
-    fetch("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {
-      signal: controller.signal,
-    })
+    // Fetch gap analysis via proxy route with timeout
+    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 5000)
       .then((res) => {
-        clearTimeout(timeoutId)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
       })
@@ -302,6 +315,7 @@ export default function HomePage() {
             <TrendsActivity />
           </div>
         )
+
       case "issues":
         return (
           <div className="space-y-6">
@@ -322,8 +336,10 @@ export default function HomePage() {
             </div>
           </div>
         )
+
       case "systems":
         return <SystemsView systems={[]} onSystemSelect={handleSystemSelect} />
+
       case "compliance":
         return (
           <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -334,12 +350,16 @@ export default function HomePage() {
             />
           </div>
         )
+
       case "identities":
         return <IdentitiesSection />
+
       case "automation":
         return <AutomationSection />
+
       case "integrations":
         return <IntegrationsSection />
+
       default:
         return (
           <div>
