@@ -3,6 +3,13 @@ import { infrastructureData } from "./data"
 
 const BACKEND_URL = "https://saferemediate-backend.onrender.com"
 const FETCH_TIMEOUT = 10000 // 10 second timeout
+const MAX_RETRIES = 4
+const INITIAL_RETRY_DELAY = 2000 // 2 seconds
+
+// Helper function to sleep
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 // Helper function to fetch with timeout
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
@@ -23,6 +30,46 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout 
     }
     throw error
   }
+}
+
+// Fetch with retry and exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  timeout = FETCH_TIMEOUT,
+  maxRetries = MAX_RETRIES
+): Promise<Response> {
+  let lastError: Error | null = null
+  let delay = INITIAL_RETRY_DELAY
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, options, timeout)
+      return response
+    } catch (error: any) {
+      lastError = error
+
+      // Only retry on network errors, not on HTTP errors
+      if (error.name === 'AbortError' || error.message?.includes('timed out')) {
+        // Timeout - retry
+        console.log(`[api-client] Request timed out, attempt ${attempt + 1}/${maxRetries + 1}`)
+      } else if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        // Network error - retry
+        console.log(`[api-client] Network error, attempt ${attempt + 1}/${maxRetries + 1}`)
+      } else {
+        // Other error - don't retry
+        throw error
+      }
+
+      if (attempt < maxRetries) {
+        console.log(`[api-client] Retrying in ${delay}ms...`)
+        await sleep(delay)
+        delay *= 2 // Exponential backoff: 2s, 4s, 8s, 16s
+      }
+    }
+  }
+
+  throw lastError || new Error('All retry attempts failed')
 }
 
 export interface InfrastructureData {
@@ -81,13 +128,13 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel with timeout
+    // Fetch dashboard metrics and graph nodes in parallel with retry
     const [metricsResponse, nodesResponse] = await Promise.all([
-      fetchWithTimeout(`${BACKEND_URL}/api/dashboard/metrics`, {
+      fetchWithRetry(`${BACKEND_URL}/api/dashboard/metrics`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
-      fetchWithTimeout(`${BACKEND_URL}/api/graph/nodes`, {
+      fetchWithRetry(`${BACKEND_URL}/api/graph/nodes`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
@@ -175,7 +222,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    const response = await fetchWithTimeout(`${BACKEND_URL}/api/findings`, {
+    const response = await fetchWithRetry(`${BACKEND_URL}/api/findings`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -220,7 +267,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetchWithTimeout(`${BACKEND_URL}/api/graph/nodes`, {
+    const response = await fetchWithRetry(`${BACKEND_URL}/api/graph/nodes`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -241,7 +288,7 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const response = await fetchWithTimeout(`${BACKEND_URL}/api/graph/relationships`, {
+    const response = await fetchWithRetry(`${BACKEND_URL}/api/graph/relationships`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })

@@ -1,0 +1,12 @@
+# SafeRemediate Backend - Fixed Requirements
+# Pin neo4j to version 5.23.0 to avoid ImportError with ConnectionResetByPeer
+
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+httpx>=0.24.0
+boto3>=1.28.0
+neo4j==5.23.0
+requests>=2.31.0
+python-multipart>=0.0.6

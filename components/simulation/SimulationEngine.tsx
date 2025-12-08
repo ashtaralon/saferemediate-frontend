@@ -372,10 +372,61 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
     return () => clearInterval(interval)
   }, [])
 
+  const [rollbackInProgress, setRollbackInProgress] = useState(false)
+  const [rollbackError, setRollbackError] = useState<string | null>(null)
+
   const handleRollback = async () => {
-    // Would trigger rollback via API
-    alert("Rollback initiated - restoring from checkpoint")
-    onClose()
+    if (!finding) return
+
+    setRollbackInProgress(true)
+    setRollbackError(null)
+
+    try {
+      // Get latest snapshots to find the most recent checkpoint
+      const snapshotsResponse = await fetchWithTimeout(`/api/proxy/snapshots?systemName=${encodeURIComponent(systemName)}`)
+      const snapshotsData = await snapshotsResponse.json()
+      const snapshots = snapshotsData.snapshots || []
+
+      // Find the most recent AUTO PRE-FIX snapshot
+      const checkpoint = snapshots.find((s: any) => s.type === "AUTO PRE-FIX") || snapshots[0]
+
+      if (!checkpoint) {
+        setRollbackError("No checkpoint found to rollback to")
+        setRollbackInProgress(false)
+        return
+      }
+
+      // Initiate restore from checkpoint
+      const restoreResponse = await fetchWithTimeout("/api/proxy/snapshots/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          snapshotId: checkpoint.id,
+          systemName,
+          resources: ["iam", "sg", "acl"], // Restore security-related resources
+        }),
+      })
+
+      const restoreData = await restoreResponse.json()
+
+      if (restoreData.success) {
+        // Show success and close
+        setPhase("complete")
+        setRollbackInProgress(false)
+
+        // Notify parent that rollback was executed
+        if (onFixApplied) {
+          onFixApplied()
+        }
+      } else {
+        setRollbackError(restoreData.error || "Rollback failed")
+        setRollbackInProgress(false)
+      }
+    } catch (err) {
+      console.error("Rollback error:", err)
+      setRollbackError(err instanceof Error ? err.message : "Rollback failed")
+      setRollbackInProgress(false)
+    }
   }
 
   const handleMarkResolved = () => {
@@ -756,19 +807,38 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
               )}
             </div>
 
-            <div className="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-              <button
-                onClick={handleRollback}
-                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-100"
-              >
-                ROLLBACK
-              </button>
-              <button
-                onClick={handleMarkResolved}
-                className="px-6 py-2 bg-[#2D51DA] text-white rounded-lg font-medium hover:bg-[#2343B8]"
-              >
-                MARK AS RESOLVED
-              </button>
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              {rollbackError && (
+                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-700">{rollbackError}</p>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={handleRollback}
+                  disabled={rollbackInProgress}
+                  className="px-4 py-2 border border-red-300 text-red-700 rounded-lg font-medium hover:bg-red-50 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {rollbackInProgress ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                      Rolling back...
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4" />
+                      ROLLBACK
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleMarkResolved}
+                  disabled={rollbackInProgress}
+                  className="px-6 py-2 bg-[#2D51DA] text-white rounded-lg font-medium hover:bg-[#2343B8] disabled:opacity-50"
+                >
+                  MARK AS RESOLVED
+                </button>
+              </div>
             </div>
           </>
         )}
