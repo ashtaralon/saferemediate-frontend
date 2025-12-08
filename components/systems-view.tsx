@@ -241,18 +241,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     return () => clearInterval(countdown)
   }, [])
 
-  useEffect(() => {
-    const saved = localStorage.getItem("impactiq-systems")
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        setLocalSystems(parsed)
-      } catch (e) {
-        console.error("[v0] Failed to parse saved systems:", e)
-      }
-    }
-  }, [])
-
+  // Save systems to localStorage when they change (but don't load from localStorage - always fetch fresh)
   useEffect(() => {
     if (localSystems.length > 0) {
       localStorage.setItem("impactiq-systems", JSON.stringify(localSystems))
