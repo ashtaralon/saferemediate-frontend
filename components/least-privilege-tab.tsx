@@ -525,7 +525,7 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
                         <p className="text-sm text-gray-600">{getPermissionDescription(permission)}</p>
                       </div>
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-2">Times Used (Last 7 Days)</h4>
+                        <h4 className="text-sm font-semibold text-gray-700 mb-2">Times Used (Last Year - 365 Days)</h4>
                         <p className="text-2xl font-bold text-gray-900">{isUsed ? "Active" : "0"}</p>
                       </div>
                     </div>

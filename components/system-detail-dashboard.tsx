@@ -232,7 +232,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
           safeToFix: 95,
           fixTime: "< 5 min",
-          temporalAnalysis: `This permission has not been used in the last 7 days. Safe to remove with ${confidence}% confidence.`,
+          temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with ${confidence}% confidence.`,
           expanded: false,
           selected: false,
         }))
