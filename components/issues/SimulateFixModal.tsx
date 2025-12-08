@@ -12,6 +12,29 @@ import { Button } from "@/components/ui/button"
 import { CheckCircle, AlertTriangle, Zap, Clock, TrendingUp } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 
+const FETCH_TIMEOUT = 10000 // 10 second timeout
+
+// Helper function to fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`)
+    }
+    throw error
+  }
+}
+
 interface SimulateFixModalProps {
   open: boolean
   onClose: () => void
@@ -54,7 +77,7 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
       setError(null)
       setSimulation(null)
 
-      const response = await fetch("/api/proxy/simulate", {
+      const response = await fetchWithTimeout("/api/proxy/simulate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -6,6 +6,28 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   "https://saferemediate-backend.onrender.com"
 
+const FETCH_TIMEOUT = 8000 // 8 second timeout
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`)
+    }
+    throw error
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -21,8 +43,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Call backend simulation endpoint
-    const response = await fetch(`${BACKEND_URL}/api/simulate`, {
+    // Call backend simulation endpoint with timeout
+    const response = await fetchWithTimeout(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
