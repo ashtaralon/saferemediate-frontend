@@ -273,7 +273,20 @@ async function httpPost<T>(path: string, body: any): Promise<T> {
  * { finding_id, change_type, resource_id, proposed_state }
  */
 export async function simulateIssue(payload: any) {
-  return httpPost("/api/simulate", payload)
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/simulate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Simulation failed: ${res.status}`)
+  }
+
+  return res.json()
 }
 
 /**
@@ -282,5 +295,18 @@ export async function simulateIssue(payload: any) {
  * { finding_id: "...", ... }
  */
 export async function fixIssue(payload: any) {
-  return httpPost("/api/execute", payload)
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/remediate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Fix failed: ${res.status}`)
+  }
+
+  return res.json()
 }
