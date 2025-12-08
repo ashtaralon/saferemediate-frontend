@@ -2,6 +2,28 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
 const BACKEND_URL = "https://saferemediate-backend.onrender.com"
+const FETCH_TIMEOUT = 10000 // 10 second timeout
+
+// Helper function to fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`)
+    }
+    throw error
+  }
+}
 
 export interface InfrastructureData {
   resources: Array<{
@@ -59,13 +81,13 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel
+    // Fetch dashboard metrics and graph nodes in parallel with timeout
     const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/dashboard/metrics`, {
+      fetchWithTimeout(`${BACKEND_URL}/api/dashboard/metrics`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
-      fetch(`${BACKEND_URL}/api/graph/nodes`, {
+      fetchWithTimeout(`${BACKEND_URL}/api/graph/nodes`, {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
       }),
@@ -153,7 +175,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/findings`, {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/api/findings`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -198,7 +220,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/api/graph/nodes`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -219,7 +241,7 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/api/graph/relationships`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -240,10 +262,10 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
+    const response = await fetchWithTimeout(`${BACKEND_URL}/health`, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
-    })
+    }, 5000) // Shorter timeout for health checks
 
     if (!response.ok) {
       return { success: false, message: `Backend returned ${response.status}` }
