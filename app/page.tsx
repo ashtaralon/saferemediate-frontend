@@ -86,34 +86,43 @@ export default function HomePage() {
   }, [])
 
   const loadData = useCallback(async () => {
-    // Set timeout to prevent infinite loading
+    // Set timeout to prevent infinite loading - ALWAYS resolve after 8 seconds
     const timeoutId = setTimeout(() => {
-      console.warn("Data loading timeout - setting loading to false")
+      console.warn("Data loading timeout - forcing loading to false")
       setLoading(false)
-    }, 10000) // 10 seconds timeout
+    }, 8000) // 8 seconds timeout
 
     try {
-      const [infrastructureData, findings] = await Promise.all([
-        fetchInfrastructure().catch((err) => {
-          console.error("Infrastructure fetch failed:", err)
-          return null
-        }),
-        fetchSecurityFindings().catch((err) => {
-          console.error("Findings fetch failed:", err)
-          return []
-        })
+      const [infrastructureData, findings] = await Promise.allSettled([
+        fetchInfrastructure(),
+        fetchSecurityFindings(),
       ])
       
       clearTimeout(timeoutId)
       
-      setData(infrastructureData)
-      setSecurityFindings(findings || [])
+      // Handle infrastructure data
+      if (infrastructureData.status === 'fulfilled') {
+        setData(infrastructureData.value)
+      } else {
+        console.error("Infrastructure fetch failed:", infrastructureData.reason)
+        setData(null)
+      }
+      
+      // Handle findings
+      if (findings.status === 'fulfilled') {
+        setSecurityFindings(findings.value || [])
+      } else {
+        console.error("Findings fetch failed:", findings.reason)
+        setSecurityFindings([])
+      }
     } catch (error) {
       console.error("Failed to load data:", error)
       clearTimeout(timeoutId)
+      setData(null)
+      setSecurityFindings([])
     } finally {
       clearTimeout(timeoutId)
-      setLoading(false)
+      setLoading(false) // ALWAYS set to false
     }
   }, [])
 

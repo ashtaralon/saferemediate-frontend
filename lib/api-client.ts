@@ -59,44 +59,52 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch with timeout to prevent hanging
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout
-
-    try {
-      // Fetch dashboard metrics and graph nodes in parallel via proxy routes
-      const [metricsResponse, nodesResponse] = await Promise.all([
-        fetch("/api/proxy/dashboard-metrics", {
+    // Fetch dashboard metrics and graph nodes in parallel via proxy routes
+    // Use Promise.race with timeout to prevent hanging
+    const fetchWithTimeout = (url: string, timeout: number = 5000) => {
+      return Promise.race([
+        fetch(url, {
           cache: "no-store",
           headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
         }),
-        fetch("/api/proxy/graph-data", {
-          cache: "no-store",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-        }),
+        new Promise<Response>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout")), timeout)
+        ),
       ])
-      
-      clearTimeout(timeoutId)
+    }
+
+    const [metricsResponse, nodesResponse] = await Promise.allSettled([
+      fetchWithTimeout("/api/proxy/dashboard-metrics", 5000).catch(() => null),
+      fetchWithTimeout("/api/proxy/graph-data", 5000).catch(() => null),
+    ])
 
     let metrics: any = {}
     let nodes: any[] = []
 
-    if (metricsResponse.ok) {
-      metrics = await metricsResponse.json()
-      console.log("[v0] Successfully loaded metrics from backend")
+    // Handle metrics response
+    if (metricsResponse.status === 'fulfilled' && metricsResponse.value && metricsResponse.value.ok) {
+      try {
+        metrics = await metricsResponse.value.json()
+        console.log("[v0] Successfully loaded metrics from backend")
+      } catch (e) {
+        console.warn("[v0] Failed to parse metrics:", e)
+      }
     } else {
-      console.warn("[v0] Metrics endpoint returned error:", metricsResponse.status)
+      console.warn("[v0] Metrics endpoint failed or timed out")
     }
 
-    if (nodesResponse.ok) {
-      const nodesData = await nodesResponse.json()
-      // graph-data returns { nodes: [...], relationships: [...] }
-      nodes = nodesData.nodes || nodesData || []
-      console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
+    // Handle nodes response
+    if (nodesResponse.status === 'fulfilled' && nodesResponse.value && nodesResponse.value.ok) {
+      try {
+        const nodesData = await nodesResponse.value.json()
+        // graph-data returns { nodes: [...], relationships: [...] }
+        nodes = nodesData.nodes || nodesData || []
+        console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
+      } catch (e) {
+        console.warn("[v0] Failed to parse nodes:", e)
+      }
     } else {
-      console.warn("[v0] Nodes endpoint returned error:", nodesResponse.status)
+      console.warn("[v0] Nodes endpoint failed or timed out")
     }
 
     // Map backend data to our InfrastructureData format
@@ -155,17 +163,8 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       },
       complianceSystems: metrics.complianceSystems || [],
     }
-    } catch (error: any) {
-      clearTimeout(timeoutId)
-      if (error.name === 'AbortError') {
-        console.warn("[v0] Request timeout - using fallback data")
-      } else {
-        console.warn("[v0] Backend not available, using mock data. Error:", error)
-      }
-      return infrastructureData
-    }
   } catch (error) {
-    console.warn("[v0] Unexpected error, using fallback data:", error)
+    console.warn("[v0] Backend not available, using mock data. Error:", error)
     return infrastructureData
   }
 }
