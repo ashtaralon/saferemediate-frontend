@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { SystemsView } from '@/components/systems-view'
 
-<<<<<<< HEAD
 // Use proxy route to avoid CORS
 const INFRASTRUCTURE_TYPES = [
   "EC2Instance",
@@ -21,9 +20,6 @@ const INFRASTRUCTURE_TYPES = [
   "ELB",
   "ALB",
 ]
-=======
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
->>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
 
 export default function SystemsPage() {
   const [systems, setSystems] = useState<any[]>([])
@@ -32,7 +28,6 @@ export default function SystemsPage() {
   useEffect(() => {
     const fetchSystems = async () => {
       try {
-<<<<<<< HEAD
         // Use Next.js proxy to avoid CORS
         console.log("[v0] Fetching systems from proxy: /api/proxy/graph-data")
         const response = await fetch("/api/proxy/graph-data")
@@ -74,19 +69,6 @@ export default function SystemsPage() {
         setSystems(systemsList)
       } catch (err) {
         console.error("[v0] Failed to fetch systems:", err)
-=======
-        setLoading(true)
-        const response = await fetch(`${API_URL}/api/systems`)
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
-        }
-        
-        const data = await response.json()
-        setSystems(data.systems || [])
-      } catch (error) {
-        console.error('Error fetching systems:', error)
->>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
         setSystems([])
       } finally {
         setLoading(false)
@@ -108,4 +90,3 @@ export default function SystemsPage() {
     </div>
   )
 }
-
