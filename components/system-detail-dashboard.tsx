@@ -230,7 +230,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       } else {
         setIssues([])
       }
->>>>>>> 970696b35a6ba7efadbcd63e551b3b19cbd51d65
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       setGapAnalysis(fallbackGapData)
