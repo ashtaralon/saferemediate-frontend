@@ -38,7 +38,21 @@ export async function GET() {
 
     // Handle various response formats from Neo4j backend
     const nodes = nodesData.nodes || nodesData || []
-    const relationships = edgesData.edges || edgesData.relationships || edgesData || []
+    const rawRelationships = edgesData.edges || edgesData.relationships || edgesData || []
+
+    // Normalize relationships to ensure source/target and type are present
+    const relationships = rawRelationships.map((rel: any) => ({
+      source: rel.source || rel.start || rel.from,
+      target: rel.target || rel.end || rel.to,
+      type: rel.type || rel.relationship_type || rel.relType || "CONNECTED",
+    }))
+
+    // Log relationship types for debugging
+    const relTypeCounts: Record<string, number> = {}
+    relationships.forEach((r: any) => {
+      relTypeCounts[r.type] = (relTypeCounts[r.type] || 0) + 1
+    })
+    console.log("[graph-data] Relationship types:", relTypeCounts)
 
     console.log(
       "[graph-data] Fetched - nodes:",

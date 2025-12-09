@@ -571,7 +571,7 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       if (fromType === toType || fromType === "VPC" || toType === "VPC") return
       
       const key = `${fromType}-${toType}`
-      const isActual = edge.type.includes("ACTUAL") || edge.type.includes("RUNTIME")
+      const isActual = edge.type.includes("ACTUAL") || edge.type.includes("RUNTIME") || edge.type.includes("USED_ACTION")
       
       if (!flowMap.has(key)) {
         flowMap.set(key, { from: fromType, to: toType, type: edge.type, isActual })
@@ -595,7 +595,7 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
   const stats = {
     resources: nodes.length,
     connections: edges.length,
-    actual: edges.filter(e => e.type.includes("ACTUAL") || e.type.includes("RUNTIME")).length,
+    actual: edges.filter(e => e.type.includes("ACTUAL") || e.type.includes("RUNTIME") || e.type.includes("USED_ACTION")).length,
     services: serviceNodes.length,
   }
 
