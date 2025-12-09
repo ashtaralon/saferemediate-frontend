@@ -42,27 +42,74 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
   const [roleName, setRoleName] = useState<string>("")
 
+  const [dataSource, setDataSource] = useState<"aws" | "backend" | "demo">("demo")
+
   const fetchData = async () => {
     try {
       setError(null)
       setLoading(true)
 
+      // Default role name - can be made configurable
+      const targetRole = "SafeRemediate-Lambda-Remediation-Role"
+
+      // Try direct AWS API first (real data!)
+      try {
+        const awsResponse = await fetch(`/api/aws/iam/analyze?roleName=${encodeURIComponent(targetRole)}`)
+        const awsData = await awsResponse.json()
+
+        if (awsData.success && awsData.source === "aws") {
+          console.log("[v0] Using REAL AWS data!")
+          setDataSource("aws")
+          setRoleName(awsData.role_name || targetRole)
+          setAllowedActions(awsData.allowed_actions ?? 0)
+          setUsedActions(awsData.used_actions ?? 0)
+          setUnusedActions(awsData.unused_actions ?? 0)
+          setAllowedActionsList(awsData.allowed_actions_list || [])
+          setUsedActionsList(awsData.used_actions_list || [])
+          setUnusedActionsList(awsData.unused_actions_list || [])
+          setLastUpdated(new Date())
+          return
+        }
+      } catch (awsErr) {
+        console.log("[v0] AWS direct call failed, trying backend...")
+      }
+
+      // Fallback to backend proxy
       const response = await fetch("/api/proxy/least-privilege")
       const data = await response.json()
 
-      if (data.success === false) {
-        setError(data.error || "Failed to fetch data from backend")
+      if (data.success !== false) {
+        setDataSource("backend")
+        setRoleName(data.role_name || targetRole)
+        setAllowedActions(data.allowed_actions ?? 0)
+        setUsedActions(data.used_actions ?? 0)
+        setUnusedActions(data.unused_actions ?? 0)
+        setAllowedActionsList(data.allowed_actions_list || [])
+        setUsedActionsList(data.actual_actions_list || data.used_actions_list || [])
+        setUnusedActionsList(data.unused_actions_list || [])
+        setLastUpdated(new Date())
         return
       }
 
-      setRoleName(data.role_name || "SafeRemediate-Lambda-Remediation-Role")
-      setAllowedActions(data.allowed_actions ?? 0)
-      setUsedActions(data.used_actions ?? 0)
-      setUnusedActions(data.unused_actions ?? 0)
-      setAllowedActionsList(data.allowed_actions_list || [])
-      setUsedActionsList(data.actual_actions_list || data.used_actions_list || [])
-      setUnusedActionsList(data.unused_actions_list || [])
-
+      // Final fallback: demo data
+      console.log("[v0] Using demo data")
+      setDataSource("demo")
+      setRoleName(targetRole)
+      setAllowedActions(28)
+      setUsedActions(0)
+      setUnusedActions(28)
+      setAllowedActionsList([])
+      setUsedActionsList([])
+      setUnusedActionsList([
+        "cloudtrail:LookupEvents",
+        "cloudtrail:DescribeTrails",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "iam:GetRole",
+        "iam:ListRoles",
+      ])
       setLastUpdated(new Date())
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch data")
@@ -79,6 +126,31 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
     setRemediating(permission)
 
     try {
+      // Try real AWS remediation first
+      const awsResponse = await fetch("/api/aws/iam/remediate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roleName: roleName,
+          permission: permission,
+        }),
+      })
+
+      const awsResult = await awsResponse.json()
+
+      if (awsResult.success && awsResult.source === "aws") {
+        console.log("[v0] REAL AWS Remediation completed!", awsResult)
+        // Open AWS Console to verify
+        if (awsResult.verifyUrl) {
+          window.open(awsResult.verifyUrl, "_blank")
+        }
+        setUnusedActionsList((prev) => prev.filter((p) => p !== permission))
+        setUnusedActions((prev) => prev - 1)
+        setRemediating(null)
+        return
+      }
+
+      // Fallback to backend proxy
       const response = await fetch("/api/proxy/remediate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +165,6 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       console.log("[v0] Remediation result:", result)
 
       if (result.success) {
-        // Update UI state
         setUnusedActionsList((prev) => prev.filter((p) => p !== permission))
         setUnusedActions((prev) => prev - 1)
       }
@@ -235,7 +306,18 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Least Privilege Analysis</h2>
-          <p className="text-sm text-gray-500 mt-1">Role: {roleName}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-gray-500">Role: {roleName}</p>
+            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+              dataSource === "aws"
+                ? "bg-green-100 text-green-700"
+                : dataSource === "backend"
+                ? "bg-blue-100 text-blue-700"
+                : "bg-gray-100 text-gray-600"
+            }`}>
+              {dataSource === "aws" ? "LIVE AWS DATA" : dataSource === "backend" ? "Backend" : "Demo Mode"}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button

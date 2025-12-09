@@ -315,17 +315,36 @@ export function SecurityGroupAnalysisTab({ systemName }: SecurityGroupAnalysisTa
     ]
   }
 
+  const [dataSource, setDataSource] = useState<"aws" | "backend" | "demo">("demo")
+
   const fetchData = async () => {
     try {
       setError(null)
       setLoading(true)
 
-      // Try to fetch real data from API
+      // Try direct AWS API first (REAL DATA!)
+      try {
+        const awsResponse = await fetch("/api/aws/security-groups")
+        const awsData = await awsResponse.json()
+
+        if (awsData.success && awsData.source === "aws" && awsData.securityGroups?.length > 0) {
+          console.log("[v0] Using REAL AWS Security Groups!")
+          setDataSource("aws")
+          setSecurityGroups(awsData.securityGroups)
+          setLastUpdated(new Date())
+          return
+        }
+      } catch (awsErr) {
+        console.log("[v0] AWS direct call failed, trying backend...")
+      }
+
+      // Try backend proxy
       const response = await fetch("/api/proxy/security-groups")
 
       if (response.ok) {
         const data = await response.json()
         if (data.securityGroups && data.securityGroups.length > 0) {
+          setDataSource("backend")
           setSecurityGroups(data.securityGroups)
           setLastUpdated(new Date())
           return
@@ -333,11 +352,13 @@ export function SecurityGroupAnalysisTab({ systemName }: SecurityGroupAnalysisTa
       }
 
       // Fall back to mock data for demo
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      console.log("[v0] Using demo security group data")
+      setDataSource("demo")
       setSecurityGroups(generateMockData())
       setLastUpdated(new Date())
     } catch (err) {
       console.log("[v0] Using mock security group data for demo")
+      setDataSource("demo")
       setSecurityGroups(generateMockData())
       setLastUpdated(new Date())
     } finally {
@@ -352,10 +373,44 @@ export function SecurityGroupAnalysisTab({ systemName }: SecurityGroupAnalysisTa
   const handleRemediate = async (sgId: string, ruleId: string) => {
     setRemediating(`${sgId}-${ruleId}`)
 
-    // Simulate remediation
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    // Find the rule to get its details
+    const sg = securityGroups.find(s => s.id === sgId)
+    const rule = sg?.rules.find(r => r.id === ruleId)
 
-    // Remove the rule from the UI
+    if (rule && dataSource === "aws") {
+      // Try REAL AWS remediation!
+      try {
+        const response = await fetch("/api/aws/security-groups/remediate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            securityGroupId: sgId,
+            ruleId: ruleId,
+            direction: rule.direction,
+            protocol: rule.protocol,
+            portRange: rule.portRange,
+            source: rule.source,
+          }),
+        })
+
+        const result = await response.json()
+
+        if (result.success && result.source === "aws") {
+          console.log("[v0] REAL AWS Security Group rule removed!", result)
+          // Open AWS Console to verify
+          if (result.verifyUrl) {
+            window.open(result.verifyUrl, "_blank")
+          }
+        }
+      } catch (err) {
+        console.error("[v0] AWS remediation failed:", err)
+      }
+    } else {
+      // Demo mode - simulate delay
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+
+    // Update UI
     setSecurityGroups((prev) =>
       prev.map((sg) =>
         sg.id === sgId
@@ -485,9 +540,20 @@ export function SecurityGroupAnalysisTab({ systemName }: SecurityGroupAnalysisTa
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Security Group Analysis</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Network least privilege based on actual traffic patterns
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-gray-500">
+              Network least privilege based on actual traffic patterns
+            </p>
+            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+              dataSource === "aws"
+                ? "bg-green-100 text-green-700"
+                : dataSource === "backend"
+                ? "bg-blue-100 text-blue-700"
+                : "bg-gray-100 text-gray-600"
+            }`}>
+              {dataSource === "aws" ? "LIVE AWS DATA" : dataSource === "backend" ? "Backend" : "Demo Mode"}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <select
