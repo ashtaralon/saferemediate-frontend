@@ -890,7 +890,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
               </div>
 
-              {/* Right Column - Critical Issues */}
+              {/* Right Column - Issues Summary */}
               <div className="col-span-2">
                 <div className="bg-white rounded-xl border border-gray-200">
                   <div className="p-6 border-b border-gray-200">
@@ -898,209 +898,54 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex items-center gap-2">
                         <AlertTriangle className="w-5 h-5 text-red-500" />
                         <h3 className="text-lg font-semibold text-gray-900">
-                          CRITICAL ISSUES ({severityCounts.critical})
+                          ISSUES SUMMARY
                         </h3>
                       </div>
-                      <label className="flex items-center gap-2 text-sm text-gray-600">
-                        <input
-                          type="checkbox"
-                          checked={issues.length > 0 && issues.every((i) => i.selected)}
-                          onChange={selectAllIssues}
-                          className="rounded border-gray-300"
-                        />
-                        Select All
-                      </label>
+                      <button
+                        onClick={() => setActiveTab("issues")}
+                        className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        View All →
+                      </button>
                     </div>
                   </div>
 
                   <div className="p-6">
-                    {severityCounts.critical === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <CheckCircle className="w-8 h-8 text-green-500" />
-                        </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Critical Issues</h4>
-                        <p className="text-sm text-gray-500 max-w-md">
-                          Great news! This system has no critical security issues. Run a security scan to check for new
-                          vulnerabilities.
-                        </p>
-                        <button
-                          onClick={handleTriggerAutoTag}
-                          disabled={triggeringAutoTag}
-                          className="mt-4 flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] disabled:opacity-50"
-                        >
-                          {triggeringAutoTag ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                              Running...
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-4 h-4" />
-                              Run Security Scan
-                            </>
-                          )}
-                        </button>
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="text-center p-4 bg-red-50 rounded-lg">
+                        <p className="text-2xl font-bold text-red-600">{severityCounts.critical}</p>
+                        <p className="text-xs text-gray-600 mt-1">Critical</p>
+                      </div>
+                      <div className="text-center p-4 bg-orange-50 rounded-lg">
+                        <p className="text-2xl font-bold text-orange-600">{severityCounts.high}</p>
+                        <p className="text-xs text-gray-600 mt-1">High</p>
+                      </div>
+                      <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                        <p className="text-2xl font-bold text-yellow-600">{severityCounts.medium}</p>
+                        <p className="text-xs text-gray-600 mt-1">Medium</p>
+                      </div>
+                    </div>
+                    {issues.length === 0 ? (
+                      <div className="text-center py-6">
+                        <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                        <p className="text-sm text-gray-600">No security issues found</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
-                        {issues.map((issue) => (
-                          <div key={issue.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                            <div className="p-4">
-                              <div className="flex items-start gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={issue.selected}
-                                  onChange={() => toggleIssueSelected(issue.id)}
-                                  className="mt-1 rounded border-gray-300"
-                                />
-                                <div className="flex-1">
-                                  <h4 className="font-medium text-gray-900">{issue.title}</h4>
-                                  <p className="text-sm text-red-600 mt-1">
-                                    <span className="font-medium">Impact:</span> {issue.impact}
-                                  </p>
-                                  <p className="text-sm text-gray-500">
-                                    <span className="font-medium">Affected:</span> {issue.affected}
-                                  </p>
-                                  <div className="flex items-center gap-4 mt-2">
-                                    <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
-                                      ✓ SAFE TO FIX • {issue.safeToFix}%
-                                    </span>
-                                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                                      ⏱ {issue.fixTime}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {issue.expanded && (
-                                <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-100">
-                                  <p className="text-xs font-semibold text-purple-700 uppercase mb-1">
-                                    Temporal Analysis
-                                  </p>
-                                  <p className="text-sm text-purple-800">{issue.temporalAnalysis}</p>
-                                </div>
-                              )}
-
-                              <button
-                                onClick={() => toggleIssueExpanded(issue.id)}
-                                className="mt-3 text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
-                              >
-                                {issue.expanded ? "Hide" : "View"} Current vs Desired State
-                                <span className={`transition-transform ${issue.expanded ? "rotate-180" : ""}`}>▼</span>
-                              </button>
-                            </div>
-
-                            <div className="flex border-t border-gray-200">
-                              <button
-                                onClick={async () => {
-                                  if (simulatingIssue === issue.id) return
-                                  setSimulatingIssue(issue.id)
-                                  try {
-                                    const response = await fetch(
-                                      `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                      { method: "POST" }
-                                    )
-                                    if (!response.ok) throw new Error("Simulation failed")
-                                    const result = await response.json()
-                                    
-                                    // Store snapshot ID for this issue
-                                    if (result.snapshot_id) {
-                                      setLatestSnapshotByIssue((prev) => ({
-                                        ...prev,
-                                        [issue.id]: result.snapshot_id,
-                                      }))
-                                    }
-                                    
-                                    // Show success toast with impact summary
-                                    const impact = result.impact || result.simulation?.impact_summary || {}
-                                    toast({
-                                      title: "Simulation Completed",
-                                      description: `Affected Resources: ${impact.affected_resources || 0}, Risk Reduction: ${impact.risk_reduction_score || 0}%`,
-                                      duration: 5000,
-                                    })
-                                  } catch (err: any) {
-                                    toast({
-                                      title: "Simulation Failed",
-                                      description: err.message || "Failed to run simulation",
-                                      variant: "destructive",
-                                    })
-                                  } finally {
-                                    setSimulatingIssue(null)
-                                  }
-                                }}
-                                disabled={simulatingIssue === issue.id}
-                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {simulatingIssue === issue.id ? (
-                                  <>
-                                    <RefreshCw className="w-4 h-4 animate-spin" />
-                                    SIMULATING...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Zap className="w-4 h-4" />
-                                    SIMULATE
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  const snapshotId = latestSnapshotByIssue[issue.id]
-                                  if (!snapshotId) {
-                                    alert("Please run simulation first")
-                                    return
-                                  }
-                                  if (applyingIssue === issue.id) return
-                                  if (!confirm("Are you sure you want to apply this remediation?")) return
-                                  
-                                  setApplyingIssue(issue.id)
-                                  try {
-                                    const response = await fetch(
-                                      `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
-                                      { method: "POST" }
-                                    )
-                                    if (!response.ok) throw new Error("Apply failed")
-                                    const result = await response.json()
-                                    toast({
-                                      title: "Remediation Applied",
-                                      description: result.result?.message || "Snapshot applied successfully",
-                                      duration: 5000,
-                                    })
-                                    // Refresh data
-                                    fetchAllData()
-                                  } catch (err: any) {
-                                    toast({
-                                      title: "Apply Failed",
-                                      description: err.message || "Failed to apply snapshot",
-                                      variant: "destructive",
-                                    })
-                                  } finally {
-                                    setApplyingIssue(null)
-                                  }
-                                }}
-                                disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
-                                className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                title={latestSnapshotByIssue[issue.id] ? "Apply remediation" : "Run simulation first"}
-                              >
-                                {applyingIssue === issue.id ? (
-                                  <>
-                                    <RefreshCw className="w-4 h-4 animate-spin" />
-                                    APPLYING...
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle className="w-4 h-4" />
-                                    APPLY
-                                  </>
-                                )}
-                              </button>
-                              <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
-                                👥 REQUEST
-                              </button>
-                            </div>
+                      <div className="space-y-2">
+                        {issues.slice(0, 3).map((issue) => (
+                          <div key={issue.id} className="p-3 border border-gray-200 rounded-lg">
+                            <p className="text-sm font-medium text-gray-900">{issue.title}</p>
+                            <p className="text-xs text-gray-500 mt-1">{issue.impact}</p>
                           </div>
                         ))}
+                        {issues.length > 3 && (
+                          <button
+                            onClick={() => setActiveTab("issues")}
+                            className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium py-2"
+                          >
+                            View {issues.length - 3} more issues →
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
