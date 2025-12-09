@@ -147,10 +147,21 @@ export function ResourcesTab({ systemName }: ResourcesTabProps) {
         const nodes = data.nodes || []
         const rels = data.relationships || []
 
+        // Build a set of all connected resource IDs
+        const connectedIds = new Set<string>()
+        rels.forEach((rel: Relationship) => {
+          if (rel.source) connectedIds.add(rel.source)
+          if (rel.target) connectedIds.add(rel.target)
+        })
+
+        // Filter to only include resources that are connected (part of the system)
+        // Orphan resources with no connections are excluded
+        const connectedNodes = nodes.filter((n: Resource) => connectedIds.has(n.id))
+
         // Filter by system if specified
         const filteredNodes = systemName
-          ? nodes.filter((n: Resource) => n.systemName === systemName || !n.systemName)
-          : nodes
+          ? connectedNodes.filter((n: Resource) => n.systemName === systemName || !n.systemName)
+          : connectedNodes
 
         setResources(filteredNodes)
         setRelationships(rels)
