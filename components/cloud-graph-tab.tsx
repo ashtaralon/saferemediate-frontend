@@ -48,6 +48,22 @@ interface ServiceNode {
   y: number
   zone: "vpc" | "external"
   subnet: "public" | "private-app" | "private-db" | "external"
+  issues?: {
+    critical: number
+    high: number
+    medium: number
+    low: number
+  }
+  resources?: string[]  // List of actual resource IDs
+}
+
+interface ServiceIssue {
+  id: string
+  resourceId: string
+  resourceType: string
+  title: string
+  severity: "critical" | "high" | "medium" | "low"
+  description: string
 }
 
 interface DataFlow {
@@ -55,6 +71,9 @@ interface DataFlow {
   to: string
   type: string
   isActual: boolean
+  protocol?: string
+  port?: string
+  bytesPerDay?: number
 }
 
 // ============================================================================
@@ -414,6 +433,7 @@ const getIcon = (serviceType: string) => {
 export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphRelationship[]>([])
+  const [issues, setIssues] = useState<ServiceIssue[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<ServiceNode | null>(null)
@@ -421,44 +441,205 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
   const [showLabels, setShowLabels] = useState(true)
   const [isAnimating, setIsAnimating] = useState(true)
   const [filterActual, setFilterActual] = useState(false)
+  const [showIssuesOnly, setShowIssuesOnly] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [zoom, setZoom] = useState(1)
+  const [dataSource, setDataSource] = useState<"aws" | "backend" | "demo">("demo")
 
-  // Fetch data
+  // Generate demo data for visualization
+  const generateDemoData = () => {
+    const demoNodes: GraphNode[] = [
+      { id: "alb-1", name: "payment-alb", type: "ALB", labels: ["LoadBalancer"] },
+      { id: "api-gw-1", name: "payment-api", type: "APIGateway", labels: ["APIGateway"] },
+      { id: "lambda-1", name: "payment-processor", type: "Lambda", labels: ["Lambda"] },
+      { id: "lambda-2", name: "notification-sender", type: "Lambda", labels: ["Lambda"] },
+      { id: "lambda-3", name: "audit-logger", type: "Lambda", labels: ["Lambda"] },
+      { id: "ec2-1", name: "web-server-1", type: "EC2", labels: ["EC2"] },
+      { id: "ec2-2", name: "web-server-2", type: "EC2", labels: ["EC2"] },
+      { id: "rds-1", name: "payment-db-primary", type: "RDS", labels: ["RDS"] },
+      { id: "rds-2", name: "payment-db-replica", type: "RDS", labels: ["RDS"] },
+      { id: "dynamodb-1", name: "sessions-table", type: "DynamoDB", labels: ["DynamoDB"] },
+      { id: "s3-1", name: "payment-assets", type: "S3", labels: ["S3"] },
+      { id: "s3-2", name: "audit-logs", type: "S3", labels: ["S3"] },
+      { id: "sqs-1", name: "payment-queue", type: "SQS", labels: ["SQS"] },
+      { id: "sns-1", name: "alerts-topic", type: "SNS", labels: ["SNS"] },
+      { id: "sg-1", name: "web-tier-sg", type: "SecurityGroup", labels: ["SecurityGroup"] },
+      { id: "sg-2", name: "db-tier-sg", type: "SecurityGroup", labels: ["SecurityGroup"] },
+      { id: "iam-1", name: "lambda-exec-role", type: "IAM", labels: ["IAMRole"] },
+      { id: "iam-2", name: "ec2-instance-role", type: "IAM", labels: ["IAMRole"] },
+      { id: "elasticache-1", name: "session-cache", type: "ElastiCache", labels: ["ElastiCache"] },
+    ]
+
+    const demoEdges: GraphRelationship[] = [
+      { source: "alb-1", target: "ec2-1", type: "ACTUAL_ROUTES_TO" },
+      { source: "alb-1", target: "ec2-2", type: "ACTUAL_ROUTES_TO" },
+      { source: "api-gw-1", target: "lambda-1", type: "ACTUAL_INVOKES" },
+      { source: "api-gw-1", target: "lambda-2", type: "ACTUAL_INVOKES" },
+      { source: "lambda-1", target: "rds-1", type: "ACTUAL_CONNECTS_TO" },
+      { source: "lambda-1", target: "sqs-1", type: "ACTUAL_SENDS_TO" },
+      { source: "lambda-1", target: "dynamodb-1", type: "ACTUAL_READS_FROM" },
+      { source: "lambda-2", target: "sns-1", type: "ACTUAL_PUBLISHES_TO" },
+      { source: "lambda-3", target: "s3-2", type: "ACTUAL_WRITES_TO" },
+      { source: "ec2-1", target: "rds-1", type: "ACTUAL_CONNECTS_TO" },
+      { source: "ec2-2", target: "rds-1", type: "ACTUAL_CONNECTS_TO" },
+      { source: "ec2-1", target: "elasticache-1", type: "ACTUAL_CONNECTS_TO" },
+      { source: "ec2-2", target: "elasticache-1", type: "ACTUAL_CONNECTS_TO" },
+      { source: "rds-1", target: "rds-2", type: "REPLICATES_TO" },
+      { source: "sqs-1", target: "lambda-3", type: "TRIGGERS" },
+      { source: "sg-1", target: "ec2-1", type: "PROTECTS" },
+      { source: "sg-1", target: "ec2-2", type: "PROTECTS" },
+      { source: "sg-2", target: "rds-1", type: "PROTECTS" },
+      { source: "iam-1", target: "lambda-1", type: "ASSUMED_BY" },
+      { source: "iam-2", target: "ec2-1", type: "ASSUMED_BY" },
+      { source: "ec2-1", target: "s3-1", type: "READS_FROM" },
+    ]
+
+    const demoIssues: ServiceIssue[] = [
+      { id: "issue-1", resourceId: "sg-1", resourceType: "SecurityGroup", title: "SSH open to 0.0.0.0/0", severity: "critical", description: "Port 22 is open to the entire internet" },
+      { id: "issue-2", resourceId: "sg-1", resourceType: "SecurityGroup", title: "RDP open to 0.0.0.0/0", severity: "critical", description: "Port 3389 is open to the entire internet" },
+      { id: "issue-3", resourceId: "iam-1", resourceType: "IAM", title: "28 unused permissions", severity: "high", description: "Role has permissions that were never used in 90 days" },
+      { id: "issue-4", resourceId: "iam-2", resourceType: "IAM", title: "15 unused permissions", severity: "high", description: "Role has permissions that were never used in 90 days" },
+      { id: "issue-5", resourceId: "s3-1", resourceType: "S3", title: "Public access enabled", severity: "high", description: "Bucket allows public read access" },
+      { id: "issue-6", resourceId: "rds-1", resourceType: "RDS", title: "No encryption at rest", severity: "medium", description: "Database is not encrypted at rest" },
+      { id: "issue-7", resourceId: "ec2-1", resourceType: "EC2", title: "IMDSv1 enabled", severity: "medium", description: "Instance Metadata Service v1 is enabled" },
+      { id: "issue-8", resourceId: "lambda-1", resourceType: "Lambda", title: "No VPC configuration", severity: "low", description: "Lambda function not attached to VPC" },
+    ]
+
+    return { nodes: demoNodes, edges: demoEdges, issues: demoIssues }
+  }
+
+  // Fetch data from multiple sources
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
-      
-      // Try multiple endpoints
+
+      // Try to fetch real AWS data first
+      try {
+        const [sgResponse, iamResponse] = await Promise.all([
+          fetch("/api/aws/security-groups"),
+          fetch("/api/aws/iam/roles"),
+        ])
+
+        const sgData = await sgResponse.json()
+        const iamData = await iamResponse.json()
+
+        if (sgData.success && sgData.source === "aws") {
+          console.log("[v0] Using REAL AWS data for Cloud Graph!")
+          setDataSource("aws")
+
+          // Transform AWS data to graph nodes
+          const awsNodes: GraphNode[] = []
+          const awsIssues: ServiceIssue[] = []
+
+          // Add security groups as nodes
+          for (const sg of sgData.securityGroups || []) {
+            awsNodes.push({
+              id: sg.id,
+              name: sg.name,
+              type: "SecurityGroup",
+              labels: ["SecurityGroup"],
+            })
+
+            // Add issues for risky rules
+            for (const rule of sg.rules || []) {
+              if (rule.riskLevel === "critical" || rule.riskLevel === "high") {
+                awsIssues.push({
+                  id: `${sg.id}-${rule.id}`,
+                  resourceId: sg.id,
+                  resourceType: "SecurityGroup",
+                  title: `${rule.portRange} open to ${rule.source}`,
+                  severity: rule.riskLevel,
+                  description: rule.description || `${rule.direction} ${rule.protocol} ${rule.portRange} from ${rule.source}`,
+                })
+              }
+            }
+          }
+
+          // Add IAM roles as nodes
+          if (iamData.success) {
+            for (const role of iamData.roles || []) {
+              awsNodes.push({
+                id: role.roleArn || role.roleName,
+                name: role.roleName,
+                type: "IAM",
+                labels: ["IAMRole"],
+              })
+            }
+          }
+
+          if (awsNodes.length > 0) {
+            setNodes(awsNodes)
+            setEdges([])
+            setIssues(awsIssues)
+            return
+          }
+        }
+      } catch (awsErr) {
+        console.log("[v0] AWS direct call failed, trying backend...")
+      }
+
+      // Try backend proxy endpoints
       const endpoints = [
         "/api/proxy/graph-data",
-        "https://saferemediate-backend.onrender.com/api/graph/snapshot",
-        "https://saferemediate-backend.onrender.com/api/graph/live",
+        "/api/proxy/findings",
       ]
-      
-      let data = null
+
+      let graphData = null
+      let findingsData = null
+
       for (const endpoint of endpoints) {
         try {
           const res = await fetch(endpoint)
           if (res.ok) {
-            data = await res.json()
-            break
+            const data = await res.json()
+            if (endpoint.includes("graph")) {
+              graphData = data
+            } else if (endpoint.includes("findings")) {
+              findingsData = data
+            }
           }
         } catch (e) {
           continue
         }
       }
-      
-      if (!data) throw new Error("Failed to fetch graph data")
-      
-      const rawNodes = data.nodes || data.infrastructure?.nodes || []
-      const rawEdges = data.relationships || data.edges || []
-      
-      setNodes(rawNodes)
-      setEdges(rawEdges)
+
+      if (graphData) {
+        setDataSource("backend")
+        const rawNodes = graphData.nodes || graphData.infrastructure?.nodes || []
+        const rawEdges = graphData.relationships || graphData.edges || []
+        setNodes(rawNodes)
+        setEdges(rawEdges)
+
+        // Convert findings to issues
+        if (findingsData && Array.isArray(findingsData)) {
+          const convertedIssues: ServiceIssue[] = findingsData.map((f: any, i: number) => ({
+            id: f.id || `finding-${i}`,
+            resourceId: f.resource_id || f.resourceId || "",
+            resourceType: f.resource_type || f.resourceType || "Unknown",
+            title: f.title || f.name || "Issue",
+            severity: f.severity?.toLowerCase() || "medium",
+            description: f.description || "",
+          }))
+          setIssues(convertedIssues)
+        }
+        return
+      }
+
+      // Fallback to demo data
+      console.log("[v0] Using demo data for Cloud Graph")
+      setDataSource("demo")
+      const demoData = generateDemoData()
+      setNodes(demoData.nodes)
+      setEdges(demoData.edges)
+      setIssues(demoData.issues)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch")
+      console.log("[v0] Error fetching, using demo data:", err)
+      setDataSource("demo")
+      const demoData = generateDemoData()
+      setNodes(demoData.nodes)
+      setEdges(demoData.edges)
+      setIssues(demoData.issues)
     } finally {
       setIsLoading(false)
     }
@@ -470,52 +651,71 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
     return () => clearInterval(interval)
   }, [fetchData])
 
+  // Calculate issues per service type
+  const issuesByService = useMemo(() => {
+    const map = new Map<string, { critical: number; high: number; medium: number; low: number }>()
+
+    issues.forEach(issue => {
+      const serviceType = typeMapping[issue.resourceType] || issue.resourceType
+      if (!map.has(serviceType)) {
+        map.set(serviceType, { critical: 0, high: 0, medium: 0, low: 0 })
+      }
+      const counts = map.get(serviceType)!
+      counts[issue.severity]++
+    })
+
+    return map
+  }, [issues])
+
   // Process nodes into service groups
   const serviceNodes = useMemo(() => {
     const groups = new Map<string, GraphNode[]>()
-    
+
     nodes.forEach(node => {
       const serviceType = getServiceType(node)
       if (serviceType === "VPC") return // Skip VPC/Subnet containers
-      
+
       if (!groups.has(serviceType)) {
         groups.set(serviceType, [])
       }
       groups.get(serviceType)!.push(node)
     })
-    
+
     const result: ServiceNode[] = []
-    
+
     // Layout configuration
     const layout = {
       vpcX: 60,
       vpcWidth: 700,
       externalX: 820,
-      
+
       public: { y: 140, items: [] as string[] },
       "private-app": { y: 300, items: [] as string[] },
       "private-db": { y: 480, items: [] as string[] },
       external: { y: 140, items: [] as string[] },
     }
-    
+
     // Assign services to subnets
     groups.forEach((_, serviceType) => {
       const subnet = getSubnet(serviceType)
       layout[subnet].items.push(serviceType)
     })
-    
+
     // Position nodes
     Object.entries(layout).forEach(([subnet, config]) => {
       if (subnet === "vpcX" || subnet === "vpcWidth" || subnet === "externalX") return
-      
+
       const items = (config as { y: number; items: string[] }).items
       const y = (config as { y: number }).y
       const isExternal = subnet === "external"
-      
+
       items.forEach((serviceType, idx) => {
         const nodeGroup = groups.get(serviceType)
         if (!nodeGroup) return
-        
+
+        const serviceIssues = issuesByService.get(serviceType) || { critical: 0, high: 0, medium: 0, low: 0 }
+        const resourceIds = nodeGroup.map(n => n.id)
+
         let x: number
         if (isExternal) {
           // External services on the right
@@ -531,6 +731,8 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
             y: adjustedY,
             zone: "external",
             subnet: "external",
+            issues: serviceIssues,
+            resources: resourceIds,
           })
         } else {
           // VPC services
@@ -538,7 +740,7 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
           const totalWidth = items.length * spacing
           const startX = layout.vpcX + (layout.vpcWidth - totalWidth) / 2 + spacing / 2
           x = startX + idx * spacing
-          
+
           result.push({
             id: serviceType,
             type: serviceType,
@@ -549,13 +751,15 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
             y,
             zone: "vpc",
             subnet: subnet as ServiceNode["subnet"],
+            issues: serviceIssues,
+            resources: resourceIds,
           })
         }
       })
     })
-    
+
     return result
-  }, [nodes])
+  }, [nodes, issuesByService])
 
   // Process edges into flows
   const dataFlows = useMemo(() => {
@@ -642,8 +846,18 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
           <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-sm">
             eu-west-1
           </span>
+          {/* Data Source Badge */}
+          <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+            dataSource === "aws"
+              ? "bg-green-100 text-green-700"
+              : dataSource === "backend"
+              ? "bg-blue-100 text-blue-700"
+              : "bg-gray-100 text-gray-600"
+          }`}>
+            {dataSource === "aws" ? "LIVE AWS" : dataSource === "backend" ? "Backend" : "Demo"}
+          </span>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Search */}
           <div className="relative">
@@ -656,13 +870,26 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
               className="pl-9 pr-3 py-1.5 border rounded-lg text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          
+
+          {/* Issues Only filter */}
+          <button
+            onClick={() => setShowIssuesOnly(!showIssuesOnly)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+              showIssuesOnly
+                ? "bg-red-100 text-red-700 border border-red-200"
+                : "bg-white border hover:bg-gray-50"
+            }`}
+          >
+            <AlertCircle className="w-4 h-4" />
+            Issues ({issues.length})
+          </button>
+
           {/* ACTUAL filter */}
           <button
             onClick={() => setFilterActual(!filterActual)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-              filterActual 
-                ? "bg-purple-100 text-purple-700 border border-purple-200" 
+              filterActual
+                ? "bg-purple-100 text-purple-700 border border-purple-200"
                 : "bg-white border hover:bg-gray-50"
             }`}
           >
@@ -862,9 +1089,14 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
             const isHovered = hoveredNode === service.type
             const isSelected = selectedNode?.type === service.type
             const isFiltered = searchQuery && !service.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-            
+            const hasIssues = service.issues && (service.issues.critical > 0 || service.issues.high > 0 || service.issues.medium > 0)
+            const totalIssues = service.issues ? (service.issues.critical + service.issues.high + service.issues.medium + service.issues.low) : 0
+            const hasCritical = service.issues && service.issues.critical > 0
+
+            // Filter for "Issues Only" view
+            if (showIssuesOnly && !hasIssues) return null
             if (isFiltered) return null
-            
+
             return (
               <g
                 key={service.id}
@@ -876,6 +1108,14 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
                 opacity={hoveredNode && !isHovered ? 0.4 : 1}
                 style={{ transition: "opacity 0.2s" }}
               >
+                {/* Pulsing ring for critical issues */}
+                {hasCritical && (
+                  <circle cx="0" cy="0" r="32" fill="none" stroke="#EF4444" strokeWidth="2" opacity="0.6">
+                    <animate attributeName="r" values="32;38;32" dur="1.5s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity" values="0.6;0.2;0.6" dur="1.5s" repeatCount="indefinite"/>
+                  </circle>
+                )}
+
                 {/* Selection/Hover ring */}
                 {(isSelected || isHovered) && (
                   <rect
@@ -890,28 +1130,49 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
                     strokeDasharray={isSelected ? "none" : "4 2"}
                   />
                 )}
-                
+
                 {/* Icon */}
                 <foreignObject x="-22" y="-22" width="44" height="44">
                   {getIcon(service.type)}
                 </foreignObject>
-                
-                {/* Count badge */}
+
+                {/* Issue badge (top-left, RED) */}
+                {hasIssues && (
+                  <g transform="translate(-20, -20)">
+                    <circle
+                      r="12"
+                      fill={hasCritical ? "#EF4444" : service.issues!.high > 0 ? "#F97316" : "#EAB308"}
+                      stroke="white"
+                      strokeWidth="2"
+                    />
+                    <text
+                      textAnchor="middle"
+                      y="4"
+                      fill="white"
+                      fontSize="10"
+                      fontWeight="700"
+                    >
+                      {totalIssues}
+                    </text>
+                  </g>
+                )}
+
+                {/* Count badge (top-right) */}
                 {service.count > 1 && (
                   <g transform="translate(18, -18)">
                     <circle r="11" fill="white" stroke={service.color} strokeWidth="1.5"/>
-                    <text 
-                      textAnchor="middle" 
-                      y="4" 
-                      fill={service.color} 
-                      fontSize="10" 
+                    <text
+                      textAnchor="middle"
+                      y="4"
+                      fill={service.color}
+                      fontSize="10"
                       fontWeight="700"
                     >
                       {service.count}
                     </text>
                   </g>
                 )}
-                
+
                 {/* Label */}
                 {showLabels && (
                   <text
@@ -931,24 +1192,26 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
 
         {/* Node Detail Panel */}
         {selectedNode && (
-          <div className="absolute top-4 right-4 w-64 bg-white rounded-xl shadow-lg border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                {getIcon(selectedNode.type)}
-                <div>
-                  <h4 className="font-semibold text-gray-900">{selectedNode.displayName}</h4>
-                  <p className="text-xs text-gray-500">{selectedNode.count} instance(s)</p>
+          <div className="absolute top-4 right-4 w-80 bg-white rounded-xl shadow-lg border overflow-hidden">
+            <div className="p-4 border-b bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {getIcon(selectedNode.type)}
+                  <div>
+                    <h4 className="font-semibold text-gray-900">{selectedNode.displayName}</h4>
+                    <p className="text-xs text-gray-500">{selectedNode.count} instance(s)</p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setSelectedNode(null)}
+                  className="text-gray-400 hover:text-gray-600 transition"
+                >
+                  <X className="w-4 h-4"/>
+                </button>
               </div>
-              <button 
-                onClick={() => setSelectedNode(null)}
-                className="text-gray-400 hover:text-gray-600 transition"
-              >
-                <X className="w-4 h-4"/>
-              </button>
             </div>
-            
-            <div className="space-y-2 text-sm border-t pt-3">
+
+            <div className="p-4 space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Zone</span>
                 <span className="capitalize">{selectedNode.zone}</span>
@@ -963,13 +1226,80 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
                   {dataFlows.filter(f => f.from === selectedNode.type || f.to === selectedNode.type).length}
                 </span>
               </div>
+
+              {/* Issues Section */}
+              {selectedNode.issues && (selectedNode.issues.critical > 0 || selectedNode.issues.high > 0 || selectedNode.issues.medium > 0 || selectedNode.issues.low > 0) && (
+                <>
+                  <div className="border-t pt-3">
+                    <div className="flex justify-between mb-2">
+                      <span className="text-gray-700 font-medium">Security Issues</span>
+                      <span className="text-red-600 font-bold">
+                        {selectedNode.issues.critical + selectedNode.issues.high + selectedNode.issues.medium + selectedNode.issues.low}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {selectedNode.issues.critical > 0 && (
+                        <div className="text-center p-1 bg-red-100 rounded">
+                          <div className="text-red-700 font-bold">{selectedNode.issues.critical}</div>
+                          <div className="text-[10px] text-red-600">Critical</div>
+                        </div>
+                      )}
+                      {selectedNode.issues.high > 0 && (
+                        <div className="text-center p-1 bg-orange-100 rounded">
+                          <div className="text-orange-700 font-bold">{selectedNode.issues.high}</div>
+                          <div className="text-[10px] text-orange-600">High</div>
+                        </div>
+                      )}
+                      {selectedNode.issues.medium > 0 && (
+                        <div className="text-center p-1 bg-yellow-100 rounded">
+                          <div className="text-yellow-700 font-bold">{selectedNode.issues.medium}</div>
+                          <div className="text-[10px] text-yellow-600">Medium</div>
+                        </div>
+                      )}
+                      {selectedNode.issues.low > 0 && (
+                        <div className="text-center p-1 bg-gray-100 rounded">
+                          <div className="text-gray-700 font-bold">{selectedNode.issues.low}</div>
+                          <div className="text-[10px] text-gray-600">Low</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Issues List */}
+                  <div className="border-t pt-3 max-h-40 overflow-y-auto space-y-2">
+                    {issues
+                      .filter(i => typeMapping[i.resourceType] === selectedNode.type || i.resourceType === selectedNode.type)
+                      .map((issue, idx) => (
+                        <div key={idx} className={`p-2 rounded text-xs ${
+                          issue.severity === "critical" ? "bg-red-50 border-l-2 border-red-500" :
+                          issue.severity === "high" ? "bg-orange-50 border-l-2 border-orange-500" :
+                          issue.severity === "medium" ? "bg-yellow-50 border-l-2 border-yellow-500" :
+                          "bg-gray-50 border-l-2 border-gray-400"
+                        }`}>
+                          <div className="font-medium text-gray-900">{issue.title}</div>
+                          <div className="text-gray-500 mt-0.5">{issue.description}</div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                </>
+              )}
             </div>
+
+            {/* View Details Button */}
+            {selectedNode.issues && (selectedNode.issues.critical > 0 || selectedNode.issues.high > 0) && (
+              <div className="p-3 border-t bg-gray-50">
+                <button className="w-full py-2 px-4 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition">
+                  Remediate {selectedNode.issues.critical + selectedNode.issues.high} Issues
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Stats Bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border p-4 shadow-sm">
           <p className="text-xs text-gray-500 mb-1">Total Resources</p>
           <p className="text-2xl font-bold text-gray-900">{stats.resources}</p>
@@ -981,6 +1311,14 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
         <div className="bg-white rounded-xl border p-4 shadow-sm">
           <p className="text-xs text-gray-500 mb-1">Connections</p>
           <p className="text-2xl font-bold text-gray-900">{stats.connections}</p>
+        </div>
+        <div className="bg-white rounded-xl border p-4 shadow-sm">
+          <p className="text-xs text-red-500 mb-1">Security Issues</p>
+          <p className="text-2xl font-bold text-red-600">{issues.length}</p>
+          <div className="flex gap-2 mt-1">
+            <span className="text-[10px] text-red-600">{issues.filter(i => i.severity === "critical").length} Critical</span>
+            <span className="text-[10px] text-orange-600">{issues.filter(i => i.severity === "high").length} High</span>
+          </div>
         </div>
         <div className="bg-white rounded-xl border p-4 shadow-sm">
           <p className="text-xs text-gray-500 mb-1">ACTUAL Flows</p>
