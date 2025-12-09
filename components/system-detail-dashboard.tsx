@@ -317,12 +317,44 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
+  // Fetch security findings from backend
+  const loadSecurityFindings = async () => {
+    try {
+      setLoadingFindings(true)
+      const findings = await fetchSecurityFindings()
+      console.log("[v0] Loaded security findings:", findings.length)
+      setSecurityFindings(findings)
+
+      // Update severity counts from findings
+      if (findings.length > 0) {
+        const criticalCount = findings.filter(f => f.severity === "CRITICAL").length
+        const highCount = findings.filter(f => f.severity === "HIGH").length
+        const mediumCount = findings.filter(f => f.severity === "MEDIUM").length
+
+        setSeverityCounts(prev => ({
+          ...prev,
+          critical: Math.max(prev.critical, criticalCount),
+          high: Math.max(prev.high, highCount),
+          medium: Math.max(prev.medium, mediumCount),
+        }))
+      }
+    } catch (error) {
+      console.error("[v0] Error loading security findings:", error)
+    } finally {
+      setLoadingFindings(false)
+    }
+  }
+
   useEffect(() => {
     // Fetch on mount
     fetchAllData()
+    loadSecurityFindings()
 
     // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
+    const interval = setInterval(() => {
+      fetchAllData()
+      loadSecurityFindings()
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [systemName])
@@ -931,7 +963,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
 
                   <div className="p-6">
-                    {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
+                    {issues.length === 0 && securityFindings.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 && severityCounts.medium === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                           <CheckCircle className="w-8 h-8 text-green-500" />
@@ -959,6 +991,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           )}
                         </button>
                       </div>
+                    ) : securityFindings.length > 0 ? (
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        <SecurityFindingsList findings={securityFindings.slice(0, 5)} />
+                        {securityFindings.length > 5 && (
+                          <button
+                            onClick={() => setActiveTab("issues")}
+                            className="w-full py-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            View all {securityFindings.length} findings →
+                          </button>
+                        )}
+                      </div>
                     ) : issues.length === 0 && (severityCounts.high > 0 || unusedActionsList.length > 0) ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -968,7 +1012,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           {severityCounts.high} High Severity Issues Found
                         </h4>
                         <p className="text-sm text-gray-500 max-w-md mb-4">
-                          {unusedActionsList.length > 0 
+                          {unusedActionsList.length > 0
                             ? `${unusedActionsList.length} unused IAM permissions detected. Click the HIGH card above to view details.`
                             : `${severityCounts.high} high severity issues detected. Click the HIGH card above to view details.`}
                         </p>
@@ -1174,7 +1218,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
 
             <div className="p-6">
-              {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
+              {issues.length === 0 && securityFindings.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 && severityCounts.medium === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <CheckCircle className="w-8 h-8 text-green-500" />
@@ -1184,6 +1228,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     Great news! This system has no security issues. All permissions are in use and properly configured.
                   </p>
                 </div>
+              ) : securityFindings.length > 0 ? (
+                <SecurityFindingsList findings={securityFindings} />
               ) : (
                 <div className="space-y-4">
                   {issues.map((issue) => (
