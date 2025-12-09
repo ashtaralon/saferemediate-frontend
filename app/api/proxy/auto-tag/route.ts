@@ -6,7 +6,14 @@ export const dynamic = "force-dynamic"
  */
 function detectResourceType(id: string): string {
   // Simple ID prefix patterns (non-ARN resources)
+  // Compute
   if (id.startsWith("i-")) return "EC2Instance"
+  if (id.startsWith("lt-")) return "LaunchTemplate"
+  if (id.startsWith("asg-")) return "AutoScalingGroup"
+  if (id.startsWith("ami-")) return "AMI"
+  if (id.startsWith("key-")) return "KeyPair"
+
+  // VPC & Networking
   if (id.startsWith("vpc-")) return "VPC"
   if (id.startsWith("subnet-")) return "Subnet"
   if (id.startsWith("sg-")) return "SecurityGroup"
@@ -16,16 +23,30 @@ function detectResourceType(id: string): string {
   if (id.startsWith("acl-")) return "NetworkACL"
   if (id.startsWith("eni-")) return "NetworkInterface"
   if (id.startsWith("eipalloc-")) return "ElasticIP"
-  if (id.startsWith("vol-")) return "EBSVolume"
-  if (id.startsWith("snap-")) return "EBSSnapshot"
-  if (id.startsWith("ami-")) return "AMI"
-  if (id.startsWith("key-")) return "KeyPair"
-  if (id.startsWith("lt-")) return "LaunchTemplate"
-  if (id.startsWith("asg-")) return "AutoScalingGroup"
   if (id.startsWith("tgw-")) return "TransitGateway"
+  if (id.startsWith("tgw-attach-")) return "TransitGatewayAttachment"
   if (id.startsWith("vpce-")) return "VPCEndpoint"
   if (id.startsWith("pcx-")) return "VPCPeering"
   if (id.startsWith("dxcon-")) return "DirectConnect"
+  if (id.startsWith("vgw-")) return "VPNGateway"
+  if (id.startsWith("cgw-")) return "CustomerGateway"
+  if (id.startsWith("vpn-")) return "VPNConnection"
+
+  // Storage
+  if (id.startsWith("vol-")) return "EBSVolume"
+  if (id.startsWith("snap-")) return "EBSSnapshot"
+  if (id.startsWith("fs-")) return "EFS"
+  if (id.startsWith("fsx-")) return "FSx"
+  if (id.startsWith("sgw-")) return "StorageGateway"
+
+  // Database
+  if (id.startsWith("cluster-")) return "RDSCluster"
+  if (id.startsWith("db-")) return "RDSInstance"
+
+  // Other ID prefixes
+  if (id.startsWith("mesh-")) return "AppMesh"
+  if (id.startsWith("vn-")) return "AppMeshVirtualNode"
+  if (id.startsWith("vs-")) return "AppMeshVirtualService"
 
   // ARN-based resources (arn:aws:service:region:account:resource)
   if (id.startsWith("arn:aws:")) {
@@ -59,10 +80,28 @@ function detectResourceType(id: string): string {
         return "Neptune"
       case "docdb":
         return "DocumentDB"
+      case "timestream":
+        return "Timestream"
+      case "qldb":
+        return "QLDB"
+      case "memorydb":
+        return "MemoryDB"
+      case "dax":
+        return "DAX"
 
       // Storage
       case "s3":
         return "S3Bucket"
+      case "elasticfilesystem":
+        return "EFS"
+      case "fsx":
+        return "FSx"
+      case "storagegateway":
+        return "StorageGateway"
+      case "backup":
+        return "Backup"
+      case "glacier":
+        return "Glacier"
 
       // Messaging & Integration
       case "sqs":
@@ -77,6 +116,12 @@ function detectResourceType(id: string): string {
         return "KinesisStream"
       case "firehose":
         return "KinesisFirehose"
+      case "mq":
+        return "AmazonMQ"
+      case "kafka":
+        return "MSK"
+      case "scheduler":
+        return "EventBridgeScheduler"
 
       // API & Networking
       case "apigateway":
@@ -93,6 +138,12 @@ function detectResourceType(id: string): string {
         return "Route53"
       case "appsync":
         return "AppSync"
+      case "globalaccelerator":
+        return "GlobalAccelerator"
+      case "appmesh":
+        return "AppMesh"
+      case "servicediscovery":
+        return "CloudMap"
 
       // Security & Identity
       case "iam":
@@ -100,22 +151,48 @@ function detectResourceType(id: string): string {
         if (id.includes(":policy/")) return "IAMPolicy"
         if (id.includes(":user/")) return "IAMUser"
         if (id.includes(":group/")) return "IAMGroup"
+        if (id.includes(":instance-profile/")) return "IAMInstanceProfile"
+        if (id.includes(":oidc-provider/")) return "IAMOIDCProvider"
+        if (id.includes(":saml-provider/")) return "IAMSAMLProvider"
         return "IAM"
+      case "sts":
+        return "STS"
       case "kms":
         return "KMSKey"
       case "secretsmanager":
         return "SecretsManager"
+      case "ssm":
+        if (id.includes(":parameter/")) return "SSMParameter"
+        if (id.includes(":document/")) return "SSMDocument"
+        return "SSM"
       case "acm":
         return "ACMCertificate"
+      case "acm-pca":
+        return "ACMPCA"
       case "waf":
       case "wafv2":
         return "WAF"
+      case "waf-regional":
+        return "WAFRegional"
       case "guardduty":
         return "GuardDuty"
       case "inspector":
+      case "inspector2":
         return "Inspector"
       case "securityhub":
         return "SecurityHub"
+      case "macie2":
+        return "Macie"
+      case "detective":
+        return "Detective"
+      case "fms":
+        return "FirewallManager"
+      case "shield":
+        return "Shield"
+      case "network-firewall":
+        return "NetworkFirewall"
+      case "access-analyzer":
+        return "IAMAccessAnalyzer"
 
       // Monitoring & Logging
       case "logs":
@@ -126,6 +203,12 @@ function detectResourceType(id: string): string {
         return "CloudTrail"
       case "xray":
         return "XRay"
+      case "config":
+        return "Config"
+      case "health":
+        return "AWSHealth"
+      case "application-insights":
+        return "ApplicationInsights"
 
       // Analytics
       case "athena":
@@ -137,6 +220,14 @@ function detectResourceType(id: string): string {
       case "opensearch":
       case "es":
         return "OpenSearch"
+      case "quicksight":
+        return "QuickSight"
+      case "datapipeline":
+        return "DataPipeline"
+      case "lakeformation":
+        return "LakeFormation"
+      case "databrew":
+        return "DataBrew"
 
       // Containers & Serverless
       case "ecr":
@@ -145,13 +236,57 @@ function detectResourceType(id: string): string {
         return "EKS"
       case "batch":
         return "Batch"
+      case "apprunner":
+        return "AppRunner"
+      case "lightsail":
+        return "Lightsail"
 
-      // Other
+      // AI/ML
+      case "sagemaker":
+        return "SageMaker"
+      case "bedrock":
+        return "Bedrock"
+      case "rekognition":
+        return "Rekognition"
+      case "comprehend":
+        return "Comprehend"
+      case "textract":
+        return "Textract"
+      case "polly":
+        return "Polly"
+      case "transcribe":
+        return "Transcribe"
+      case "translate":
+        return "Translate"
+      case "lex":
+        return "Lex"
+      case "kendra":
+        return "Kendra"
+      case "personalize":
+        return "Personalize"
+      case "forecast":
+        return "Forecast"
+
+      // IoT
+      case "iot":
+        return "IoTCore"
+      case "greengrass":
+        return "Greengrass"
+      case "iotanalytics":
+        return "IoTAnalytics"
+      case "iotevents":
+        return "IoTEvents"
+      case "iotsitewise":
+        return "IoTSiteWise"
+
+      // Developer Tools
       case "cognito-idp":
       case "cognito-identity":
         return "Cognito"
       case "ses":
         return "SES"
+      case "sesv2":
+        return "SESv2"
       case "pinpoint":
         return "Pinpoint"
       case "codepipeline":
@@ -162,6 +297,48 @@ function detectResourceType(id: string): string {
         return "CodeCommit"
       case "codedeploy":
         return "CodeDeploy"
+      case "codeartifact":
+        return "CodeArtifact"
+      case "codeguru-reviewer":
+        return "CodeGuruReviewer"
+      case "codeguru-profiler":
+        return "CodeGuruProfiler"
+      case "codestar":
+        return "CodeStar"
+      case "amplify":
+        return "Amplify"
+      case "appconfig":
+        return "AppConfig"
+      case "servicecatalog":
+        return "ServiceCatalog"
+      case "proton":
+        return "Proton"
+
+      // Management & Governance
+      case "organizations":
+        return "Organizations"
+      case "ram":
+        return "ResourceAccessManager"
+      case "controltower":
+        return "ControlTower"
+      case "sso":
+        return "IAMIdentityCenter"
+      case "license-manager":
+        return "LicenseManager"
+      case "compute-optimizer":
+        return "ComputeOptimizer"
+      case "wellarchitected":
+        return "WellArchitected"
+      case "trustedadvisor":
+        return "TrustedAdvisor"
+
+      // Cost Management
+      case "ce":
+        return "CostExplorer"
+      case "budgets":
+        return "Budgets"
+      case "cur":
+        return "CostUsageReport"
 
       default:
         console.log(`[auto-tag] Unknown ARN service: ${service} from ${id}`)
