@@ -118,6 +118,7 @@ export function SeedTaggingModal({
   const { toast } = useToast()
   const [currentStep, setCurrentStep] = useState(0)
   const [systemName, setSystemName] = useState(existingSystemName || "")
+  const [environment, setEnvironment] = useState<string>("Production")
   const [selectedSeeds, setSelectedSeeds] = useState<CloudResource[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [loading, setLoading] = useState(false)
@@ -355,7 +356,10 @@ export function SeedTaggingModal({
           systemName,
           resourceIds: resourcesToTag.map((r) => r.id),
           tags: {
+            // MANDATORY TAGS (red)
             SystemName: systemName,
+            Environment: environment,
+            // OPTIONAL TAGS
             ManagedBy: "SafeRemediate",
             DiscoveryMethod: "A7-SeedPropagation",
             DiscoveredAt: new Date().toISOString(),
@@ -463,16 +467,17 @@ export function SeedTaggingModal({
             <div className="max-w-md mx-auto">
               <div className="text-center mb-8">
                 <Target className="w-16 h-16 text-blue-600 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold mb-2">Name Your System</h3>
+                <h3 className="text-xl font-semibold mb-2">Define Your System</h3>
                 <p className="text-gray-600">
-                  Give your logical system a unique identifier. This will be used as the SystemName tag.
+                  Provide the mandatory tags to identify your logical system.
                 </p>
               </div>
 
               <div className="space-y-4">
+                {/* SystemName - MANDATORY */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    System Name
+                    SystemName <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -484,12 +489,42 @@ export function SeedTaggingModal({
                   />
                 </div>
 
+                {/* Environment - MANDATORY */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Environment <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={environment}
+                    onChange={(e) => setEnvironment(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
+                  >
+                    <option value="Production">Production</option>
+                    <option value="Staging">Staging</option>
+                    <option value="Development">Development</option>
+                    <option value="QA">QA</option>
+                    <option value="UAT">UAT</option>
+                  </select>
+                </div>
+
+                {/* Mandatory Tags Info */}
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    Mandatory Tags
+                  </h4>
+                  <ul className="text-sm text-red-700 space-y-1">
+                    <li>• <strong>SystemName</strong> - Unique identifier for the logical system</li>
+                    <li>• <strong>Environment</strong> - Deployment environment (Production, Staging, etc.)</li>
+                  </ul>
+                </div>
+
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <h4 className="font-semibold text-blue-800 mb-2">Naming Best Practices</h4>
                   <ul className="text-sm text-blue-700 space-y-1">
                     <li>• Use lowercase with hyphens (kebab-case)</li>
-                    <li>• Include environment suffix (-prod, -staging, -dev)</li>
                     <li>• Be descriptive but concise</li>
+                    <li>• Example: <code className="bg-blue-100 px-1 rounded">payment-api</code>, <code className="bg-blue-100 px-1 rounded">user-auth</code></li>
                   </ul>
                 </div>
               </div>
@@ -727,17 +762,32 @@ export function SeedTaggingModal({
 
               {/* Tag Preview */}
               <div className="mt-6 bg-gray-50 border rounded-lg p-4">
-                <h4 className="font-semibold mb-2">Tags to Apply</h4>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                    SystemName = {systemName}
-                  </span>
-                  <span className="px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-sm">
-                    ManagedBy = SafeRemediate
-                  </span>
-                  <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
-                    DiscoveryMethod = A7-SeedPropagation
-                  </span>
+                <h4 className="font-semibold mb-3">Tags to Apply</h4>
+                <div className="space-y-2">
+                  {/* Mandatory Tags */}
+                  <div>
+                    <span className="text-xs font-medium text-red-600 uppercase tracking-wider">Mandatory</span>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium border border-red-300">
+                        SystemName = {systemName}
+                      </span>
+                      <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium border border-red-300">
+                        Environment = {environment}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Optional Tags */}
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Optional</span>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      <span className="px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-sm">
+                        ManagedBy = SafeRemediate
+                      </span>
+                      <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
+                        DiscoveryMethod = A7-SeedPropagation
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
