@@ -94,6 +94,8 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
   const [monitoringProgress, setMonitoringProgress] = useState(0)
   const [serviceHealth, setServiceHealth] = useState<ServiceHealth[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [rollbackInProgress, setRollbackInProgress] = useState(false)
+  const [rollbackError, setRollbackError] = useState<string | null>(null)
 
   // Reset state when modal opens
   useEffect(() => {
@@ -105,6 +107,8 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
       setMonitoringProgress(0)
       setServiceHealth([])
       setError(null)
+      setRollbackInProgress(false)
+      setRollbackError(null)
     }
   }, [open])
 
@@ -371,9 +375,6 @@ export function SimulationEngine({ open, onClose, finding, systemName, onFixAppl
 
     return () => clearInterval(interval)
   }, [])
-
-  const [rollbackInProgress, setRollbackInProgress] = useState(false)
-  const [rollbackError, setRollbackError] = useState<string | null>(null)
 
   const handleRollback = async () => {
     if (!finding) return
