@@ -1034,12 +1034,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               >
                                 {simulatingIssue === issue.id ? (
                                   <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
                                     SIMULATING...
                                   </>
                                 ) : (
                                   <>
-                                    <Sparkles className="w-4 h-4" />
+                                    <Zap className="w-4 h-4" />
                                     SIMULATE
                                   </>
                                 )}
@@ -1085,12 +1085,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               >
                                 {applyingIssue === issue.id ? (
                                   <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
                                     APPLYING...
                                   </>
                                 ) : (
                                   <>
-                                    <CheckCircle2 className="w-4 h-4" />
+                                    <CheckCircle className="w-4 h-4" />
                                     APPLY
                                   </>
                                 )}
