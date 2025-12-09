@@ -273,7 +273,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       })
     } catch (error) {
       console.error("[v0] Error fetching auto-tag status:", error)
-      setAutoTagStatus(fallbackAutoTagStatus)
+      setAutoTagStatus({
+        status: "stopped" as const,
+        totalCycles: fallbackAutoTagStatus.totalCycles,
+        actualTrafficCaptured: fallbackAutoTagStatus.actualTrafficCaptured,
+        lastSync: fallbackAutoTagStatus.lastSync,
+      })
     } finally {
       setLoadingAutoTag(false)
     }
