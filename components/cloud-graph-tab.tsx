@@ -514,44 +514,98 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       setIsLoading(true)
       setError(null)
 
-      // 1. Try Neo4j first - this has the REAL architecture from graph database
+      // Helper to fetch findings/issues
+      const fetchFindings = async () => {
+        try {
+          const findingsResponse = await fetch("/api/proxy/findings")
+          if (findingsResponse.ok) {
+            const findingsData = await findingsResponse.json()
+            const findings = Array.isArray(findingsData) ? findingsData : findingsData.findings || []
+            if (findings.length > 0) {
+              const convertedIssues: ServiceIssue[] = findings.map((f: any, i: number) => ({
+                id: f.id || `finding-${i}`,
+                resourceId: f.resource_id || f.resourceId || "",
+                resourceType: f.resource_type || f.resourceType || "Unknown",
+                title: f.title || f.name || "Issue",
+                severity: (f.severity?.toLowerCase() || "medium") as ServiceIssue["severity"],
+                description: f.description || "",
+              }))
+              setIssues(convertedIssues)
+              console.log("[CloudGraph] Loaded", convertedIssues.length, "findings")
+            }
+          }
+        } catch (e) {
+          console.log("[CloudGraph] Could not fetch findings")
+        }
+      }
+
+      // 1. Try the existing graph-data proxy endpoint (connects to Neo4j via backend)
+      console.log("[CloudGraph] Trying /api/proxy/graph-data...")
+      try {
+        const graphResponse = await fetch("/api/proxy/graph-data")
+        const graphData = await graphResponse.json()
+
+        if (graphData.success && graphData.nodes && graphData.nodes.length > 0) {
+          console.log("[CloudGraph] SUCCESS! Using Neo4j data via proxy:", graphData.nodes.length, "nodes")
+          setDataSource("backend")
+          setNodes(graphData.nodes)
+          setEdges(graphData.relationships || graphData.edges || [])
+          await fetchFindings()
+          return
+        } else {
+          console.log("[CloudGraph] graph-data returned:", graphData.success, "nodes:", graphData.nodes?.length || 0)
+        }
+      } catch (proxyErr: any) {
+        console.log("[CloudGraph] graph-data proxy failed:", proxyErr.message)
+      }
+
+      // 2. Try system-specific graph if systemName is provided
+      if (systemName) {
+        console.log("[CloudGraph] Trying system-graph for:", systemName)
+        try {
+          const sysResponse = await fetch(`/api/proxy/system-graph?systemName=${encodeURIComponent(systemName)}`)
+          const sysData = await sysResponse.json()
+
+          if (sysData.success && sysData.resources && sysData.resources.length > 0) {
+            console.log("[CloudGraph] SUCCESS! Using system-graph:", sysData.resources.length, "resources")
+            setDataSource("backend")
+            // Convert resources to nodes format
+            const nodes: GraphNode[] = sysData.resources.map((r: any) => ({
+              id: r.id,
+              name: r.name || r.id,
+              type: r.type,
+              labels: [r.type],
+              SystemName: systemName,
+            }))
+            setNodes(nodes)
+            setEdges([])
+            await fetchFindings()
+            return
+          }
+        } catch (sysErr: any) {
+          console.log("[CloudGraph] system-graph failed:", sysErr.message)
+        }
+      }
+
+      // 3. Try the neo4j/graph endpoint
+      console.log("[CloudGraph] Trying /api/neo4j/graph...")
       try {
         const neo4jResponse = await fetch(`/api/neo4j/graph${systemName ? `?systemName=${encodeURIComponent(systemName)}` : ""}`)
         const neo4jData = await neo4jResponse.json()
 
         if (neo4jData.success && neo4jData.nodes && neo4jData.nodes.length > 0) {
-          console.log("[CloudGraph] Using REAL Neo4j data!", neo4jData.stats)
-          setDataSource("backend") // Neo4j data comes via backend
+          console.log("[CloudGraph] SUCCESS! Using neo4j/graph:", neo4jData.nodes.length, "nodes")
+          setDataSource("backend")
           setNodes(neo4jData.nodes)
           setEdges(neo4jData.relationships || [])
-
-          // Also fetch findings/issues to overlay on the graph
-          try {
-            const findingsResponse = await fetch("/api/proxy/findings")
-            if (findingsResponse.ok) {
-              const findingsData = await findingsResponse.json()
-              if (Array.isArray(findingsData)) {
-                const convertedIssues: ServiceIssue[] = findingsData.map((f: any, i: number) => ({
-                  id: f.id || `finding-${i}`,
-                  resourceId: f.resource_id || f.resourceId || "",
-                  resourceType: f.resource_type || f.resourceType || "Unknown",
-                  title: f.title || f.name || "Issue",
-                  severity: f.severity?.toLowerCase() || "medium",
-                  description: f.description || "",
-                }))
-                setIssues(convertedIssues)
-              }
-            }
-          } catch (findingsErr) {
-            console.log("[CloudGraph] Could not fetch findings, continuing with graph only")
-          }
+          await fetchFindings()
           return
         }
-      } catch (neo4jErr) {
-        console.log("[CloudGraph] Neo4j not available, trying AWS direct...")
+      } catch (neo4jErr: any) {
+        console.log("[CloudGraph] neo4j/graph failed:", neo4jErr.message)
       }
 
-      // 2. Try to fetch real AWS data directly
+      // 4. Try to fetch real AWS data directly
       try {
         const [sgResponse, iamResponse] = await Promise.all([
           fetch("/api/aws/security-groups"),
@@ -616,54 +670,7 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
         console.log("[CloudGraph] AWS direct call failed, trying backend...")
       }
 
-      // 3. Try backend proxy endpoints
-      const endpoints = [
-        "/api/proxy/graph-data",
-        "/api/proxy/findings",
-      ]
-
-      let graphData = null
-      let findingsData = null
-
-      for (const endpoint of endpoints) {
-        try {
-          const res = await fetch(endpoint)
-          if (res.ok) {
-            const data = await res.json()
-            if (endpoint.includes("graph")) {
-              graphData = data
-            } else if (endpoint.includes("findings")) {
-              findingsData = data
-            }
-          }
-        } catch (e) {
-          continue
-        }
-      }
-
-      if (graphData) {
-        setDataSource("backend")
-        const rawNodes = graphData.nodes || graphData.infrastructure?.nodes || []
-        const rawEdges = graphData.relationships || graphData.edges || []
-        setNodes(rawNodes)
-        setEdges(rawEdges)
-
-        // Convert findings to issues
-        if (findingsData && Array.isArray(findingsData)) {
-          const convertedIssues: ServiceIssue[] = findingsData.map((f: any, i: number) => ({
-            id: f.id || `finding-${i}`,
-            resourceId: f.resource_id || f.resourceId || "",
-            resourceType: f.resource_type || f.resourceType || "Unknown",
-            title: f.title || f.name || "Issue",
-            severity: f.severity?.toLowerCase() || "medium",
-            description: f.description || "",
-          }))
-          setIssues(convertedIssues)
-        }
-        return
-      }
-
-      // 4. Fallback to demo data
+      // 5. Fallback to demo data
       console.log("[CloudGraph] Using demo data")
       setDataSource("demo")
       const demoData = generateDemoData()
