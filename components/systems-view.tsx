@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
+import { AddSystemModal } from "./add-system-modal"
 
 interface System {
   name: string
@@ -56,6 +57,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     [],
   )
   const [showNewSystemsModal, setShowNewSystemsModal] = useState(false)
+  const [showAddSystemModal, setShowAddSystemModal] = useState(false)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [availableSystems, setAvailableSystems] = useState<AvailableSystem[]>([])
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
@@ -423,11 +425,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             {isDropdownOpen && (
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
                 <div className="p-3 border-b border-gray-100">
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false)
+                      setShowAddSystemModal(true)
+                    }}
+                    className="w-full p-3 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-3 text-blue-700 font-medium"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Create New System from Resources
+                  </button>
+                </div>
+
+                <div className="p-3 border-b border-gray-100">
                   <p className="text-sm text-gray-600">
                     {backendStatus === "checking"
                       ? "Checking backend..."
                       : backendStatus === "connected"
-                        ? "Available systems from AWS"
+                        ? "Or select from discovered systems"
                         : "Backend offline - using cached data"}
                   </p>
                 </div>
@@ -440,7 +455,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                     </div>
                   ) : availableSystems.length === 0 ? (
                     <div className="p-4 text-center text-gray-500">
-                      <p className="text-sm">No new systems found</p>
+                      <p className="text-sm">No discovered systems found</p>
                     </div>
                   ) : (
                     availableSystems.map((sys, idx) => (
@@ -526,11 +541,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             {isDropdownOpen && (
               <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
                 <div className="p-3 border-b border-gray-100">
+                  <button
+                    onClick={() => {
+                      setIsDropdownOpen(false)
+                      setShowAddSystemModal(true)
+                    }}
+                    className="w-full p-3 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-3 text-blue-700 font-medium"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Create New System from Resources
+                  </button>
+                </div>
+
+                <div className="p-3 border-b border-gray-100">
                   <p className="text-sm text-gray-600">
                     {backendStatus === "checking"
                       ? "Checking backend..."
                       : backendStatus === "connected"
-                        ? "Available systems from AWS"
+                        ? "Or select from discovered systems"
                         : "Backend offline"}
                   </p>
                 </div>
@@ -754,6 +782,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           }}
         />
       )}
+
+      {/* Add System Modal */}
+      <AddSystemModal
+        isOpen={showAddSystemModal}
+        onClose={() => setShowAddSystemModal(false)}
+        onSuccess={(systemName) => {
+          const newSystem: System = {
+            name: systemName,
+            criticality: 5,
+            criticalityLabel: "5 - MISSION CRITICAL",
+            environment: "Production",
+            health: 85,
+            critical: 0,
+            high: 0,
+            total: 0,
+            lastScan: "Just now",
+            owner: "Unassigned",
+          }
+          setLocalSystems((prev) => [...prev, newSystem])
+          toast({
+            title: "System Created",
+            description: `${systemName} has been created and resources tagged.`,
+          })
+          // Refresh systems data
+          fetchSystemsData()
+        }}
+      />
     </div>
   )
 }
