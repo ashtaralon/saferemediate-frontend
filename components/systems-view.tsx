@@ -13,9 +13,11 @@ import {
   AlertTriangle,
   Activity,
   RefreshCw,
+  Sparkles,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
+import { SeedTaggingModal } from "./seed-tagging-modal"
 
 interface System {
   name: string
@@ -56,6 +58,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     [],
   )
   const [showNewSystemsModal, setShowNewSystemsModal] = useState(false)
+  const [showSeedTaggingModal, setShowSeedTaggingModal] = useState(false)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [availableSystems, setAvailableSystems] = useState<AvailableSystem[]>([])
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
@@ -410,15 +413,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             Add your first system to start monitoring security and compliance across your infrastructure.
           </p>
 
-          <div className="relative inline-block" ref={emptyDropdownRef}>
+          <div className="flex gap-4 justify-center">
             <button
-              onClick={handleAddSystemClick}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+              onClick={() => setShowSeedTaggingModal(true)}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
             >
-              <Plus className="w-5 h-5" />
-              Add System
-              <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+              <Sparkles className="w-5 h-5" />
+              Discover System (A7)
             </button>
+
+            <div className="relative inline-block" ref={emptyDropdownRef}>
+              <button
+                onClick={handleAddSystemClick}
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Add System
+                <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
 
             {isDropdownOpen && (
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
@@ -462,6 +474,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
@@ -514,6 +527,14 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           </button>
 
           <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setShowSeedTaggingModal(true)}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              <Sparkles className="w-4 h-4" />
+              Discover System
+            </button>
+
             <button
               onClick={handleAddSystemClick}
               className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
@@ -754,6 +775,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           }}
         />
       )}
+
+      {/* A7 Patent: Seed-Based System Discovery Modal */}
+      <SeedTaggingModal
+        isOpen={showSeedTaggingModal}
+        onClose={() => setShowSeedTaggingModal(false)}
+        onSuccess={(systemName, taggedCount) => {
+          // Add the newly discovered system to the list
+          const newSystem: System = {
+            name: systemName,
+            criticality: 5,
+            criticalityLabel: "5 - MISSION CRITICAL",
+            environment: "Production",
+            health: 100,
+            critical: 0,
+            high: 0,
+            total: taggedCount,
+            lastScan: new Date().toLocaleString(),
+            owner: "Auto-discovered",
+          }
+          setLocalSystems((prev) => [...prev, newSystem])
+          setShowSeedTaggingModal(false)
+          toast({
+            title: "System Discovered & Tagged",
+            description: `${systemName} with ${taggedCount} resources has been added.`,
+          })
+        }}
+      />
     </div>
   )
 }
