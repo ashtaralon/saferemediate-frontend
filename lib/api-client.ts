@@ -168,6 +168,14 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       typeCounts[type] = (typeCounts[type] || 0) + 1
     })
 
+    // Log what types we found for debugging
+    console.log("[v0] Node type counts:", typeCounts)
+
+    // Helper to count with multiple possible type names
+    const countTypes = (...types: string[]) => {
+      return types.reduce((sum, t) => sum + (typeCounts[t.toLowerCase()] || 0), 0)
+    }
+
     return {
       resources,
       stats: {
@@ -181,14 +189,14 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         lastScanTime: metrics.lastScanTime || new Date().toISOString(),
       },
       infrastructure: {
-        containerClusters: typeCounts["ecscluster"] || typeCounts["ecs"] || 0,
-        kubernetesWorkloads: typeCounts["ekscluster"] || typeCounts["eks"] || 0,
-        standaloneVMs: typeCounts["ec2instance"] || typeCounts["ec2"] || 0,
-        vmScalingGroups: typeCounts["autoscalinggroup"] || 0,
-        relationalDatabases: typeCounts["rdsinstance"] || typeCounts["rds"] || 0,
-        blockStorage: typeCounts["ebsvolume"] || 0,
-        fileStorage: typeCounts["efsfilesystem"] || typeCounts["efs"] || 0,
-        objectStorage: typeCounts["s3bucket"] || typeCounts["s3"] || 0,
+        containerClusters: countTypes("ecscluster", "ecs", "ecsservice"),
+        kubernetesWorkloads: countTypes("ekscluster", "eks"),
+        standaloneVMs: countTypes("ec2instance", "ec2"),
+        vmScalingGroups: countTypes("autoscalinggroup", "asg"),
+        relationalDatabases: countTypes("rdsinstance", "rds", "rdscluster"),
+        blockStorage: countTypes("ebsvolume", "ebs"),
+        fileStorage: countTypes("efsfilesystem", "efs"),
+        objectStorage: countTypes("s3bucket", "s3"),
       },
       securityIssues: {
         critical: metrics.criticalIssues || 0,

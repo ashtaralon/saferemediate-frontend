@@ -37,8 +37,33 @@ export async function GET() {
     const edgesData = await edgesResponse.json()
 
     // Handle various response formats from Neo4j backend
-    const nodes = nodesData.nodes || nodesData || []
+    const rawNodes = nodesData.nodes || nodesData || []
     const rawRelationships = edgesData.edges || edgesData.relationships || edgesData || []
+
+    // Normalize nodes to ensure 'type' field is present
+    // Neo4j returns labels as array, we need to extract the primary type
+    const nodes = rawNodes.map((node: any) => {
+      let nodeType = node.type || node.resourceType || ""
+
+      // If type is empty, try to get from labels (Neo4j format)
+      if (!nodeType && node.labels && Array.isArray(node.labels)) {
+        // Use first non-generic label, or first label
+        nodeType = node.labels.find((l: string) => l !== "Resource" && l !== "Node") || node.labels[0] || "Resource"
+      }
+
+      return {
+        ...node,
+        type: nodeType,
+      }
+    })
+
+    // Log node types for debugging
+    const nodeTypeCounts: Record<string, number> = {}
+    nodes.forEach((n: any) => {
+      const t = n.type || "Unknown"
+      nodeTypeCounts[t] = (nodeTypeCounts[t] || 0) + 1
+    })
+    console.log("[graph-data] Node types:", nodeTypeCounts)
 
     // Normalize relationships to ensure source/target and type are present
     const relationships = rawRelationships.map((rel: any) => ({
