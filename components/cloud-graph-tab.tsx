@@ -508,13 +508,50 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
     return { nodes: demoNodes, edges: demoEdges, issues: demoIssues }
   }
 
-  // Fetch data from multiple sources
+  // Fetch data from multiple sources - prioritizes Neo4j for real architecture
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
 
-      // Try to fetch real AWS data first
+      // 1. Try Neo4j first - this has the REAL architecture from graph database
+      try {
+        const neo4jResponse = await fetch(`/api/neo4j/graph${systemName ? `?systemName=${encodeURIComponent(systemName)}` : ""}`)
+        const neo4jData = await neo4jResponse.json()
+
+        if (neo4jData.success && neo4jData.nodes && neo4jData.nodes.length > 0) {
+          console.log("[CloudGraph] Using REAL Neo4j data!", neo4jData.stats)
+          setDataSource("backend") // Neo4j data comes via backend
+          setNodes(neo4jData.nodes)
+          setEdges(neo4jData.relationships || [])
+
+          // Also fetch findings/issues to overlay on the graph
+          try {
+            const findingsResponse = await fetch("/api/proxy/findings")
+            if (findingsResponse.ok) {
+              const findingsData = await findingsResponse.json()
+              if (Array.isArray(findingsData)) {
+                const convertedIssues: ServiceIssue[] = findingsData.map((f: any, i: number) => ({
+                  id: f.id || `finding-${i}`,
+                  resourceId: f.resource_id || f.resourceId || "",
+                  resourceType: f.resource_type || f.resourceType || "Unknown",
+                  title: f.title || f.name || "Issue",
+                  severity: f.severity?.toLowerCase() || "medium",
+                  description: f.description || "",
+                }))
+                setIssues(convertedIssues)
+              }
+            }
+          } catch (findingsErr) {
+            console.log("[CloudGraph] Could not fetch findings, continuing with graph only")
+          }
+          return
+        }
+      } catch (neo4jErr) {
+        console.log("[CloudGraph] Neo4j not available, trying AWS direct...")
+      }
+
+      // 2. Try to fetch real AWS data directly
       try {
         const [sgResponse, iamResponse] = await Promise.all([
           fetch("/api/aws/security-groups"),
@@ -525,7 +562,7 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
         const iamData = await iamResponse.json()
 
         if (sgData.success && sgData.source === "aws") {
-          console.log("[v0] Using REAL AWS data for Cloud Graph!")
+          console.log("[CloudGraph] Using REAL AWS data!")
           setDataSource("aws")
 
           // Transform AWS data to graph nodes
@@ -576,10 +613,10 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
           }
         }
       } catch (awsErr) {
-        console.log("[v0] AWS direct call failed, trying backend...")
+        console.log("[CloudGraph] AWS direct call failed, trying backend...")
       }
 
-      // Try backend proxy endpoints
+      // 3. Try backend proxy endpoints
       const endpoints = [
         "/api/proxy/graph-data",
         "/api/proxy/findings",
@@ -626,15 +663,15 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
         return
       }
 
-      // Fallback to demo data
-      console.log("[v0] Using demo data for Cloud Graph")
+      // 4. Fallback to demo data
+      console.log("[CloudGraph] Using demo data")
       setDataSource("demo")
       const demoData = generateDemoData()
       setNodes(demoData.nodes)
       setEdges(demoData.edges)
       setIssues(demoData.issues)
     } catch (err) {
-      console.log("[v0] Error fetching, using demo data:", err)
+      console.log("[CloudGraph] Error fetching, using demo data:", err)
       setDataSource("demo")
       const demoData = generateDemoData()
       setNodes(demoData.nodes)
@@ -643,7 +680,7 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [systemName])
 
   useEffect(() => {
     fetchData()
