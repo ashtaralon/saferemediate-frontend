@@ -44,33 +44,92 @@ export function UntaggedResourcesBanner({
   const fetchUntaggedResources = async () => {
     setLoading(true)
     try {
-      // Fetch resources from the system graph that don't have SystemName tag
-      const response = await fetch(`/api/proxy/system-graph?systemName=${encodeURIComponent(systemName)}`)
+      const untaggedList: UntaggedResource[] = []
+      const seenIds = new Set<string>()
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+      // 1. Fetch resources from the system graph that don't have SystemName tag
+      try {
+        const graphResponse = await fetch(`/api/proxy/system-graph?systemName=${encodeURIComponent(systemName)}`)
+        if (graphResponse.ok) {
+          const graphData = await graphResponse.json()
+          const resources = graphData.resources || []
+
+          // Filter to find resources without SystemName tag
+          resources.forEach((r: any) => {
+            const hasSystemName = getSystemName(r)
+            if (!hasSystemName || hasSystemName === "Ungrouped" || hasSystemName === "NO_SYSTEM") {
+              if (!seenIds.has(r.id)) {
+                seenIds.add(r.id)
+                untaggedList.push({
+                  id: r.id,
+                  name: r.name || r.id,
+                  type: r.type || "Resource",
+                })
+              }
+            }
+          })
+        }
+      } catch (e) {
+        console.warn("Failed to fetch system graph:", e)
       }
 
-      const data = await response.json()
-      const resources = data.resources || []
+      // 2. Fetch findings to find resources with security issues but no systemName
+      try {
+        const findingsResponse = await fetch("/api/proxy/findings")
+        if (findingsResponse.ok) {
+          const findingsData = await findingsResponse.json()
+          const findings = findingsData.findings || findingsData || []
 
-      // Filter to find resources without SystemName tag
-      const untagged = resources.filter((r: any) => {
-        const hasSystemName = getSystemName(r)
-        // Resource is untagged if it doesn't have SystemName or has a different system
-        return !hasSystemName || hasSystemName === "Ungrouped" || hasSystemName === "NO_SYSTEM"
-      })
+          // Extract unique resources from findings that don't have systemName
+          findings.forEach((f: any) => {
+            const resourceSystemName = getSystemName(f) || f.system_name
+            // Include if no systemName or if it's null/undefined
+            if (!resourceSystemName || resourceSystemName === "null" || resourceSystemName === "Ungrouped") {
+              const resourceId = f.resource_id || f.resourceId || f.resource
+              const resourceName = f.resource_name || f.resourceName || f.title || resourceId
+              const resourceType = f.resource_type || f.resourceType || "Resource"
 
-      setUntaggedResources(
-        untagged.map((r: any) => ({
-          id: r.id,
-          name: r.name || r.id,
-          type: r.type || "Resource",
-        }))
-      )
+              if (resourceId && !seenIds.has(resourceId)) {
+                seenIds.add(resourceId)
+                untaggedList.push({
+                  id: resourceId,
+                  name: resourceName,
+                  type: resourceType,
+                })
+              }
+            }
+          })
+        }
+      } catch (e) {
+        console.warn("Failed to fetch findings:", e)
+      }
+
+      // 3. Fetch connected but untagged resources from Neo4j
+      try {
+        const connectedResponse = await fetch(`/api/proxy/connected-untagged?systemName=${encodeURIComponent(systemName)}`)
+        if (connectedResponse.ok) {
+          const connectedData = await connectedResponse.json()
+          const connected = connectedData.resources || []
+
+          connected.forEach((r: any) => {
+            if (!seenIds.has(r.id)) {
+              seenIds.add(r.id)
+              untaggedList.push({
+                id: r.id,
+                name: r.name || r.id,
+                type: r.type || "Resource",
+              })
+            }
+          })
+        }
+      } catch (e) {
+        // This endpoint might not exist yet, that's okay
+        console.log("Connected-untagged endpoint not available:", e)
+      }
+
+      setUntaggedResources(untaggedList)
     } catch (error) {
       console.error("Failed to fetch untagged resources:", error)
-      // Don't show error, just don't display the banner
       setUntaggedResources([])
     } finally {
       setLoading(false)
