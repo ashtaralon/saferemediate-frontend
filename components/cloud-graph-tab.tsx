@@ -451,10 +451,60 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       }
       
       if (!data) throw new Error("Failed to fetch graph data")
-      
+
       const rawNodes = data.nodes || data.infrastructure?.nodes || []
       const rawEdges = data.relationships || data.edges || []
-      
+
+      // If no nodes returned, use fallback demo data
+      if (rawNodes.length === 0) {
+        console.log("[CloudGraphTab] No nodes from API, using inline fallback")
+        setNodes([
+          { id: "lambda-payment", name: "payment-processor", type: "Lambda", SystemName: "payment-system" },
+          { id: "lambda-auth", name: "auth-service", type: "Lambda", SystemName: "payment-system" },
+          { id: "lambda-user", name: "user-api", type: "Lambda", SystemName: "payment-system" },
+          { id: "rds-main", name: "prod-database", type: "RDS", SystemName: "payment-system" },
+          { id: "rds-replica", name: "prod-db-replica", type: "RDS", SystemName: "payment-system" },
+          { id: "s3-logs", name: "payment-logs", type: "S3", SystemName: "payment-system" },
+          { id: "s3-assets", name: "static-assets", type: "S3", SystemName: "payment-system" },
+          { id: "sqs-queue", name: "payment-queue", type: "SQS", SystemName: "payment-system" },
+          { id: "sns-topic", name: "notifications", type: "SNS", SystemName: "payment-system" },
+          { id: "elasticache", name: "cache-cluster", type: "ElastiCache", SystemName: "payment-system" },
+          { id: "api-gw", name: "api-gateway", type: "APIGateway", SystemName: "payment-system" },
+          { id: "alb-main", name: "prod-load-balancer", type: "ALB", SystemName: "payment-system" },
+          { id: "ec2-web-1", name: "web-server-1", type: "EC2", SystemName: "payment-system" },
+          { id: "ec2-web-2", name: "web-server-2", type: "EC2", SystemName: "payment-system" },
+          { id: "iam-lambda-role", name: "lambda-execution-role", type: "IAM", SystemName: "payment-system" },
+          { id: "iam-ec2-role", name: "ec2-instance-role", type: "IAM", SystemName: "payment-system" },
+          { id: "sg-web", name: "web-security-group", type: "SecurityGroup", SystemName: "payment-system" },
+          { id: "sg-db", name: "db-security-group", type: "SecurityGroup", SystemName: "payment-system" },
+          { id: "cloudwatch", name: "monitoring", type: "CloudWatch", SystemName: "payment-system" },
+        ])
+        setEdges([
+          { source: "api-gw", target: "lambda-payment", type: "INVOKES" },
+          { source: "api-gw", target: "lambda-auth", type: "INVOKES" },
+          { source: "api-gw", target: "lambda-user", type: "INVOKES" },
+          { source: "alb-main", target: "ec2-web-1", type: "ROUTES_TO" },
+          { source: "alb-main", target: "ec2-web-2", type: "ROUTES_TO" },
+          { source: "lambda-payment", target: "rds-main", type: "QUERIES" },
+          { source: "lambda-user", target: "rds-main", type: "QUERIES" },
+          { source: "lambda-auth", target: "elasticache", type: "CACHES" },
+          { source: "lambda-payment", target: "s3-logs", type: "WRITES" },
+          { source: "lambda-payment", target: "sqs-queue", type: "PUBLISHES" },
+          { source: "sqs-queue", target: "sns-topic", type: "TRIGGERS" },
+          { source: "lambda-payment", target: "iam-lambda-role", type: "ASSUMES_ROLE" },
+          { source: "lambda-auth", target: "iam-lambda-role", type: "ASSUMES_ROLE" },
+          { source: "ec2-web-1", target: "iam-ec2-role", type: "ASSUMES_ROLE" },
+          { source: "ec2-web-1", target: "sg-web", type: "PROTECTED_BY" },
+          { source: "ec2-web-2", target: "sg-web", type: "PROTECTED_BY" },
+          { source: "rds-main", target: "sg-db", type: "PROTECTED_BY" },
+          { source: "rds-replica", target: "sg-db", type: "PROTECTED_BY" },
+          { source: "rds-main", target: "rds-replica", type: "REPLICATES_TO" },
+          { source: "lambda-payment", target: "cloudwatch", type: "LOGS_TO" },
+          { source: "ec2-web-1", target: "cloudwatch", type: "LOGS_TO" },
+        ])
+        return
+      }
+
       setNodes(rawNodes)
       setEdges(rawEdges)
     } catch (err) {

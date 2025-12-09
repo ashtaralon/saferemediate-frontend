@@ -66,6 +66,8 @@ export async function GET() {
   const backendUrl =
     process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
+  console.log("[v0] Graph data API called - using fallback: FALLBACK_NODES.length =", FALLBACK_NODES.length)
+
   try {
     // Add timeout to prevent hanging
     const controller = new AbortController()
