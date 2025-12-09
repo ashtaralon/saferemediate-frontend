@@ -33,7 +33,9 @@ import {
 import { CloudGraphTab } from "./cloud-graph-tab"
 import { LeastPrivilegeTab } from "./least-privilege-tab"
 import { SnapshotsRecoveryTab } from "./snapshots-recovery-tab"
+import { SimulateFixModal } from "./issues/SimulateFixModal"
 import { useToast } from "@/hooks/use-toast"
+import type { SecurityFinding } from "@/lib/types"
 
 // =============================================================================
 // API CONFIGURATION
@@ -176,6 +178,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
+  
+  // Simulate modal state
+  const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
+  const [showSimulateModal, setShowSimulateModal] = useState(false)
 
   // =============================================================================
   // =============================================================================
@@ -217,8 +223,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }))
 
       // Populate issues array from unused permissions (HIGH severity findings)
-      if (unusedActions.length > 0) {
-        const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
+      if (unusedActionsList.length > 0) {
+        const highIssues: CriticalIssue[] = unusedActionsList.map((permission: string, index: number) => ({
           id: `high-${index}-${permission}`,
           title: `Unused IAM Permission: ${permission}`,
           impact: "Increases attack surface and violates least privilege principle",
@@ -249,12 +255,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       if (!response.ok || data.error) {
         console.log("[v0] Auto-tag status backend error, using fallback data")
-        setAutoTagStatus(fallbackAutoTagStatus)
+        setAutoTagStatus({
+          status: "stopped" as const,
+          totalCycles: fallbackAutoTagStatus.totalCycles,
+          actualTrafficCaptured: fallbackAutoTagStatus.actualTrafficCaptured,
+          lastSync: fallbackAutoTagStatus.lastSync,
+        })
         return
       }
 
+      const status = data.status === "running" ? "running" as const : data.status === "error" ? "error" as const : "stopped" as const
       setAutoTagStatus({
-        status: data.status || "stopped",
+        status,
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
