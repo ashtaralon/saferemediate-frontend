@@ -302,24 +302,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           setIssues(highIssues)
         }
       }
-
-      // Populate issues array from unused permissions (HIGH severity findings)
-      if (unusedActionsList.length > 0) {
-        const highIssues: CriticalIssue[] = unusedActionsList.map((permission: string, index: number) => ({
-          id: `high-${index}-${permission}`,
-          title: `Unused IAM Permission: ${permission}`,
-          impact: "Increases attack surface and violates least privilege principle",
-          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
-          safeToFix: 95,
-          fixTime: "< 5 min",
-          temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with ${confidence}% confidence.`,
-          expanded: false,
-          selected: false,
-        }))
-        setIssues(highIssues)
-      } else {
-        setIssues([])
-      }
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       // Use fallback demo data on error too
