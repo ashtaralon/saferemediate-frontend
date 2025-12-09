@@ -254,8 +254,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           passing: Math.max(0, 100 - fallbackGap),
         }))
 
-        // Create demo issues from unused actions
-        const demoIssues: CriticalIssue[] = demoUnusedActions.slice(0, 5).map((permission: string, index: number) => ({
+        // Create demo issues from unused actions (all 22)
+        const demoIssues: CriticalIssue[] = demoUnusedActions.map((permission: string, index: number) => ({
           id: `high-${index}-${permission}`,
           title: `Unused IAM Permission: ${permission}`,
           impact: "Increases attack surface and violates least privilege principle",
