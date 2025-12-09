@@ -3,12 +3,14 @@
  *
  * This module provides:
  * 1. Server-side file persistence (for API routes)
- * 2. Client-side localStorage fallback (for browser)
- * 3. Backend sync when available
+ * 2. Backend sync when available
+ *
+ * NOTE: This module is SERVER-SIDE ONLY. Do not import in client components.
+ * It uses Node.js fs module which is not available in browsers.
  */
 
-import { promises as fs } from 'fs'
-import path from 'path'
+import { promises as fs } from "fs"
+import path from "path"
 
 // ============================================================================
 // TYPES

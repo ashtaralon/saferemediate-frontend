@@ -166,14 +166,24 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
     setSelectedSnapshot(snapshot)
     setShowSelectModal(false)
 
-    // Build resource categories from real data
+    // Build resource categories from real data with defensive defaults
     const details = snapshot.resourceDetails || {}
+    const resources = snapshot.resources || {
+      iamRoles: 0,
+      securityGroups: 0,
+      acls: 0,
+      wafRules: 0,
+      vpcRouting: 0,
+      storageConfig: 0,
+      computeConfig: 0,
+      secrets: 0,
+    }
 
     const categories: ResourceCategory[] = [
       {
         id: "iam",
         name: "IAM Roles & Policies",
-        count: snapshot.resources.iamRoles,
+        count: resources.iamRoles || 0,
         items: details.iamRoles?.map((r: any) => r.name || r.properties?.name || r.id) || [
           "SafeRemediate-Lambda-Remediation-Role",
           "admin-user-role",
@@ -185,7 +195,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "sg",
         name: "Security Groups & Firewalls",
-        count: snapshot.resources.securityGroups,
+        count: resources.securityGroups || 0,
         items: details.securityGroups?.map((r: any) => r.name || r.properties?.name || r.id) || [
           "web-tier-sg",
           "app-tier-sg",
@@ -197,7 +207,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "acl",
         name: "Access Control Lists",
-        count: snapshot.resources.acls,
+        count: resources.acls || 0,
         items: ["default-acl", "private-acl", "public-acl"],
         selected: false,
         expanded: false,
@@ -205,7 +215,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "waf",
         name: "WAF Rules",
-        count: snapshot.resources.wafRules,
+        count: resources.wafRules || 0,
         items: ["rate-limit-rule", "sql-injection-rule"],
         selected: false,
         expanded: false,
@@ -213,7 +223,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "vpc",
         name: "VPC / Routing / Subnets",
-        count: snapshot.resources.vpcRouting,
+        count: resources.vpcRouting || 0,
         items: details.vpcs?.map((r: any) => r.name || r.properties?.name || r.id) || [
           "main-vpc",
           "private-subnet-a",
@@ -224,7 +234,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "storage",
         name: "Storage Config (S3 / Block)",
-        count: snapshot.resources.storageConfig,
+        count: resources.storageConfig || 0,
         items: details.s3Buckets?.map((r: any) => r.name || r.properties?.name || r.id) || [
           "logs-bucket",
           "data-bucket",
@@ -236,7 +246,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "compute",
         name: "Compute / VM Config",
-        count: snapshot.resources.computeConfig,
+        count: resources.computeConfig || 0,
         items: [
           ...(details.ec2Instances?.map((r: any) => r.name || r.properties?.name || r.id) || []),
           ...(details.lambdas?.map((r: any) => r.name || r.properties?.name || r.id) || []),
@@ -247,7 +257,7 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
       {
         id: "secrets",
         name: "Secrets & Keys Metadata",
-        count: snapshot.resources.secrets,
+        count: resources.secrets || 0,
         items: ["db-credentials", "api-keys", "certificates", "ssh-keys"],
         selected: false,
         expanded: false,
@@ -421,17 +431,17 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
           <div className="space-y-3">
             {snapshots.map((snapshot) => (
               <div
-                key={snapshot.id}
+                key={snapshot.id || `snapshot-${Math.random()}`}
                 className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
               >
                 <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 ${getSnapshotIcon(snapshot.type)} rounded-xl flex items-center justify-center`}>
+                  <div className={`w-12 h-12 ${getSnapshotIcon(snapshot.type || "manual")} rounded-xl flex items-center justify-center`}>
                     <Database className="w-6 h-6 text-white" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-semibold text-gray-900">{formatDate(snapshot.date)}</p>
-                      {snapshot.type !== "manual" && (
+                      <p className="font-semibold text-gray-900">{formatDate(snapshot.date || new Date().toISOString())}</p>
+                      {snapshot.type && snapshot.type !== "manual" && (
                         <span className={`px-2 py-0.5 text-xs font-medium rounded ${
                           snapshot.type === "AUTO PRE-FIX" ? "bg-green-100 text-green-700" :
                           snapshot.type === "AUTO PRE-RESTORE" ? "bg-blue-100 text-blue-700" :
@@ -441,8 +451,8 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500">{snapshot.name}</p>
-                    <p className="text-xs text-gray-400">Created by: {snapshot.createdBy}</p>
+                    <p className="text-sm text-gray-500">{snapshot.name || "Unnamed snapshot"}</p>
+                    <p className="text-xs text-gray-400">Created by: {snapshot.createdBy || "system"}</p>
                   </div>
                 </div>
                 <button
@@ -535,18 +545,18 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
             <div className="p-6 space-y-3 overflow-y-auto flex-1">
               {snapshots.map((snapshot) => (
                 <button
-                  key={snapshot.id}
+                  key={snapshot.id || `snapshot-${Math.random()}`}
                   onClick={() => selectSnapshot(snapshot)}
                   className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors text-left"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 ${getSnapshotIcon(snapshot.type)} rounded-xl flex items-center justify-center`}>
+                    <div className={`w-12 h-12 ${getSnapshotIcon(snapshot.type || "manual")} rounded-xl flex items-center justify-center`}>
                       <Database className="w-6 h-6 text-white" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-semibold text-gray-900">{snapshot.id}</p>
-                        {snapshot.type !== "manual" && (
+                        <p className="font-semibold text-gray-900">{snapshot.id || "Unknown"}</p>
+                        {snapshot.type && snapshot.type !== "manual" && (
                           <span className={`px-2 py-0.5 text-xs font-medium rounded ${
                             snapshot.type === "AUTO PRE-FIX" ? "bg-green-100 text-green-700" :
                             snapshot.type === "AUTO PRE-RESTORE" ? "bg-blue-100 text-blue-700" :
@@ -556,8 +566,8 @@ export function SnapshotsRecoveryTab({ systemName }: Props) {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-500">{snapshot.name}</p>
-                      <p className="text-xs text-gray-400">{formatDateTime(snapshot.date)}</p>
+                      <p className="text-sm text-gray-500">{snapshot.name || "Unnamed snapshot"}</p>
+                      <p className="text-xs text-gray-400">{formatDateTime(snapshot.date || new Date().toISOString())}</p>
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-400" />
