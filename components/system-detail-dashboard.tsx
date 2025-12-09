@@ -286,8 +286,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         }))
 
         // Populate issues array from unused permissions (HIGH severity findings)
-        if (unusedActionsList.length > 0) {
-          const highIssues: CriticalIssue[] = unusedActionsList.map((permission: string, index: number) => ({
+        const unusedActions = data.unused_actions_list || []
+        if (unusedActions.length > 0) {
+          const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
             id: `high-${index}-${permission}`,
             title: `Unused IAM Permission: ${permission}`,
             impact: "Increases attack surface and violates least privilege principle",
