@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useMemo } from "react"
+import { getSystemName, getEnvironment } from "@/lib/tag-utils"
 import {
   Search,
   ChevronDown,
@@ -151,13 +152,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           id: node.id || node.properties?.id || Math.random().toString(),
           name: node.name || node.properties?.name || node.properties?.arn?.split("/").pop() || "Unknown",
           type: node.type || node.label || "Unknown",
-          systemName:
-            node.systemName ||
-            node.properties?.SystemName ||
-            node.properties?.systemName ||
-            node.tags?.SystemName ||
-            "Ungrouped",
-          environment: node.properties?.Environment || node.tags?.Environment || "Production",
+          systemName: getSystemName(node) || "Ungrouped",
+          environment: getEnvironment(node) || "Production",
           region: node.properties?.region || node.properties?.Region || "eu-west-1",
           status: node.properties?.status || node.properties?.State || "Active",
           lastSeen: node.properties?.updated_at || node.properties?.lastSeen || new Date().toISOString(),

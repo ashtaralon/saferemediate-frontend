@@ -18,6 +18,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
 import { SeedTaggingModal } from "./seed-tagging-modal"
+import { getSystemName } from "@/lib/tag-utils"
 
 interface System {
   name: string
@@ -110,15 +111,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         const systemMap = new Map<string, { nodes: any[]; types: Set<string> }>()
 
         infraNodes.forEach((node: any) => {
-          const systemName =
-            node.SystemName ||
-            node.systemName ||
-            node.system_name ||
-            node.properties?.SystemName ||
-            node.properties?.systemName ||
-            node.properties?.system_name ||
-            node.tags?.SystemName ||
-            node.tags?.systemName ||
+          // Use case-insensitive tag lookup (accepts SystemName, systemname, systemName, etc.)
+          const systemName = getSystemName(node) ||
             (node.properties?.name?.includes("alon") ? "alon-prod" : null) ||
             "Ungrouped"
 

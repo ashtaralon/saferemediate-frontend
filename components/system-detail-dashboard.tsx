@@ -36,6 +36,7 @@ import { SnapshotsRecoveryTab } from "./snapshots-recovery-tab"
 import { SimulateFixModal } from "./issues/SimulateFixModal"
 import { useToast } from "@/hooks/use-toast"
 import type { SecurityFinding } from "@/lib/types"
+import { UntaggedResourcesBanner } from "./untagged-resources-banner"
 
 // =============================================================================
 // API CONFIGURATION
@@ -741,6 +742,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         <>
           {/* Main Content - Overview Tab */}
           <div className="max-w-[1800px] mx-auto px-8 py-6">
+            {/* A7 Patent: Temporal Maintenance - Auto-tag untagged resources */}
+            <UntaggedResourcesBanner
+              systemName={systemName}
+              environment="Production"
+              onTaggingComplete={(count) => {
+                // Refresh data after tagging
+                fetchAllData()
+                toast({
+                  title: "Resources Tagged",
+                  description: `${count} resources now belong to ${systemName}`,
+                })
+              }}
+            />
+
             {/* Stats Row - Updated with real severity counts */}
             <div className="grid grid-cols-5 gap-4 mb-6">
               {/* System Health */}
