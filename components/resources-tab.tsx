@@ -147,24 +147,31 @@ export function ResourcesTab({ systemName }: ResourcesTabProps) {
         const nodes = data.nodes || []
         const rels = data.relationships || []
 
-        // Build a set of all connected resource IDs
-        const connectedIds = new Set<string>()
-        rels.forEach((rel: Relationship) => {
-          if (rel.source) connectedIds.add(rel.source)
-          if (rel.target) connectedIds.add(rel.target)
-        })
+        // Filter to only include resources tagged with this system name
+        const systemNodes = systemName
+          ? nodes.filter((n: Resource) => {
+              // Check systemName property
+              if (n.systemName === systemName) return true
+              // Check SystemName property (different casing)
+              if ((n as any).SystemName === systemName) return true
+              // Check tags for system name
+              if (n.tags?.SystemName === systemName) return true
+              if (n.tags?.systemName === systemName) return true
+              if (n.tags?.["System"] === systemName) return true
+              return false
+            })
+          : nodes
 
-        // Filter to only include resources that are connected (part of the system)
-        // Orphan resources with no connections are excluded
-        const connectedNodes = nodes.filter((n: Resource) => connectedIds.has(n.id))
+        // Get IDs of system resources
+        const systemNodeIds = new Set(systemNodes.map((n: Resource) => n.id))
 
-        // Filter by system if specified
-        const filteredNodes = systemName
-          ? connectedNodes.filter((n: Resource) => n.systemName === systemName || !n.systemName)
-          : connectedNodes
+        // Filter relationships to only include those between system resources
+        const systemRels = rels.filter((rel: Relationship) =>
+          systemNodeIds.has(rel.source) || systemNodeIds.has(rel.target)
+        )
 
-        setResources(filteredNodes)
-        setRelationships(rels)
+        setResources(systemNodes)
+        setRelationships(systemRels)
       } catch (err: any) {
         console.error("Failed to fetch resources:", err)
         setError(err.message || "Failed to load resources")
