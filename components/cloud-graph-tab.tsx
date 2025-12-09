@@ -605,7 +605,33 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
         console.log("[CloudGraph] neo4j/graph failed:", neo4jErr.message)
       }
 
-      // 4. Try to fetch real AWS data directly
+      // 4. Try the new AWS discovery endpoint (bypasses Neo4j)
+      console.log("[CloudGraph] Trying /api/aws/discover...")
+      try {
+        const discoverUrl = systemName
+          ? `/api/aws/discover?systemName=${encodeURIComponent(systemName)}`
+          : "/api/aws/discover"
+        const discoverResponse = await fetch(discoverUrl)
+        const discoverData = await discoverResponse.json()
+
+        if (discoverData.success && discoverData.nodes && discoverData.nodes.length > 0) {
+          console.log("[CloudGraph] SUCCESS! Using AWS discovery:", discoverData.nodes.length, "nodes")
+          setDataSource("aws")
+          setNodes(discoverData.nodes)
+          setEdges(discoverData.relationships || [])
+          await fetchFindings()
+          return
+        } else {
+          console.log("[CloudGraph] AWS discovery returned:", discoverData.success, "nodes:", discoverData.nodes?.length || 0)
+          if (discoverData.errors) {
+            console.log("[CloudGraph] Discovery errors:", discoverData.errors)
+          }
+        }
+      } catch (discoverErr: any) {
+        console.log("[CloudGraph] AWS discovery failed:", discoverErr.message)
+      }
+
+      // 5. Try legacy AWS endpoints as fallback
       try {
         const [sgResponse, iamResponse] = await Promise.all([
           fetch("/api/aws/security-groups"),
@@ -667,10 +693,10 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
           }
         }
       } catch (awsErr) {
-        console.log("[CloudGraph] AWS direct call failed, trying backend...")
+        console.log("[CloudGraph] Legacy AWS endpoints failed")
       }
 
-      // 5. Fallback to demo data
+      // 6. Fallback to demo data
       console.log("[CloudGraph] Using demo data")
       setDataSource("demo")
       const demoData = generateDemoData()
