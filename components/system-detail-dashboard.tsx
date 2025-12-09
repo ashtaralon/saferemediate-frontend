@@ -29,10 +29,12 @@ import {
   Clock,
   ExternalLink,
   Wrench,
+  Box,
 } from "lucide-react"
 import { CloudGraphTab } from "./cloud-graph-tab"
 import { LeastPrivilegeTab } from "./least-privilege-tab"
 import { SnapshotsRecoveryTab } from "./snapshots-recovery-tab"
+import { ResourcesTab } from "./resources-tab"
 import { SimulateFixModal } from "./issues/SimulateFixModal"
 import { useToast } from "@/hooks/use-toast"
 import type { SecurityFinding } from "@/lib/types"
@@ -602,6 +604,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: severityCounts.critical + severityCounts.high + severityCounts.medium },
+    { id: "resources", label: "Resources", icon: Box },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
     { id: "config-history", label: "Configuration History", icon: History },
@@ -1318,6 +1321,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Render the ResourcesTab component */}
+      {activeTab === "resources" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <ResourcesTab systemName={systemName} />
         </div>
       )}
 
