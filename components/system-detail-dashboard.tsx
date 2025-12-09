@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import { CloudGraphTab } from "./cloud-graph-tab"
 import { LeastPrivilegeTab } from "./least-privilege-tab"
+import { SecurityGroupAnalysisTab } from "./security-group-analysis-tab"
 import { SimulationEngine } from "./simulation/SimulationEngine"
 import { SnapshotsRecoveryTab } from "./snapshots/SnapshotsRecoveryTab"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -451,7 +452,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setIssues(issues.map((issue) => ({ ...issue, selected: !allSelected })))
   }
 
-  // Tabs ordered per user request: Overview, Issues, Cloud Graph, Snapshots & Recovery, Configuration History, Disaster Recovery, Least Privilege
+  // Tabs ordered per user request: Overview, Issues, Cloud Graph, Snapshots & Recovery, Configuration History, Disaster Recovery, Least Privilege, Security Groups
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: severityCounts.critical + severityCounts.high + severityCounts.medium },
@@ -460,6 +461,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "config-history", label: "Configuration History", icon: History },
     { id: "disaster-recovery", label: "Disaster Recovery", icon: ShieldAlert },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
+    { id: "security-groups", label: "Security Groups", icon: Network },
   ]
 
   const resourceTypes = [
@@ -1290,6 +1292,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <LeastPrivilegeTab systemName={systemName} />
+        </div>
+      )}
+
+      {/* Render the Security Group Analysis tab */}
+      {activeTab === "security-groups" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <SecurityGroupAnalysisTab systemName={systemName} />
         </div>
       )}
 
