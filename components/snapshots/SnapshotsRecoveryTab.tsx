@@ -58,6 +58,18 @@ interface Snapshot {
     secrets: number
   }
   resourceDetails?: any
+  // Remediation context - Who/What/When/Why
+  remediationContext?: {
+    triggeredBy: string          // Who triggered (user email or "system")
+    remediationType: string      // What type (IAM, SecurityGroup, etc.)
+    targetResource: string       // What resource was affected
+    action: string               // What action was taken
+    reason: string               // Why - the reason/justification
+    issueId?: string             // Link to the issue being fixed
+    issueSeverity?: string       // Severity of the issue
+    confidence: number           // Confidence level (0-100)
+    rollbackAvailable: boolean   // Can this be rolled back
+  }
 }
 
 interface ResourceCategory {

@@ -377,6 +377,35 @@ export function SecurityGroupAnalysisTab({ systemName }: SecurityGroupAnalysisTa
     const sg = securityGroups.find(s => s.id === sgId)
     const rule = sg?.rules.find(r => r.id === ruleId)
 
+    // Step 1: Create auto-snapshot BEFORE remediation
+    console.log("[v0] Creating auto-snapshot before SG remediation...")
+    try {
+      const snapshotResponse = await fetch("/api/snapshots/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemName,
+          remediationContext: {
+            triggeredBy: "admin@company.com", // In production, get from auth
+            remediationType: "SecurityGroup",
+            targetResource: sgId,
+            action: `Remove ${rule?.direction || "inbound"} rule: ${rule?.protocol || "TCP"} ${rule?.portRange || "unknown"} from ${rule?.source || "unknown"}`,
+            reason: `Rule unused - ${rule?.riskLevel || "high"} risk, reducing attack surface`,
+            issueSeverity: rule?.riskLevel || "high",
+            confidence: 99,
+            rollbackAvailable: true,
+          },
+        }),
+      })
+      const snapshotResult = await snapshotResponse.json()
+      if (snapshotResult.success) {
+        console.log("[v0] Auto-snapshot created:", snapshotResult.snapshot?.id)
+      }
+    } catch (err) {
+      console.log("[v0] Snapshot creation failed, continuing with remediation:", err)
+    }
+
+    // Step 2: Perform remediation
     if (rule && dataSource === "aws") {
       // Try REAL AWS remediation!
       try {

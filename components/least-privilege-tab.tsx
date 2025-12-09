@@ -126,7 +126,31 @@ export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
     setRemediating(permission)
 
     try {
-      // Try real AWS remediation first
+      // Step 1: Create auto-snapshot BEFORE remediation
+      console.log("[v0] Creating auto-snapshot before remediation...")
+      const snapshotResponse = await fetch("/api/snapshots/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemName,
+          remediationContext: {
+            triggeredBy: "admin@company.com", // In production, get from auth
+            remediationType: "IAM",
+            targetResource: roleName,
+            action: `Remove permission: ${permission}`,
+            reason: "Permission unused for 90+ days - reducing attack surface",
+            issueSeverity: "high",
+            confidence: 99,
+            rollbackAvailable: true,
+          },
+        }),
+      })
+      const snapshotResult = await snapshotResponse.json()
+      if (snapshotResult.success) {
+        console.log("[v0] Auto-snapshot created:", snapshotResult.snapshot?.id)
+      }
+
+      // Step 2: Try real AWS remediation
       const awsResponse = await fetch("/api/aws/iam/remediate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
