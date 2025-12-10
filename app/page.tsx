@@ -165,7 +165,20 @@ export default function HomePage() {
     return () => clearInterval(interval)
   }, [autoRefresh, loadData, fetchGapAnalysis])
 
-  const statsData = data?.stats || {
+  // Compute security stats from actual findings when backend returns zeros
+  const computeStatsFromFindings = (findings: SecurityFinding[]) => {
+    const counts = { critical: 0, high: 0, medium: 0, low: 0 }
+    findings.forEach((f) => {
+      const severity = f.severity?.toUpperCase()
+      if (severity === "CRITICAL") counts.critical++
+      else if (severity === "HIGH") counts.high++
+      else if (severity === "MEDIUM") counts.medium++
+      else if (severity === "LOW") counts.low++
+    })
+    return counts
+  }
+
+  const baseStatsData = data?.stats || {
     avgHealthScore: 0,
     healthScoreTrend: 0,
     needAttention: 0,
@@ -174,6 +187,14 @@ export default function HomePage() {
     averageScore: 0,
     averageScoreTrend: 0,
     lastScanTime: "No scans yet",
+  }
+
+  // Ensure stats reflect actual findings count if backend returns zeros
+  const computedFindingsStats = computeStatsFromFindings(securityFindings)
+  const statsData = {
+    ...baseStatsData,
+    totalIssues: baseStatsData.totalIssues > 0 ? baseStatsData.totalIssues : securityFindings.length,
+    criticalIssues: baseStatsData.criticalIssues > 0 ? baseStatsData.criticalIssues : computedFindingsStats.critical,
   }
 
   const infrastructureStats = data?.infrastructure || {
@@ -187,7 +208,7 @@ export default function HomePage() {
     objectStorage: 0,
   }
 
-  const securityIssuesData = data?.securityIssues || {
+  const backendStats = data?.securityIssues || {
     critical: 0,
     high: 0,
     medium: 0,
@@ -199,6 +220,18 @@ export default function HomePage() {
     zeroDayCount: 0,
     secretsCount: 0,
     complianceCount: 0,
+  }
+
+  // Use computed stats from findings if backend returns all zeros
+  const hasBackendStats = backendStats.critical > 0 || backendStats.high > 0 || backendStats.medium > 0 || backendStats.low > 0
+
+  const securityIssuesData = hasBackendStats ? backendStats : {
+    ...backendStats,
+    critical: computedFindingsStats.critical,
+    high: computedFindingsStats.high,
+    medium: computedFindingsStats.medium,
+    low: computedFindingsStats.low,
+    totalIssues: securityFindings.length,
   }
 
   const complianceSystems = data?.complianceSystems || []
