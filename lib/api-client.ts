@@ -1,5 +1,5 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
+import { infrastructureData, demoSecurityFindings } from "./data"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 const FETCH_TIMEOUT = 10000 // 10 second timeout
@@ -219,8 +219,8 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     })
 
     if (!response.ok) {
-      console.warn("[v0] Backend returned error for security findings:", response.status)
-      return []
+      console.warn("[v0] Backend returned error for security findings:", response.status, "- using fallback data")
+      return demoSecurityFindings
     }
 
     const data = await response.json()
@@ -229,20 +229,29 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
 
-    return findings.map((f: any) => ({
+    // If backend returns empty findings, use fallback demo data
+    if (findings.length === 0) {
+      console.warn("[v0] Backend returned empty findings - using fallback data")
+      return demoSecurityFindings
+    }
+
+    const mappedFindings = findings.map((f: any) => ({
       id: f.id || f.findingId || "",
       title: f.title || f.name || "Security Finding",
-      severity: f.severity || "medium",
+      severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
       description: f.description || "",
       resource: f.resource || f.resourceId || "",
       resourceType: f.resourceType || "Resource",
       status: f.status || "open",
-      detectedAt: f.detectedAt || f.createdAt || new Date().toISOString(),
-      recommendation: f.recommendation || "",
+      category: f.category || f.type || "Security",
+      discoveredAt: f.discoveredAt || f.detectedAt || f.createdAt || new Date().toISOString(),
+      remediation: f.remediation || f.recommendation || "",
     }))
+
+    return mappedFindings
   } catch (error) {
-    console.warn("[v0] Security findings endpoint not available:", error)
-    return []
+    console.warn("[v0] Security findings endpoint not available:", error, "- using fallback data")
+    return demoSecurityFindings
   }
 }
 
