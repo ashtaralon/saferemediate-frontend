@@ -6,13 +6,14 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
-import { SimulateFixModal } from "@/components/issues/simulate-fix-modal"
+import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
+  onRefresh?: () => void
 }
 
-export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
+export function SecurityFindingsList({ findings, onRefresh }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
 
@@ -51,13 +52,10 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   return (
     <>
       <SimulateFixModal
-        isOpen={showModal}
+        open={showModal}
         onClose={() => setShowModal(false)}
-        finding={selectedFinding ? {
-          id: selectedFinding.id,
-          title: selectedFinding.title,
-          icon: "⚠️",
-        } : null}
+        finding={selectedFinding}
+        onRunFix={onRefresh}
       />
 
       <div className="space-y-3">

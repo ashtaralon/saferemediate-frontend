@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { apiGet } from "@/lib/api-client"
 import {
   AlertCircle,
   X,
@@ -433,16 +432,19 @@ export function CloudGraphTab({ systemName }: CloudGraphTabProps) {
       
       // Try multiple endpoints
       const endpoints = [
-        "/api/graph/nodes",
-        "/api/graph/snapshot",
-        "/api/graph/live",
+        "/api/proxy/graph-data",
+        "https://saferemediate-backend.onrender.com/api/graph/snapshot",
+        "https://saferemediate-backend.onrender.com/api/graph/live",
       ]
       
       let data = null
       for (const endpoint of endpoints) {
         try {
-          data = await apiGet(endpoint)
-          if (data) break
+          const res = await fetch(endpoint)
+          if (res.ok) {
+            data = await res.json()
+            break
+          }
         } catch (e) {
           continue
         }

@@ -1,20 +1,28 @@
 import { NextResponse } from "next/server"
 
+// Use Edge Runtime - runs globally, closer to backend
+export const runtime = 'edge'
 export const dynamic = "force-dynamic"
-export const fetchCache = "force-no-store"
-export const revalidate = 0
 
 export async function GET() {
-  const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend.onrender.com"
+  // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
+    // Add timeout to prevent hanging - 15 seconds for slow backend
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+
     const response = await fetch(`${backendUrl}/api/dashboard/metrics`, {
       headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
     })
 
+    clearTimeout(timeoutId)
+
     if (!response.ok) {
-      console.error("[v0] Dashboard metrics fetch failed:", response.status)
+      console.error("[proxy] Dashboard metrics fetch failed:", response.status)
       return NextResponse.json({
         success: false,
         error: `Backend returned ${response.status}`,
@@ -23,17 +31,17 @@ export async function GET() {
     }
 
     const data = await response.json()
-    console.log("[v0] Dashboard metrics fetched:", JSON.stringify(data).substring(0, 200))
+    console.log("[proxy] Dashboard metrics fetched successfully")
 
     return NextResponse.json({
       success: true,
       metrics: data.metrics || data,
     })
-  } catch (error) {
-    console.error("[v0] Dashboard metrics fetch error:", error)
+  } catch (error: any) {
+    console.error("[proxy] Dashboard metrics fetch error:", error.name === 'AbortError' ? 'Request timed out' : error)
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : "Failed to fetch dashboard metrics",
+      error: error.name === 'AbortError' ? 'Request timed out' : (error.message || "Failed to fetch dashboard metrics"),
       metrics: null,
     })
   }

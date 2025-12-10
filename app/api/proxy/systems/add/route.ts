@@ -1,11 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-export const dynamic = "force-dynamic"
-export const fetchCache = "force-no-store"
-export const revalidate = 0
-
 export async function POST(request: NextRequest) {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend.onrender.com"
+  const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL
 
   if (!backendUrl) {
     return NextResponse.json(

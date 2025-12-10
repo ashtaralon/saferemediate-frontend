@@ -1,152 +1,43 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
+import { infrastructureData, demoSecurityFindings } from "./data"
 
-// Backend URL - Direct to Render, no proxy
-const API_BASE = "https://saferemediate-backend.onrender.com"
-const BACKEND_URL = API_BASE
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const FETCH_TIMEOUT = 10000 // 10 second timeout
+const MAX_RETRIES = 3
 
-// ============================================================================
-// ⚡ CACHING & DEDUPLICATION
-// ============================================================================
+// Helper function to fetch with retry and exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  retries = MAX_RETRIES
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
 
-interface CacheEntry<T> {
-  data: T
-  timestamp: number
-  expiresAt: number
-}
-
-// Cache storage
-const cache = new Map<string, CacheEntry<any>>()
-
-// Active requests (for deduplication)
-const activeRequests = new Map<string, Promise<any>>()
-
-// Cache TTL (Time To Live) in milliseconds
-const CACHE_TTL = {
-  short: 30 * 1000,   // 30 seconds for frequently changing data
-  medium: 60 * 1000,  // 60 seconds for moderately changing data
-  long: 5 * 60 * 1000, // 5 minutes for rarely changing data
-}
-
-// Get cache key from URL
-function getCacheKey(url: string): string {
-  return url
-}
-
-// Check if cache entry is valid
-function isCacheValid<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
-  if (!entry) return false
-  return Date.now() < entry.expiresAt
-}
-
-// Get from cache or return null
-function getFromCache<T>(key: string): T | null {
-  const entry = cache.get(key)
-  if (isCacheValid(entry)) {
-    console.log(`[CACHE] Hit: ${key}`)
-    return entry.data
-  }
-  if (entry) {
-    cache.delete(key) // Remove expired entry
-  }
-  return null
-}
-
-// Set cache entry
-function setCache<T>(key: string, data: T, ttl: number = CACHE_TTL.medium): void {
-  cache.set(key, {
-    data,
-    timestamp: Date.now(),
-    expiresAt: Date.now() + ttl,
-  })
-  console.log(`[CACHE] Set: ${key} (TTL: ${ttl}ms)`)
-}
-
-// Clear cache for a specific key or all cache
-function clearCache(key?: string): void {
-  if (key) {
-    cache.delete(key)
-    console.log(`[CACHE] Cleared: ${key}`)
-  } else {
-    cache.clear()
-    console.log(`[CACHE] Cleared all`)
-  }
-}
-
-// ============================================================================
-// API FUNCTIONS WITH CACHING & DEDUPLICATION
-// ============================================================================
-
-// Generic API GET function with caching and deduplication
-export async function apiGet<T = any>(path: string, options?: { cache?: boolean; ttl?: number }): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
-  console.log("API Request →", path);
-  const cacheKey = getCacheKey(url)
-  const useCache = options?.cache !== false // Default to true
-  const ttl = options?.ttl || CACHE_TTL.medium
-
-  // Check cache first
-  if (useCache) {
-    const cached = getFromCache<T>(cacheKey)
-    if (cached !== null) {
-      return cached
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    
+    // Retry on network errors or timeouts
+    if (retries > 0 && (error.name === 'AbortError' || error.message?.includes('fetch'))) {
+      const delay = Math.pow(2, MAX_RETRIES - retries) * 1000 // Exponential backoff: 2s, 4s, 8s
+      console.warn(`[api-client] Retry ${MAX_RETRIES - retries + 1}/${MAX_RETRIES} after ${delay}ms`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+      return fetchWithRetry(url, options, retries - 1)
     }
-  }
-
-  // Check if there's an active request for this URL (deduplication)
-  if (activeRequests.has(cacheKey)) {
-    console.log(`[DEDUP] Reusing active request: ${url}`)
-    return activeRequests.get(cacheKey) as Promise<T>
-  }
-
-  // Create new request
-  const requestPromise = (async () => {
-    try {
-      const res = await fetch(url, { cache: "no-store" })
-      if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
-      const data = await res.json()
-      
-      // Cache the result
-      if (useCache) {
-        setCache(cacheKey, data, ttl)
-      }
-      
-      return data
-    } finally {
-      // Remove from active requests
-      activeRequests.delete(cacheKey)
+    
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${FETCH_TIMEOUT}ms`)
     }
-  })()
-
-  // Store active request
-  activeRequests.set(cacheKey, requestPromise)
-
-  return requestPromise
+    throw error
+  }
 }
-
-// Generic API POST function (no caching for POST)
-export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? path : "/" + path}`
-  console.log("API Request →", path);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store"
-  })
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
-  return res.json()
-}
-
-// ============================================================================
-// EXPORT CACHE UTILITIES
-// ============================================================================
-
-export { clearCache, getFromCache, setCache }
-
-// ============================================================================
-// TYPES & INTERFACES
-// ============================================================================
 
 export interface InfrastructureData {
   resources: Array<{
@@ -202,28 +93,61 @@ export interface InfrastructureData {
   }>
 }
 
-// ============================================================================
-// FETCH FUNCTIONS WITH OPTIMIZED CACHING
-// ============================================================================
-
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel with caching
-    const [metricsResponse, nodesResponse] = await Promise.all([
-      apiGet(`${BACKEND_URL}/api/dashboard/metrics`, { cache: true, ttl: CACHE_TTL.short }),
-      apiGet(`${BACKEND_URL}/api/graph/nodes`, { cache: true, ttl: CACHE_TTL.medium }),
-    ])
-
-    let metrics: any = metricsResponse
-    let nodes: any[] = []
-
-    if (nodesResponse && Array.isArray(nodesResponse)) {
-      nodes = nodesResponse
-    } else if (nodesResponse && nodesResponse.nodes) {
-      nodes = nodesResponse.nodes
+    // Fetch dashboard metrics and graph nodes in parallel via proxy routes
+    // Use Promise.race with timeout to prevent hanging
+    const fetchWithTimeout = (url: string, timeout: number = 5000) => {
+      return Promise.race([
+        fetch(url, {
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+        }),
+        new Promise<Response>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout")), timeout)
+        ),
+      ])
     }
 
-    console.log("[v0] Successfully loaded metrics and nodes from backend (cached)")
+    const [metricsResponse, nodesResponse] = await Promise.allSettled([
+      fetchWithTimeout("/api/proxy/dashboard-metrics", 5000).catch(() => null),
+      fetchWithTimeout("/api/proxy/graph-data", 5000).catch(() => null),
+    ])
+
+    let metrics: any = {}
+    let nodes: any[] = []
+
+    // Handle metrics response
+    if (metricsResponse.status === 'fulfilled' && metricsResponse.value && metricsResponse.value.ok) {
+      try {
+        metrics = await metricsResponse.value.json()
+        console.log("[v0] Successfully loaded metrics from backend")
+      } catch (e) {
+        console.warn("[v0] Failed to parse metrics:", e)
+      }
+    } else {
+      console.warn("[v0] Metrics endpoint failed or timed out")
+    }
+
+    // Handle nodes response
+    if (nodesResponse.status === 'fulfilled' && nodesResponse.value && nodesResponse.value.ok) {
+      try {
+        const nodesData = await nodesResponse.value.json()
+        // graph-data returns { nodes: [...], relationships: [...] }
+        nodes = nodesData.nodes || nodesData || []
+        console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
+      } catch (e) {
+        console.warn("[v0] Failed to parse nodes:", e)
+      }
+    } else {
+      console.warn("[v0] Nodes endpoint failed or timed out")
+    }
+
+    // If no nodes from backend, use fallback data
+    if (nodes.length === 0 && (!metricsResponse.value || !metricsResponse.value.ok)) {
+      console.warn("[v0] No data from backend, using fallback data")
+      return infrastructureData
+    }
 
     // Map backend data to our InfrastructureData format
     const resources = nodes.map((node: any) => ({
@@ -282,57 +206,92 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       complianceSystems: metrics.complianceSystems || [],
     }
   } catch (error) {
-    console.warn("[v0] Backend not available, using mock data. Error:", error)
+    console.warn("[v0] Backend not available, using fallback data. Error:", error)
     return infrastructureData
   }
 }
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
+  // Create timeout controller - must complete within 8 seconds
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 8000)
+
   try {
-    // Use caching for findings (they don't change very often)
-    const data = await apiGet<SecurityFinding[] | { findings: SecurityFinding[] }>(
-      `${BACKEND_URL}/api/findings`,
-      { cache: true, ttl: CACHE_TTL.long } // 5 minutes cache
-    )
+    const response = await fetch("/api/proxy/findings", {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      console.warn("[v0] Backend returned error for security findings:", response.status, "- using fallback data")
+      return demoSecurityFindings
+    }
+
+    let data: any
+    try {
+      data = await response.json()
+    } catch (parseError) {
+      console.warn("[v0] Failed to parse security findings response - using fallback data")
+      return demoSecurityFindings
+    }
+
+    console.log("[v0] Security findings response:", { success: data?.success, source: data?.source, count: data?.findings?.length })
 
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
-    console.log(`[v0] Found ${findings.length} security findings (cached)`)
 
-    if (findings.length === 0) {
-      console.warn("[v0] No security findings returned from backend")
-      return []
+    // If backend returns empty findings, use fallback demo data
+    if (!findings || findings.length === 0) {
+      console.warn("[v0] Backend returned empty findings - using fallback data")
+      return demoSecurityFindings
     }
 
     const mappedFindings = findings.map((f: any) => ({
-      id: f.id || f.findingId || f.finding_id || "",
-      title: f.title || f.name || f.type || "Security Finding",
-      severity: (f.severity || "MEDIUM").toUpperCase(),
-      description: f.description || f.desc || "",
-      resource: f.resource || f.resourceId || f.resource_id || "",
-      resourceType: f.resourceType || f.resource_type || "Resource",
+      id: f.id || f.findingId || `finding-${Math.random().toString(36).substr(2, 9)}`,
+      title: f.title || f.name || "Security Finding",
+      severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+      description: f.description || "",
+      resource: f.resource || f.resourceId || "",
+      resourceType: f.resourceType || "Resource",
       status: f.status || "open",
       category: f.category || f.type || "Security",
-      discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || f.created_at || f.detectedAt || new Date().toISOString(),
+      discoveredAt: f.discoveredAt || f.detectedAt || f.createdAt || new Date().toISOString(),
       remediation: f.remediation || f.recommendation || "",
     }))
-    
-    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
+
+    // Final check - if mapping produced empty array, return fallback
+    if (mappedFindings.length === 0) {
+      console.warn("[v0] Mapped findings empty - using fallback data")
+      return demoSecurityFindings
+    }
+
+    console.log("[v0] Successfully loaded", mappedFindings.length, "security findings")
     return mappedFindings
-  } catch (error) {
-    console.error("[v0] Security findings endpoint error:", error)
-    return []
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    const errorMsg = error.name === 'AbortError' ? 'Request timed out' : error.message
+    console.warn("[v0] Security findings fetch failed:", errorMsg, "- using fallback data")
+    return demoSecurityFindings
   }
 }
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const data = await apiGet<any[] | { nodes: any[] }>(
-      `${BACKEND_URL}/api/graph/nodes`,
-      { cache: true, ttl: CACHE_TTL.medium }
-    )
-    console.log("[v0] Successfully loaded graph nodes from backend (cached)")
-    return Array.isArray(data) ? data : data.nodes || []
+    const response = await fetch("/api/proxy/graph-data", {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    })
+
+    if (!response.ok) {
+      console.warn("[v0] Graph nodes endpoint returned error:", response.status)
+      return []
+    }
+
+    const data = await response.json()
+    console.log("[v0] Successfully loaded graph nodes from backend")
+    return data.nodes || data || []
   } catch (error) {
     console.warn("[v0] Graph nodes endpoint not available:", error)
     return []
@@ -341,13 +300,19 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const data = await apiGet<any[] | { relationships: any[] } | { edges: any[] }>(
-      `${BACKEND_URL}/api/graph/relationships`,
-      { cache: true, ttl: CACHE_TTL.medium }
-    )
-    console.log("[v0] Successfully loaded graph relationships from backend (cached)")
-    if (Array.isArray(data)) return data
-    return data.relationships || data.edges || []
+    const response = await fetch("/api/proxy/graph-data", {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    })
+
+    if (!response.ok) {
+      console.warn("[v0] Graph relationships endpoint returned error:", response.status)
+      return []
+    }
+
+    const data = await response.json()
+    console.log("[v0] Successfully loaded graph relationships from backend")
+    return data.relationships || data.edges || data || []
   } catch (error) {
     console.warn("[v0] Graph relationships endpoint not available:", error)
     return []
@@ -356,10 +321,16 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const data = await apiGet<{ status?: string }>(
-      `${BACKEND_URL}/health`,
-      { cache: true, ttl: CACHE_TTL.short } // Short cache for health checks
-    )
+    const response = await fetch("/api/proxy/health", {
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    })
+
+    if (!response.ok) {
+      return { success: false, message: `Backend returned ${response.status}` }
+    }
+
+    const data = await response.json()
     return { success: true, message: data.status || "healthy" }
   } catch (error: any) {
     return { success: false, message: error.message || "Connection failed" }
@@ -367,115 +338,66 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 }
 
 // ============================================================================
-// GAP ANALYSIS TYPES
+// HTTP POST Helper & Simulation/Fix Functions
 // ============================================================================
 
-export interface GapPermission {
-  action: string
-  resource?: string
-  condition?: Record<string, any>
-  source?: string
-}
+async function httpPost<T>(path: string, body: any): Promise<T> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
 
-export interface GapAnalysisResponse {
-  success: boolean
-  systemName?: string
-  roleName?: string
-  confidence: number
-  allowed: GapPermission[]
-  used: GapPermission[]
-  unused: GapPermission[]
-  gap: number
-  reductionPercent: number
-}
-
-export interface LeastPrivilegeSimulationResult {
-  success: boolean
-  systemName?: string
-  roleName?: string
-  checkpointId?: string
-  unusedCount: number
-  reductionPercent: number
-  confidence: number
-  plan: GapPermission[]
-}
-
-// ============================================================================
-// GAP ANALYSIS API FUNCTIONS
-// ============================================================================
-
-export async function fetchGapAnalysis(
-  systemName?: string,
-  roleName: string = "SafeRemediate-Lambda-Remediation-Role",
-): Promise<GapAnalysisResponse> {
-  const params = new URLSearchParams()
-  if (systemName) params.set("systemName", systemName)
-  if (roleName) params.set("roleName", roleName)
-
-  const qs = params.toString()
-  const path = qs ? `/api/gap-analysis?${qs}` : "/api/gap-analysis"
-
-  try {
-    const data = await apiGet(path, { cache: false })
-
-    return {
-      success: data.success ?? true,
-      systemName: data.systemName,
-      roleName: data.roleName,
-      confidence: data.confidence ?? 95,
-      allowed: data.allowed ?? [],
-      used: data.used ?? [],
-      unused: data.unused ?? [],
-      gap: data.gap ?? (data.unused?.length ?? 0),
-      reductionPercent:
-        data.reductionPercent ??
-        (data.allowed && data.unused && data.allowed.length > 0
-          ? Math.round((data.unused.length / data.allowed.length) * 100)
-          : 0),
-    }
-  } catch (error) {
-    console.error("[api-client] gap-analysis error:", error)
-    return {
-      success: false,
-      systemName,
-      roleName,
-      confidence: 0,
-      allowed: [],
-      used: [],
-      unused: [],
-      gap: 0,
-      reductionPercent: 0,
-    }
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Request to ${path} failed (${res.status}): ${text}`)
   }
+
+  return res.json() as Promise<T>
 }
 
-export async function simulateLeastPrivilege(
-  systemName?: string,
-  roleName?: string
-): Promise<LeastPrivilegeSimulationResult> {
-  try {
-    const data = await apiPost("/api/least-privilege/simulate", {
-      systemName,
-      roleName,
-    })
-    return data
-  } catch (error) {
-    console.error("[api-client] simulate least privilege error:", error)
-    throw error
+/**
+ * Simulate a fix for a finding
+ * payload can be:
+ * { finding_id, change_type, resource_id, proposed_state }
+ */
+export async function simulateIssue(payload: any) {
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/simulate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Simulation failed: ${res.status}`)
   }
+
+  return res.json()
 }
 
-export async function applyLeastPrivilege(payload: {
-  systemName?: string
-  roleName?: string
-  planId?: string
-}): Promise<{ success: boolean; checkpointId?: string; message?: string }> {
-  try {
-    const data = await apiPost("/api/least-privilege/apply", payload)
-    return data
-  } catch (error) {
-    console.error("[api-client] apply least privilege error:", error)
-    throw error
+/**
+ * Execute remediation for a finding
+ * Usually you send something like:
+ * { finding_id: "...", ... }
+ */
+export async function fixIssue(payload: any) {
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/remediate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Fix failed: ${res.status}`)
   }
-}
 
+  return res.json()
+}

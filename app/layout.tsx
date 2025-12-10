@@ -4,10 +4,6 @@ import { Inter, JetBrains_Mono } from "next/font/google"
 import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
 
-// Disable static generation and force dynamic rendering to prevent cache issues
-export const dynamic = "force-dynamic"
-export const revalidate = 0
-
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" })
 

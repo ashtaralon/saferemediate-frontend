@@ -1,49 +1,45 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 
-export async function GET() {
-  const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend.onrender.com"
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ??
+  "https://saferemediate-backend.onrender.com"
 
-  try {
-    const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-    })
+// Map system names to IAM role names
+// TODO: In production, this should come from a database or backend API
+const SYSTEM_TO_ROLE_MAP: Record<string, string> = {
+  "alon-prod": "SafeRemediate-Lambda-Remediation-Role",
+  "SafeRemediate-Test": "SafeRemediate-Lambda-Remediation-Role",
+  "SafeRemediate-Lambda": "SafeRemediate-Lambda-Remediation-Role",
+}
 
-    if (!response.ok) {
-      console.log("[v0] Gap analysis fetch failed:", response.status)
-      return NextResponse.json({
-        success: false,
-        error: `Backend returned ${response.status}`,
-        allowed_actions: 0,
-        used_actions: 0,
-        unused_actions: 0,
-        allowed_actions_list: [],
-        unused_actions_list: [],
-      })
-    }
+function getRoleName(systemName: string): string {
+  // Check if we have a mapping, otherwise use the systemName as-is
+  return SYSTEM_TO_ROLE_MAP[systemName] || systemName
+}
 
-    const data = await response.json()
-    console.log("[v0] Gap analysis API response:", JSON.stringify(data).substring(0, 500))
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url)
+  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
 
-    return NextResponse.json({
-      success: true,
-      ...data,
-    })
-  } catch (error) {
-    console.error("[v0] Gap analysis API error:", error)
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-      allowed_actions: 0,
-      used_actions: 0,
-      unused_actions: 0,
-      allowed_actions_list: [],
-      unused_actions_list: [],
-    })
+  // Map systemName to role name (if needed for gap analysis)
+  // For least-privilege endpoint, we pass systemName directly
+  const res = await fetch(
+    `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(
+      systemName
+    )}`
+  )
+
+  if (!res.ok) {
+    return NextResponse.json(
+      { error: "Backend error", status: res.status },
+      { status: res.status }
+    )
   }
+
+  const data = await res.json()
+  return NextResponse.json(data)
 }

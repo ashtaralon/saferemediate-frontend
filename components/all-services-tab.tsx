@@ -133,40 +133,49 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   useEffect(() => {
     fetchServices()
     fetchGapData()
-  }, [])
+  }, [systemName])  // Re-fetch when systemName changes
 
   const fetchServices = async () => {
     setLoading(true)
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
-      const response = await fetch(`${backendUrl}/api/graph/nodes?limit=1000`)
+      // Use proxy route to avoid CORS issues
+      const response = await fetch("/api/proxy/graph-data")
 
       if (!response.ok) throw new Error("Failed to fetch services")
 
       const data = await response.json()
       const nodes = data.nodes || data || []
 
-      const mapped: ServiceNode[] = nodes.map((node: any) => ({
-        id: node.id || node.properties?.id || Math.random().toString(),
-        name: node.name || node.properties?.name || node.properties?.arn?.split("/").pop() || "Unknown",
-        type: node.type || node.label || "Unknown",
-        systemName:
-          node.systemName ||
-          node.properties?.SystemName ||
-          node.properties?.systemName ||
-          node.tags?.SystemName ||
-          "Ungrouped",
-        environment: node.properties?.Environment || node.tags?.Environment || "Production",
-        region: node.properties?.region || node.properties?.Region || "eu-west-1",
-        status: node.properties?.status || node.properties?.State || "Active",
-        lastSeen: node.properties?.updated_at || node.properties?.lastSeen || new Date().toISOString(),
-        properties: node.properties || {},
-        // IAM specific
-        attachedPolicies: node.properties?.attached_policies_count || node.properties?.PolicyCount || 0,
-        permissionCount: node.properties?.action_count || node.properties?.permission_count || 0,
-        // Compute specific
-        instanceState: node.properties?.State || node.properties?.state || "running",
-      }))
+      const mapped: ServiceNode[] = nodes
+        .map((node: any) => ({
+          id: node.id || node.properties?.id || Math.random().toString(),
+          name: node.name || node.properties?.name || node.properties?.arn?.split("/").pop() || "Unknown",
+          type: node.type || node.label || "Unknown",
+          systemName:
+            node.systemName ||
+            node.properties?.SystemName ||
+            node.properties?.systemName ||
+            node.tags?.SystemName ||
+            "Ungrouped",
+          environment: node.properties?.Environment || node.tags?.Environment || "Production",
+          region: node.properties?.region || node.properties?.Region || "eu-west-1",
+          status: node.properties?.status || node.properties?.State || "Active",
+          lastSeen: node.properties?.updated_at || node.properties?.lastSeen || new Date().toISOString(),
+          properties: node.properties || {},
+          // IAM specific
+          attachedPolicies: node.properties?.attachedPoliciesCount || node.properties?.attached_policies_count || node.properties?.PolicyCount || 0,
+          permissionCount: node.properties?.action_count || node.properties?.permission_count || 0,
+          // Compute specific
+          instanceState: node.properties?.State || node.properties?.state || "running",
+        }))
+        // Filter by systemName - only show services for the current system
+        .filter((service) => {
+          if (!systemName) return true
+          return (
+            service.systemName?.toLowerCase() === systemName.toLowerCase() ||
+            service.systemName === "Ungrouped"
+          )
+        })
 
       setServices(mapped)
     } catch (error) {
