@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
-// Allow longer execution time on Vercel (30 seconds max)
-export const maxDuration = 30
+// Use Edge Runtime - runs globally, closer to backend
+export const runtime = 'edge'
 
 // Fallback findings for when backend is unavailable or slow
 const fallbackFindings = [
