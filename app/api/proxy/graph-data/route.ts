@@ -2,10 +2,11 @@ import { NextResponse } from "next/server"
 
 // Use Edge Runtime - runs globally, closer to backend
 export const runtime = 'edge'
+export const dynamic = "force-dynamic"
 
 export async function GET() {
-  const backendUrl =
-    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+  // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
     // Add timeout to prevent hanging - increased to 15 seconds for slow backend

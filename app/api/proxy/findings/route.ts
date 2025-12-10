@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 // Use Edge Runtime - runs globally, closer to backend
 export const runtime = 'edge'
+export const dynamic = "force-dynamic"
 
 // Fallback findings for when backend is unavailable or slow
 const fallbackFindings = [
@@ -80,37 +81,56 @@ const fallbackFindings = [
 ]
 
 export async function GET() {
-  const backendUrl =
-    process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+  // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+
+  console.log("[proxy/findings] Starting request to:", backendUrl)
 
   try {
-    // Add timeout to prevent hanging - increased to 15 seconds for slow backend
+    // Add timeout to prevent hanging - 10 seconds for Edge Runtime
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    const timeoutId = setTimeout(() => controller.abort(), 10000)
 
     const response = await fetch(`${backendUrl}/api/findings`, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
       signal: controller.signal,
     })
 
     clearTimeout(timeoutId)
+    console.log("[proxy/findings] Backend response status:", response.status)
 
     if (!response.ok) {
-      console.error("[v0] Findings fetch failed:", response.status, "- returning fallback data")
+      console.error("[proxy/findings] Findings fetch failed:", response.status, "- returning fallback data")
       return NextResponse.json({
         success: true,
         findings: fallbackFindings,
         source: "fallback",
+        debug: { status: response.status, backendUrl },
       })
     }
 
-    const data = await response.json()
+    let data: any
+    try {
+      data = await response.json()
+    } catch (parseError) {
+      console.error("[proxy/findings] JSON parse error - returning fallback data")
+      return NextResponse.json({
+        success: true,
+        findings: fallbackFindings,
+        source: "fallback",
+        debug: { error: "JSON parse failed" },
+      })
+    }
+
     const findings = data.findings || data || []
-    console.log("[v0] Findings fetched:", findings.length)
+    console.log("[proxy/findings] Findings fetched:", findings.length)
 
     // If backend returns empty, use fallback
-    if (findings.length === 0) {
-      console.log("[v0] Backend returned empty findings - using fallback data")
+    if (!findings || findings.length === 0) {
+      console.log("[proxy/findings] Backend returned empty findings - using fallback data")
       return NextResponse.json({
         success: true,
         findings: fallbackFindings,
@@ -122,10 +142,11 @@ export async function GET() {
       success: true,
       findings,
       source: "backend",
+      count: findings.length,
     })
   } catch (error: any) {
     const errorMessage = error.name === 'AbortError' ? 'Request timed out' : error.message
-    console.error("[v0] Findings fetch error:", errorMessage, "- returning fallback data")
+    console.error("[proxy/findings] Fetch error:", errorMessage, "- returning fallback data")
 
     // Return fallback findings instead of empty array to ensure UI shows data
     return NextResponse.json({
