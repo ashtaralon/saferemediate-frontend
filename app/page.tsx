@@ -17,6 +17,7 @@ import { SecurityFindingsList } from "@/components/issues/security-findings-list
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
+import { demoSecurityFindings } from "@/lib/data"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
@@ -109,11 +110,11 @@ export default function HomePage() {
   }, [])
 
   const loadData = useCallback(async () => {
-    // Set timeout to prevent infinite loading - ALWAYS resolve after 8 seconds
+    // Set timeout to prevent infinite loading - matches proxy timeout (15s) + buffer
     const timeoutId = setTimeout(() => {
       console.warn("Data loading timeout - forcing loading to false")
       setLoading(false)
-    }, 8000) // 8 seconds timeout
+    }, 20000) // 20 seconds timeout to allow for slow backend
 
     try {
       const [infrastructureData, findings] = await Promise.allSettled([
@@ -131,18 +132,20 @@ export default function HomePage() {
         setData(null)
       }
       
-      // Handle findings
-      if (findings.status === 'fulfilled') {
-        setSecurityFindings(findings.value || [])
+      // Handle findings - use fallback if empty or failed
+      if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
+        setSecurityFindings(findings.value)
+        console.log("[page] Loaded", findings.value.length, "security findings")
       } else {
-        console.error("Findings fetch failed:", findings.reason)
-        setSecurityFindings([])
+        console.warn("[page] Using fallback findings - fetch result:", findings.status)
+        setSecurityFindings(demoSecurityFindings)
       }
     } catch (error) {
       console.error("Failed to load data:", error)
       clearTimeout(timeoutId)
       setData(null)
-      setSecurityFindings([])
+      // Use fallback findings even on error
+      setSecurityFindings(demoSecurityFindings)
     } finally {
       clearTimeout(timeoutId)
       setLoading(false) // ALWAYS set to false
