@@ -209,5 +209,5 @@ class ApiService {
 }
 
 // Export singleton instance
-export const apiService = new ApiService()()
+export const apiService = new ApiService()
 
