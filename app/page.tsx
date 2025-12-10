@@ -110,11 +110,12 @@ export default function HomePage() {
   }, [])
 
   const loadData = useCallback(async () => {
-    // Set timeout to prevent infinite loading - matches proxy timeout (15s) + buffer
+    // Set timeout to prevent infinite loading - matches proxy timeout (25s) + buffer
     const timeoutId = setTimeout(() => {
-      console.warn("Data loading timeout - forcing loading to false")
+      console.warn("Data loading timeout - forcing loading to false and using fallback data")
+      setSecurityFindings(demoSecurityFindings) // Use fallback on timeout!
       setLoading(false)
-    }, 20000) // 20 seconds timeout to allow for slow backend
+    }, 35000) // 35 seconds timeout to allow for Render cold starts
 
     try {
       const [infrastructureData, findings] = await Promise.allSettled([
