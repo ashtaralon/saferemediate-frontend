@@ -87,9 +87,9 @@ export async function GET() {
   console.log("[proxy/findings] Starting request to:", backendUrl)
 
   try {
-    // Add timeout to prevent hanging - 10 seconds for Edge Runtime
+    // Add timeout to prevent hanging - 5 seconds (must be less than client's 8s timeout)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000)
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
 
     const response = await fetch(`${backendUrl}/api/findings`, {
       headers: {
