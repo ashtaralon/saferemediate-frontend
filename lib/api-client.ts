@@ -212,31 +212,44 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 }
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
+  // Create timeout controller - must complete within 8 seconds
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 8000)
+
   try {
     const response = await fetch("/api/proxy/findings", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     })
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       console.warn("[v0] Backend returned error for security findings:", response.status, "- using fallback data")
       return demoSecurityFindings
     }
 
-    const data = await response.json()
-    console.log("[v0] Successfully loaded security findings from backend")
+    let data: any
+    try {
+      data = await response.json()
+    } catch (parseError) {
+      console.warn("[v0] Failed to parse security findings response - using fallback data")
+      return demoSecurityFindings
+    }
+
+    console.log("[v0] Security findings response:", { success: data?.success, source: data?.source, count: data?.findings?.length })
 
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
 
     // If backend returns empty findings, use fallback demo data
-    if (findings.length === 0) {
+    if (!findings || findings.length === 0) {
       console.warn("[v0] Backend returned empty findings - using fallback data")
       return demoSecurityFindings
     }
 
     const mappedFindings = findings.map((f: any) => ({
-      id: f.id || f.findingId || "",
+      id: f.id || f.findingId || `finding-${Math.random().toString(36).substr(2, 9)}`,
       title: f.title || f.name || "Security Finding",
       severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
       description: f.description || "",
@@ -248,9 +261,18 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       remediation: f.remediation || f.recommendation || "",
     }))
 
+    // Final check - if mapping produced empty array, return fallback
+    if (mappedFindings.length === 0) {
+      console.warn("[v0] Mapped findings empty - using fallback data")
+      return demoSecurityFindings
+    }
+
+    console.log("[v0] Successfully loaded", mappedFindings.length, "security findings")
     return mappedFindings
-  } catch (error) {
-    console.warn("[v0] Security findings endpoint not available:", error, "- using fallback data")
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    const errorMsg = error.name === 'AbortError' ? 'Request timed out' : error.message
+    console.warn("[v0] Security findings fetch failed:", errorMsg, "- using fallback data")
     return demoSecurityFindings
   }
 }
