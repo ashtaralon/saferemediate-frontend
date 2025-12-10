@@ -212,9 +212,9 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 }
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
-  // Create timeout controller - must complete within 8 seconds
+  // Create timeout controller - 30 seconds to allow for Render cold starts
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 8000)
+  const timeoutId = setTimeout(() => controller.abort(), 30000)
 
   try {
     const response = await fetch("/api/proxy/findings", {

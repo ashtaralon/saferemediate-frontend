@@ -9,9 +9,9 @@ export async function GET() {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
-    // Add timeout to prevent hanging - increased to 15 seconds for slow backend
+    // Add timeout to prevent hanging - 25 seconds for Render cold starts
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    const timeoutId = setTimeout(() => controller.abort(), 25000)
 
     // Fetch nodes and edges in parallel
     const [nodesResponse, edgesResponse] = await Promise.all([

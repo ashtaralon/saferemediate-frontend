@@ -9,9 +9,9 @@ export async function GET() {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
-    // Add timeout to prevent hanging - 15 seconds for slow backend
+    // Add timeout to prevent hanging - 25 seconds for Render cold starts
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    const timeoutId = setTimeout(() => controller.abort(), 25000)
 
     const response = await fetch(`${backendUrl}/api/dashboard/metrics`, {
       headers: { "Content-Type": "application/json" },
