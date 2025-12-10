@@ -187,7 +187,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     // Handle timeout or network errors
     if (error.name === 'AbortError') {
-      console.error('[Findings Proxy] Request timed out after 15s, using fallback');
+      console.error('[Findings Proxy] Request timed out after 25s, using fallback');
     } else {
       console.error('[Findings Proxy] Error:', error);
     }
