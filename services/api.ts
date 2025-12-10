@@ -68,7 +68,8 @@ class ApiService {
           'Content-Type': 'application/json',
         },
         // Add timeout for long-running requests
-        signal: AbortSignal.timeout(120000), // 2 minutes
+        // Increased to 30s to match proxy route timeout (25s) + buffer
+        signal: AbortSignal.timeout(30000), // 30s timeout (proxy has 25s, so 30s gives buffer)
       })
 
       if (!response.ok) {

@@ -126,9 +126,10 @@ export async function GET(request: Request) {
     "https://saferemediate-backend.onrender.com";
 
   try {
-    // Create AbortController for timeout
+    // Create AbortController for timeout - increased to 25s to allow backend time
+    // Vercel maxDuration is 30s, so 25s gives us buffer
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout (was 15s)
 
     // Get query params for filtering
     const { searchParams } = new URL(request.url);
