@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server"
 
+// Allow longer execution time on Vercel (30 seconds max)
+export const maxDuration = 30
+
 export async function GET() {
   const backendUrl =
     process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
-    // Add timeout to prevent hanging
+    // Add timeout to prevent hanging - increased to 15 seconds for slow backend
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
 
     // Fetch nodes and edges in parallel
     const [nodesResponse, edgesResponse] = await Promise.all([

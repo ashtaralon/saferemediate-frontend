@@ -3,15 +3,17 @@ import { NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
+// Allow longer execution time on Vercel (30 seconds max)
+export const maxDuration = 30
 
 export async function GET() {
   const backendUrl =
     process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
 
   try {
-    // Add aggressive timeout to prevent Vercel 300s timeout
+    // Add timeout to prevent hanging - 15 seconds for slow backend
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
 
     const response = await fetch(`${backendUrl}/api/dashboard/metrics`, {
       headers: { "Content-Type": "application/json" },
