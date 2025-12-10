@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server"
 
+// Use Edge Runtime - runs globally, closer to backend
+export const runtime = 'edge'
 export const dynamic = "force-dynamic"
-export const fetchCache = "force-no-store"
-export const revalidate = 0
-// Allow longer execution time on Vercel (30 seconds max)
-export const maxDuration = 30
 
 export async function GET() {
   const backendUrl =
