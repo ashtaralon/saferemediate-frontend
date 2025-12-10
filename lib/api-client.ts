@@ -212,7 +212,8 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 }
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
-  // Create timeout controller - 30 seconds to allow for Render cold starts
+  // Create timeout controller - 30s to match proxy route timeout (25s) + buffer
+  // This allows for Render cold starts which can take 10-15 seconds
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 30000)
 
