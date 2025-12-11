@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server"
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
+// Set to true to skip backend and return mock response (use when backend /api/simulate doesn't exist)
+const USE_MOCK_SIMULATION = false  // Using real backend data
+
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const maxDuration = 30 // Maximum execution time in seconds
@@ -13,7 +16,7 @@ export async function POST(
 ) {
   const controller = new AbortController()
   let timeoutId: NodeJS.Timeout | null = null
-  
+
   try {
     // Await params in Next.js 14+ (params is now a Promise)
     const { systemId: paramSystemId, issueId: paramIssueId } = await params
@@ -48,7 +51,6 @@ export async function POST(
     // Extract resource name from issue if not provided
     if (!resourceName && issueId) {
       if (resourceType === "IAMRole") {
-        // Extract role name from issueId like "high-0-iam:CreateUser" or "iam-role-name-unused-permissions"
         if (issueId.includes("iam:")) {
           resourceName = "SafeRemediate-Lambda-Remediation-Role" // Default
         } else if (issueId.includes("-unused-permissions")) {
@@ -68,6 +70,68 @@ export async function POST(
 
     console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}, type: ${resourceType}`)
 
+    // If mock mode is enabled, skip backend and return mock response immediately
+    if (USE_MOCK_SIMULATION) {
+      console.log(`[proxy] Using MOCK simulation (backend /api/simulate not implemented)`)
+
+      return NextResponse.json({
+        success: true,
+        status: "success",
+        simulated: true,
+        _isFallback: true,
+        _mockMode: true,
+        summary: {
+          decision: "EXECUTE",
+          confidence: 92,
+          blastRadius: {
+            affectedResources: 1,
+            downstream: [],
+            upstream: [],
+          },
+        },
+        recommendation: `Analysis complete for "${title || issueId}". This permission appears unused based on CloudTrail analysis. Safe to remove.`,
+        snapshot_id: `snap-mock-${Date.now()}`,
+        affectedResources: [
+          {
+            id: issueId,
+            type: resourceType,
+            name: resourceName || systemId,
+            impact: "low",
+            reason: "No API calls detected using this permission in the last 90 days",
+          },
+        ],
+        confidence: 92,
+        before_state: `${resourceType} "${resourceName || systemId}" has unused permission: ${issueId.replace(/^(high|medium|low)-\d+-/, '')}`,
+        after_state: `Permission will be removed from the ${resourceType.toLowerCase()}'s policy`,
+        estimated_time: "2-5 minutes",
+        temporal_info: {
+          start_time: new Date().toISOString(),
+          estimated_completion: new Date(Date.now() + 300000).toISOString(),
+          analysis_period: "90 days",
+        },
+        warnings: [],
+        resource_changes: [
+          {
+            resource_id: resourceName || systemId,
+            resource_type: resourceType,
+            change_type: "policy_update",
+            before: `Has permission: ${issueId.replace(/^(high|medium|low)-\d+-/, '')}`,
+            after: "Permission removed",
+          },
+        ],
+        impact_summary: `1 ${resourceType} will be modified. No service disruption expected based on usage analysis.`,
+        safeToRemediate: true,
+        brokenCalls: 0,
+        usage_stats: {
+          total_calls_analyzed: 15000,
+          calls_using_permission: 0,
+          last_used: null,
+          confidence_reason: "No usage detected in 90-day CloudTrail analysis",
+        },
+      })
+    }
+
+    // Real backend call (only if USE_MOCK_SIMULATION is false)
     // Parse permission from issueId for IAM roles
     let proposed_change: any = null
     if (resourceType === "IAMRole" && issueId) {
@@ -79,9 +143,7 @@ export async function POST(
           items: [permission],
           reason: `Remove unused permission: ${permission}`
         }
-        console.log(`[proxy] Extracted permission from issueId: ${permission}`)
       } else {
-        // Default proposed change
         proposed_change = {
           action: "remove_permissions",
           items: [],
@@ -116,7 +178,7 @@ export async function POST(
 
     // Call backend /api/simulate endpoint
     timeoutId = setTimeout(() => controller.abort(), 28000) // 28s timeout (safe under Vercel 30s limit)
-    
+
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
       headers: {
@@ -133,7 +195,7 @@ export async function POST(
       cache: "no-store",
       signal: controller.signal,
     })
-    
+
     if (timeoutId) {
       clearTimeout(timeoutId)
       timeoutId = null
@@ -146,11 +208,11 @@ export async function POST(
         confidence: data.confidence,
         blast_radius: data.blast_radius
       })
-      
+
       // Transform response to match frontend expectations
       const decision = data.status || "REVIEW"
       const confidence = Math.round((data.confidence || 0) * 100) // Convert 0.94 -> 94
-      
+
       return NextResponse.json({
         success: true,
         status: "success",
@@ -171,7 +233,7 @@ export async function POST(
           reason: r.reason || "Affected by remediation",
         })),
         confidence: confidence,
-        snapshot_id: data.snapshot_id, // Include snapshot_id if present
+        snapshot_id: data.snapshot_id,
         before_state: data.before_state_summary || `Current state of ${resourceType}`,
         after_state: data.after_state_summary || `Proposed state after remediation`,
       })
@@ -180,12 +242,12 @@ export async function POST(
     // If backend returns non-OK status, read error and log
     const errorText = await res.text().catch(() => "Unknown error")
     console.warn(`[proxy] Backend simulate returned ${res.status}: ${errorText.substring(0, 200)}`)
-    
+
     return NextResponse.json(
-      { 
-        error: `Backend error: ${res.status}`, 
+      {
+        error: `Backend error: ${res.status}`,
         detail: errorText.substring(0, 200),
-        status: res.status 
+        status: res.status
       },
       { status: res.status }
     )
@@ -195,26 +257,26 @@ export async function POST(
       clearTimeout(timeoutId)
       timeoutId = null
     }
-    
+
     const isTimeout = error.name === "TimeoutError" || error.name === "AbortError"
     console.error("[proxy] simulate error:", isTimeout ? "Request timed out after 28s" : error.message)
-    
+
     if (isTimeout) {
       return NextResponse.json(
-        { 
-          error: "Request timeout", 
+        {
+          error: "Request timeout",
           detail: "Backend did not respond in time (28s limit)",
-          status: 504 
+          status: 504
         },
         { status: 504 }
       )
     }
-    
+
     return NextResponse.json(
-      { 
-        error: "Simulation failed", 
+      {
+        error: "Simulation failed",
         detail: error.message || "Unknown error",
-        status: 500 
+        status: 500
       },
       { status: 500 }
     )

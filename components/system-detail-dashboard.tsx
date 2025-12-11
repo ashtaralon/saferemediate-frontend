@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
   Download,
@@ -177,6 +177,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const { toast } = useToast()
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
+
+  // Refs to track simulation/apply state without triggering re-renders
+  // Used by fetchAllData to avoid refreshing during simulation
+  const isSimulatingRef = useRef(false)
+  const isApplyingRef = useRef(false)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
   // Simulate modal state
@@ -303,23 +308,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         }
       }
 
-      // Populate issues array from unused permissions (HIGH severity findings)
-      if (unusedActionsList.length > 0) {
-        const highIssues: CriticalIssue[] = unusedActionsList.map((permission: string, index: number) => ({
-          id: `high-${index}-${permission}`,
-          title: `Unused IAM Permission: ${permission}`,
-          impact: "Increases attack surface and violates least privilege principle",
-          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
-          safeToFix: 95,
-          fixTime: "< 5 min",
-          temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with ${confidence}% confidence.`,
-          expanded: false,
-          selected: false,
-        }))
-        setIssues(highIssues)
-      } else {
-        setIssues([])
-      }
+      // Note: Issues are already set above from the API response (lines 289-302)
+      // Do NOT check unusedActionsList here - it's stale state that would clear issues
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       // Use fallback demo data on error too
@@ -377,7 +367,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         expanded: false,
         selected: false,
       }))
-      setIssues(highIssues)
+      // ✅ FIX: Merge fallback issues instead of replacing - keeps existing issues intact
+      setIssues((prevIssues) => {
+        // If we already have issues, don't replace them with fallback
+        if (prevIssues.length > 0) {
+          console.log("[v0] Keeping existing issues on gap-analysis error")
+          return prevIssues
+        }
+        // Only use fallback if we have no issues at all
+        return highIssues
+      })
       setGapError(null)
     } finally {
       setLoadingGap(false)
@@ -460,6 +459,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
+    // ✅ FIX: Use refs to check simulation state (avoids stale closure issues)
+    if (isSimulatingRef.current || isApplyingRef.current) {
+      console.log('[fetchAllData] Skipping refresh - simulation/apply in progress')
+      return
+    }
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
@@ -467,11 +471,17 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
+    // Auto-refresh every 30 seconds, but PAUSE during simulation
+    const interval = setInterval(() => {
+      if (isSimulatingRef.current || isApplyingRef.current) {
+        console.log("[v0] Skipping auto-refresh during simulation/apply")
+        return
+      }
+      fetchAllData()
+    }, 30000)
 
     return () => clearInterval(interval)
-  }, [systemName])
+  }, [systemName])  // ✅ Only depend on systemName - use refs for simulation state
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
@@ -1211,8 +1221,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex border-t border-gray-200">
                         <button
                           onClick={async () => {
-                            if (simulatingIssue === issue.id) return
+                            console.log("[SIMULATE] Button clicked for issue:", issue.id)
+
+                            // Defensive check for required values
                             if (!systemName || !issue.id) {
+                              console.error("[SIMULATE] Missing systemName or issue.id:", { systemName, issueId: issue.id })
                               toast({
                                 title: "Simulation Failed",
                                 description: "Missing required system or issue information",
@@ -1220,10 +1233,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                               return
                             }
-                            
+                            if (simulatingIssue === issue.id) {
+                              console.log("[SIMULATE] Already simulating this issue, skipping")
+                              return
+                            }
+
+                            console.log("[SIMULATE] Starting simulation...")
                             setSimulatingIssue(issue.id)
-                            console.log(`[simulate] Starting simulation for issue ${issue.id}`)
-                            
+                            isSimulatingRef.current = true // Set ref to pause auto-refresh
+
                             try {
                               // Extract resource name from affected field
                               let resourceName = issue.affected || ""
@@ -1233,7 +1251,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               if (resourceName.includes(":role/")) {
                                 resourceName = resourceName.split(":role/").pop() || resourceName
                               }
-                              
+
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
                                 {
@@ -1248,24 +1266,24 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                   }),
                                 }
                               )
-                              
+
                               const result = await response.json()
-                              
+
                               console.log(`[simulate] Response received:`, {
                                 ok: response.ok,
                                 status: response.status,
                                 hasSnapshotId: !!result.snapshot_id,
                                 hasSummary: !!result.summary,
                                 success: result.success,
-                                resultKeys: Object.keys(result)
+                                isMock: result._mockMode
                               })
-                              
+
                               if (!response.ok) {
                                 const errorMsg = result.detail || result.error || result.message || `Simulation failed: ${response.status}`
                                 console.error(`[simulate] Backend returned ${response.status}:`, result)
                                 throw new Error(errorMsg)
                               }
-                              
+
                               // Store snapshot_id if present
                               if (result.snapshot_id) {
                                 setLatestSnapshotByIssue((prev: any) => ({
@@ -1273,11 +1291,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                   [issue.id]: result.snapshot_id,
                                 }))
                               }
-                              
+
                               // Show success message - handle different response formats
-                              let title = "Simulation Completed"
+                              let title = result._isFallback ? "Simulation (Mock)" : "Simulation Completed"
                               let description = ""
-                              
+
                               if (result.summary) {
                                 // New format with summary
                                 const decision = result.summary.decision || "REVIEW"
@@ -1288,33 +1306,28 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                   description = result.recommendation
                                 }
                               } else if (result.recommendation) {
-                                // Has recommendation
                                 description = result.recommendation
                                 if (result.confidence) {
                                   description += ` (Confidence: ${result.confidence}%)`
                                 }
                               } else if (result.snapshot_id) {
-                                // Has snapshot_id
                                 description = `Snapshot created: ${result.snapshot_id}`
                               } else if (result.status) {
-                                // Has status
                                 description = `Simulation ${result.status}`
                                 if (result.confidence) {
                                   description += ` (Confidence: ${result.confidence}%)`
                                 }
                               } else {
-                                // Fallback
                                 description = "Simulation completed successfully"
-                                console.warn("[simulate] Unexpected response format:", result)
                               }
-                              
+
                               toast({
                                 title: title,
                                 description: description,
                                 duration: 8000,
                               })
-                              
-                              console.log(`[simulate] Simulation completed successfully:`, description)
+
+                              console.log(`[simulate] Simulation completed:`, description)
                             } catch (err: any) {
                               console.error("[simulate] Simulation error:", err)
                               toast({
@@ -1324,7 +1337,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 duration: 8000,
                               })
                             } finally {
+                              console.log("[simulate] Resetting state")
                               setSimulatingIssue(null)
+                              isSimulatingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={simulatingIssue === issue.id}
@@ -1353,6 +1368,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (!confirm("Are you sure you want to apply this remediation?")) return
                             
                             setApplyingIssue(issue.id)
+                            isApplyingRef.current = true  // Pause auto-refresh during apply
                             try {
                               const response = await fetch(
                                 `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
@@ -1374,6 +1390,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setApplyingIssue(null)
+                              isApplyingRef.current = false  // Resume auto-refresh
                             }
                           }}
                           disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
