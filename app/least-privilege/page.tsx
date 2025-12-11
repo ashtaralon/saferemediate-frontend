@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AlertCircle, Loader2, RefreshCw, Shield, Database, Network, CheckCircle2, XCircle, TrendingDown, AlertTriangle } from 'lucide-react'
 import SimulationModal from '@/components/simulation-modal'
@@ -84,7 +84,7 @@ interface LeastPrivilegeResponse {
   timestamp: string
 }
 
-export default function LeastPrivilegePage() {
+function LeastPrivilegeContent() {
   const searchParams = useSearchParams()
   const systemName = searchParams.get('system') || 'alon-prod'
   
