@@ -179,6 +179,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
+  // ✅ FIX: Refs to track simulation state in interval (avoids stale closures and re-renders)
+  const isSimulatingRef = useRef(false)
+  const isApplyingRef = useRef(false)
+  
   // Simulate modal state
   const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
@@ -507,6 +511,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
+    // ✅ FIX: Don't refresh if simulation is in progress (prevents interference)
+    if (simulatingIssue) {
+      console.log('[fetchAllData] Skipping refresh - simulation in progress')
+      return
+    }
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
   }
 
@@ -514,11 +523,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds
+    // Auto-refresh every 30 seconds (but skip if simulation is running)
     const interval = setInterval(fetchAllData, 30000)
 
     return () => clearInterval(interval)
-  }, [systemName])
+  }, [systemName, simulatingIssue])  // ✅ Add simulatingIssue to dependencies
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
