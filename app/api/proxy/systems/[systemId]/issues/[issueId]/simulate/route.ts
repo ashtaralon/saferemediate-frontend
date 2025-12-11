@@ -5,43 +5,46 @@ const BACKEND_URL =
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { systemId: string; issueId: string } }
+  { params }: { params: Promise<{ systemId: string; issueId: string }> }
 ) {
-  // Get params from URL path
-  let systemId = params.systemId
-  let issueId = params.issueId
-
-  // Also try to get from request body (more reliable)
   try {
-    const body = await request.json().catch(() => ({}))
-    if (body.system_name) systemId = body.system_name
-    if (body.finding_id) issueId = body.finding_id
-  } catch (e) {
-    // Ignore body parsing errors
-  }
-
-  // Validate required parameters
-  if (!systemId || systemId === "undefined" || !issueId || issueId === "undefined") {
-    console.error("[proxy] Invalid params:", { systemId, issueId })
-    return NextResponse.json(
-      { error: "Invalid system_id or issue_id", status: 400 },
-      { status: 400 }
-    )
-  }
-
-  console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}`)
-
-  try {
-    // Use the general /api/simulate endpoint with finding_id in body
-    const res = await fetch(`${BACKEND_URL}/api/simulate`, {
+    // ✅ FIX: Await params in Next.js 14+ (params is now a Promise)
+    const { systemId, issueId } = await params
+    
+    // Validate parameters
+    if (!systemId || systemId === "undefined" || systemId === "null") {
+      console.error(`[proxy] Invalid systemId: ${systemId}`)
+      return NextResponse.json(
+        { success: false, error: "Invalid system ID", detail: `systemId is required but got: ${systemId}` },
+        { status: 400 }
+      )
+    }
+    
+    if (!issueId || issueId === "undefined" || issueId === "null") {
+      console.error(`[proxy] Invalid issueId: ${issueId}`)
+      return NextResponse.json(
+        { success: false, error: "Invalid issue ID", detail: `issueId is required but got: ${issueId}` },
+        { status: 400 }
+      )
+    }
+    
+    // Decode URL-encoded parameters
+    const decodedSystemId = decodeURIComponent(systemId)
+    const decodedIssueId = decodeURIComponent(issueId)
+    
+    console.log(`[proxy] Simulating issue: system=${decodedSystemId}, issue=${decodedIssueId}`)
+    
+    // ✅ FIX: Use the correct backend endpoint with path parameters
+    // Backend expects: POST /api/systems/{system_id}/issues/{issue_id}/simulate
+    const backendUrl = `${BACKEND_URL}/api/systems/${encodeURIComponent(decodedSystemId)}/issues/${encodeURIComponent(decodedIssueId)}/simulate`
+    
+    console.log(`[proxy] Forwarding to: ${backendUrl}`)
+    
+    const res = await fetch(backendUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        finding_id: issueId,
-        system_name: systemId,
-      }),
       cache: "no-store",
     })
 
