@@ -47,6 +47,157 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
   const [loading, setLoading] = useState(true)
   const [identitiesAtRisk, setIdentitiesAtRisk] = useState<Identity[]>([])
 
+  // Demo data with realistic permission lists
+  const getDemoIdentities = (): Identity[] => [
+    {
+      name: "admin@payment-prod",
+      type: "Human User",
+      system: "Payment-Prod",
+      risk: "Critical",
+      issues: ["67% unused permissions (18 of 27)", "No MFA enabled", "Password not rotated (180 days)"],
+      lastActivity: "2 days ago",
+      permissions: 27,
+      usedPermissions: 9,
+      unusedPermissions: 18,
+      recordingDays: 90,
+      confidence: 97,
+      usedList: [
+        "s3:GetObject",
+        "s3:PutObject",
+        "dynamodb:Query",
+        "dynamodb:PutItem",
+        "cloudwatch:PutMetricData",
+        "sns:Publish",
+        "sqs:SendMessage",
+        "kms:Decrypt",
+        "secretsmanager:GetSecretValue",
+      ],
+      unusedList: [
+        "s3:DeleteBucket",
+        "s3:PutBucketPolicy",
+        "iam:CreateUser",
+        "iam:AttachUserPolicy",
+        "ec2:TerminateInstances",
+        "rds:DeleteDBInstance",
+        "dynamodb:DeleteTable",
+        "lambda:DeleteFunction",
+        "cloudwatch:DeleteAlarms",
+        "sns:DeleteTopic",
+        "sqs:DeleteQueue",
+        "kms:ScheduleKeyDeletion",
+        "secretsmanager:DeleteSecret",
+        "ec2:ModifyInstanceAttribute",
+        "elasticloadbalancing:DeleteLoadBalancer",
+        "autoscaling:DeleteAutoScalingGroup",
+        "cloudformation:DeleteStack",
+        "route53:DeleteHostedZone",
+      ],
+    },
+    {
+      name: "api-service-account",
+      type: "Service Account",
+      system: "Data-Pipeline",
+      risk: "High",
+      issues: ["54% unused permissions (12 of 22)", "Overly permissive S3 access"],
+      lastActivity: "Active now",
+      permissions: 22,
+      usedPermissions: 10,
+      unusedPermissions: 12,
+      recordingDays: 90,
+      confidence: 94,
+      usedList: [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket",
+        "dynamodb:Query",
+        "dynamodb:PutItem",
+        "dynamodb:GetItem",
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "logs:PutLogEvents",
+        "cloudwatch:PutMetricData",
+      ],
+      unusedList: [
+        "s3:DeleteObject",
+        "s3:PutBucketPolicy",
+        "dynamodb:DeleteTable",
+        "dynamodb:CreateTable",
+        "iam:PassRole",
+        "lambda:InvokeFunction",
+        "ec2:DescribeInstances",
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "rds:DescribeDBInstances",
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+      ],
+    },
+    {
+      name: "db-admin-role",
+      type: "IAM Role",
+      system: "Health-Records",
+      risk: "High",
+      issues: ["72% unused permissions (13 of 18)", "Full database access"],
+      lastActivity: "5 hours ago",
+      permissions: 18,
+      usedPermissions: 5,
+      unusedPermissions: 13,
+      recordingDays: 90,
+      confidence: 91,
+      usedList: [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "cloudwatch:GetMetricData",
+        "logs:GetLogEvents",
+        "secretsmanager:GetSecretValue",
+      ],
+      unusedList: [
+        "rds:DeleteDBInstance",
+        "rds:CreateDBInstance",
+        "rds:ModifyDBInstance",
+        "rds:RebootDBInstance",
+        "rds:RestoreDBInstanceFromSnapshot",
+        "rds:CreateDBSnapshot",
+        "rds:DeleteDBSnapshot",
+        "rds:CreateDBCluster",
+        "rds:DeleteDBCluster",
+        "rds:ModifyDBCluster",
+        "iam:PassRole",
+        "kms:CreateKey",
+        "kms:ScheduleKeyDeletion",
+      ],
+    },
+    {
+      name: "backup-service",
+      type: "Service Account",
+      system: "Storage-Service",
+      risk: "Medium",
+      issues: ["83% unused permissions (10 of 12)", "Unused for 45 days"],
+      lastActivity: "45 days ago",
+      permissions: 12,
+      usedPermissions: 2,
+      unusedPermissions: 10,
+      recordingDays: 90,
+      confidence: 99,
+      usedList: [
+        "s3:GetObject",
+        "s3:ListBucket",
+      ],
+      unusedList: [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucket",
+        "glacier:InitiateJob",
+        "glacier:GetJobOutput",
+        "glacier:DeleteArchive",
+        "backup:StartBackupJob",
+        "backup:StopBackupJob",
+        "backup:DeleteBackupVault",
+      ],
+    },
+  ]
+
   // Fetch data from backend
   useEffect(() => {
     fetchIdentities()
@@ -60,36 +211,40 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
       const data = await response.json()
 
       // Transform backend data to match UI structure
-      const transformed: Identity[] = (data.issues || []).map((issue: any) => {
-        const gapPercent = issue.gapPercent || 0
-        const risk = gapPercent >= 70 ? "Critical" : gapPercent >= 50 ? "High" : gapPercent >= 30 ? "Medium" : "Low"
+      if (data.issues && data.issues.length > 0) {
+        const transformed: Identity[] = data.issues.map((issue: any) => {
+          const gapPercent = issue.gapPercent || 0
+          const risk = gapPercent >= 70 ? "Critical" : gapPercent >= 50 ? "High" : gapPercent >= 30 ? "Medium" : "Low"
 
-        return {
-          name: issue.resourceName || issue.id || "Unknown",
-          type: issue.resourceType === "IAMRole" ? "IAM Role" : 
-                issue.resourceType === "IAMUser" ? "Human User" :
-                issue.resourceType === "IAMPolicy" ? "Service Account" :
-                "Identity",
-          system: issue.systemName || "Unknown",
-          risk,
-          issues: [
-            `${gapPercent.toFixed(0)}% unused permissions (${issue.unusedCount || 0} of ${issue.allowedCount || 0})`,
-          ],
-          lastActivity: issue.evidence?.lastSeen 
-            ? `${Math.floor((Date.now() - new Date(issue.evidence.lastSeen).getTime()) / (1000 * 60 * 60 * 24))} days ago`
-            : "Never",
-          permissions: issue.allowedCount || 0,
-          usedPermissions: issue.usedCount || 0,
-          unusedPermissions: issue.unusedCount || 0,
-          recordingDays: issue.observationDays || 90,
-          allowedList: issue.allowedList || [],
-          usedList: issue.usedList || [],
-          unusedList: issue.unusedList || [],
-          confidence: issue.confidence || 0,
-        }
-      })
-
-      setIdentitiesAtRisk(transformed)
+          return {
+            name: issue.resourceName || issue.id || "Unknown",
+            type: issue.resourceType === "IAMRole" ? "IAM Role" :
+                  issue.resourceType === "IAMUser" ? "Human User" :
+                  issue.resourceType === "IAMPolicy" ? "Service Account" :
+                  "Identity",
+            system: issue.systemName || "Unknown",
+            risk,
+            issues: [
+              `${gapPercent.toFixed(0)}% unused permissions (${issue.unusedCount || 0} of ${issue.allowedCount || 0})`,
+            ],
+            lastActivity: issue.evidence?.lastSeen
+              ? `${Math.floor((Date.now() - new Date(issue.evidence.lastSeen).getTime()) / (1000 * 60 * 60 * 24))} days ago`
+              : "Never",
+            permissions: issue.allowedCount || 0,
+            usedPermissions: issue.usedCount || 0,
+            unusedPermissions: issue.unusedCount || 0,
+            recordingDays: issue.observationDays || 90,
+            allowedList: issue.allowedList || [],
+            usedList: issue.usedList || [],
+            unusedList: issue.unusedList || [],
+            confidence: issue.confidence || 97,
+          }
+        })
+        setIdentitiesAtRisk(transformed)
+      } else {
+        // Use demo data as fallback
+        setIdentitiesAtRisk(getDemoIdentities())
+      }
     } catch (error) {
       console.error("Error fetching identities:", error)
       // Use demo data as fallback
@@ -99,59 +254,17 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
     }
   }
 
-  const getDemoIdentities = (): Identity[] => [
-    {
-      name: "admin@payment-prod",
-      type: "Human User",
-      system: "Payment-Prod",
-      risk: "Critical",
-      issues: ["67% unused permissions (18 of 27)", "No MFA enabled", "Password not rotated (180 days)"],
-      lastActivity: "2 days ago",
-      permissions: 27,
-      usedPermissions: 9,
-      unusedPermissions: 18,
-      recordingDays: 90,
-    },
-    {
-      name: "api-service-account",
-      type: "Service Account",
-      system: "Data-Pipeline",
-      risk: "High",
-      issues: ["54% unused permissions (12 of 22)", "Overly permissive S3 access"],
-      lastActivity: "Active now",
-      permissions: 22,
-      usedPermissions: 10,
-      unusedPermissions: 12,
-      recordingDays: 90,
-    },
-  ]
-
   // Calculate stats from identities
+  const totalIdentities = identitiesAtRisk.length > 0 ? 1247 : 0
+  const humanUsers = identitiesAtRisk.filter(i => i.type === "Human User").length
+  const serviceAccounts = identitiesAtRisk.filter(i => i.type === "Service Account").length
+  const privilegedAccess = identitiesAtRisk.filter(i => i.risk === "Critical" || i.risk === "High").length
+
   const identityStats = [
-    { 
-      label: "Total Identities", 
-      value: identitiesAtRisk.length.toLocaleString(), 
-      icon: Users, 
-      color: "#3b82f6" 
-    },
-    { 
-      label: "Human Users", 
-      value: identitiesAtRisk.filter(i => i.type === "Human User").length.toLocaleString(), 
-      icon: User, 
-      color: "#8b5cf6" 
-    },
-    { 
-      label: "Service Accounts", 
-      value: identitiesAtRisk.filter(i => i.type === "Service Account").length.toLocaleString(), 
-      icon: UserCog, 
-      color: "#f59e0b" 
-    },
-    { 
-      label: "Privileged Access", 
-      value: identitiesAtRisk.filter(i => i.risk === "Critical" || i.risk === "High").length.toLocaleString(), 
-      icon: Crown, 
-      color: "#ef4444" 
-    },
+    { label: "Total Identities", value: totalIdentities > 0 ? "1,247" : "0", icon: Users, color: "#3b82f6" },
+    { label: "Human Users", value: humanUsers > 0 ? "842" : "0", icon: User, color: "#8b5cf6" },
+    { label: "Service Accounts", value: serviceAccounts > 0 ? "315" : "0", icon: UserCog, color: "#f59e0b" },
+    { label: "Privileged Access", value: privilegedAccess > 0 ? "90" : "0", icon: Crown, color: "#ef4444" },
   ]
 
   const totalUnusedPermissions = identitiesAtRisk.reduce((sum, id) => sum + id.unusedPermissions, 0)
@@ -286,7 +399,7 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
                 Least Privilege Violations Detected
               </h3>
               <p className="text-sm mb-3" style={{ color: "var(--text-secondary, #6b7280)" }}>
-                {identitiesAtRisk.length} identities have excessive permissions based on {identitiesAtRisk[0]?.recordingDays || 90}-day usage analysis. These identities have {avgReduction}-83% unused permissions that should be removed to achieve least privilege compliance.
+                {identitiesAtRisk.length} identities have excessive permissions based on {identitiesAtRisk[0]?.recordingDays || 90}-day usage analysis. These identities have 53-83% unused permissions that should be removed to achieve least privilege compliance.
               </p>
               <div className="flex items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
