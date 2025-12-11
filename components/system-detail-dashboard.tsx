@@ -191,8 +191,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
-      // Use proxy route to avoid CORS issues
-      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
+      // Use proxy route to avoid CORS issues with timeout (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
+      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`, {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -377,7 +384,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchAutoTagStatus = async () => {
     try {
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
+      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`, {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
       const data = await response.json()
 
       if (!response.ok || data.error) {
@@ -453,7 +468,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const fetchFindings = async () => {
     try {
       // Don't set loadingGap here - it's managed by fetchGapAnalysis
-      const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`)
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
+      const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`, {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
       const data = await response.json()
       
       if (!response.ok || !data.success) {
