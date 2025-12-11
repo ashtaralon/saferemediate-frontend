@@ -5,9 +5,10 @@ const BACKEND_URL =
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { snapshotId: string } }
+  { params }: { params: Promise<{ snapshotId: string }> }
 ) {
-  const snapshotId = params.snapshotId
+  // In Next.js 14+, params is a Promise that must be awaited
+  const { snapshotId } = await params
 
   try {
     const res = await fetch(`${BACKEND_URL}/api/snapshots/${encodeURIComponent(snapshotId)}`, {
@@ -35,4 +36,3 @@ export async function GET(
     )
   }
 }
-

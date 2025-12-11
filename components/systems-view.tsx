@@ -302,7 +302,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const fetchAvailableSystems = async () => {
     setIsLoadingAvailable(true)
     try {
-      const response = await fetch("/api/proxy/systems/available")
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
+      const response = await fetch("/api/proxy/systems/available", {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (response.ok) {
         const data = await response.json()
         const systems = data.systems || data || []
@@ -358,11 +367,18 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     })
 
     try {
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
       await fetch("/api/proxy/systems/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ systemName }),
+        signal: controller.signal,
       })
+      
+      clearTimeout(timeoutId)
     } catch (error) {
       console.error("[v0] Failed to notify backend:", error)
     }

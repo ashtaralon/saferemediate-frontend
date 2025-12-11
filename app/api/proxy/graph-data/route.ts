@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 
 // Use Edge Runtime - runs globally, closer to backend
-export const runtime = 'edge'
+// Use Node.js runtime for longer timeout
+export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 
 export async function GET() {

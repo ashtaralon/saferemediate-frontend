@@ -28,9 +28,10 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { snapshotId: string } }
+  { params }: { params: Promise<{ snapshotId: string }> }
 ) {
-  const snapshotId = params.snapshotId
+  // In Next.js 14+, params is a Promise that must be awaited
+  const { snapshotId } = await params
   const body = await request.json().catch(() => ({}))
   const selectedCategories = body.selectedCategories || []
 
@@ -62,10 +63,10 @@ export async function POST(
 
     if (res.ok) {
       const data = await res.json()
-      
+
       // Update snapshot status
       updateSnapshot(snapshotId, { status: "APPLIED" })
-      
+
       // Update operation
       updateRestoreOperation(operation.id, {
         status: "completed",
@@ -137,4 +138,3 @@ export async function POST(
     },
   })
 }
-

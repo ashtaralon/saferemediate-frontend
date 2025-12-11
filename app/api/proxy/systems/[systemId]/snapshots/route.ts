@@ -4,7 +4,7 @@ import { getSnapshots, seedInitialSnapshots } from "@/lib/snapshot-store"
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
-const FETCH_TIMEOUT = 5000 // 5 second timeout
+const FETCH_TIMEOUT = 25000 // 25 second timeout (matches Vercel function limit)
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController()
@@ -28,9 +28,10 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { systemId: string } }
+  { params }: { params: Promise<{ systemId: string }> }
 ) {
-  const systemId = params.systemId
+  // In Next.js 14+, params is a Promise that must be awaited
+  const { systemId } = await params
 
   // Seed initial snapshots if needed
   seedInitialSnapshots(systemId)
@@ -60,4 +61,3 @@ export async function GET(
   const snapshots = getSnapshots(systemId)
   return NextResponse.json({ snapshots })
 }
-
