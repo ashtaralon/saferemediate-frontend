@@ -608,7 +608,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   useEffect(() => {
-    // Fetch on mount
+    // Load cached data immediately if available
+    const cachedIssues = getCachedData('issues')
+    if (cachedIssues && cachedIssues.length > 0) {
+      setIssues(cachedIssues)
+      console.log(`[system-dashboard] Loaded ${cachedIssues.length} issues from cache`)
+    }
+    
+    // Fetch fresh data in background
     fetchAllData()
 
     // Auto-refresh every 30 seconds, but PAUSE during simulation to avoid interrupting UI
@@ -737,11 +744,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // OTHER HANDLERS
   // =============================================================================
   const toggleIssueExpanded = (id: string) => {
-    setIssues(issues.map((issue) => (issue.id === id ? { ...issue, expanded: !issue.expanded } : issue)))
+    setIssues((prevIssues) => {
+      const updated = prevIssues.map((issue) => (issue.id === id ? { ...issue, expanded: !issue.expanded } : issue))
+      setCachedData('issues', updated)
+      return updated
+    })
   }
 
   const toggleIssueSelected = (id: string) => {
-    setIssues(issues.map((issue) => (issue.id === id ? { ...issue, selected: !issue.selected } : issue)))
+    setIssues((prevIssues) => {
+      const updated = prevIssues.map((issue) => (issue.id === id ? { ...issue, selected: !issue.selected } : issue))
+      setCachedData('issues', updated)
+      return updated
+    })
   }
 
   const selectAllIssues = () => {
