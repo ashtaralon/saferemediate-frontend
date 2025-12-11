@@ -8,38 +8,48 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
-// Map system names to IAM role names
-// TODO: In production, this should come from a database or backend API
-const SYSTEM_TO_ROLE_MAP: Record<string, string> = {
-  "alon-prod": "SafeRemediate-Lambda-Remediation-Role",
-  "SafeRemediate-Test": "SafeRemediate-Lambda-Remediation-Role",
-  "SafeRemediate-Lambda": "SafeRemediate-Lambda-Remediation-Role",
-}
-
-function getRoleName(systemName: string): string {
-  // Check if we have a mapping, otherwise use the systemName as-is
-  return SYSTEM_TO_ROLE_MAP[systemName] || systemName
-}
-
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const systemName = url.searchParams.get("systemName") ?? "alon-prod"
 
-  // Map systemName to role name (if needed for gap analysis)
-  // For least-privilege endpoint, we pass systemName directly
-  const res = await fetch(
-    `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(
-      systemName
-    )}`
-  )
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
 
-  if (!res.ok) {
+    const res = await fetch(
+      `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,
+      {
+        cache: "no-store",
+        signal: controller.signal,
+      }
+    )
+
+    clearTimeout(timeoutId)
+
+    if (!res.ok) {
+      const errorText = await res.text()
+      console.error(`[proxy] least-privilege backend returned ${res.status}: ${errorText}`)
+      return NextResponse.json(
+        { error: `Backend error: ${res.status}`, detail: errorText },
+        { status: res.status }
+      )
+    }
+
+    const data = await res.json()
+    return NextResponse.json(data)
+  } catch (error: any) {
+    console.error("[proxy] least-privilege error:", error.message)
+
+    if (error.name === "AbortError") {
+      return NextResponse.json(
+        { error: "Request timeout", detail: "Backend did not respond in time" },
+        { status: 504 }
+      )
+    }
+
     return NextResponse.json(
-      { error: "Backend error", status: res.status },
-      { status: res.status }
+      { error: "Backend unavailable", detail: error.message },
+      { status: 503 }
     )
   }
-
-  const data = await res.json()
-  return NextResponse.json(data)
 }

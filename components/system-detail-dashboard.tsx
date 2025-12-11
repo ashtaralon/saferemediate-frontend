@@ -1337,9 +1337,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                               // Handle new A4 patent simulation response format
                               if (result.status === "success" && result.summary) {
-                                const decision = String(result.summary.decision || "REVIEW").toUpperCase()
-                                const confidence = Number(result.summary.confidence) || 0
-                                const affectedCount = Number(result.summary.blastRadius?.affectedResources) || 0
 
                                 // Show detailed simulation results
                                 const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`

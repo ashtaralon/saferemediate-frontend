@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend-f.onrender.com"
 
   try {
     const body = await request.json()

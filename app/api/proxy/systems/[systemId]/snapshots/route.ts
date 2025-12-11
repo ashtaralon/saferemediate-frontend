@@ -28,9 +28,10 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { systemId: string } }
+  { params }: { params: Promise<{ systemId: string }> }
 ) {
-  const systemId = params.systemId
+  // In Next.js 14+, params is a Promise that must be awaited
+  const { systemId } = await params
 
   // Seed initial snapshots if needed
   seedInitialSnapshots(systemId)
@@ -60,4 +61,3 @@ export async function GET(
   const snapshots = getSnapshots(systemId)
   return NextResponse.json({ snapshots })
 }
-
