@@ -7,8 +7,29 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { systemId: string; issueId: string } }
 ) {
-  const systemId = params.systemId
-  const issueId = params.issueId
+  // Get params from URL path
+  let systemId = params.systemId
+  let issueId = params.issueId
+
+  // Also try to get from request body (more reliable)
+  try {
+    const body = await request.json().catch(() => ({}))
+    if (body.system_name) systemId = body.system_name
+    if (body.finding_id) issueId = body.finding_id
+  } catch (e) {
+    // Ignore body parsing errors
+  }
+
+  // Validate required parameters
+  if (!systemId || systemId === "undefined" || !issueId || issueId === "undefined") {
+    console.error("[proxy] Invalid params:", { systemId, issueId })
+    return NextResponse.json(
+      { error: "Invalid system_id or issue_id", status: 400 },
+      { status: 400 }
+    )
+  }
+
+  console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}`)
 
   try {
     // Use the general /api/simulate endpoint with finding_id in body
