@@ -1256,11 +1256,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 status: response.status,
                                 hasSnapshotId: !!result.snapshot_id,
                                 hasSummary: !!result.summary,
-                                success: result.success
+                                success: result.success,
+                                resultKeys: Object.keys(result)
                               })
                               
                               if (!response.ok) {
-                                throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
+                                const errorMsg = result.detail || result.error || result.message || `Simulation failed: ${response.status}`
+                                console.error(`[simulate] Backend returned ${response.status}:`, result)
+                                throw new Error(errorMsg)
                               }
                               
                               // Store snapshot_id if present
@@ -1271,18 +1274,47 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 }))
                               }
                               
-                              // Show success message with details
-                              const recommendation = result.recommendation || result.summary?.decision || "Simulation completed"
-                              const confidence = result.confidence || result.summary?.confidence || "N/A"
-                              const message = result.snapshot_id 
-                                ? `Snapshot: ${result.snapshot_id} | ${recommendation}`
-                                : `${recommendation} (Confidence: ${confidence}%)`
+                              // Show success message - handle different response formats
+                              let title = "Simulation Completed"
+                              let description = ""
+                              
+                              if (result.summary) {
+                                // New format with summary
+                                const decision = result.summary.decision || "REVIEW"
+                                const confidence = result.summary.confidence || result.confidence || "N/A"
+                                const affected = result.summary.blastRadius?.affectedResources || 0
+                                description = `Status: ${decision} | Confidence: ${confidence}% | Affected: ${affected} resource(s)`
+                                if (result.recommendation) {
+                                  description = result.recommendation
+                                }
+                              } else if (result.recommendation) {
+                                // Has recommendation
+                                description = result.recommendation
+                                if (result.confidence) {
+                                  description += ` (Confidence: ${result.confidence}%)`
+                                }
+                              } else if (result.snapshot_id) {
+                                // Has snapshot_id
+                                description = `Snapshot created: ${result.snapshot_id}`
+                              } else if (result.status) {
+                                // Has status
+                                description = `Simulation ${result.status}`
+                                if (result.confidence) {
+                                  description += ` (Confidence: ${result.confidence}%)`
+                                }
+                              } else {
+                                // Fallback
+                                description = "Simulation completed successfully"
+                                console.warn("[simulate] Unexpected response format:", result)
+                              }
                               
                               toast({
-                                title: "Simulation Completed",
-                                description: message,
+                                title: title,
+                                description: description,
                                 duration: 8000,
                               })
+                              
+                              console.log(`[simulate] Simulation completed successfully:`, description)
                             } catch (err: any) {
                               console.error("[simulate] Simulation error:", err)
                               toast({
