@@ -860,3 +860,21 @@ function LeastPrivilegeContent() {
     </div>
   )
 }
+
+export default function LeastPrivilegePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[600px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-indigo-600" />
+          <p className="text-lg font-medium text-gray-900 mb-2">Loading Least Privilege Analysis...</p>
+        </div>
+      </div>
+    }>
+      <LeastPrivilegeContent />
+    </Suspense>
+  )
+}
+
+// Make sure this is exported correctly for Next.js
+LeastPrivilegePage.displayName = 'LeastPrivilegePage'
