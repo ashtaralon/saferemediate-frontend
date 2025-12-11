@@ -448,7 +448,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchFindings = async () => {
     try {
-      setLoadingGap(true) // Reuse loading state for findings
+      // Don't set loadingGap here - it's managed by fetchGapAnalysis
       const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`)
       const data = await response.json()
       
@@ -474,13 +474,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }))
 
       // Merge findings with gap-analysis issues (avoid duplicates by ID)
+      // Remove any existing findings from /api/findings (non-high-* IDs) and replace with new ones
       setIssues((prevIssues) => {
-        const existingIds = new Set(prevIssues.map(i => i.id))
-        const newFindings = findingsIssues.filter(f => !existingIds.has(f.id))
-        return [...prevIssues, ...newFindings]
+        const existingIds = new Set(findingsIssues.map(f => f.id))
+        // Keep gap-analysis issues (high-*) and remove old findings
+        const gapIssues = prevIssues.filter(issue => issue.id.startsWith('high-'))
+        const newFindings = findingsIssues.filter(f => !new Set(gapIssues.map(i => i.id)).has(f.id))
+        return [...gapIssues, ...newFindings]
       })
 
-      // Update severity counts from findings
+      // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
       const counts = { critical: 0, high: 0, medium: 0, low: 0 }
       findings.forEach((f: any) => {
         const severity = (f.severity || 'medium').toLowerCase()
@@ -499,9 +502,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }))
     } catch (error) {
       console.error("[v0] Error fetching findings:", error)
-    } finally {
-      setLoadingGap(false)
     }
+    // Don't set loadingGap(false) here - it's managed by fetchGapAnalysis
   }
 
   const fetchAllData = async () => {

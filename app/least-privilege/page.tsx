@@ -1,92 +1,10 @@
 "use client"
 
-import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { AlertCircle, Loader2, RefreshCw, Shield, Database, Network, CheckCircle2, XCircle, TrendingDown, AlertTriangle } from 'lucide-react'
-import SimulationModal from '@/components/simulation-modal'
-
-interface LeastPrivilegeIssue {
-  evidence?: {
-    dataSources?: string[]
-    observationDays?: number
-    coverage?: string
-    lastSeen?: string | null
-  }
-  id: string
-  type: string
-  resourceType: string
-  resourceName: string
-  resourceArn: string
-  severity: 'critical' | 'high' | 'medium' | 'low'
-  confidence: number
-  allowedCount: number
-  usedCount: number
-  unusedCount: number
-  gapPercent: number
-  allowedList: string[]
-  usedList: string[]
-  unusedList: string[]
-  // Network-specific fields (for Security Groups and Network ACLs)
-  allowedIPsCount?: number
-  usedIPsCount?: number
-  unusedIPsCount?: number
-  allowedPortsCount?: number
-  usedPortsCount?: number
-  unusedPortsCount?: number
-  allowedRules?: Array<{ip: string, port: number | string, protocol: string, description?: string}>
-  usedRules?: Array<{ip: string, port: number, protocol?: string}>
-  unusedRules?: Array<{ip: string, port: number | string, protocol: string}>
-  // Other fields
-  lastUsed?: string
-  observationDays: number
-  title: string
-  description: string
-  remediation: string
-  systemName?: string
-}
-
-interface Summary {
-  totalExcessPermissions: number
-  unusedNetworkAccess: number
-  unusedNetworkIPs?: number  // New: Count of unused IP addresses
-  unusedNetworkPorts?: number  // New: Count of unused ports
-  unusedDataAccess: number
-  confidenceLevel: number
-  totalIssues: number
-  criticalCount: number
-  highCount: number
-  mediumCount: number
-  lowCount: number
-  networkIssuesCount?: number
-  iamIssuesCount?: number
-  s3IssuesCount?: number
-}
-
-interface Resource {
-  id: string
-  resourceName: string
-  resourceType: string
-  resourceArn: string
-  allowedCount: number
-  usedCount: number
-  gapCount: number
-  confidence: number
-  severity: string
-  gapPercent: number
-}
-
-interface LeastPrivilegeResponse {
-  systemName: string
-  summary: Summary
-  issues: LeastPrivilegeIssue[]
-  resources: Resource[]
-  observationDays: number
-  timestamp: string
-}
+import { Suspense } from 'react'
+import { Loader2 } from 'lucide-react'
+import { IdentitiesView } from '@/components/identities-view'
 
 function LeastPrivilegeContent() {
-  const searchParams = useSearchParams()
-  const systemName = searchParams.get('system') || 'alon-prod'
   
   const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -861,7 +779,7 @@ function LeastPrivilegeContent() {
   )
 }
 
-function LeastPrivilegePageWrapper() {
+export default function LeastPrivilegePage() {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-[600px]">
@@ -875,5 +793,3 @@ function LeastPrivilegePageWrapper() {
     </Suspense>
   )
 }
-
-export default LeastPrivilegePageWrapper

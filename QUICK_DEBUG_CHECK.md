@@ -80,3 +80,6 @@ If Request URL shows `/api/proxy/...` or `saferemediate-frontend.vercel.app/api/
 
 **Run the checks and send me the results!** 📸
 
+
+
+

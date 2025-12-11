@@ -92,3 +92,6 @@ In Network tab → Headers → Request Headers, check:
 2. What is the Request URL in Network tab?
 3. Any CORS errors in Console?
 
+
+
+

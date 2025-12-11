@@ -54,3 +54,6 @@ export function SystemInfoCard({ gapAnalysis }: SystemInfoCardProps) {
   )
 }
 
+
+
+
