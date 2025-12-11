@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import {
   ArrowLeft,
   Download,
@@ -112,6 +112,46 @@ const ENVIRONMENT_OPTIONS = [
 // =============================================================================
 
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
+  // Cache helpers - must be defined before useState that uses them
+  const cacheKey = (key: string) => `system-dashboard-${systemName}-${key}`
+  const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes
+
+  const getCachedData = (key: string) => {
+    if (typeof window === "undefined") return null
+    try {
+      const cached = localStorage.getItem(cacheKey(key))
+      if (!cached) return null
+      const { data, timestamp } = JSON.parse(cached)
+      const age = Date.now() - timestamp
+      if (age < CACHE_EXPIRY) {
+        console.log(`[system-dashboard] Using cached ${key} (age: ${Math.round(age / 1000)}s)`)
+        return data
+      }
+      localStorage.removeItem(cacheKey(key))
+      return null
+    } catch (e) {
+      console.warn(`[system-dashboard] Failed to read cache for ${key}:`, e)
+      return null
+    }
+  }
+
+  const setCachedData = (key: string, data: any) => {
+    if (typeof window === "undefined") return
+    try {
+      localStorage.setItem(cacheKey(key), JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }))
+    } catch (e) {
+      console.warn(`[system-dashboard] Failed to cache ${key}:`, e)
+    }
+  }
+
+  // Load cached data on mount
+  const cachedGapAnalysis = getCachedData('gap-analysis')
+  const cachedIssues = getCachedData('issues')
+  const cachedAutoTag = getCachedData('auto-tag')
+
   const [activeTab, setActiveTab] = useState("overview")
   const [issues, setIssues] = useState<CriticalIssue[]>(cachedIssues || [])
 
@@ -137,11 +177,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     confidence: 99,
   }
 
-  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(fallbackGapData)
-  const [loadingGap, setLoadingGap] = useState(true)
+  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(cachedGapAnalysis || fallbackGapData)
+  const [loadingGap, setLoadingGap] = useState(!cachedGapAnalysis)
   const [gapError, setGapError] = useState<string | null>(null)
-  const [loadingAutoTag, setLoadingAutoTag] = useState(true)
-  const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>({
+  const [loadingAutoTag, setLoadingAutoTag] = useState(!cachedAutoTag)
+  const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>(cachedAutoTag || {
     status: "stopped",
     totalCycles: 0,
     actualTrafficCaptured: 0,
