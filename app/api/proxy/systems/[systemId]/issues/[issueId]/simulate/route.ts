@@ -4,7 +4,7 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
 // Set to true to skip backend and return mock response (use when backend /api/simulate doesn't exist)
-const USE_MOCK_SIMULATION = true
+const USE_MOCK_SIMULATION = false  // Using real backend data
 
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
