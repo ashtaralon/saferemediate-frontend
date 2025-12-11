@@ -1271,14 +1271,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
                             try {
+                              // ✅ FIX: Add timeout to prevent hanging (30s to match proxy timeout)
+                              const controller = new AbortController()
+                              const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout
+                              
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
                                 {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ finding_id: issue.id, system_name: systemName })
+                                  body: JSON.stringify({ finding_id: issue.id, system_name: systemName }),
+                                  signal: controller.signal  // ✅ Add abort signal for timeout
                                 }
                               )
+                              
+                              clearTimeout(timeoutId)  // ✅ Clear timeout if request completes
                               if (!response.ok) {
                                 const errorData = await response.json().catch(() => ({}))
                                 throw new Error(errorData.detail || errorData.error || `Simulation failed: ${response.status} ${response.statusText}`)
