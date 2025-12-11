@@ -5,10 +5,17 @@ const BACKEND_URL =
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { systemId: string; issueId: string } }
+  { params }: { params: Promise<{ systemId: string; issueId: string }> }
 ) {
-  const systemId = params.systemId
-  const issueId = params.issueId
+  // In Next.js 14+, params is a Promise that must be awaited
+  const { systemId, issueId } = await params
+
+  if (!systemId || !issueId) {
+    return NextResponse.json(
+      { error: "Missing systemId or issueId" },
+      { status: 400 }
+    )
+  }
 
   try {
     // Forward any request body from frontend
