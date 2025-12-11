@@ -57,14 +57,32 @@ export async function POST(
     console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}, type: ${resourceType}`)
 
     // Try to fetch finding details to extract unused permissions
+    // But also parse issueId directly as fallback (more resilient)
     let proposed_change: any = null
     let unusedPermissions: string[] = []
     
+    // Parse permission from issueId first (fast, no API call needed)
+    // Format: "high-2-iam:UpdateUser" or "iam-role-name-unused-permissions"
+    if (resourceType === "IAMRole" && issueId) {
+      // Try to extract permission name from issueId
+      // Pattern: "high-N-iam:Permission" or "iam:Permission"
+      const iamMatch = issueId.match(/iam:([A-Za-z0-9]+)/i)
+      if (iamMatch && iamMatch[1]) {
+        const permission = `iam:${iamMatch[1]}`
+        unusedPermissions = [permission]
+        console.log(`[proxy] Extracted permission from issueId: ${permission}`)
+      } else if (issueId.includes("unused-permissions")) {
+        // For bulk unused permissions findings, try to fetch details
+        // But don't block on it
+        unusedPermissions = []
+      }
+    }
+    
+    // Try to fetch finding details for more complete data (non-blocking)
     try {
-      // Fetch finding details from /api/findings to get unused permissions
-      // Use a quick timeout (5s) since this should be fast
+      // Use longer timeout (12s) since backend is slow, but still shorter than main request
       const findingController = new AbortController()
-      const findingTimeout = setTimeout(() => findingController.abort(), 5000)
+      const findingTimeout = setTimeout(() => findingController.abort(), 12000)
       
       const findingRes = await fetch(
         `${BACKEND_URL}/api/findings?systemName=${encodeURIComponent(systemId)}`,
@@ -79,17 +97,21 @@ export async function POST(
       if (findingRes.ok) {
         const findingsData = await findingRes.json()
         const findings = findingsData.findings || findingsData || []
-        const finding = findings.find((f: any) => f.id === issueId)
+        const finding = findings.find((f: any) => f.id === issueId || f.id?.includes(issueId))
         
         if (finding && finding.details) {
-          // Extract unused permissions from finding details
-          unusedPermissions = finding.details.unusedActions || finding.details.unusedPermissions || []
-          console.log(`[proxy] Found ${unusedPermissions.length} unused permissions in finding`)
+          // Use finding details if available (more complete than issueId parsing)
+          const foundPermissions = finding.details.unusedActions || finding.details.unusedPermissions || []
+          if (foundPermissions.length > 0) {
+            unusedPermissions = foundPermissions
+            console.log(`[proxy] Found ${unusedPermissions.length} unused permissions in finding details`)
+          }
         }
       }
     } catch (e) {
-      console.warn(`[proxy] Could not fetch finding details: ${e}`)
-      // Continue without finding details - backend will query CloudTrail
+      // Silently continue - we already have permission from issueId parsing or empty array
+      console.log(`[proxy] Could not fetch finding details (non-blocking): ${e instanceof Error ? e.name : 'unknown'}`)
+      // Continue with issueId-parsed permissions or empty array - backend will query CloudTrail
     }
 
     // Build proposed_change based on finding type

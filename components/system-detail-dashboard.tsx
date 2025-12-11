@@ -183,15 +183,43 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     confidence: 99,
   }
 
-  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(cachedGapAnalysis || fallbackGapData)
-  const [loadingGap, setLoadingGap] = useState(!cachedGapAnalysis)
+  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(() => {
+    if (typeof window !== "undefined") {
+      const cached = getCachedData('gap-analysis')
+      if (cached) {
+        console.log(`[system-dashboard] Loaded gap-analysis from cache on mount`)
+        return cached
+      }
+    }
+    return fallbackGapData
+  })
+  const [loadingGap, setLoadingGap] = useState(() => {
+    if (typeof window !== "undefined") {
+      return !getCachedData('gap-analysis')
+    }
+    return true
+  })
   const [gapError, setGapError] = useState<string | null>(null)
-  const [loadingAutoTag, setLoadingAutoTag] = useState(!cachedAutoTag)
-  const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>(cachedAutoTag || {
-    status: "stopped",
-    totalCycles: 0,
-    actualTrafficCaptured: 0,
-    lastSync: "Awaiting connection",
+  const [loadingAutoTag, setLoadingAutoTag] = useState(() => {
+    if (typeof window !== "undefined") {
+      return !getCachedData('auto-tag')
+    }
+    return true
+  })
+  const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>(() => {
+    if (typeof window !== "undefined") {
+      const cached = getCachedData('auto-tag')
+      if (cached) {
+        console.log(`[system-dashboard] Loaded auto-tag status from cache on mount`)
+        return cached
+      }
+    }
+    return {
+      status: "stopped",
+      totalCycles: 0,
+      actualTrafficCaptured: 0,
+      lastSync: "Awaiting connection",
+    }
   })
   const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
 
@@ -654,14 +682,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   useEffect(() => {
-    // Load cached data immediately if available
-    const cachedIssues = getCachedData('issues')
-    if (cachedIssues && cachedIssues.length > 0) {
-      setIssues(cachedIssues)
-      console.log(`[system-dashboard] Loaded ${cachedIssues.length} issues from cache`)
-    }
-    
-    // Fetch fresh data in background
+    // Fetch fresh data in background (cached data already loaded via useState lazy init)
     fetchAllData()
 
     // Auto-refresh every 30 seconds, but PAUSE during simulation to avoid interrupting UI
