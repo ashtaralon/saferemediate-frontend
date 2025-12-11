@@ -511,6 +511,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
+    // ✅ FIX: Don't refresh if simulation is in progress (prevents interference)
+    if (simulatingIssue) {
+      console.log('[fetchAllData] Skipping refresh - simulation in progress')
+      return
+    }
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
   }
 
@@ -529,7 +534,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [systemName])
+  }, [systemName, simulatingIssue])  // ✅ Add simulatingIssue to dependencies
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {

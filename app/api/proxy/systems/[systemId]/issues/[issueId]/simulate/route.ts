@@ -5,39 +5,41 @@ const BACKEND_URL =
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { systemId: string; issueId: string } }
+  { params }: { params: Promise<{ systemId: string; issueId: string }> }
 ) {
-  // Get params from URL path
-  let systemId = params.systemId
-  let issueId = params.issueId
-  let resourceName = ""
-  let resourceArn = ""
-  let title = ""
-
-  // Also try to get from request body (more reliable)
   try {
-    const body = await request.json().catch(() => ({}))
-    if (body.system_name) systemId = body.system_name
-    if (body.finding_id) issueId = body.finding_id
-    if (body.resource_name) resourceName = body.resource_name
-    if (body.resource_arn) resourceArn = body.resource_arn
-    if (body.title) title = body.title
-  } catch (e) {
-    // Ignore body parsing errors
-  }
+    // Await params in Next.js 14+ (params is now a Promise)
+    const { systemId: paramSystemId, issueId: paramIssueId } = await params
 
-  // Validate required parameters
-  if (!systemId || systemId === "undefined" || !issueId || issueId === "undefined") {
-    console.error("[proxy] Invalid params:", { systemId, issueId })
-    return NextResponse.json(
-      { error: "Invalid system_id or issue_id", status: 400 },
-      { status: 400 }
-    )
-  }
+    let systemId = paramSystemId
+    let issueId = paramIssueId
+    let resourceName = ""
+    let resourceArn = ""
+    let title = ""
 
-  console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}`)
+    // Also try to get from request body (more reliable)
+    try {
+      const body = await request.json().catch(() => ({}))
+      if (body.system_name) systemId = body.system_name
+      if (body.finding_id) issueId = body.finding_id
+      if (body.resource_name) resourceName = body.resource_name
+      if (body.resource_arn) resourceArn = body.resource_arn
+      if (body.title) title = body.title
+    } catch (e) {
+      // Ignore body parsing errors
+    }
 
-  try {
+    // Validate required parameters
+    if (!systemId || systemId === "undefined" || !issueId || issueId === "undefined") {
+      console.error("[proxy] Invalid params:", { systemId, issueId })
+      return NextResponse.json(
+        { error: "Invalid system_id or issue_id", status: 400 },
+        { status: 400 }
+      )
+    }
+
+    console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}`)
+
     // Use the general /api/simulate endpoint with all context
     // Use 25s timeout (Vercel has 30s limit for serverless functions)
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
@@ -74,7 +76,14 @@ export async function POST(
     console.error("[proxy] simulate error:", isTimeout ? "Request timed out after 25s" : error.message)
   }
 
-  console.log(`[proxy] Returning fallback simulation response for ${issueId}`)
+  // Get issueId from params for fallback (re-await since we're outside try block)
+  let fallbackIssueId = "unknown"
+  try {
+    const { issueId } = await params
+    fallbackIssueId = issueId
+  } catch (e) {}
+
+  console.log(`[proxy] Returning fallback simulation response for ${fallbackIssueId}`)
 
   // Fallback: return simulated response matching A4 patent format expected by UI
   return NextResponse.json({
@@ -90,10 +99,10 @@ export async function POST(
         upstream: [],
       },
     },
-    recommendation: `Safe to remediate IAM role. No active usage detected for unused permissions in ${issueId}.`,
+    recommendation: `Safe to remediate IAM role. No active usage detected for unused permissions in ${fallbackIssueId}.`,
     affectedResources: [
       {
-        id: issueId,
+        id: fallbackIssueId,
         type: "IAMRole",
         impact: "low",
         reason: "Unused permissions will be removed",
@@ -101,8 +110,8 @@ export async function POST(
     ],
     // Also include standard fields for other components
     confidence: 95,
-    before_state: `IAM role ${issueId} has unused permissions`,
-    after_state: `IAM role ${issueId} will have unused permissions removed`,
+    before_state: `IAM role ${fallbackIssueId} has unused permissions`,
+    after_state: `IAM role ${fallbackIssueId} will have unused permissions removed`,
     estimated_time: "5-10 minutes",
     temporal_info: {
       start_time: new Date().toISOString(),
@@ -111,7 +120,7 @@ export async function POST(
     warnings: [],
     resource_changes: [
       {
-        resource_id: issueId,
+        resource_id: fallbackIssueId,
         resource_type: "IAMRole",
         change_type: "policy_update",
         before: "Overpermissioned policy attached",
@@ -123,4 +132,3 @@ export async function POST(
     brokenCalls: 0,
   })
 }
-
