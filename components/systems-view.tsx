@@ -78,7 +78,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     let unusedActions = 28
 
     try {
-      const gapRes = await fetch("/api/proxy/gap-analysis")
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
+      const gapRes = await fetch("/api/proxy/gap-analysis", {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (gapRes.ok) {
         const gapJson = await gapRes.json()
         unusedActions = gapJson.unused_actions ?? 0
@@ -87,14 +96,29 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           used: gapJson.used_actions ?? 0,
           unused: unusedActions,
         })
+      } else if (gapRes.status === 504) {
+        // Gateway timeout - use fallback values
+        console.warn("[systems-view] Gap analysis timed out, using fallback values")
       }
-    } catch (gapErr) {
+    } catch (gapErr: any) {
+      // Handle timeout gracefully
+      if (gapErr.name === 'AbortError') {
+        console.warn("[systems-view] Gap analysis request timed out after 25s")
+      }
       setGapData({ allowed: 28, used: 0, unused: 28 })
       unusedActions = 28
     }
 
     try {
-      const nodesRes = await fetch("/api/proxy/graph-data")
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller2 = new AbortController()
+      const timeoutId2 = setTimeout(() => controller2.abort(), 25000)
+      
+      const nodesRes = await fetch("/api/proxy/graph-data", {
+        signal: controller2.signal,
+      })
+      
+      clearTimeout(timeoutId2)
 
       if (nodesRes.ok) {
         const nodesData = await nodesRes.json()
@@ -285,7 +309,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const checkBackendStatus = async () => {
     setBackendStatus("checking")
     try {
-      const response = await fetch("/api/proxy/test")
+      // Health check with shorter timeout (10s is enough)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+      
+      const response = await fetch("/api/proxy/test", {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (response.ok) {
         setBackendStatus("connected")
         return true
