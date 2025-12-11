@@ -74,8 +74,8 @@ export default function HomePage() {
     // Trigger traffic ingestion (non-blocking)
     fetchWithTimeout(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
 
-    // Fetch gap analysis via proxy route with timeout
-    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 5000)
+    // Fetch gap analysis via proxy route with timeout (25s to match Vercel function limit)
+    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 25000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
