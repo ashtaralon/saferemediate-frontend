@@ -1212,15 +1212,58 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                         <button
                           onClick={async () => {
                             if (simulatingIssue === issue.id) return
+                            if (!systemName || !issue.id) {
+                              toast({
+                                title: "Simulation Failed",
+                                description: "Missing required system or issue information",
+                                variant: "destructive",
+                              })
+                              return
+                            }
+                            
                             setSimulatingIssue(issue.id)
+                            console.log(`[simulate] Starting simulation for issue ${issue.id}`)
+                            
                             try {
+                              // Extract resource name from affected field
+                              let resourceName = issue.affected || ""
+                              if (resourceName.includes("/")) {
+                                resourceName = resourceName.split("/").pop() || resourceName
+                              }
+                              if (resourceName.includes(":role/")) {
+                                resourceName = resourceName.split(":role/").pop() || resourceName
+                              }
+                              
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                { method: "POST" }
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    finding_id: issue.id,
+                                    system_name: systemName,
+                                    resource_name: resourceName,
+                                    resource_arn: issue.affected,
+                                    title: issue.title
+                                  }),
+                                }
                               )
-                              if (!response.ok) throw new Error("Simulation failed")
+                              
                               const result = await response.json()
                               
+                              console.log(`[simulate] Response received:`, {
+                                ok: response.ok,
+                                status: response.status,
+                                hasSnapshotId: !!result.snapshot_id,
+                                hasSummary: !!result.summary,
+                                success: result.success
+                              })
+                              
+                              if (!response.ok) {
+                                throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
+                              }
+                              
+                              // Store snapshot_id if present
                               if (result.snapshot_id) {
                                 setLatestSnapshotByIssue((prev: any) => ({
                                   ...prev,
@@ -1228,16 +1271,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 }))
                               }
                               
+                              // Show success message with details
+                              const recommendation = result.recommendation || result.summary?.decision || "Simulation completed"
+                              const confidence = result.confidence || result.summary?.confidence || "N/A"
+                              const message = result.snapshot_id 
+                                ? `Snapshot: ${result.snapshot_id} | ${recommendation}`
+                                : `${recommendation} (Confidence: ${confidence}%)`
+                              
                               toast({
                                 title: "Simulation Completed",
-                                description: `Snapshot created: ${result.snapshot_id || 'N/A'}`,
-                                duration: 5000,
+                                description: message,
+                                duration: 8000,
                               })
                             } catch (err: any) {
+                              console.error("[simulate] Simulation error:", err)
                               toast({
                                 title: "Simulation Failed",
                                 description: err.message || "Failed to run simulation",
                                 variant: "destructive",
+                                duration: 8000,
                               })
                             } finally {
                               setSimulatingIssue(null)
