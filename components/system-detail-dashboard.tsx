@@ -1297,9 +1297,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex border-t border-gray-200">
                         <button
                           onClick={async () => {
+                            console.log("[SIMULATE] Button clicked for issue:", issue.id)
+
                             // Defensive check for required values
                             if (!systemName || !issue.id) {
-                              console.error("Missing systemName or issue.id:", { systemName, issueId: issue.id })
+                              console.error("[SIMULATE] Missing systemName or issue.id:", { systemName, issueId: issue.id })
                               toast({
                                 title: "Simulation Failed",
                                 description: "Missing required system or issue information",
@@ -1307,13 +1309,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                               return
                             }
-                            if (simulatingIssue === issue.id) return
+                            if (simulatingIssue === issue.id) {
+                              console.log("[SIMULATE] Already simulating this issue, skipping")
+                              return
+                            }
+
+                            console.log("[SIMULATE] Starting simulation...")
                             setSimulatingIssue(issue.id)
                             isSimulatingRef.current = true // Set ref to pause auto-refresh
 
                             // Create abort controller for timeout (30s to allow proxy's 25s backend timeout + fallback)
                             const controller = new AbortController()
-                            const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+                            const timeoutId = setTimeout(() => {
+                              console.log("[SIMULATE] Timeout reached - aborting fetch")
+                              controller.abort()
+                            }, 30000) // 30 second timeout
 
                             try {
                               // Extract resource name from affected field (e.g., "arn:aws:iam::123:role/MyRole" -> "MyRole")
@@ -1325,36 +1335,40 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 resourceName = resourceName.split(":role/").pop() || resourceName
                               }
 
-                              const response = await fetch(
-                                `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    finding_id: issue.id,
-                                    system_name: systemName,
-                                    resource_name: resourceName,
-                                    resource_arn: issue.affected,
-                                    title: issue.title
-                                  }),
-                                  signal: controller.signal
-                                }
-                              )
+                              const url = `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`
+                              console.log("[SIMULATE] Fetching:", url)
 
+                              const response = await fetch(url, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  finding_id: issue.id,
+                                  system_name: systemName,
+                                  resource_name: resourceName,
+                                  resource_arn: issue.affected,
+                                  title: issue.title
+                                }),
+                                signal: controller.signal
+                              })
+
+                              console.log("[SIMULATE] Response received:", response.status, response.ok)
                               clearTimeout(timeoutId)
 
                               // Read response body once as text, then parse
                               const responseText = await response.text()
+                              console.log("[SIMULATE] Response text length:", responseText.length)
+
                               let result: any = {}
 
                               try {
                                 result = JSON.parse(responseText)
                               } catch (parseError) {
-                                console.error("Failed to parse simulation response:", responseText)
+                                console.error("[SIMULATE] Failed to parse response:", responseText.substring(0, 200))
                                 throw new Error("Invalid response from simulation API")
                               }
 
                               if (!response.ok) {
+                                console.error("[SIMULATE] Response not OK:", result)
                                 throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
                               }
 
@@ -1423,7 +1437,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               }
                             } catch (err: any) {
                               clearTimeout(timeoutId)
-                              console.error("Simulation error:", err)
+                              console.error("[SIMULATE] Error caught:", err.name, err.message, err)
 
                               // Better error messages
                               let errorMessage = "Failed to run simulation."
@@ -1433,6 +1447,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 errorMessage = err.message
                               }
 
+                              console.log("[SIMULATE] Showing error toast:", errorMessage)
                               toast({
                                 title: "Simulation Failed",
                                 description: errorMessage,
@@ -1440,8 +1455,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 duration: 8000,
                               })
                             } finally {
+                              console.log("[SIMULATE] Finally block - resetting state")
                               setSimulatingIssue(null)
                               isSimulatingRef.current = false // Reset ref to resume auto-refresh
+                              console.log("[SIMULATE] State reset complete")
                             }
                           }}
                           disabled={simulatingIssue === issue.id}
