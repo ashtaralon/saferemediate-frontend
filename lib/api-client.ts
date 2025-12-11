@@ -112,7 +112,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     // Use unified issues endpoint for stable counts
     const [issuesSummaryResponse, nodesResponse] = await Promise.allSettled([
       fetchWithTimeout("/api/proxy/issues-summary", 10000).catch(() => null), // 10s timeout for aggregation
-      fetchWithTimeout("/api/proxy/graph-data", 5000).catch(() => null),
+      fetchWithTimeout("/api/proxy/graph-data", 25000).catch(() => null),
     ])
 
     let issuesSummary: any = null
@@ -138,7 +138,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     // Fallback: try old dashboard-metrics if unified endpoint failed
     if (!issuesSummary) {
       try {
-        const metricsResponse = await fetchWithTimeout("/api/proxy/dashboard-metrics", 5000).catch(() => null)
+        const metricsResponse = await fetchWithTimeout("/api/proxy/dashboard-metrics", 25000).catch(() => null)
         if (metricsResponse && metricsResponse.ok) {
           metrics = await metricsResponse.json()
           console.log("[v0] Using fallback dashboard-metrics")
