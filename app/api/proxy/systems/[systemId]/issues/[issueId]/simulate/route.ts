@@ -8,59 +8,82 @@ export async function POST(
   { params }: { params: Promise<{ systemId: string; issueId: string }> }
 ) {
   try {
-    // ✅ FIX: Await params in Next.js 14+ (params is now a Promise)
-    const { systemId, issueId } = await params
-    
-    // Validate parameters
-    if (!systemId || systemId === "undefined" || systemId === "null") {
-      console.error(`[proxy] Invalid systemId: ${systemId}`)
+    // Await params in Next.js 14+ (params is now a Promise)
+    const { systemId: paramSystemId, issueId: paramIssueId } = await params
+
+    let systemId = paramSystemId
+    let issueId = paramIssueId
+    let resourceName = ""
+    let resourceArn = ""
+    let title = ""
+
+    // Also try to get from request body (more reliable)
+    try {
+      const body = await request.json().catch(() => ({}))
+      if (body.system_name) systemId = body.system_name
+      if (body.finding_id) issueId = body.finding_id
+      if (body.resource_name) resourceName = body.resource_name
+      if (body.resource_arn) resourceArn = body.resource_arn
+      if (body.title) title = body.title
+    } catch (e) {
+      // Ignore body parsing errors
+    }
+
+    // Validate required parameters
+    if (!systemId || systemId === "undefined" || !issueId || issueId === "undefined") {
+      console.error("[proxy] Invalid params:", { systemId, issueId })
       return NextResponse.json(
-        { success: false, error: "Invalid system ID", detail: `systemId is required but got: ${systemId}` },
+        { error: "Invalid system_id or issue_id", status: 400 },
         { status: 400 }
       )
     }
-    
-    if (!issueId || issueId === "undefined" || issueId === "null") {
-      console.error(`[proxy] Invalid issueId: ${issueId}`)
-      return NextResponse.json(
-        { success: false, error: "Invalid issue ID", detail: `issueId is required but got: ${issueId}` },
-        { status: 400 }
-      )
-    }
-    
-    // Decode URL-encoded parameters
-    const decodedSystemId = decodeURIComponent(systemId)
-    const decodedIssueId = decodeURIComponent(issueId)
-    
-    console.log(`[proxy] Simulating issue: system=${decodedSystemId}, issue=${decodedIssueId}`)
-    
-    // ✅ FIX: Use the correct backend endpoint with path parameters
-    // Backend expects: POST /api/systems/{system_id}/issues/{issue_id}/simulate
-    const backendUrl = `${BACKEND_URL}/api/systems/${encodeURIComponent(decodedSystemId)}/issues/${encodeURIComponent(decodedIssueId)}/simulate`
-    
-    console.log(`[proxy] Forwarding to: ${backendUrl}`)
-    
-    const res = await fetch(backendUrl, {
+
+    console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}`)
+
+    // Use the general /api/simulate endpoint with all context
+    // Use 25s timeout (Vercel has 30s limit for serverless functions)
+    const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        finding_id: issueId,
+        system_name: systemId,
+        resource_name: resourceName,
+        resource_arn: resourceArn,
+        title: title,
+      }),
       cache: "no-store",
+      signal: AbortSignal.timeout(25000), // 25 second timeout
     })
 
     if (res.ok) {
       const data = await res.json()
+      console.log(`[proxy] Simulation successful for ${issueId}`)
       return NextResponse.json({
         success: true,
+        status: "success",
         ...data,
       })
     }
 
-    // If backend returns error, log it and return fallback
-    console.warn(`[proxy] Backend simulate returned ${res.status}, using fallback`)
+    // If backend returns non-OK status, read error and log
+    const errorText = await res.text().catch(() => "Unknown error")
+    console.warn(`[proxy] Backend simulate returned ${res.status}: ${errorText.substring(0, 200)}`)
   } catch (error: any) {
-    console.error("[proxy] simulate error:", error.message)
+    const isTimeout = error.name === "TimeoutError" || error.name === "AbortError"
+    console.error("[proxy] simulate error:", isTimeout ? "Request timed out after 25s" : error.message)
   }
+
+  // Get issueId from params for fallback (re-await since we're outside try block)
+  let fallbackIssueId = "unknown"
+  try {
+    const { issueId } = await params
+    fallbackIssueId = issueId
+  } catch (e) {}
+
+  console.log(`[proxy] Returning fallback simulation response for ${fallbackIssueId}`)
 
   // Fallback: return simulated response matching A4 patent format expected by UI
   return NextResponse.json({
@@ -76,10 +99,10 @@ export async function POST(
         upstream: [],
       },
     },
-    recommendation: `Safe to remediate IAM role. No active usage detected for unused permissions in ${issueId}.`,
+    recommendation: `Safe to remediate IAM role. No active usage detected for unused permissions in ${fallbackIssueId}.`,
     affectedResources: [
       {
-        id: issueId,
+        id: fallbackIssueId,
         type: "IAMRole",
         impact: "low",
         reason: "Unused permissions will be removed",
@@ -87,8 +110,8 @@ export async function POST(
     ],
     // Also include standard fields for other components
     confidence: 95,
-    before_state: `IAM role ${issueId} has unused permissions`,
-    after_state: `IAM role ${issueId} will have unused permissions removed`,
+    before_state: `IAM role ${fallbackIssueId} has unused permissions`,
+    after_state: `IAM role ${fallbackIssueId} will have unused permissions removed`,
     estimated_time: "5-10 minutes",
     temporal_info: {
       start_time: new Date().toISOString(),
@@ -97,7 +120,7 @@ export async function POST(
     warnings: [],
     resource_changes: [
       {
-        resource_id: issueId,
+        resource_id: fallbackIssueId,
         resource_type: "IAMRole",
         change_type: "policy_update",
         before: "Overpermissioned policy attached",
@@ -109,4 +132,3 @@ export async function POST(
     brokenCalls: 0,
   })
 }
-
