@@ -56,13 +56,43 @@ export async function POST(
 
     console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}, type: ${resourceType}`)
 
-    // Build proposed_change based on finding type
-    let proposed_change: any = {
-      action: "remove_permissions",
-      items: [],
-      reason: "Unused permissions detected"
+    // Try to fetch finding details to extract unused permissions
+    let proposed_change: any = null
+    let unusedPermissions: string[] = []
+    
+    try {
+      // Fetch finding details from /api/findings to get unused permissions
+      // Use a quick timeout (5s) since this should be fast
+      const findingController = new AbortController()
+      const findingTimeout = setTimeout(() => findingController.abort(), 5000)
+      
+      const findingRes = await fetch(
+        `${BACKEND_URL}/api/findings?systemName=${encodeURIComponent(systemId)}`,
+        {
+          headers: { "Content-Type": "application/json" },
+          signal: findingController.signal,
+        }
+      )
+      
+      clearTimeout(findingTimeout)
+      
+      if (findingRes.ok) {
+        const findingsData = await findingRes.json()
+        const findings = findingsData.findings || findingsData || []
+        const finding = findings.find((f: any) => f.id === issueId)
+        
+        if (finding && finding.details) {
+          // Extract unused permissions from finding details
+          unusedPermissions = finding.details.unusedActions || finding.details.unusedPermissions || []
+          console.log(`[proxy] Found ${unusedPermissions.length} unused permissions in finding`)
+        }
+      }
+    } catch (e) {
+      console.warn(`[proxy] Could not fetch finding details: ${e}`)
+      // Continue without finding details - backend will query CloudTrail
     }
 
+    // Build proposed_change based on finding type
     if (resourceType === "SecurityGroup") {
       // Parse SG finding: "sg-xxx/ingress/tcp/22/0.0.0.0/0"
       const parts = issueId.split("/")
@@ -76,12 +106,22 @@ export async function POST(
         }
       }
     } else if (resourceType === "IAMRole") {
-      // For IAM, we need to extract unused permissions from the finding
-      // This would ideally come from the finding details, but we'll use a generic approach
+      // For IAM, use unused permissions from finding if available
       proposed_change = {
         action: "remove_permissions",
-        items: [], // Will be populated by backend from finding analysis
-        reason: "Unused permissions detected via CloudTrail analysis"
+        items: unusedPermissions, // Use extracted permissions or empty (backend will query CloudTrail)
+        reason: unusedPermissions.length > 0 
+          ? `Remove ${unusedPermissions.length} unused permissions detected via CloudTrail analysis`
+          : "Unused permissions detected via CloudTrail analysis (will be determined by simulation)"
+      }
+    }
+    
+    if (!proposed_change) {
+      // Fallback
+      proposed_change = {
+        action: "remove_permissions",
+        items: unusedPermissions,
+        reason: "Remediation required"
       }
     }
 
