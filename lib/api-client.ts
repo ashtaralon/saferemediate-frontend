@@ -109,8 +109,9 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       ])
     }
 
-    const [metricsResponse, nodesResponse] = await Promise.allSettled([
-      fetchWithTimeout("/api/proxy/dashboard-metrics", 5000).catch(() => null),
+    // Use unified issues endpoint for stable counts
+    const [issuesSummaryResponse, nodesResponse] = await Promise.allSettled([
+      fetchWithTimeout("/api/proxy/issues-summary", 10000).catch(() => null), // 10s timeout for aggregation
       fetchWithTimeout("/api/proxy/graph-data", 5000).catch(() => null),
     ])
 
@@ -168,18 +169,34 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       typeCounts[type] = (typeCounts[type] || 0) + 1
     })
 
+    // Use unified issues summary if available, otherwise fallback to metrics
+    const totalIssues = issuesSummary?.total ?? metrics.totalIssues ?? metrics.issuesCount ?? 0
+    const bySeverity = issuesSummary?.by_severity ?? {
+      critical: metrics.criticalIssues ?? metrics.criticalCount ?? 0,
+      high: metrics.highIssues ?? metrics.highCount ?? 0,
+      medium: metrics.mediumIssues ?? metrics.mediumCount ?? 0,
+      low: metrics.lowIssues ?? metrics.lowCount ?? 0,
+    }
+
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.avgHealthScore || metrics.healthScore || 85,
+        avgHealthScore: metrics.metrics?.avg_health_score || metrics.avgHealthScore || metrics.healthScore || 85,
         healthScoreTrend: metrics.healthScoreTrend || 2,
         needAttention: metrics.needAttention || metrics.systemsNeedingAttention || 0,
-        totalIssues: metrics.totalIssues || metrics.issuesCount || 0,
-        criticalIssues: metrics.criticalIssues || metrics.criticalCount || 0,
-        averageScore: metrics.averageScore || metrics.avgHealthScore || 85,
+        totalIssues: totalIssues,
+        criticalIssues: bySeverity.critical,
+        averageScore: metrics.metrics?.avg_health_score || metrics.averageScore || metrics.avgHealthScore || 85,
         averageScoreTrend: metrics.averageScoreTrend || 2,
-        lastScanTime: metrics.lastScanTime || new Date().toISOString(),
+        lastScanTime: issuesSummary?.timestamp || metrics.metrics?.last_scan_time || metrics.lastScanTime || new Date().toISOString(),
       },
+      issuesSummary: issuesSummary ? {
+        total: issuesSummary.total,
+        by_severity: issuesSummary.by_severity,
+        by_source: issuesSummary.by_source,
+        cached: issuesSummary.cached,
+        cache_age_seconds: issuesSummary.cache_age_seconds,
+      } : null,
       infrastructure: {
         containerClusters: typeCounts["ecscluster"] || typeCounts["ecs"] || 0,
         kubernetesWorkloads: typeCounts["ekscluster"] || typeCounts["eks"] || 0,
