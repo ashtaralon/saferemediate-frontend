@@ -1358,11 +1358,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
                               }
 
+                              // Debug: Log full response to console
+                              console.log("[SIMULATE DEBUG] Full response:", JSON.stringify(result, null, 2))
+                              if (result._debug) {
+                                console.log("[SIMULATE DEBUG] Debug info:", JSON.stringify(result._debug, null, 2))
+                              }
+                              if (result._isFallback) {
+                                console.warn("[SIMULATE DEBUG] Using FALLBACK response - backend failed!")
+                              }
+
                               // Handle new A4 patent simulation response format
                               if (result.status === "success" && result.summary) {
                                 const decision = String(result.summary.decision || "REVIEW").toUpperCase()
                                 const confidence = Number(result.summary.confidence) || 0
                                 const affectedCount = Number(result.summary.blastRadius?.affectedResources) || 0
+                                const isFallback = result._isFallback === true
 
                                 // Store snapshot_id if present (needed for APPLY button)
                                 if (result.snapshot_id) {
@@ -1374,10 +1384,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                                 // Show detailed simulation results
                                 const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`
+                                const fallbackNote = isFallback ? " [SIMULATED - Backend unavailable]" : ""
 
                                 toast({
-                                  title: "Simulation Completed",
-                                  description: result.recommendation || message,
+                                  title: isFallback ? "Simulation (Simulated)" : "Simulation Completed",
+                                  description: (result.recommendation || message) + fallbackNote,
                                   duration: 8000,
                                 })
 

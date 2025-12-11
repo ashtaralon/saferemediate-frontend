@@ -7,9 +7,18 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ systemId: string; issueId: string }> }
 ) {
+  const debugInfo: any = {
+    timestamp: new Date().toISOString(),
+    backendUrl: BACKEND_URL,
+    step: "init",
+  }
+
   try {
     // Await params in Next.js 14+ (params is now a Promise)
+    debugInfo.step = "parsing_params"
     const { systemId: paramSystemId, issueId: paramIssueId } = await params
+    debugInfo.paramSystemId = paramSystemId
+    debugInfo.paramIssueId = paramIssueId
 
     let systemId = paramSystemId
     let issueId = paramIssueId
@@ -18,22 +27,26 @@ export async function POST(
     let title = ""
 
     // Also try to get from request body (more reliable)
+    debugInfo.step = "parsing_body"
     try {
       const body = await request.json().catch(() => ({}))
+      debugInfo.requestBody = body
       if (body.system_name) systemId = body.system_name
       if (body.finding_id) issueId = body.finding_id
       if (body.resource_name) resourceName = body.resource_name
       if (body.resource_arn) resourceArn = body.resource_arn
       if (body.title) title = body.title
-    } catch (e) {
-      // Ignore body parsing errors
+    } catch (e: any) {
+      debugInfo.bodyParseError = e.message
     }
+
+    debugInfo.finalParams = { systemId, issueId, resourceName, resourceArn, title }
 
     // Validate required parameters
     if (!systemId || systemId === "undefined" || !issueId || issueId === "undefined") {
       console.error("[proxy] Invalid params:", { systemId, issueId })
       return NextResponse.json(
-        { error: "Invalid system_id or issue_id", status: 400 },
+        { error: "Invalid system_id or issue_id", status: 400, debug: debugInfo },
         { status: 400 }
       )
     }
@@ -42,38 +55,55 @@ export async function POST(
 
     // Use the general /api/simulate endpoint with all context
     // Use 25s timeout (Vercel has 30s limit for serverless functions)
+    debugInfo.step = "calling_backend"
+    const backendPayload = {
+      finding_id: issueId,
+      system_name: systemId,
+      resource_name: resourceName,
+      resource_arn: resourceArn,
+      title: title,
+    }
+    debugInfo.backendPayload = backendPayload
+    debugInfo.backendEndpoint = `${BACKEND_URL}/api/simulate`
+
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        finding_id: issueId,
-        system_name: systemId,
-        resource_name: resourceName,
-        resource_arn: resourceArn,
-        title: title,
-      }),
+      body: JSON.stringify(backendPayload),
       cache: "no-store",
       signal: AbortSignal.timeout(25000), // 25 second timeout
     })
 
+    debugInfo.backendStatus = res.status
+    debugInfo.backendOk = res.ok
+
     if (res.ok) {
       const data = await res.json()
-      console.log(`[proxy] Simulation successful for ${issueId}`)
+      debugInfo.step = "backend_success"
+      debugInfo.backendResponse = data
+      console.log(`[proxy] Simulation successful for ${issueId}`, JSON.stringify(debugInfo))
       return NextResponse.json({
         success: true,
         status: "success",
+        _debug: debugInfo,
         ...data,
       })
     }
 
     // If backend returns non-OK status, read error and log
     const errorText = await res.text().catch(() => "Unknown error")
-    console.warn(`[proxy] Backend simulate returned ${res.status}: ${errorText.substring(0, 200)}`)
+    debugInfo.step = "backend_error"
+    debugInfo.backendError = errorText.substring(0, 500)
+    console.warn(`[proxy] Backend simulate returned ${res.status}: ${errorText.substring(0, 200)}`, JSON.stringify(debugInfo))
   } catch (error: any) {
     const isTimeout = error.name === "TimeoutError" || error.name === "AbortError"
-    console.error("[proxy] simulate error:", isTimeout ? "Request timed out after 25s" : error.message)
+    debugInfo.step = "exception"
+    debugInfo.errorName = error.name
+    debugInfo.errorMessage = error.message
+    debugInfo.isTimeout = isTimeout
+    console.error("[proxy] simulate error:", isTimeout ? "Request timed out after 25s" : error.message, JSON.stringify(debugInfo))
   }
 
   // Get issueId from params for fallback (re-await since we're outside try block)
@@ -83,13 +113,17 @@ export async function POST(
     fallbackIssueId = issueId
   } catch (e) {}
 
-  console.log(`[proxy] Returning fallback simulation response for ${fallbackIssueId}`)
+  debugInfo.step = "fallback"
+  debugInfo.fallbackReason = "Backend failed or timed out"
+  console.log(`[proxy] Returning fallback simulation response for ${fallbackIssueId}`, JSON.stringify(debugInfo))
 
   // Fallback: return simulated response matching A4 patent format expected by UI
   return NextResponse.json({
     success: true,
     status: "success",
     simulated: true,
+    _debug: debugInfo,
+    _isFallback: true,
     summary: {
       decision: "EXECUTE",
       confidence: 95,
