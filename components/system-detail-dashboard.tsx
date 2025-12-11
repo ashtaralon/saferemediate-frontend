@@ -113,7 +113,7 @@ const ENVIRONMENT_OPTIONS = [
 
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
   const [activeTab, setActiveTab] = useState("overview")
-  const [issues, setIssues] = useState<CriticalIssue[]>([])
+  const [issues, setIssues] = useState<CriticalIssue[]>(cachedIssues || [])
 
   // Initialize severityCounts with default values
   const [severityCounts, setSeverityCounts] = useState({
@@ -230,13 +230,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         const fallbackActual = 6
         const fallbackGap = 22
         
-        setGapAnalysis({
+        const gapData = {
           allowed: fallbackAllowed,
           actual: fallbackActual,
           gap: fallbackGap,
           gapPercent: Math.round((fallbackGap / fallbackAllowed) * 100),
           confidence: 99,
-        })
+        }
+        setGapAnalysis(gapData)
+        setCachedData('gap-analysis', gapData)
 
         // Use demo unused actions list
         const demoUnusedActions = [
@@ -285,14 +287,17 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
         }))
         setIssues(demoIssues)
+        setCachedData('issues', demoIssues)
       } else {
-        setGapAnalysis({
+        const gapData = {
           allowed,
           actual,
           gap,
           gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
           confidence,
-        })
+        }
+        setGapAnalysis(gapData)
+        setCachedData('gap-analysis', gapData)
 
         setUnusedActionsList(data.unused_actions_list || [])
 
@@ -394,8 +399,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         expanded: false,
         selected: false,
       }))
-      setIssues(highIssues)
-      setGapError(null)
+        setIssues(highIssues)
+        setCachedData('issues', highIssues)
+        setGapError(null)
     } finally {
       setLoadingGap(false)
     }
@@ -433,12 +439,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }
 
       const status = data.status === "running" ? "running" as const : data.status === "error" ? "error" as const : "stopped" as const
-      setAutoTagStatus({
+      const autoTagData = {
         status,
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
-      })
+      }
+      setAutoTagStatus(autoTagData)
+      setCachedData('auto-tag', autoTagData)
     } catch (error: any) {
       // Clear timeout if still active
       if (timeoutId) {
@@ -550,7 +558,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         // Keep gap-analysis issues (high-*) and remove old findings
         const gapIssues = prevIssues.filter(issue => issue.id.startsWith('high-'))
         const newFindings = findingsIssues.filter(f => !new Set(gapIssues.map(i => i.id)).has(f.id))
-        return [...gapIssues, ...newFindings]
+        const mergedIssues = [...gapIssues, ...newFindings]
+        setCachedData('issues', mergedIssues)
+        return mergedIssues
       })
 
       // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
