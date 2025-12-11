@@ -877,6 +877,3 @@ function LeastPrivilegePageWrapper() {
 }
 
 export default LeastPrivilegePageWrapper
-
-// Make sure this is exported correctly for Next.js
-LeastPrivilegePage.displayName = 'LeastPrivilegePage'
