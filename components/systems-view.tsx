@@ -72,13 +72,51 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  const fetchSystemsData = useCallback(async () => {
-    setIsScanning(true)
-    setIsLoadingData(true)
-    let unusedActions = 28
-
+  // Cache gap-analysis results with expiration (5 minutes)
+  const getCachedGapData = useCallback(() => {
+    if (typeof window === "undefined") return null
     try {
-      // Add timeout to prevent hanging (30s to allow proxy's 25s timeout to complete)
+      const cached = localStorage.getItem("gap-analysis-cache")
+      if (!cached) return null
+      const { data, timestamp } = JSON.parse(cached)
+      const age = Date.now() - timestamp
+      const maxAge = 5 * 60 * 1000 // 5 minutes
+      if (age < maxAge) {
+        console.log("[systems-view] Using cached gap-analysis data (age:", Math.round(age / 1000), "s)")
+        return data
+      }
+      // Cache expired, remove it
+      localStorage.removeItem("gap-analysis-cache")
+      return null
+    } catch (e) {
+      console.warn("[systems-view] Failed to read gap-analysis cache:", e)
+      return null
+    }
+  }, [])
+
+  const setCachedGapData = useCallback((data: { allowed: number; used: number; unused: number }) => {
+    if (typeof window === "undefined") return
+    try {
+      localStorage.setItem("gap-analysis-cache", JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }))
+    } catch (e) {
+      console.warn("[systems-view] Failed to cache gap-analysis data:", e)
+    }
+  }, [])
+
+  // Fetch gap-analysis in background (non-blocking)
+  const fetchGapAnalysisBackground = useCallback(async () => {
+    // Load cached data immediately if available
+    const cached = getCachedGapData()
+    if (cached) {
+      setGapData(cached)
+      console.log("[systems-view] Loaded gap-analysis from cache")
+    }
+
+    // Fetch fresh data in background (don't await - non-blocking)
+    try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
       
@@ -90,36 +128,51 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       
       if (gapRes.ok) {
         const gapJson = await gapRes.json()
-        unusedActions = gapJson.unused_actions ?? 0
-        setGapData({
+        const newData = {
           allowed: gapJson.allowed_actions ?? 0,
           used: gapJson.used_actions ?? 0,
-          unused: unusedActions,
-        })
+          unused: gapJson.unused_actions ?? 0,
+        }
+        setGapData(newData)
+        setCachedGapData(newData)
+        console.log("[systems-view] Updated gap-analysis data from backend")
       } else if (gapRes.status === 504 || gapRes.status === 503) {
-        // Gateway timeout or service unavailable - use fallback values
-        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, using fallback values`)
-        setGapData({ allowed: 28, used: 0, unused: 28 })
-        unusedActions = 28
+        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, keeping cached/fallback values`)
+        // Don't update - keep cached or fallback values
       } else {
-        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, using fallback values`)
-        setGapData({ allowed: 28, used: 0, unused: 28 })
-        unusedActions = 28
+        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, keeping cached/fallback values`)
       }
     } catch (gapErr: any) {
       // Handle timeout gracefully - don't block the UI
       if (gapErr.name === 'AbortError' || gapErr.message?.includes('timeout')) {
-        console.warn("[systems-view] Gap analysis request timed out, using fallback values")
+        console.warn("[systems-view] Gap analysis request timed out, keeping cached/fallback values")
       } else {
         console.warn("[systems-view] Gap analysis error:", gapErr.message)
       }
-      // Continue with default values - don't throw
-      if (gapErr.name === 'AbortError') {
-        console.warn("[systems-view] Gap analysis request timed out after 25s")
-      }
+      // Don't update - keep cached or fallback values
+    }
+  }, [getCachedGapData, setCachedGapData])
+
+  const fetchSystemsData = useCallback(async () => {
+    setIsScanning(true)
+    setIsLoadingData(true)
+    let unusedActions = 28
+
+    // Load cached gap data immediately (non-blocking)
+    const cachedGap = getCachedGapData()
+    if (cachedGap) {
+      setGapData(cachedGap)
+      unusedActions = cachedGap.unused
+    } else {
+      // No cache - use fallback
       setGapData({ allowed: 28, used: 0, unused: 28 })
       unusedActions = 28
     }
+
+    // Fetch fresh gap-analysis in background (non-blocking - don't await)
+    fetchGapAnalysisBackground().catch(() => {
+      // Silent fail - already using cached/fallback values
+    })
 
     try {
       // Add timeout to prevent hanging (25s to match Vercel function limit)
