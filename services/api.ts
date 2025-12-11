@@ -3,7 +3,7 @@
  * Handles all API calls to the backend
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
 
 export interface Finding {
   id: string

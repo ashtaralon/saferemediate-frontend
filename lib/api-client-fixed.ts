@@ -2,7 +2,7 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData } from "./data"
 
 // Backend URL - Direct to Render, no proxy
-const API_BASE = "https://saferemediate-backend.onrender.com"
+const API_BASE = "https://saferemediate-backend-f.onrender.com"
 const BACKEND_URL = API_BASE
 
 // ============================================================================
