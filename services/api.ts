@@ -199,7 +199,7 @@ class ApiService {
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000), // 5 second timeout
+        signal: AbortSignal.timeout(25000), // 25 second timeout (matches Vercel function limit)
       })
       return response.ok
     } catch {
