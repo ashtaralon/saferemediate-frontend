@@ -1265,26 +1265,64 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
                                 { method: "POST" }
                               )
-                              if (!response.ok) throw new Error("Simulation failed")
+                              if (!response.ok) {
+                                const errorData = await response.json().catch(() => ({}))
+                                throw new Error(errorData.detail || errorData.error || `Simulation failed: ${response.status} ${response.statusText}`)
+                              }
                               const result = await response.json()
                               
-                              if (result.snapshot_id) {
+                              // Handle new A4 patent simulation response format
+                              if (result.status === "success" && result.summary) {
+                                const decision = result.summary.decision?.toUpperCase() || "REVIEW"
+                                const confidence = result.summary.confidence || 0
+                                const affectedCount = result.summary.blastRadius?.affectedResources || 0
+                                
+                                // Show detailed simulation results
+                                const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`
+                                
+                                toast({
+                                  title: "Simulation Completed",
+                                  description: result.recommendation || message,
+                                  duration: 8000,
+                                })
+                                
+                                // Store simulation result for potential future use
+                                if (result.affectedResources && result.affectedResources.length > 0) {
+                                  console.log("Simulation affected resources:", result.affectedResources)
+                                }
+                                
+                                // TODO: Show detailed modal with:
+                                // - Status badge (EXECUTE/CANARY/REVIEW/BLOCK)
+                                // - Confidence score with visual indicator
+                                // - Affected resources table
+                                // - Evidence breakdown
+                                // - Recommendation text
+                                // - Action buttons (Proceed/Canary/Cancel)
+                              } else if (result.snapshot_id) {
+                                // Fallback for old format
                                 setLatestSnapshotByIssue((prev: any) => ({
                                   ...prev,
                                   [issue.id]: result.snapshot_id,
                                 }))
+                                toast({
+                                  title: "Simulation Completed",
+                                  description: `Snapshot created: ${result.snapshot_id}`,
+                                  duration: 5000,
+                                })
+                              } else {
+                                toast({
+                                  title: "Simulation Completed",
+                                  description: "Simulation finished. Check console for details.",
+                                  duration: 5000,
+                                })
                               }
-                              
-                              toast({
-                                title: "Simulation Completed",
-                                description: `Snapshot created: ${result.snapshot_id || 'N/A'}`,
-                                duration: 5000,
-                              })
                             } catch (err: any) {
+                              console.error("Simulation error:", err)
                               toast({
                                 title: "Simulation Failed",
-                                description: err.message || "Failed to run simulation",
+                                description: err.message || "Failed to run simulation. Backend may be unavailable.",
                                 variant: "destructive",
+                                duration: 8000,
                               })
                             } finally {
                               setSimulatingIssue(null)
