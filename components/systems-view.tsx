@@ -98,10 +98,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         })
       } else if (gapRes.status === 504 || gapRes.status === 503) {
         // Gateway timeout or service unavailable - use fallback values
-        console.warn("[systems-view] Gap analysis timed out or unavailable, using fallback values")
-        // Don't throw - continue with default values
+        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, using fallback values`)
+        setGapData({ allowed: 28, used: 0, unused: 28 })
+        unusedActions = 28
       } else {
         console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, using fallback values`)
+        setGapData({ allowed: 28, used: 0, unused: 28 })
+        unusedActions = 28
       }
     } catch (gapErr: any) {
       // Handle timeout gracefully - don't block the UI
