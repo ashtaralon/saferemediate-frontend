@@ -190,16 +190,23 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   // =============================================================================
   const fetchGapAnalysis = async () => {
+    const controller = new AbortController()
+    let timeoutId: NodeJS.Timeout | null = null
+    
     try {
-      // Use proxy route to avoid CORS issues with timeout (25s to match Vercel function limit)
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      // Use proxy route to avoid CORS issues with timeout (30s to allow proxy's 28s timeout)
+      timeoutId = setTimeout(() => {
+        controller.abort()
+      }, 30000)
       
       const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`, {
         signal: controller.signal,
       })
       
-      clearTimeout(timeoutId)
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -318,7 +325,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           })
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Clear timeout if still active
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      
+      // Handle AbortError gracefully (timeout or component unmount)
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.warn("[v0] Gap analysis request was cancelled (timeout or component unmounted)")
+        return // Don't log as error - this is expected behavior
+      }
+      
       console.error("[v0] Error fetching gap analysis:", error)
       // Use fallback demo data on error too
       const fallbackAllowed = 28
@@ -383,16 +402,23 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAutoTagStatus = async () => {
+    const controller = new AbortController()
+    let timeoutId: NodeJS.Timeout | null = null
+    
     try {
-      // Add timeout to prevent hanging (25s to match Vercel function limit)
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      // Add timeout to prevent hanging (30s to allow proxy's 28s timeout)
+      timeoutId = setTimeout(() => {
+        controller.abort()
+      }, 30000)
       
       const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`, {
         signal: controller.signal,
       })
       
-      clearTimeout(timeoutId)
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
       const data = await response.json()
 
       if (!response.ok || data.error) {
@@ -413,7 +439,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
       })
-    } catch (error) {
+    } catch (error: any) {
+      // Clear timeout if still active
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      
+      // Handle AbortError gracefully (timeout or component unmount)
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.warn("[v0] Auto-tag status request was cancelled (timeout or component unmounted)")
+        return // Don't log as error - this is expected behavior
+      }
+      
       console.error("[v0] Error fetching auto-tag status:", error)
       setAutoTagStatus({
         status: "stopped" as const,
@@ -468,15 +506,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const fetchFindings = async () => {
     try {
       // Don't set loadingGap here - it's managed by fetchGapAnalysis
-      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      // Add timeout to prevent hanging (30s to allow proxy's 28s timeout)
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
+        controller.abort()
+      }, 30000)
       
       const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`, {
         signal: controller.signal,
       })
       
-      clearTimeout(timeoutId)
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
       const data = await response.json()
       
       if (!response.ok || !data.success) {
@@ -527,7 +570,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         low: prev.low + counts.low,
         passing: prev.passing,
       }))
-    } catch (error) {
+    } catch (error: any) {
+      // Clear timeout if still active
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        timeoutId = null
+      }
+      
+      // Handle AbortError gracefully (timeout or component unmount)
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.warn("[v0] Findings request was cancelled (timeout or component unmounted)")
+        return // Don't log as error - this is expected behavior
+      }
+      
       console.error("[v0] Error fetching findings:", error)
     }
     // Don't set loadingGap(false) here - it's managed by fetchGapAnalysis
