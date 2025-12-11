@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSnapshotById, updateSnapshot, createRestoreOperation, updateRestoreOperation } from "@/lib/snapshot-store"
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend.onrender.com"
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
 const FETCH_TIMEOUT = 10000 // 10 second timeout
 
