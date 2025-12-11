@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense } from 'react'
-import dynamic from 'next/dynamic'
+import dynamicImport from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 
 // Force dynamic rendering - this page uses client-side hooks
@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 // Dynamically import the component to prevent SSR
-const IdentitiesView = dynamic(
+const IdentitiesView = dynamicImport(
   () => import('@/components/identities-view').then((mod) => ({ default: mod.IdentitiesView })),
   { 
     ssr: false,
