@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-const FETCH_TIMEOUT = 10000 // 10 second timeout
+const FETCH_TIMEOUT = 25000 // 25 second timeout (matches backend response time)
 
 // Helper function to fetch with timeout
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
@@ -75,7 +75,7 @@ export default function HomePage() {
     fetchWithTimeout(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
 
     // Fetch gap analysis via proxy route with timeout
-    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 5000)
+    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 25000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()

@@ -29,10 +29,9 @@ export async function GET(req: NextRequest) {
   // Map systemName to role name
   const roleName = getRoleName(systemName)
 
-  // CRITICAL: Very aggressive timeout to prevent Vercel 300s timeout
-  // If backend doesn't respond in 5 seconds, return default data immediately
+  // Timeout to prevent Vercel 30s limit - give backend time to respond
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout - very aggressive
+  const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
 
   try {
     // Try /api/traffic/gap/{roleName} first, fallback to /api/least-privilege
@@ -49,7 +48,7 @@ export async function GET(req: NextRequest) {
     // If 404, try the least-privilege endpoint which returns similar data
     if (!res.ok && res.status === 404) {
       const controller2 = new AbortController()
-      const timeoutId2 = setTimeout(() => controller2.abort(), 10000)
+      const timeoutId2 = setTimeout(() => controller2.abort(), 20000)
       try {
         res = await fetch(
           `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,
