@@ -115,19 +115,37 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       fetchWithTimeout("/api/proxy/graph-data", 5000).catch(() => null),
     ])
 
+    let issuesSummary: any = null
     let metrics: any = {}
     let nodes: any[] = []
 
-    // Handle metrics response
-    if (metricsResponse.status === 'fulfilled' && metricsResponse.value && metricsResponse.value.ok) {
+    // Handle unified issues summary response
+    if (issuesSummaryResponse.status === 'fulfilled' && issuesSummaryResponse.value && issuesSummaryResponse.value.ok) {
       try {
-        metrics = await metricsResponse.value.json()
-        console.log("[v0] Successfully loaded metrics from backend")
+        issuesSummary = await issuesSummaryResponse.value.json()
+        console.log("[v0] Successfully loaded unified issues summary:", {
+          total: issuesSummary.total,
+          cached: issuesSummary.cached,
+          by_source: issuesSummary.by_source
+        })
       } catch (e) {
-        console.warn("[v0] Failed to parse metrics:", e)
+        console.warn("[v0] Failed to parse issues summary:", e)
       }
     } else {
-      console.warn("[v0] Metrics endpoint failed or timed out")
+      console.warn("[v0] Issues summary endpoint failed or timed out, falling back to old metrics")
+    }
+    
+    // Fallback: try old dashboard-metrics if unified endpoint failed
+    if (!issuesSummary) {
+      try {
+        const metricsResponse = await fetchWithTimeout("/api/proxy/dashboard-metrics", 5000).catch(() => null)
+        if (metricsResponse && metricsResponse.ok) {
+          metrics = await metricsResponse.json()
+          console.log("[v0] Using fallback dashboard-metrics")
+        }
+      } catch (e) {
+        console.warn("[v0] Fallback metrics also failed:", e)
+      }
     }
 
     // Handle nodes response
@@ -144,8 +162,8 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       console.warn("[v0] Nodes endpoint failed or timed out")
     }
 
-    // If no nodes from backend, use fallback data
-    if (nodes.length === 0 && (!metricsResponse.value || !metricsResponse.value.ok)) {
+    // If no nodes from backend and no issues summary, use fallback data
+    if (nodes.length === 0 && !issuesSummary && Object.keys(metrics).length === 0) {
       console.warn("[v0] No data from backend, using fallback data")
       return infrastructureData
     }

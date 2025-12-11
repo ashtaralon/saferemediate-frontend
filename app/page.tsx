@@ -226,14 +226,15 @@ export default function HomePage() {
   }
 
   // Use unified issues summary if available (most stable)
+  const issuesSummary = data?.issuesSummary
   const hasUnifiedSummary = issuesSummary && issuesSummary.total > 0
   const hasBackendStats = backendStats.critical > 0 || backendStats.high > 0 || backendStats.medium > 0 || backendStats.low > 0
 
   const securityIssuesData = hasUnifiedSummary ? {
-    critical: issuesSummary.by_severity.critical || 0,
-    high: issuesSummary.by_severity.high || 0,
-    medium: issuesSummary.by_severity.medium || 0,
-    low: issuesSummary.by_severity.low || 0,
+    critical: issuesSummary.by_severity?.critical || 0,
+    high: issuesSummary.by_severity?.high || 0,
+    medium: issuesSummary.by_severity?.medium || 0,
+    low: issuesSummary.by_severity?.low || 0,
     totalIssues: issuesSummary.total,
     ...backendStats, // Keep other fields from backend
   } : (hasBackendStats ? backendStats : {
