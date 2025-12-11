@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect } from "react"
 import {
   ArrowLeft,
   Download,
@@ -112,54 +112,8 @@ const ENVIRONMENT_OPTIONS = [
 // =============================================================================
 
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
-  // Cache helpers - scoped to systemName
-  const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes
-  
-  const cacheKey = useCallback((key: string) => `system-dashboard-${systemName}-${key}`, [systemName])
-
-  const getCachedData = useCallback((key: string) => {
-    if (typeof window === "undefined") return null
-    try {
-      const cached = localStorage.getItem(cacheKey(key))
-      if (!cached) return null
-      const { data, timestamp } = JSON.parse(cached)
-      const age = Date.now() - timestamp
-      if (age < CACHE_EXPIRY) {
-        console.log(`[system-dashboard] Using cached ${key} (age: ${Math.round(age / 1000)}s)`)
-        return data
-      }
-      localStorage.removeItem(cacheKey(key))
-      return null
-    } catch (e) {
-      console.warn(`[system-dashboard] Failed to read cache for ${key}:`, e)
-      return null
-    }
-  }, [cacheKey])
-
-  const setCachedData = useCallback((key: string, data: any) => {
-    if (typeof window === "undefined") return
-    try {
-      localStorage.setItem(cacheKey(key), JSON.stringify({
-        data,
-        timestamp: Date.now()
-      }))
-    } catch (e) {
-      console.warn(`[system-dashboard] Failed to cache ${key}:`, e)
-    }
-  }, [cacheKey])
-
   const [activeTab, setActiveTab] = useState("overview")
-  // Use lazy initialization for cached data (only runs once on mount)
-  const [issues, setIssues] = useState<CriticalIssue[]>(() => {
-    if (typeof window !== "undefined") {
-      const cached = getCachedData('issues')
-      if (cached && cached.length > 0) {
-        console.log(`[system-dashboard] Loaded ${cached.length} issues from cache on mount`)
-        return cached
-      }
-    }
-    return []
-  })
+  const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // Initialize severityCounts with default values
   const [severityCounts, setSeverityCounts] = useState({
@@ -183,43 +137,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     confidence: 99,
   }
 
-  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(() => {
-    if (typeof window !== "undefined") {
-      const cached = getCachedData('gap-analysis')
-      if (cached) {
-        console.log(`[system-dashboard] Loaded gap-analysis from cache on mount`)
-        return cached
-      }
-    }
-    return fallbackGapData
-  })
-  const [loadingGap, setLoadingGap] = useState(() => {
-    if (typeof window !== "undefined") {
-      return !getCachedData('gap-analysis')
-    }
-    return true
-  })
+  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(fallbackGapData)
+  const [loadingGap, setLoadingGap] = useState(true)
   const [gapError, setGapError] = useState<string | null>(null)
-  const [loadingAutoTag, setLoadingAutoTag] = useState(() => {
-    if (typeof window !== "undefined") {
-      return !getCachedData('auto-tag')
-    }
-    return true
-  })
-  const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>(() => {
-    if (typeof window !== "undefined") {
-      const cached = getCachedData('auto-tag')
-      if (cached) {
-        console.log(`[system-dashboard] Loaded auto-tag status from cache on mount`)
-        return cached
-      }
-    }
-    return {
-      status: "stopped",
-      totalCycles: 0,
-      actualTrafficCaptured: 0,
-      lastSync: "Awaiting connection",
-    }
+  const [loadingAutoTag, setLoadingAutoTag] = useState(true)
+  const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>({
+    status: "stopped",
+    totalCycles: 0,
+    actualTrafficCaptured: 0,
+    lastSync: "Awaiting connection",
   })
   const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
 
@@ -251,10 +177,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const { toast } = useToast()
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
-
-  // Refs for tracking simulation state in interval (avoids stale closures)
-  const isSimulatingRef = useRef(false)
-  const isApplyingRef = useRef(false)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
   // Simulate modal state
@@ -264,23 +186,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   // =============================================================================
   const fetchGapAnalysis = async () => {
-    const controller = new AbortController()
-    let timeoutId: NodeJS.Timeout | null = null
-    
     try {
-      // Use proxy route to avoid CORS issues with timeout (30s to allow proxy's 28s timeout)
-      timeoutId = setTimeout(() => {
-        controller.abort()
-      }, 30000)
-      
-      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`, {
-        signal: controller.signal,
-      })
-      
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
+      // Use proxy route to avoid CORS issues
+      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -304,15 +212,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         const fallbackActual = 6
         const fallbackGap = 22
         
-        const gapData = {
+        setGapAnalysis({
           allowed: fallbackAllowed,
           actual: fallbackActual,
           gap: fallbackGap,
           gapPercent: Math.round((fallbackGap / fallbackAllowed) * 100),
           confidence: 99,
-        }
-        setGapAnalysis(gapData)
-        setCachedData('gap-analysis', gapData)
+        })
 
         // Use demo unused actions list
         const demoUnusedActions = [
@@ -361,17 +267,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
         }))
         setIssues(demoIssues)
-        setCachedData('issues', demoIssues)
       } else {
-        const gapData = {
+        setGapAnalysis({
           allowed,
           actual,
           gap,
           gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
           confidence,
-        }
-        setGapAnalysis(gapData)
-        setCachedData('gap-analysis', gapData)
+        })
 
         setUnusedActionsList(data.unused_actions_list || [])
 
@@ -396,37 +299,29 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             selected: false,
             temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
           }))
-          // Merge with existing issues (from fetchFindings) - avoid overwriting
-          setIssues((prevIssues) => {
-            const existingIds = new Set(prevIssues.map(i => i.id))
-            const newHighIssues = highIssues.filter(issue => !existingIds.has(issue.id))
-            return [...prevIssues.filter(issue => !issue.id.startsWith('high-')), ...newHighIssues]
-          })
+          setIssues(highIssues)
         }
       }
-    } catch (error: any) {
-      // Clear timeout if still active
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
+
+      // Populate issues array from unused permissions (HIGH severity findings)
+      if (unusedActionsList.length > 0) {
+        const highIssues: CriticalIssue[] = unusedActionsList.map((permission: string, index: number) => ({
+          id: `high-${index}-${permission}`,
+          title: `Unused IAM Permission: ${permission}`,
+          impact: "Increases attack surface and violates least privilege principle",
+          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
+          safeToFix: 95,
+          fixTime: "< 5 min",
+          temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with ${confidence}% confidence.`,
+          expanded: false,
+          selected: false,
+        }))
+        setIssues(highIssues)
+      } else {
+        setIssues([])
       }
-      
-      // Handle AbortError gracefully (timeout or component unmount)
-      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.log("[v0] Gap analysis request timed out - using cached/fallback data")
-        setLoadingGap(false)
-        return // Don't log as error - this is expected behavior
-      }
-      
-      // Handle HTTP 504 specifically (backend timeout - expected when backend is slow)
-      if (error.message?.includes('504') || error.message?.includes('Gateway Timeout')) {
-        console.log("[v0] Gap analysis backend timeout - using cached/fallback data")
-        setLoadingGap(false)
-        return // Expected when backend is slow, don't spam console
-      }
-      
-      // Only log unexpected errors
-      console.warn("[v0] Gap analysis fetch error:", error.message || error)
+    } catch (error) {
+      console.error("[v0] Error fetching gap analysis:", error)
       // Use fallback demo data on error too
       const fallbackAllowed = 28
       const fallbackActual = 6
@@ -482,32 +377,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         expanded: false,
         selected: false,
       }))
-        setIssues(highIssues)
-        setCachedData('issues', highIssues)
-        setGapError(null)
+      setIssues(highIssues)
+      setGapError(null)
     } finally {
       setLoadingGap(false)
     }
   }
 
   const fetchAutoTagStatus = async () => {
-    const controller = new AbortController()
-    let timeoutId: NodeJS.Timeout | null = null
-    
     try {
-      // Add timeout to prevent hanging (30s to allow proxy's 28s timeout)
-      timeoutId = setTimeout(() => {
-        controller.abort()
-      }, 30000)
-      
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`, {
-        signal: controller.signal,
-      })
-      
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
+      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
       const data = await response.json()
 
       if (!response.ok || data.error) {
@@ -522,27 +401,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }
 
       const status = data.status === "running" ? "running" as const : data.status === "error" ? "error" as const : "stopped" as const
-      const autoTagData = {
+      setAutoTagStatus({
         status,
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
-      }
-      setAutoTagStatus(autoTagData)
-      setCachedData('auto-tag', autoTagData)
-    } catch (error: any) {
-      // Clear timeout if still active
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-      
-      // Handle AbortError gracefully (timeout or component unmount)
-      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.warn("[v0] Auto-tag status request was cancelled (timeout or component unmounted)")
-        return // Don't log as error - this is expected behavior
-      }
-      
+      })
+    } catch (error) {
       console.error("[v0] Error fetching auto-tag status:", error)
       setAutoTagStatus({
         status: "stopped" as const,
@@ -594,118 +459,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setRemediatingPermission(null)
   }
 
-  const fetchFindings = async () => {
-    try {
-      // Don't set loadingGap here - it's managed by fetchGapAnalysis
-      // Add timeout to prevent hanging (30s to allow proxy's 28s timeout)
-      const controller = new AbortController()
-      let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
-        controller.abort()
-      }, 30000)
-      
-      const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`, {
-        signal: controller.signal,
-      })
-      
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-      const data = await response.json()
-      
-      if (!response.ok || !data.success) {
-        console.warn("[v0] Findings endpoint returned error, using gap-analysis only")
-        return
-      }
-
-      const findings = data.findings || []
-      console.log(`[v0] Fetched ${findings.length} findings from /api/findings`)
-      
-      // Convert findings to CriticalIssue format
-      const findingsIssues: CriticalIssue[] = findings.map((finding: any, index: number) => ({
-        id: finding.id || `finding-${index}`,
-        title: finding.title || finding.type || 'Security Finding',
-        impact: finding.description || 'Security issue detected',
-        affected: finding.resource || finding.resourceId || 'Unknown resource',
-        safeToFix: finding.confidence || 85,
-        fixTime: "5-10 minutes",
-        temporalAnalysis: finding.remediation || finding.recommendation || 'Review and remediate',
-        expanded: false,
-        selected: false,
-      }))
-
-      // Merge findings with gap-analysis issues (avoid duplicates by ID)
-      // Remove any existing findings from /api/findings (non-high-* IDs) and replace with new ones
-      setIssues((prevIssues) => {
-        const existingIds = new Set(findingsIssues.map(f => f.id))
-        // Keep gap-analysis issues (high-*) and remove old findings
-        const gapIssues = prevIssues.filter(issue => issue.id.startsWith('high-'))
-        const newFindings = findingsIssues.filter(f => !new Set(gapIssues.map(i => i.id)).has(f.id))
-        const mergedIssues = [...gapIssues, ...newFindings]
-        setCachedData('issues', mergedIssues)
-        return mergedIssues
-      })
-
-      // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
-      const counts = { critical: 0, high: 0, medium: 0, low: 0 }
-      findings.forEach((f: any) => {
-        const severity = (f.severity || 'medium').toLowerCase()
-        if (severity === 'critical') counts.critical++
-        else if (severity === 'high') counts.high++
-        else if (severity === 'medium') counts.medium++
-        else if (severity === 'low') counts.low++
-      })
-
-      setSeverityCounts((prev) => ({
-        critical: prev.critical + counts.critical,
-        high: prev.high + counts.high,
-        medium: prev.medium + counts.medium,
-        low: prev.low + counts.low,
-        passing: prev.passing,
-      }))
-    } catch (error: any) {
-      // Clear timeout if still active
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-      
-      // Handle AbortError gracefully (timeout or component unmount)
-      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.warn("[v0] Findings request was cancelled (timeout or component unmounted)")
-        return // Don't log as error - this is expected behavior
-      }
-      
-      console.error("[v0] Error fetching findings:", error)
-    }
-    // Don't set loadingGap(false) here - it's managed by fetchGapAnalysis
-  }
-
   const fetchAllData = async () => {
-    // ✅ FIX: Don't refresh if simulation is in progress (prevents interference)
-    if (simulatingIssue) {
-      console.log('[fetchAllData] Skipping refresh - simulation in progress')
-      return
-    }
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
+    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
   useEffect(() => {
-    // Fetch fresh data in background (cached data already loaded via useState lazy init)
+    // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds, but PAUSE during simulation to avoid interrupting UI
-    const interval = setInterval(() => {
-      // Skip refresh if simulation is in progress (using refs to avoid stale closures)
-      if (isSimulatingRef.current || isApplyingRef.current) {
-        console.log("[v0] Skipping auto-refresh during simulation/apply")
-        return
-      }
-      fetchAllData()
-    }, 30000)
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchAllData, 30000)
 
     return () => clearInterval(interval)
-  }, [systemName, simulatingIssue])  // ✅ Add simulatingIssue to dependencies
+  }, [systemName])
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
@@ -820,19 +586,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // OTHER HANDLERS
   // =============================================================================
   const toggleIssueExpanded = (id: string) => {
-    setIssues((prevIssues) => {
-      const updated = prevIssues.map((issue) => (issue.id === id ? { ...issue, expanded: !issue.expanded } : issue))
-      setCachedData('issues', updated)
-      return updated
-    })
+    setIssues(issues.map((issue) => (issue.id === id ? { ...issue, expanded: !issue.expanded } : issue)))
   }
 
   const toggleIssueSelected = (id: string) => {
-    setIssues((prevIssues) => {
-      const updated = prevIssues.map((issue) => (issue.id === id ? { ...issue, selected: !issue.selected } : issue))
-      setCachedData('issues', updated)
-      return updated
-    })
+    setIssues(issues.map((issue) => (issue.id === id ? { ...issue, selected: !issue.selected } : issue)))
   }
 
   const selectAllIssues = () => {
@@ -1453,149 +1211,36 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex border-t border-gray-200">
                         <button
                           onClick={async () => {
-                            // Defensive check for required values
-                            if (!systemName || !issue.id) {
-                              console.error("Missing systemName or issue.id:", { systemName, issueId: issue.id })
-                              toast({
-                                title: "Simulation Failed",
-                                description: "Missing required system or issue information",
-                                variant: "destructive",
-                              })
-                              return
-                            }
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
-                            isSimulatingRef.current = true // Set ref to pause auto-refresh
-
-                            // Create abort controller for timeout (30s to allow proxy's 25s backend timeout + fallback)
-                            const controller = new AbortController()
-                            const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
-
                             try {
-                              // Extract resource name from affected field (e.g., "arn:aws:iam::123:role/MyRole" -> "MyRole")
-                              let resourceName = issue.affected || ""
-                              if (resourceName.includes("/")) {
-                                resourceName = resourceName.split("/").pop() || resourceName
-                              }
-                              if (resourceName.includes(":role/")) {
-                                resourceName = resourceName.split(":role/").pop() || resourceName
-                              }
-
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    finding_id: issue.id,
-                                    system_name: systemName,
-                                    resource_name: resourceName,
-                                    resource_arn: issue.affected,
-                                    title: issue.title
-                                  }),
-                                  signal: controller.signal
-                                }
+                                { method: "POST" }
                               )
-
-                              clearTimeout(timeoutId)
-
-                              // Read response body once as text, then parse
-                              const responseText = await response.text()
-                              let result: any = {}
-
-                              try {
-                                result = JSON.parse(responseText)
-                              } catch (parseError) {
-                                console.error("Failed to parse simulation response:", responseText)
-                                throw new Error("Invalid response from simulation API")
-                              }
-
-                              if (!response.ok) {
-                                throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
-                              }
-
-                              // Handle new A4 patent simulation response format
-                              if (result.status === "success" && result.summary) {
-                                const decision = String(result.summary.decision || "REVIEW").toUpperCase()
-                                const confidence = Number(result.summary.confidence) || 0
-                                const affectedCount = Number(result.summary.blastRadius?.affectedResources) || 0
-
-                                // Store snapshot_id if present (needed for APPLY button)
-                                if (result.snapshot_id) {
-                                  setLatestSnapshotByIssue((prev: any) => ({
-                                    ...prev,
-                                    [issue.id]: result.snapshot_id,
-                                  }))
-                                }
-
-                                // Show detailed simulation results
-                                const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`
-
-                                toast({
-                                  title: "Simulation Completed",
-                                  description: result.recommendation || message,
-                                  duration: 8000,
-                                })
-
-                                // Store simulation result for potential future use
-                                if (result.affectedResources && result.affectedResources.length > 0) {
-                                  console.log("Simulation affected resources:", result.affectedResources)
-                                }
-                              } else if (result.snapshot_id) {
-                                // Fallback for old format
+                              if (!response.ok) throw new Error("Simulation failed")
+                              const result = await response.json()
+                              
+                              if (result.snapshot_id) {
                                 setLatestSnapshotByIssue((prev: any) => ({
                                   ...prev,
                                   [issue.id]: result.snapshot_id,
                                 }))
-                                toast({
-                                  title: "Simulation Completed",
-                                  description: `Snapshot created: ${result.snapshot_id}`,
-                                  duration: 5000,
-                                })
-                              } else if (result.success) {
-                                // Handle successful simulation with basic format
-                                toast({
-                                  title: "Simulation Completed",
-                                  description: result.recommendation || result.impact_summary || "Simulation finished successfully.",
-                                  duration: 5000,
-                                })
-                              } else {
-                                // Log the full response for debugging
-                                console.warn("[simulate] Unexpected response format:", result)
-                                toast({
-                                  title: "Simulation Completed",
-                                  description: result.recommendation || result.message || "Simulation finished. Check console for details.",
-                                  duration: 5000,
-                                })
                               }
-
-                              // Always stop loading, even if response format is unexpected
-                              setSimulatingIssue(null)
-                              isSimulatingRef.current = false
+                              
+                              toast({
+                                title: "Simulation Completed",
+                                description: `Snapshot created: ${result.snapshot_id || 'N/A'}`,
+                                duration: 5000,
+                              })
                             } catch (err: any) {
-                              // Always stop loading on error
-                              setSimulatingIssue(null)
-                              isSimulatingRef.current = false
-                              clearTimeout(timeoutId)
-                              console.error("Simulation error:", err)
-
-                              // Better error messages
-                              let errorMessage = "Failed to run simulation."
-                              if (err.name === "AbortError") {
-                                errorMessage = "Simulation timed out after 30 seconds. Please try again."
-                              } else if (err.message) {
-                                errorMessage = err.message
-                              }
-
                               toast({
                                 title: "Simulation Failed",
-                                description: errorMessage,
+                                description: err.message || "Failed to run simulation",
                                 variant: "destructive",
-                                duration: 8000,
                               })
                             } finally {
                               setSimulatingIssue(null)
-                              isSimulatingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={simulatingIssue === issue.id}
@@ -1624,7 +1269,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (!confirm("Are you sure you want to apply this remediation?")) return
                             
                             setApplyingIssue(issue.id)
-                            isApplyingRef.current = true // Set ref to pause auto-refresh
                             try {
                               const response = await fetch(
                                 `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
@@ -1646,7 +1290,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setApplyingIssue(null)
-                              isApplyingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}

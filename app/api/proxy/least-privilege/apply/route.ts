@@ -7,7 +7,10 @@ export const revalidate = 0
 
 const RAW_BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
+<<<<<<< HEAD
+=======
   process.env.BACKEND_API_URL ||
+>>>>>>> origin/main
   "https://saferemediate-backend-f.onrender.com"
 
 function getBackendBase() {
