@@ -27,18 +27,17 @@ export async function GET(req: NextRequest) {
 
     if (!res.ok) {
       console.error(`[proxy] Issues summary error: ${res.status} ${res.statusText}`)
-      return NextResponse.json(
-        {
-          error: "Backend error",
-          status: res.status,
-          total: 0,
-          by_severity: { critical: 0, high: 0, medium: 0, low: 0 },
-          by_source: { least_privilege: 0, gap_analysis: 0, findings: 0 },
-          issues: [],
-          cached: false,
-        },
-        { status: res.status }
-      )
+      // Return 200 with fallback data to prevent client crash
+      return NextResponse.json({
+        error: "Backend error",
+        backendStatus: res.status,
+        total: 0,
+        by_severity: { critical: 0, high: 0, medium: 0, low: 0 },
+        by_source: { least_privilege: 0, gap_analysis: 0, findings: 0 },
+        issues: [],
+        cached: false,
+        fallback: true,
+      })
     }
 
     const data = await res.json()
@@ -46,16 +45,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(data)
   } catch (error) {
     console.error("[proxy] Issues summary fetch error:", error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unknown error",
-        total: 0,
-        by_severity: { critical: 0, high: 0, medium: 0, low: 0 },
-        by_source: { least_privilege: 0, gap_analysis: 0, findings: 0 },
-        issues: [],
-        cached: false,
-      },
-      { status: 500 }
-    )
+    // Return 200 with fallback data to prevent client crash
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Unknown error",
+      total: 0,
+      by_severity: { critical: 0, high: 0, medium: 0, low: 0 },
+      by_source: { least_privilege: 0, gap_analysis: 0, findings: 0 },
+      issues: [],
+      cached: false,
+      fallback: true,
+    })
   }
 }

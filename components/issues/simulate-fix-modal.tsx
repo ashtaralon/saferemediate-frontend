@@ -59,7 +59,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   // Get API base URL
   // Backend URL - MUST be absolute, never relative
   const API_BASE = useMemo(() => 
-    process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com',
+    process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com',
     []
   )
   const API_URL = useMemo(() => 

@@ -1,7 +1,7 @@
 import type { SecurityFinding } from "./types"
 import { infrastructureData, demoSecurityFindings } from "./data"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 10000 // 10 second timeout
 const MAX_RETRIES = 3
 

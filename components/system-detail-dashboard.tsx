@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
   Download,
@@ -177,6 +177,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const { toast } = useToast()
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
+
+  // Refs for tracking simulation state in interval (avoids stale closures)
+  const isSimulatingRef = useRef(false)
+  const isApplyingRef = useRef(false)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
   // Simulate modal state
@@ -507,6 +511,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
+    // ✅ FIX: Don't refresh if simulation is in progress (prevents interference)
+    if (simulatingIssue) {
+      console.log('[fetchAllData] Skipping refresh - simulation in progress')
+      return
+    }
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
   }
 
@@ -514,11 +523,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
+    // Auto-refresh every 30 seconds, but PAUSE during simulation to avoid interrupting UI
+    const interval = setInterval(() => {
+      // Skip refresh if simulation is in progress (using refs to avoid stale closures)
+      if (isSimulatingRef.current || isApplyingRef.current) {
+        console.log("[v0] Skipping auto-refresh during simulation/apply")
+        return
+      }
+      fetchAllData()
+    }, 30000)
 
     return () => clearInterval(interval)
-  }, [systemName])
+  }, [systemName, simulatingIssue])  // ✅ Add simulatingIssue to dependencies
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
@@ -1258,32 +1274,69 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex border-t border-gray-200">
                         <button
                           onClick={async () => {
+                            // Defensive check for required values
+                            if (!systemName || !issue.id) {
+                              console.error("Missing systemName or issue.id:", { systemName, issueId: issue.id })
+                              toast({
+                                title: "Simulation Failed",
+                                description: "Missing required system or issue information",
+                                variant: "destructive",
+                              })
+                              return
+                            }
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
+                            isSimulatingRef.current = true // Set ref to pause auto-refresh
+
+                            // Create abort controller for timeout (30s to allow proxy's 25s backend timeout + fallback)
+                            const controller = new AbortController()
+                            const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
                             try {
+                              // Extract resource name from affected field (e.g., "arn:aws:iam::123:role/MyRole" -> "MyRole")
+                              let resourceName = issue.affected || ""
+                              if (resourceName.includes("/")) {
+                                resourceName = resourceName.split("/").pop() || resourceName
+                              }
+                              if (resourceName.includes(":role/")) {
+                                resourceName = resourceName.split(":role/").pop() || resourceName
+                              }
+
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                { method: "POST" }
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    finding_id: issue.id,
+                                    system_name: systemName,
+                                    resource_name: resourceName,
+                                    resource_arn: issue.affected,
+                                    title: issue.title
+                                  }),
+                                  signal: controller.signal
+                                }
                               )
-                              if (!response.ok) {
-                                const errorData = await response.json().catch(() => ({}))
-                                throw new Error(errorData.detail || errorData.error || `Simulation failed: ${response.status} ${response.statusText}`)
+
+                              clearTimeout(timeoutId)
+
+                              // Read response body once as text, then parse
+                              const responseText = await response.text()
+                              let result: any = {}
+
+                              try {
+                                result = JSON.parse(responseText)
+                              } catch (parseError) {
+                                console.error("Failed to parse simulation response:", responseText)
+                                throw new Error("Invalid response from simulation API")
                               }
-                              const result = await response.json()
-                              
+
+                              if (!response.ok) {
+                                throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
+                              }
+
                               // Handle new A4 patent simulation response format
                               if (result.status === "success" && result.summary) {
-                                const decision = result.summary.decision?.toUpperCase() || "REVIEW"
-                                const confidence = result.summary.confidence || 0
-                                const affectedCount = result.summary.blastRadius?.affectedResources || 0
-
-                                // Store snapshot_id if present (needed for APPLY button)
-                                if (result.snapshot_id) {
-                                  setLatestSnapshotByIssue((prev: any) => ({
-                                    ...prev,
-                                    [issue.id]: result.snapshot_id,
-                                  }))
-                                }
 
                                 // Show detailed simulation results
                                 const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`
@@ -1298,14 +1351,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 if (result.affectedResources && result.affectedResources.length > 0) {
                                   console.log("Simulation affected resources:", result.affectedResources)
                                 }
-
-                                // TODO: Show detailed modal with:
-                                // - Status badge (EXECUTE/CANARY/REVIEW/BLOCK)
-                                // - Confidence score with visual indicator
-                                // - Affected resources table
-                                // - Evidence breakdown
-                                // - Recommendation text
-                                // - Action buttons (Proceed/Canary/Cancel)
                               } else if (result.snapshot_id) {
                                 // Fallback for old format
                                 setLatestSnapshotByIssue((prev: any) => ({
@@ -1317,6 +1362,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                   description: `Snapshot created: ${result.snapshot_id}`,
                                   duration: 5000,
                                 })
+                              } else if (result.success) {
+                                // Handle successful simulation with basic format
+                                toast({
+                                  title: "Simulation Completed",
+                                  description: result.recommendation || result.impact_summary || "Simulation finished successfully.",
+                                  duration: 5000,
+                                })
                               } else {
                                 toast({
                                   title: "Simulation Completed",
@@ -1325,15 +1377,26 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 })
                               }
                             } catch (err: any) {
+                              clearTimeout(timeoutId)
                               console.error("Simulation error:", err)
+
+                              // Better error messages
+                              let errorMessage = "Failed to run simulation."
+                              if (err.name === "AbortError") {
+                                errorMessage = "Simulation timed out after 30 seconds. Please try again."
+                              } else if (err.message) {
+                                errorMessage = err.message
+                              }
+
                               toast({
                                 title: "Simulation Failed",
-                                description: err.message || "Failed to run simulation. Backend may be unavailable.",
+                                description: errorMessage,
                                 variant: "destructive",
                                 duration: 8000,
                               })
                             } finally {
                               setSimulatingIssue(null)
+                              isSimulatingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={simulatingIssue === issue.id}
@@ -1362,6 +1425,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (!confirm("Are you sure you want to apply this remediation?")) return
                             
                             setApplyingIssue(issue.id)
+                            isApplyingRef.current = true // Set ref to pause auto-refresh
                             try {
                               const response = await fetch(
                                 `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
@@ -1383,6 +1447,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setApplyingIssue(null)
+                              isApplyingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
