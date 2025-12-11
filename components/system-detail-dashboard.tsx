@@ -375,7 +375,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         expanded: false,
         selected: false,
       }))
-      setIssues(highIssues)
+      // ✅ FIX: Merge fallback issues instead of replacing - keeps existing issues intact
+      setIssues((prevIssues) => {
+        // If we already have issues, don't replace them with fallback
+        if (prevIssues.length > 0) {
+          console.log("[v0] Keeping existing issues on gap-analysis error")
+          return prevIssues
+        }
+        // Only use fallback if we have no issues at all
+        return highIssues
+      })
       setGapError(null)
     } finally {
       setLoadingGap(false)
@@ -534,9 +543,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
-    // ✅ FIX: Don't refresh if simulation is in progress (prevents interference)
-    if (simulatingIssue) {
-      console.log('[fetchAllData] Skipping refresh - simulation in progress')
+    // ✅ FIX: Use refs to check simulation state (avoids stale closure issues)
+    if (isSimulatingRef.current || isApplyingRef.current) {
+      console.log('[fetchAllData] Skipping refresh - simulation/apply in progress')
       return
     }
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
@@ -557,7 +566,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [systemName, simulatingIssue])  // ✅ Add simulatingIssue to dependencies
+  }, [systemName])  // ✅ REMOVED simulatingIssue - use refs instead to avoid triggering refresh on simulation end
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
