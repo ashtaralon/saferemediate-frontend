@@ -861,7 +861,7 @@ function LeastPrivilegeContent() {
   )
 }
 
-export default function LeastPrivilegePage() {
+function LeastPrivilegePageWrapper() {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-[600px]">
@@ -875,6 +875,8 @@ export default function LeastPrivilegePage() {
     </Suspense>
   )
 }
+
+export default LeastPrivilegePageWrapper
 
 // Make sure this is exported correctly for Next.js
 LeastPrivilegePage.displayName = 'LeastPrivilegePage'
