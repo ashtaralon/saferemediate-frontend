@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
   Download,
@@ -177,6 +177,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const { toast } = useToast()
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
+
+  // Refs to track simulation/apply state without triggering re-renders
+  // Used by fetchAllData to avoid refreshing during simulation
+  const isSimulatingRef = useRef(false)
+  const isApplyingRef = useRef(false)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
   // Simulate modal state
@@ -303,23 +308,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         }
       }
 
-      // Populate issues array from unused permissions (HIGH severity findings)
-      if (unusedActionsList.length > 0) {
-        const highIssues: CriticalIssue[] = unusedActionsList.map((permission: string, index: number) => ({
-          id: `high-${index}-${permission}`,
-          title: `Unused IAM Permission: ${permission}`,
-          impact: "Increases attack surface and violates least privilege principle",
-          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
-          safeToFix: 95,
-          fixTime: "< 5 min",
-          temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with ${confidence}% confidence.`,
-          expanded: false,
-          selected: false,
-        }))
-        setIssues(highIssues)
-      } else {
-        setIssues([])
-      }
+      // Note: Issues are already set above from the API response (lines 289-302)
+      // Do NOT check unusedActionsList here - it's stale state that would clear issues
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       // Use fallback demo data on error too
@@ -1378,6 +1368,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (!confirm("Are you sure you want to apply this remediation?")) return
                             
                             setApplyingIssue(issue.id)
+                            isApplyingRef.current = true  // Pause auto-refresh during apply
                             try {
                               const response = await fetch(
                                 `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
@@ -1399,6 +1390,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setApplyingIssue(null)
+                              isApplyingRef.current = false  // Resume auto-refresh
                             }
                           }}
                           disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
