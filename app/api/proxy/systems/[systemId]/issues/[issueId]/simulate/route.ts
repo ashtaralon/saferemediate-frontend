@@ -10,12 +10,18 @@ export async function POST(
   // Get params from URL path
   let systemId = params.systemId
   let issueId = params.issueId
+  let resourceName = ""
+  let resourceArn = ""
+  let title = ""
 
   // Also try to get from request body (more reliable)
   try {
     const body = await request.json().catch(() => ({}))
     if (body.system_name) systemId = body.system_name
     if (body.finding_id) issueId = body.finding_id
+    if (body.resource_name) resourceName = body.resource_name
+    if (body.resource_arn) resourceArn = body.resource_arn
+    if (body.title) title = body.title
   } catch (e) {
     // Ignore body parsing errors
   }
@@ -29,14 +35,14 @@ export async function POST(
     )
   }
 
-  console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}`)
+  console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}, resource: ${resourceName || 'unknown'}`)
 
   try {
     // Use abort controller for 10 second timeout (Vercel has 30s limit)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-    // Use the general /api/simulate endpoint with finding_id in body
+    // Use the general /api/simulate endpoint with all context
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
       headers: {
@@ -45,6 +51,9 @@ export async function POST(
       body: JSON.stringify({
         finding_id: issueId,
         system_name: systemId,
+        resource_name: resourceName,
+        resource_arn: resourceArn,
+        title: title,
       }),
       cache: "no-store",
       signal: controller.signal,

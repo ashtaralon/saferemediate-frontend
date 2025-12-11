@@ -1276,12 +1276,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
 
                             try {
+                              // Extract resource name from affected field (e.g., "arn:aws:iam::123:role/MyRole" -> "MyRole")
+                              let resourceName = issue.affected || ""
+                              if (resourceName.includes("/")) {
+                                resourceName = resourceName.split("/").pop() || resourceName
+                              }
+                              if (resourceName.includes(":role/")) {
+                                resourceName = resourceName.split(":role/").pop() || resourceName
+                              }
+
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
                                 {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ finding_id: issue.id, system_name: systemName }),
+                                  body: JSON.stringify({
+                                    finding_id: issue.id,
+                                    system_name: systemName,
+                                    resource_name: resourceName,
+                                    resource_arn: issue.affected,
+                                    title: issue.title
+                                  }),
                                   signal: controller.signal
                                 }
                               )
