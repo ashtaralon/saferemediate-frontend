@@ -4,7 +4,7 @@ import { getSnapshots, seedInitialSnapshots } from "@/lib/snapshot-store"
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
-const FETCH_TIMEOUT = 5000 // 5 second timeout
+const FETCH_TIMEOUT = 25000 // 25 second timeout (matches Vercel function limit)
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController()
