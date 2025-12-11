@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
   Download,
@@ -177,6 +177,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const { toast } = useToast()
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
+
+  // Refs for tracking simulation state in interval (avoids stale closures)
+  const isSimulatingRef = useRef(false)
+  const isApplyingRef = useRef(false)
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
   // Simulate modal state
@@ -514,8 +518,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
+    // Auto-refresh every 30 seconds, but PAUSE during simulation to avoid interrupting UI
+    const interval = setInterval(() => {
+      // Skip refresh if simulation is in progress (using refs to avoid stale closures)
+      if (isSimulatingRef.current || isApplyingRef.current) {
+        console.log("[v0] Skipping auto-refresh during simulation/apply")
+        return
+      }
+      fetchAllData()
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [systemName])
@@ -1270,6 +1281,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             }
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
+                            isSimulatingRef.current = true // Set ref to pause auto-refresh
 
                             // Create abort controller for timeout (30s to allow proxy's 25s backend timeout + fallback)
                             const controller = new AbortController()
@@ -1382,6 +1394,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setSimulatingIssue(null)
+                              isSimulatingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={simulatingIssue === issue.id}
@@ -1410,6 +1423,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (!confirm("Are you sure you want to apply this remediation?")) return
                             
                             setApplyingIssue(issue.id)
+                            isApplyingRef.current = true // Set ref to pause auto-refresh
                             try {
                               const response = await fetch(
                                 `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
@@ -1431,6 +1445,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setApplyingIssue(null)
+                              isApplyingRef.current = false // Reset ref to resume auto-refresh
                             }
                           }}
                           disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
