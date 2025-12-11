@@ -1276,21 +1276,29 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 const decision = result.summary.decision?.toUpperCase() || "REVIEW"
                                 const confidence = result.summary.confidence || 0
                                 const affectedCount = result.summary.blastRadius?.affectedResources || 0
-                                
+
+                                // Store snapshot_id if present (needed for APPLY button)
+                                if (result.snapshot_id) {
+                                  setLatestSnapshotByIssue((prev: any) => ({
+                                    ...prev,
+                                    [issue.id]: result.snapshot_id,
+                                  }))
+                                }
+
                                 // Show detailed simulation results
                                 const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`
-                                
+
                                 toast({
                                   title: "Simulation Completed",
                                   description: result.recommendation || message,
                                   duration: 8000,
                                 })
-                                
+
                                 // Store simulation result for potential future use
                                 if (result.affectedResources && result.affectedResources.length > 0) {
                                   console.log("Simulation affected resources:", result.affectedResources)
                                 }
-                                
+
                                 // TODO: Show detailed modal with:
                                 // - Status badge (EXECUTE/CANARY/REVIEW/BLOCK)
                                 // - Confidence score with visual indicator
