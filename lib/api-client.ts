@@ -2,7 +2,7 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData, demoSecurityFindings } from "./data"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-const FETCH_TIMEOUT = 25000 // 25 second timeout (safe for Vercel 30s limit)
+const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 const MAX_RETRIES = 3
 
 // Helper function to fetch with retry and exponential backoff
@@ -110,9 +110,10 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     }
 
     // Use unified issues endpoint for stable counts
+    // Client timeout must be longer than proxy timeout (28s) to allow proxy to complete
     const [issuesSummaryResponse, nodesResponse] = await Promise.allSettled([
-      fetchWithTimeout("/api/proxy/issues-summary", 25000).catch(() => null), // 25s timeout for aggregation
-      fetchWithTimeout("/api/proxy/graph-data", 25000).catch(() => null),
+      fetchWithTimeout("/api/proxy/issues-summary", 30000).catch(() => null), // 30s timeout (proxy has 28s)
+      fetchWithTimeout("/api/proxy/graph-data", 30000).catch(() => null), // 30s timeout (proxy has 28s)
     ])
 
     let issuesSummary: any = null
@@ -138,7 +139,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     // Fallback: try old dashboard-metrics if unified endpoint failed
     if (!issuesSummary) {
       try {
-        const metricsResponse = await fetchWithTimeout("/api/proxy/dashboard-metrics", 25000).catch(() => null)
+        const metricsResponse = await fetchWithTimeout("/api/proxy/dashboard-metrics", 30000).catch(() => null) // 30s timeout (proxy has 28s)
         if (metricsResponse && metricsResponse.ok) {
           metrics = await metricsResponse.json()
           console.log("[v0] Using fallback dashboard-metrics")

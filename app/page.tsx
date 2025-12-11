@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-const FETCH_TIMEOUT = 25000 // 25 second timeout (safe for Vercel 30s limit)
+const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
 // Helper function to fetch with timeout
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
@@ -74,8 +74,8 @@ export default function HomePage() {
     // Trigger traffic ingestion (non-blocking)
     fetchWithTimeout(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
 
-    // Fetch gap analysis via proxy route with timeout (25s to match Vercel function limit)
-    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 25000)
+    // Fetch gap analysis via proxy route with timeout (30s to allow proxy's 28s timeout to complete)
+    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 30000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -110,11 +110,11 @@ export default function HomePage() {
   }, [])
 
   const loadData = useCallback(async () => {
-    // Set timeout to prevent infinite loading - matches proxy timeout (25s) + buffer
+    // Set timeout to prevent infinite loading - must be longer than proxy timeouts (28s) + client timeouts (30s)
     const timeoutId = setTimeout(() => {
       console.warn("Data loading timeout - forcing loading to false")
       setLoading(false)
-    }, 28000) // 28 seconds timeout to allow for slow backend (safe under Vercel 30s limit)
+    }, 35000) // 35 seconds timeout to allow proxy (28s) + client (30s) to complete
 
     try {
       const [infrastructureData, findings] = await Promise.allSettled([
