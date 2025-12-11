@@ -1271,9 +1271,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
 
-                            // Create abort controller for timeout
+                            // Create abort controller for timeout (30s to allow proxy's 25s backend timeout + fallback)
                             const controller = new AbortController()
-                            const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+                            const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
 
                             try {
                               // Extract resource name from affected field (e.g., "arn:aws:iam::123:role/MyRole" -> "MyRole")
@@ -1369,7 +1369,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               // Better error messages
                               let errorMessage = "Failed to run simulation."
                               if (err.name === "AbortError") {
-                                errorMessage = "Simulation timed out after 15 seconds. Please try again."
+                                errorMessage = "Simulation timed out after 30 seconds. Please try again."
                               } else if (err.message) {
                                 errorMessage = err.message
                               }
