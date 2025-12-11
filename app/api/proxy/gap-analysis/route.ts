@@ -27,8 +27,9 @@ export async function GET(req: NextRequest) {
   const systemName = url.searchParams.get("systemName") ?? "alon-prod"
   const roleName = getRoleName(systemName)
 
+  // Timeout to prevent Vercel 30s limit - give backend time to respond
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout (5s buffer before Vercel 30s limit)
+  const timeoutId = setTimeout(() => controller.abort(), 28000) // 28 second timeout (safe for Vercel 30s limit)
 
   try {
     // Try /api/traffic/gap/{roleName} first
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
     // If 404, try the least-privilege endpoint
     if (!res.ok && res.status === 404) {
       const controller2 = new AbortController()
-      const timeoutId2 = setTimeout(() => controller2.abort(), 25000) // 25 second timeout (5s buffer before Vercel 30s limit)
+      const timeoutId2 = setTimeout(() => controller2.abort(), 25000) // 25s for fallback endpoint
       try {
         res = await fetch(
           `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,
