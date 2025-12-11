@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
+export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
+export const maxDuration = 30 // Maximum execution time in seconds (Vercel Pro tier)
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
@@ -21,8 +23,8 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": "application/json",
       },
-      // Increased timeout for aggregation
-      signal: AbortSignal.timeout(30000), // 30 seconds
+      // Increased timeout for aggregation (safe under Vercel 30s limit)
+      signal: AbortSignal.timeout(28000), // 28 seconds
     })
 
     if (!res.ok) {

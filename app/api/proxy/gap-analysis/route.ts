@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// Use Edge Runtime - runs globally, closer to backend
-export const runtime = 'edge'
+// Use Node.js runtime for longer timeout (60s on Pro, 10s on Hobby)
+// Edge Runtime has 30s limit which is too short for slow backend queries
+export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
+export const maxDuration = 30 // Maximum execution time in seconds (Vercel Pro tier)
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
