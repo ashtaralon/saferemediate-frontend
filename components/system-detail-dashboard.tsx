@@ -1258,12 +1258,26 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <div className="flex border-t border-gray-200">
                         <button
                           onClick={async () => {
+                            // Defensive check for required values
+                            if (!systemName || !issue.id) {
+                              console.error("Missing systemName or issue.id:", { systemName, issueId: issue.id })
+                              toast({
+                                title: "Simulation Failed",
+                                description: "Missing required system or issue information",
+                                variant: "destructive",
+                              })
+                              return
+                            }
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
                             try {
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                { method: "POST" }
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ finding_id: issue.id, system_name: systemName })
+                                }
                               )
                               if (!response.ok) {
                                 const errorData = await response.json().catch(() => ({}))
