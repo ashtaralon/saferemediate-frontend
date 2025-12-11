@@ -112,11 +112,12 @@ const ENVIRONMENT_OPTIONS = [
 // =============================================================================
 
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
-  // Cache helpers - must be defined before useState that uses them
-  const cacheKey = (key: string) => `system-dashboard-${systemName}-${key}`
+  // Cache helpers - scoped to systemName
   const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes
+  
+  const cacheKey = useCallback((key: string) => `system-dashboard-${systemName}-${key}`, [systemName])
 
-  const getCachedData = (key: string) => {
+  const getCachedData = useCallback((key: string) => {
     if (typeof window === "undefined") return null
     try {
       const cached = localStorage.getItem(cacheKey(key))
@@ -133,9 +134,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       console.warn(`[system-dashboard] Failed to read cache for ${key}:`, e)
       return null
     }
-  }
+  }, [cacheKey])
 
-  const setCachedData = (key: string, data: any) => {
+  const setCachedData = useCallback((key: string, data: any) => {
     if (typeof window === "undefined") return
     try {
       localStorage.setItem(cacheKey(key), JSON.stringify({
@@ -145,15 +146,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     } catch (e) {
       console.warn(`[system-dashboard] Failed to cache ${key}:`, e)
     }
-  }
-
-  // Load cached data on mount
-  const cachedGapAnalysis = getCachedData('gap-analysis')
-  const cachedIssues = getCachedData('issues')
-  const cachedAutoTag = getCachedData('auto-tag')
+  }, [cacheKey])
 
   const [activeTab, setActiveTab] = useState("overview")
-  const [issues, setIssues] = useState<CriticalIssue[]>(cachedIssues || [])
+  // Use lazy initialization for cached data (only runs once on mount)
+  const [issues, setIssues] = useState<CriticalIssue[]>(() => {
+    if (typeof window !== "undefined") {
+      const cached = getCachedData('issues')
+      if (cached && cached.length > 0) {
+        console.log(`[system-dashboard] Loaded ${cached.length} issues from cache on mount`)
+        return cached
+      }
+    }
+    return []
+  })
 
   // Initialize severityCounts with default values
   const [severityCounts, setSeverityCounts] = useState({
