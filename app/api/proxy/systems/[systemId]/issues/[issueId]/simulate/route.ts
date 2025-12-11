@@ -32,6 +32,10 @@ export async function POST(
   console.log(`[proxy] Simulating issue: ${issueId} for system: ${systemId}`)
 
   try {
+    // Use abort controller for 10 second timeout (Vercel has 30s limit)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000)
+
     // Use the general /api/simulate endpoint with finding_id in body
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: "POST",
@@ -43,12 +47,17 @@ export async function POST(
         system_name: systemId,
       }),
       cache: "no-store",
+      signal: controller.signal,
     })
+
+    clearTimeout(timeoutId)
 
     if (res.ok) {
       const data = await res.json()
+      console.log(`[proxy] Simulation successful for ${issueId}`)
       return NextResponse.json({
         success: true,
+        status: "success",
         ...data,
       })
     }
@@ -56,7 +65,8 @@ export async function POST(
     // If backend returns error, log it and return fallback
     console.warn(`[proxy] Backend simulate returned ${res.status}, using fallback`)
   } catch (error: any) {
-    console.error("[proxy] simulate error:", error.message)
+    const errorMsg = error.name === "AbortError" ? "Request timed out after 10s" : error.message
+    console.error("[proxy] simulate error:", errorMsg)
   }
 
   // Fallback: return simulated response matching A4 patent format expected by UI

@@ -1270,48 +1270,58 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             }
                             if (simulatingIssue === issue.id) return
                             setSimulatingIssue(issue.id)
+
+                            // Create abort controller for timeout
+                            const controller = new AbortController()
+                            const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+
                             try {
                               const response = await fetch(
                                 `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
                                 {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ finding_id: issue.id, system_name: systemName })
+                                  body: JSON.stringify({ finding_id: issue.id, system_name: systemName }),
+                                  signal: controller.signal
                                 }
                               )
-                              if (!response.ok) {
-                                const errorData = await response.json().catch(() => ({}))
-                                throw new Error(errorData.detail || errorData.error || `Simulation failed: ${response.status} ${response.statusText}`)
+
+                              clearTimeout(timeoutId)
+
+                              // Read response body once as text, then parse
+                              const responseText = await response.text()
+                              let result: any = {}
+
+                              try {
+                                result = JSON.parse(responseText)
+                              } catch (parseError) {
+                                console.error("Failed to parse simulation response:", responseText)
+                                throw new Error("Invalid response from simulation API")
                               }
-                              const result = await response.json()
-                              
+
+                              if (!response.ok) {
+                                throw new Error(result.detail || result.error || `Simulation failed: ${response.status}`)
+                              }
+
                               // Handle new A4 patent simulation response format
                               if (result.status === "success" && result.summary) {
-                                const decision = result.summary.decision?.toUpperCase() || "REVIEW"
-                                const confidence = result.summary.confidence || 0
-                                const affectedCount = result.summary.blastRadius?.affectedResources || 0
-                                
+                                const decision = String(result.summary.decision || "REVIEW").toUpperCase()
+                                const confidence = Number(result.summary.confidence) || 0
+                                const affectedCount = Number(result.summary.blastRadius?.affectedResources) || 0
+
                                 // Show detailed simulation results
                                 const message = `Status: ${decision} | Confidence: ${confidence}% | Affected Resources: ${affectedCount}`
-                                
+
                                 toast({
                                   title: "Simulation Completed",
                                   description: result.recommendation || message,
                                   duration: 8000,
                                 })
-                                
+
                                 // Store simulation result for potential future use
                                 if (result.affectedResources && result.affectedResources.length > 0) {
                                   console.log("Simulation affected resources:", result.affectedResources)
                                 }
-                                
-                                // TODO: Show detailed modal with:
-                                // - Status badge (EXECUTE/CANARY/REVIEW/BLOCK)
-                                // - Confidence score with visual indicator
-                                // - Affected resources table
-                                // - Evidence breakdown
-                                // - Recommendation text
-                                // - Action buttons (Proceed/Canary/Cancel)
                               } else if (result.snapshot_id) {
                                 // Fallback for old format
                                 setLatestSnapshotByIssue((prev: any) => ({
@@ -1323,6 +1333,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                   description: `Snapshot created: ${result.snapshot_id}`,
                                   duration: 5000,
                                 })
+                              } else if (result.success) {
+                                // Handle successful simulation with basic format
+                                toast({
+                                  title: "Simulation Completed",
+                                  description: result.recommendation || result.impact_summary || "Simulation finished successfully.",
+                                  duration: 5000,
+                                })
                               } else {
                                 toast({
                                   title: "Simulation Completed",
@@ -1331,10 +1348,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 })
                               }
                             } catch (err: any) {
+                              clearTimeout(timeoutId)
                               console.error("Simulation error:", err)
+
+                              // Better error messages
+                              let errorMessage = "Failed to run simulation."
+                              if (err.name === "AbortError") {
+                                errorMessage = "Simulation timed out after 15 seconds. Please try again."
+                              } else if (err.message) {
+                                errorMessage = err.message
+                              }
+
                               toast({
                                 title: "Simulation Failed",
-                                description: err.message || "Failed to run simulation. Backend may be unavailable.",
+                                description: errorMessage,
                                 variant: "destructive",
                                 duration: 8000,
                               })
