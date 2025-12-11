@@ -2,7 +2,7 @@ import type { SecurityFinding } from "./types"
 import { infrastructureData, demoSecurityFindings } from "./data"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-const FETCH_TIMEOUT = 10000 // 10 second timeout
+const FETCH_TIMEOUT = 25000 // 25 second timeout (safe for Vercel 30s limit)
 const MAX_RETRIES = 3
 
 // Helper function to fetch with retry and exponential backoff
@@ -97,7 +97,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
     // Fetch dashboard metrics and graph nodes in parallel via proxy routes
     // Use Promise.race with timeout to prevent hanging
-    const fetchWithTimeout = (url: string, timeout: number = 5000) => {
+    const fetchWithTimeout = (url: string, timeout: number = 25000) => {
       return Promise.race([
         fetch(url, {
           cache: "no-store",
@@ -111,7 +111,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
 
     // Use unified issues endpoint for stable counts
     const [issuesSummaryResponse, nodesResponse] = await Promise.allSettled([
-      fetchWithTimeout("/api/proxy/issues-summary", 10000).catch(() => null), // 10s timeout for aggregation
+      fetchWithTimeout("/api/proxy/issues-summary", 25000).catch(() => null), // 25s timeout for aggregation
       fetchWithTimeout("/api/proxy/graph-data", 25000).catch(() => null),
     ])
 

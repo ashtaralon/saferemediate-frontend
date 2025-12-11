@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-const FETCH_TIMEOUT = 10000 // 10 second timeout
+const FETCH_TIMEOUT = 25000 // 25 second timeout (safe for Vercel 30s limit)
 
 // Helper function to fetch with timeout
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT): Promise<Response> {
@@ -110,11 +110,11 @@ export default function HomePage() {
   }, [])
 
   const loadData = useCallback(async () => {
-    // Set timeout to prevent infinite loading - matches proxy timeout (15s) + buffer
+    // Set timeout to prevent infinite loading - matches proxy timeout (25s) + buffer
     const timeoutId = setTimeout(() => {
       console.warn("Data loading timeout - forcing loading to false")
       setLoading(false)
-    }, 20000) // 20 seconds timeout to allow for slow backend
+    }, 28000) // 28 seconds timeout to allow for slow backend (safe under Vercel 30s limit)
 
     try {
       const [infrastructureData, findings] = await Promise.allSettled([

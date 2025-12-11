@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 // Edge Runtime has 30s limit which is too short for slow backend queries
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
+export const maxDuration = 30 // Maximum execution time in seconds (Vercel Pro tier)
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   const roleName = getRoleName(systemName)
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 28000) // 28 second timeout (safe under Vercel 30s limit)
 
   try {
     // Try /api/traffic/gap/{roleName} first
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
     // If 404, try the least-privilege endpoint
     if (!res.ok && res.status === 404) {
       const controller2 = new AbortController()
-      const timeoutId2 = setTimeout(() => controller2.abort(), 30000)
+      const timeoutId2 = setTimeout(() => controller2.abort(), 28000) // 28 second timeout (safe under Vercel 30s limit)
       try {
         res = await fetch(
           `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,

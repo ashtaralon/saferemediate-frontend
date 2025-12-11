@@ -4,15 +4,16 @@ import { NextResponse } from "next/server"
 // Use Node.js runtime for longer timeout
 export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
+export const maxDuration = 30 // Maximum execution time in seconds (Vercel Pro tier)
 
 export async function GET() {
   // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
   try {
-    // Add timeout to prevent hanging - increased to 15 seconds for slow backend
+    // Add timeout to prevent hanging - increased to 28 seconds for slow backend (safe under Vercel 30s limit)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    const timeoutId = setTimeout(() => controller.abort(), 28000)
 
     // Fetch nodes and edges in parallel
     const [nodesResponse, edgesResponse] = await Promise.all([
