@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   const roleName = getRoleName(systemName)
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 28000) // 28 second timeout (safe under Vercel 30s limit)
+  const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout (5s buffer before Vercel 30s limit)
 
   try {
     // Try /api/traffic/gap/{roleName} first
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     // If 404, try the least-privilege endpoint
     if (!res.ok && res.status === 404) {
       const controller2 = new AbortController()
-      const timeoutId2 = setTimeout(() => controller2.abort(), 28000) // 28 second timeout (safe under Vercel 30s limit)
+      const timeoutId2 = setTimeout(() => controller2.abort(), 25000) // 25 second timeout (5s buffer before Vercel 30s limit)
       try {
         res = await fetch(
           `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,

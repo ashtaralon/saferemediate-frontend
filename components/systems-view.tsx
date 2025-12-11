@@ -78,9 +78,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     let unusedActions = 28
 
     try {
-      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      // Add timeout to prevent hanging (30s to allow proxy's 25s timeout to complete)
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
       
       const gapRes = await fetch("/api/proxy/gap-analysis", {
         signal: controller.signal,
@@ -96,12 +96,21 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           used: gapJson.used_actions ?? 0,
           unused: unusedActions,
         })
-      } else if (gapRes.status === 504) {
-        // Gateway timeout - use fallback values
-        console.warn("[systems-view] Gap analysis timed out, using fallback values")
+      } else if (gapRes.status === 504 || gapRes.status === 503) {
+        // Gateway timeout or service unavailable - use fallback values
+        console.warn("[systems-view] Gap analysis timed out or unavailable, using fallback values")
+        // Don't throw - continue with default values
+      } else {
+        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, using fallback values`)
       }
     } catch (gapErr: any) {
-      // Handle timeout gracefully
+      // Handle timeout gracefully - don't block the UI
+      if (gapErr.name === 'AbortError' || gapErr.message?.includes('timeout')) {
+        console.warn("[systems-view] Gap analysis request timed out, using fallback values")
+      } else {
+        console.warn("[systems-view] Gap analysis error:", gapErr.message)
+      }
+      // Continue with default values - don't throw
       if (gapErr.name === 'AbortError') {
         console.warn("[systems-view] Gap analysis request timed out after 25s")
       }
