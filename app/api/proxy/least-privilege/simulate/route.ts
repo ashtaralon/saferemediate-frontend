@@ -6,9 +6,9 @@ export const fetchCache = "force-no-store"
 export const revalidate = 0
 
 const RAW_BACKEND_URL =
-  process.env.BACKEND_API_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://saferemediate-backend.onrender.com"
+  process.env.BACKEND_API_URL ||
+  "https://saferemediate-backend-f.onrender.com"
 
 function getBackendBase() {
   return RAW_BACKEND_URL.replace(/\/+$/, "").replace(/\/backend$/, "")

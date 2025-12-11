@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"
 
 export async function GET() {
   // Use NEXT_PUBLIC_ prefix for Edge Runtime compatibility
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend.onrender.com"
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
   try {
     // Add timeout to prevent hanging - increased to 15 seconds for slow backend

@@ -68,8 +68,8 @@ export function SimulateFixModal({ open, onClose, finding, onRunFix }: SimulateF
       setError(null)
       setSimulation(null)
 
-      // Use the new simulation endpoint
-      const data = await simulateIssue(finding.id)
+      // Use the new simulation endpoint - pass object with finding_id
+      const data = await simulateIssue({ finding_id: finding.id })
       
       // Map the response to our SimulationResult format
       setSimulation({

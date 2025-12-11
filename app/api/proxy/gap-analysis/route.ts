@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "https://saferemediate-backend.onrender.com"
+  "https://saferemediate-backend-f.onrender.com"
 
 // Map system names to IAM role names
 // TODO: In production, this should come from a database or backend API

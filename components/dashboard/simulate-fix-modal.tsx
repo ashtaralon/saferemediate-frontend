@@ -44,7 +44,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const [loading, setLoading] = useState(false)
 
   // Get API base URL
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com'
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
   const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
 
   const handleSimulate = async () => {

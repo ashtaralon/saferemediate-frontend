@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend.onrender.com"
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(
   request: NextRequest,
