@@ -451,7 +451,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       // Don't set loadingGap here - it's managed by fetchGapAnalysis
       const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`)
       const data = await response.json()
-      
+
       if (!response.ok || !data.success) {
         console.warn("[v0] Findings endpoint returned error, using gap-analysis only")
         return
@@ -459,9 +459,58 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       const findings = data.findings || []
       console.log(`[v0] Fetched ${findings.length} findings from /api/findings`)
-      
+
+      // =============================================================================
+      // DEDUPLICATE S3 BUCKET ISSUES
+      // Some buckets appear twice: once with ARN (arn:aws:s3:::bucket-name) and once without
+      // We prefer the ARN version and filter out duplicates
+      // =============================================================================
+      const deduplicatedFindings = (() => {
+        const seen = new Map<string, any>()
+
+        for (const finding of findings) {
+          const resource = finding.resource || finding.resourceId || ''
+
+          // Extract bucket name for S3 resources
+          // ARN format: arn:aws:s3:::bucket-name
+          // Non-ARN format: bucket-name
+          let normalizedKey = resource
+          let isArnFormat = false
+
+          if (resource.startsWith('arn:aws:s3:::')) {
+            // Extract bucket name from ARN
+            normalizedKey = resource.replace('arn:aws:s3:::', '')
+            isArnFormat = true
+          }
+
+          // For S3 buckets, dedupe by bucket name
+          if (resource.includes('s3') || finding.type === 's3' || finding.resourceType === 'S3Bucket') {
+            const existingFinding = seen.get(normalizedKey)
+
+            if (!existingFinding) {
+              // First time seeing this bucket
+              seen.set(normalizedKey, { finding, isArnFormat })
+            } else if (isArnFormat && !existingFinding.isArnFormat) {
+              // Prefer ARN format over non-ARN format
+              seen.set(normalizedKey, { finding, isArnFormat })
+            }
+            // If existing is ARN and new is not, keep existing (do nothing)
+          } else {
+            // Non-S3 resources: use original ID as key
+            const key = finding.id || resource
+            if (!seen.has(key)) {
+              seen.set(key, { finding, isArnFormat: false })
+            }
+          }
+        }
+
+        return Array.from(seen.values()).map(v => v.finding)
+      })()
+
+      console.log(`[v0] After deduplication: ${deduplicatedFindings.length} findings (removed ${findings.length - deduplicatedFindings.length} duplicates)`)
+
       // Convert findings to CriticalIssue format
-      const findingsIssues: CriticalIssue[] = findings.map((finding: any, index: number) => ({
+      const findingsIssues: CriticalIssue[] = deduplicatedFindings.map((finding: any, index: number) => ({
         id: finding.id || `finding-${index}`,
         title: finding.title || finding.type || 'Security Finding',
         impact: finding.description || 'Security issue detected',
@@ -483,9 +532,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         return [...gapIssues, ...newFindings]
       })
 
-      // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
+      // Update severity counts from DEDUPLICATED findings (additive - don't overwrite gap-analysis counts)
       const counts = { critical: 0, high: 0, medium: 0, low: 0 }
-      findings.forEach((f: any) => {
+      deduplicatedFindings.forEach((f: any) => {
         const severity = (f.severity || 'medium').toLowerCase()
         if (severity === 'critical') counts.critical++
         else if (severity === 'high') counts.high++
