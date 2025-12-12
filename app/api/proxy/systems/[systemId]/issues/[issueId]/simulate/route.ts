@@ -183,11 +183,17 @@ export async function POST(
           type: r.type || resourceType,
           impact: r.impact || "low",
           reason: r.reason || "Affected by remediation",
+          name: r.name || r.id || r.resource_id,
         })),
         confidence: confidence,
         snapshot_id: data.snapshot_id, // Include snapshot_id if present
         before_state: data.before_state_summary || `Current state of ${resourceType}`,
         after_state: data.after_state_summary || `Proposed state after remediation`,
+        // ✅ Include REAL data for frontend
+        evidence: data.evidence || {},
+        proposed_change: proposed_change,
+        affected_resources: data.affected_resources || [],
+        affected_resources_count: data.affected_resources_count || 0,
       })
     }
 

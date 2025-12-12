@@ -255,41 +255,140 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
       const confidence = isTimeout ? 50 : (result.summary?.confidence || result.confidence || 99)
       const decision = isTimeout ? 'REVIEW' : (result.summary?.decision || result.status || 'REVIEW')
       const affectedCount = result.summary?.blastRadius?.affectedResources || result.affected_resources_count || 0
+      
+      // ✅ REAL DATA: Extract from backend response
+      const affectedResources = result.affectedResources || result.affected_resources || []
+      const evidence = result.evidence || {}
+      const recommendation = result.recommendation || ''
+      const proposedChange = result.proposed_change || {}
+      const cloudtrailEvidence = evidence.cloudtrail || {}
+      const flowlogsEvidence = evidence.flowlogs || {}
+      
+      // ✅ REAL: What will change (from proposed_change + recommendation)
+      const whatWillChange: string[] = []
+      if (proposedChange.action === 'remove_permissions' && proposedChange.items?.length > 0) {
+        whatWillChange.push(`Remove ${proposedChange.items.length} unused IAM permission(s): ${proposedChange.items.slice(0, 3).join(', ')}${proposedChange.items.length > 3 ? '...' : ''}`)
+      } else if (proposedChange.action === 'remove_port') {
+        whatWillChange.push(`Remove ${proposedChange.protocol}/${proposedChange.port} access from ${proposedChange.cidr || '0.0.0.0/0'}`)
+      } else if (recommendation) {
+        // Extract from recommendation text
+        whatWillChange.push(recommendation)
+      } else {
+        whatWillChange.push(`Apply remediation for ${finding?.title || finding?.id || 'this issue'}`)
+      }
+      
+      // ✅ REAL: Services affected (from affected_resources)
+      const servicesAffected: Array<{ name: string; impact: string }> = []
+      if (affectedResources && affectedResources.length > 0) {
+        affectedResources.slice(0, 10).forEach((resource: any) => {
+          const resourceName = resource.name || resource.id || resource.resource_id || 'Unknown'
+          const impact = resource.impact || resource.reason || 'Will be affected by remediation'
+          servicesAffected.push({
+            name: resourceName,
+            impact: impact
+          })
+        })
+      } else if (affectedCount > 0) {
+        servicesAffected.push({
+          name: `${affectedCount} resource(s)`,
+          impact: 'Will be affected by remediation'
+        })
+      } else {
+        servicesAffected.push({
+          name: 'No services',
+          impact: 'No breaking changes detected'
+        })
+      }
+      
+      // ✅ REAL: Historical context (from CloudTrail evidence)
+      const historicalContext: any = {}
+      if (cloudtrailEvidence.days_since_last_use !== undefined && cloudtrailEvidence.days_since_last_use !== null) {
+        const days = cloudtrailEvidence.days_since_last_use
+        if (days >= 90) {
+          historicalContext.lastPublicAccess = `${days} days ago (${Math.round(days / 30)} months)`
+        } else if (days >= 7) {
+          historicalContext.lastPublicAccess = `${days} days ago`
+        } else if (days === 0) {
+          historicalContext.lastPublicAccess = 'Today'
+        } else {
+          historicalContext.lastPublicAccess = `${days} days ago`
+        }
+        historicalContext.noRecurringPattern = days >= 30
+      }
+      
+      // ✅ REAL: Confidence factors (from evidence)
+      const confidenceFactors: Array<{ factor: string; percentage: number }> = []
+      if (isTimeout) {
+        confidenceFactors.push(
+          { factor: 'Simulation incomplete - backend timeout', percentage: 50 },
+          { factor: 'Manual review required before applying', percentage: 0 }
+        )
+      } else {
+        // CloudTrail evidence
+        if (cloudtrailEvidence.total_events === 0) {
+          confidenceFactors.push({
+            factor: `No CloudTrail events found (${cloudtrailEvidence.days_since_last_use || 'N/A'} days since last use)`,
+            percentage: 95
+          })
+        } else if (cloudtrailEvidence.matched_events === 0) {
+          confidenceFactors.push({
+            factor: `${cloudtrailEvidence.total_events} CloudTrail events analyzed, ${cloudtrailEvidence.matched_events} matched removed items`,
+            percentage: 90
+          })
+        }
+        
+        // FlowLogs evidence
+        if (flowlogsEvidence.total_flows !== undefined) {
+          if (flowlogsEvidence.matched_flows === 0) {
+            confidenceFactors.push({
+              factor: `No matching network traffic found in VPC Flow Logs (${flowlogsEvidence.total_flows} flows analyzed)`,
+              percentage: 85
+            })
+          }
+        }
+        
+        // Blast radius
+        if (affectedCount === 0) {
+          confidenceFactors.push({
+            factor: 'Zero blast radius - no dependent resources affected',
+            percentage: 100
+          })
+        } else if (affectedCount <= 3) {
+          confidenceFactors.push({
+            factor: `Low blast radius - only ${affectedCount} resource(s) affected`,
+            percentage: 80
+          })
+        }
+        
+        // Confidence score
+        if (confidence >= 85) {
+          confidenceFactors.push({
+            factor: `High confidence score: ${confidence}%`,
+            percentage: confidence
+          })
+        }
+        
+        // Fallback if no factors
+        if (confidenceFactors.length === 0) {
+          confidenceFactors.push({
+            factor: `Confidence score: ${confidence}%`,
+            percentage: confidence
+          })
+        }
+      }
 
       setSimulationResult({
         success: true, // Always true now - even timeouts show results with REVIEW status
         confidence: typeof confidence === 'number' ? confidence : parseInt(String(confidence)) || (isTimeout ? 50 : 99),
         decision: decision,
-        whatWillChange: [
-          'Block all public internet access',
-          'Enable VPC endpoint access for internal services',
-          'Add bucket policy restricting to known IAM roles',
-          'Enable CloudTrail logging for access attempts',
-        ],
-        servicesAffected: [
-          { name: 'payment-processor', impact: 'No impact (uses VPC endpoint)' },
-          { name: 'analytics-pipeline', impact: 'No impact (uses IAM role)' },
-          { name: 'backup-service', impact: 'No impact (uses IAM role)' },
-        ],
+        whatWillChange: whatWillChange, // ✅ REAL DATA
+        servicesAffected: servicesAffected, // ✅ REAL DATA
         blockedTraffic: {
-          externalIPs: 23,
-          internalPreserved: true,
+          externalIPs: cloudtrailEvidence.total_events || 0,
+          internalPreserved: affectedCount === 0,
         },
-        historicalContext: {
-          lastPublicAccess: '287 days ago',
-          user: 'engineer-mike@company.com',
-          reason: 'Data migration project (Jira: PROJ-1234 - Closed)',
-          noRecurringPattern: true,
-        },
-        confidenceFactors: isTimeout ? [
-          { factor: 'Simulation incomplete - backend timeout', percentage: 50 },
-          { factor: 'Manual review required before applying', percentage: 0 },
-        ] : [
-          { factor: '287 days without legitimate public access', percentage: 99 },
-          { factor: 'All current access via internal VPC', percentage: 100 },
-          { factor: 'No production dependencies on public access', percentage: 100 },
-          { factor: 'Similar fixes applied successfully: 47 times', percentage: 98 },
-        ],
+        historicalContext: historicalContext, // ✅ REAL DATA
+        confidenceFactors: confidenceFactors, // ✅ REAL DATA
         affectedResources: affectedCount,
         snapshot_id: result.snapshot_id,
         summary: result.summary || {
