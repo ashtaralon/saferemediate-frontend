@@ -185,7 +185,7 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         if (response.status === 504) {
           console.log("[SimulateFixModal] Proxy returned 504 timeout, showing REVIEW results")
           // Create a timeout result to show REVIEW status
-          const timeoutResult = {
+          result = {
             timeout: true,
             success: true,
             status: 'REVIEW',
@@ -193,9 +193,14 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
             message: 'Simulation timed out - backend query took too long',
             recommendation: 'Simulation timed out after 20s - backend query took too long. Showing partial results with REVIEW status. Please review manually before applying changes.',
           }
-          result = timeoutResult
         } else {
-          result = await response.json()
+          try {
+            result = await response.json()
+          } catch (jsonError) {
+            // If JSON parsing fails, try to read text
+            const text = await response.text().catch(() => 'Unknown error')
+            throw new Error(`Failed to parse response: ${text}`)
+          }
 
           // Handle timeout response - backend returns success=True with timeout flag
           const isBackendTimeout = result.timeout === true || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
