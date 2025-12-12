@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
   Download,
@@ -177,6 +177,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const { toast } = useToast()
   const [simulatingIssue, setSimulatingIssue] = useState<string | null>(null)
   const [applyingIssue, setApplyingIssue] = useState<string | null>(null)
+  
+  // Refs to track simulation/apply state without triggering re-renders
+  // Used by fetchAllData to avoid refreshing during simulation
+  const isSimulatingRef = useRef(false)
+  const isApplyingRef = useRef(false)
+  
   const [latestSnapshotByIssue, setLatestSnapshotByIssue] = useState<Record<string, string>>({})
   
   // Simulate modal state
@@ -445,6 +451,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
+    // Don't refresh if simulation is in progress (prevents clearing issues)
+    if (isSimulatingRef.current || isApplyingRef.current) {
+      console.log('[fetchAllData] Skipping refresh - simulation/apply in progress')
+      return
+    }
     await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
@@ -452,8 +463,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     // Fetch on mount
     fetchAllData()
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchAllData, 30000)
+    // Auto-refresh every 30 seconds, but skip if simulation is running
+    const interval = setInterval(() => {
+      if (!isSimulatingRef.current && !isApplyingRef.current) {
+        fetchAllData()
+      } else {
+        console.log("[fetchAllData] Skipping auto-refresh - simulation/apply in progress")
+      }
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [systemName])
@@ -1207,6 +1224,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             }
                             
                             setSimulatingIssue(issue.id)
+                            isSimulatingRef.current = true
                             console.log(`[simulate] Starting simulation for issue ${issue.id}`)
                             
                             try {
@@ -1310,6 +1328,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setSimulatingIssue(null)
+                              isSimulatingRef.current = false
                             }
                           }}
                           disabled={simulatingIssue === issue.id}
@@ -1338,6 +1357,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             if (!confirm("Are you sure you want to apply this remediation?")) return
                             
                             setApplyingIssue(issue.id)
+                            isApplyingRef.current = true
                             try {
                               const response = await fetch(
                                 `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`,
@@ -1359,6 +1379,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               })
                             } finally {
                               setApplyingIssue(null)
+                              isApplyingRef.current = false
                             }
                           }}
                           disabled={!latestSnapshotByIssue[issue.id] || applyingIssue === issue.id}
