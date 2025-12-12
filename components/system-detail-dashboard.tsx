@@ -1021,9 +1021,76 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             </div>
 
                             <div className="flex border-t border-gray-200">
-                              <button className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2">
-                                <Play className="w-4 h-4" />
-                                SIMULATE FIX
+                              <button
+                                onClick={async () => {
+                                  setSelectedPermissionForSimulation(issue.id)
+                                  setSimulating(true)
+                                  try {
+                                    // Extract permission from issue title or ID
+                                    const permission = issue.title.includes(':') 
+                                      ? issue.title.split(':')[1]?.trim() 
+                                      : issue.id.replace('high-', '').replace(/-/g, ':')
+                                    
+                                    const issueId = issue.id
+                                    
+                                    const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        finding_id: issueId,
+                                        resource_type: 'IAMRole',
+                                        resource_id: issue.affected.replace('IAM Role: ', ''),
+                                        proposed_change: {
+                                          action: 'remediate',
+                                          items: [permission],
+                                          reason: `Remove unused permission: ${permission}`
+                                        }
+                                      })
+                                    })
+                                    
+                                    if (response.ok) {
+                                      const result = await response.json()
+                                      setSimulationResult(result)
+                                      setShowSimulateModal(true)
+                                    } else {
+                                      const errorData = await response.json().catch(() => ({}))
+                                      if (response.status === 504 || response.status === 408) {
+                                        setSimulationResult({
+                                          status: 'BLOCKED',
+                                          confidence: {
+                                            level: 'BLOCKED',
+                                            numeric: 0.0,
+                                            criteria_failed: ['simulation_timeout'],
+                                            summary: 'Simulation incomplete - timeout occurred'
+                                          },
+                                          recommendation: '⚠️ REVIEW REQUIRED: Simulation timed out. Manual review required.'
+                                        })
+                                        setShowSimulateModal(true)
+                                      } else {
+                                        alert(`Simulation failed: ${errorData.error || response.statusText}`)
+                                      }
+                                    }
+                                  } catch (err) {
+                                    console.error('Simulation error:', err)
+                                    alert('Failed to run simulation. Check console for details.')
+                                  } finally {
+                                    setSimulating(false)
+                                  }
+                                }}
+                                disabled={simulating}
+                                className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50"
+                              >
+                                {simulating ? (
+                                  <>
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                    Simulating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="w-4 h-4" />
+                                    SIMULATE FIX
+                                  </>
+                                )}
                               </button>
                               <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
                                 ✨ AUTO-FIX
