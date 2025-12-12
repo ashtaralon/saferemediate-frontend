@@ -158,7 +158,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   })
   const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
 
-  const fallbackAutoTagStatus = {
+  const fallbackAutoTagStatus: AutoTagStatus = {
     status: "stopped",
     totalCycles: 0,
     actualTrafficCaptured: 15,
