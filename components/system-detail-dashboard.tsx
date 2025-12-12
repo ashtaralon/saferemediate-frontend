@@ -61,6 +61,7 @@ interface CriticalIssue {
   temporalAnalysis: string
   expanded: boolean
   selected: boolean
+  severity?: string // ✅ Optional severity field for accurate counting
 }
 
 interface TagResults {
@@ -481,7 +482,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       const findings = data.findings || []
       console.log(`[v0] Fetched ${findings.length} findings from /api/findings`)
       
-      // Convert findings to CriticalIssue format
+      // Convert findings to CriticalIssue format (preserve severity info)
       const findingsIssues: CriticalIssue[] = findings.map((finding: any, index: number) => ({
         id: finding.id || `finding-${index}`,
         title: finding.title || finding.type || 'Security Finding',
@@ -492,6 +493,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         temporalAnalysis: finding.remediation || finding.recommendation || 'Review and remediate',
         expanded: false,
         selected: false,
+        severity: finding.severity || 'medium', // ✅ Preserve severity for counting
       }))
 
       // ✅ Merge findings with ALL existing issues (avoid duplicates by ID)
@@ -505,26 +507,47 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         return merged
       })
 
-      // ✅ Calculate severity counts from ALL issues (not additive - recalculate from actual issues)
-      // This ensures counts match the actual displayed issues
+      // ✅ Recalculate severity counts from ALL actual issues (ensures counts match displayed issues)
       setIssues((currentIssues) => {
-        // Recalculate counts from all issues
+        // Count by severity from actual issues array
         const counts = { critical: 0, high: 0, medium: 0, low: 0 }
         
-        // Count from findings (by severity)
-        findings.forEach((f: any) => {
-          const severity = (f.severity || 'medium').toLowerCase()
-          if (severity === 'critical') counts.critical++
-          else if (severity === 'high') counts.high++
-          else if (severity === 'medium') counts.medium++
-          else if (severity === 'low') counts.low++
+        // Count from actual issues array (most accurate)
+        currentIssues.forEach((issue: any) => {
+          // Gap-analysis issues (high-*) are HIGH severity
+          if (issue.id.startsWith('high-')) {
+            counts.high++
+          } else {
+            // Use severity from issue if available, otherwise infer from title
+            const severity = (issue.severity || 'medium').toLowerCase()
+            if (severity === 'critical') {
+              counts.critical++
+            } else if (severity === 'high') {
+              counts.high++
+            } else if (severity === 'medium') {
+              counts.medium++
+            } else if (severity === 'low') {
+              counts.low++
+            } else {
+              // Fallback: infer from title
+              const title = (issue.title || '').toLowerCase()
+              if (title.includes('critical')) {
+                counts.critical++
+              } else if (title.includes('high')) {
+                counts.high++
+              } else if (title.includes('medium')) {
+                counts.medium++
+              } else if (title.includes('low')) {
+                counts.low++
+              } else {
+                // Default to high if unknown
+                counts.high++
+              }
+            }
+          }
         })
         
-        // Count gap-analysis issues (all are HIGH)
-        const gapAnalysisHighCount = currentIssues.filter(i => i.id.startsWith('high-')).length
-        counts.high += gapAnalysisHighCount
-        
-        // Update severity counts to match actual issues
+        // Update severity counts to match
         setSeverityCounts({
           critical: counts.critical,
           high: counts.high,
@@ -532,6 +555,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           low: counts.low,
           passing: Math.max(0, 100 - (counts.critical + counts.high + counts.medium)),
         })
+        
+        console.log(`[fetchFindings] Updated severity counts: ${counts.critical} critical, ${counts.high} high, ${counts.medium} medium, ${counts.low} low (from ${currentIssues.length} total issues)`)
         
         return currentIssues
       })
@@ -1215,7 +1240,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     <div className="flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-red-500" />
                   <h3 className="text-lg font-semibold text-gray-900">
-                    ALL ISSUES ({issues.length} total - {severityCounts.critical} critical, {severityCounts.high} high, {severityCounts.medium} medium)
+                    ALL ISSUES ({issues.length} total - {severityCounts.critical} critical, {severityCounts.high} high, {severityCounts.medium} medium, {severityCounts.low} low)
                   </h3>
                     </div>
                 <label className="flex items-center gap-2 text-sm text-gray-600">
