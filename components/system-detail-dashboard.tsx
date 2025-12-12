@@ -1960,6 +1960,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             fetchAllData()
           }}
         />
+      )}
     </div>
   )
 }
