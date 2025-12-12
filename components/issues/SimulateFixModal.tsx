@@ -264,6 +264,30 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
       const cloudtrailEvidence = evidence.cloudtrail || {}
       const flowlogsEvidence = evidence.flowlogs || {}
       
+      // ✅ Update step details with REAL data (if available)
+      if (!isTimeout && cloudtrailEvidence.days_since_last_use !== undefined) {
+        const days = cloudtrailEvidence.days_since_last_use
+        setSimulationSteps(steps => steps.map(s => {
+          if (s.id === 'step1') {
+            return { ...s, detail: `Analyzing ${Math.min(days, 90)} days of access patterns` }
+          }
+          if (s.id === 'step3') {
+            return { ...s, detail: days >= 90 ? `Last access: ${days} days ago (${Math.round(days / 30)} months)` : `Last access: ${days} days ago` }
+          }
+          return s
+        }))
+      }
+      
+      // Update step 2 with real affected count
+      if (!isTimeout && affectedCount > 0) {
+        setSimulationSteps(steps => steps.map(s => {
+          if (s.id === 'step2') {
+            return { ...s, detail: `${affectedCount} resource(s) will be affected` }
+          }
+          return s
+        }))
+      }
+      
       // ✅ REAL: What will change (from proposed_change + recommendation)
       const whatWillChange: string[] = []
       if (proposedChange.action === 'remove_permissions' && proposedChange.items?.length > 0) {
@@ -384,18 +408,27 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         whatWillChange: whatWillChange, // ✅ REAL DATA
         servicesAffected: servicesAffected, // ✅ REAL DATA
         blockedTraffic: {
-          externalIPs: cloudtrailEvidence.total_events || 0,
-          internalPreserved: affectedCount === 0,
+          externalIPs: cloudtrailEvidence.total_events ?? cloudtrailEvidence.matched_events ?? 0, // ✅ REAL: Use CloudTrail event count
+          internalPreserved: affectedCount === 0, // ✅ REAL: Based on actual affected resources
         },
         historicalContext: historicalContext, // ✅ REAL DATA
         confidenceFactors: confidenceFactors, // ✅ REAL DATA
-        affectedResources: affectedCount,
+        affectedResources: affectedCount, // ✅ REAL: Actual count from backend
         snapshot_id: result.snapshot_id,
         summary: result.summary || {
           decision,
           confidence: typeof confidence === 'number' ? confidence : parseInt(String(confidence)) || 99,
           blastRadius: { affectedResources: affectedCount },
         },
+      })
+      
+      // Debug log to verify real data is being used
+      console.log("[SimulateFixModal] Simulation result set with:", {
+        affectedCount,
+        servicesAffectedCount: servicesAffected.length,
+        cloudtrailEvents: cloudtrailEvidence.total_events,
+        whatWillChangeCount: whatWillChange.length,
+        confidenceFactorsCount: confidenceFactors.length,
       })
     } catch (err: any) {
       console.error("Simulation error", err)
@@ -702,20 +735,33 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
                 </div>
               </div>
 
-              {/* Blocked Traffic */}
+              {/* Traffic Analysis */}
               <div>
-                <h3 className="font-semibold text-gray-900 mb-3">Blocked Traffic:</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">Traffic Analysis:</h3>
                 <div className="space-y-2">
-                  <div className="flex items-start gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-700">
-                      External IPs blocked: {simulationResult.blockedTraffic?.externalIPs} suspicious IPs from last 90 days
-                    </span>
-                  </div>
-                  <div className="flex items-start gap-2 text-sm">
-                    <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-700">All legitimate internal traffic preserved</span>
-                  </div>
+                  {simulationResult.blockedTraffic?.externalIPs !== undefined && simulationResult.blockedTraffic.externalIPs > 0 ? (
+                    <>
+                      <div className="flex items-start gap-2 text-sm">
+                        <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                        <span className="text-gray-700">
+                          {simulationResult.blockedTraffic.externalIPs} CloudTrail event(s) analyzed
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-2 text-sm">
+                        <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <span className="text-gray-700">
+                          {simulationResult.blockedTraffic.internalPreserved 
+                            ? "All legitimate internal traffic preserved" 
+                            : "Internal traffic may be affected - review required"}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-start gap-2 text-sm text-gray-500">
+                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                      <span>No CloudTrail events found - permission/port not used recently</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
