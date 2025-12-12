@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
-import SimulationResultsModal from "@/components/SimulationResultsModal"
+import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
