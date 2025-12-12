@@ -225,23 +225,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         passing: Math.max(0, 100 - gap),
       }))
 
-      // Populate issues array from unused permissions (HIGH severity findings)
-      if (unusedActions.length > 0) {
-        const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
-          id: `high-${index}-${permission}`,
-          title: `Unused IAM Permission: ${permission}`,
-          impact: "Increases attack surface and violates least privilege principle",
-          affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
-          safeToFix: 95,
-          fixTime: "< 5 min",
-          temporalAnalysis: `This permission has not been used in the last 7 days. Safe to remove with ${confidence}% confidence.`,
-          expanded: false,
-          selected: false,
-        }))
-        setIssues(highIssues)
-      } else {
-        setIssues([])
-      }
+      // REMOVED: Don't populate mock/demo issues from gap analysis
+      // Only show real issues from backend security findings
+      // Keeping issues array empty - not used in Issues tab anymore
+      setIssues([])
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
       setGapAnalysis(fallbackGapData)
@@ -1144,14 +1131,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {/* Issues Tab Content */}
       {activeTab === "issues" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
-          {/* All Security Findings */}
+          {/* All Issues - Only Real Issues from Backend */}
           <div className="bg-white rounded-xl p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-500" />
-                <h3 className="text-lg font-semibold text-gray-900">All Security Issues</h3>
+                <h3 className="text-lg font-semibold text-gray-900">All Issues</h3>
                 <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-full">
-                  {securityFindings.length + issues.length} total
+                  {securityFindings.length} total
                 </span>
               </div>
               {loadingFindings && (
@@ -1162,13 +1149,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               <SecurityFindingsList findings={securityFindings} />
             ) : (
               <div className="text-center py-8 text-gray-500">
-                <p>No security findings found for this system.</p>
+                <p>No security issues found for this system.</p>
               </div>
             )}
           </div>
 
-          {/* Critical/High Issues from Overview */}
-          {issues.length > 0 && (
+          {/* REMOVED: Mock/demo issues section - only showing real issues from backend */}
+          {false && issues.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex items-center justify-between">
