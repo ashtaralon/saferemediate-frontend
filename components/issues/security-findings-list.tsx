@@ -16,7 +16,7 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
   const [simulationResult, setSimulationResult] = useState<any>(null)
-  const [simulating, setSimulating] = useState(false)
+  const [simulatingFindingId, setSimulatingFindingId] = useState<string | null>(null)
 
   if (findings.length === 0) {
     return (
@@ -168,11 +168,11 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
                       setSelectedFinding(finding)
                       handleSimulate(finding)
                     }}
-                    disabled={simulating}
+                    disabled={simulatingFindingId !== null}
                     size="sm"
                     className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
                   >
-                    {simulating ? (
+                    {simulatingFindingId === finding.id ? (
                       <>
                         <Zap className="w-4 h-4 mr-1 animate-pulse" />
                         Simulating...

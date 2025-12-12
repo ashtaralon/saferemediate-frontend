@@ -133,7 +133,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [remediatingPermission, setRemediatingPermission] = useState<string | null>(null)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
-  const [simulating, setSimulating] = useState(false)
+  const [simulatingIssueId, setSimulatingIssueId] = useState<string | null>(null)
   const [simulationResult, setSimulationResult] = useState<any>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loadingFindings, setLoadingFindings] = useState(true)
@@ -1040,7 +1040,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               <button
                                 onClick={async () => {
                                   setSelectedPermissionForSimulation(issue.id)
-                                  setSimulating(true)
+                                  setSimulatingIssueId(issue.id)
                                   try {
                                     // Extract permission from issue title or ID
                                     const permission = issue.title.includes(':') 
@@ -1090,13 +1090,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                     console.error('Simulation error:', err)
                                     alert('Failed to run simulation. Check console for details.')
                                   } finally {
-                                    setSimulating(false)
+                                    setSimulatingIssueId(null)
                                   }
                                 }}
-                                disabled={simulating}
+                                disabled={simulatingIssueId !== null}
                                 className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50"
                               >
-                                {simulating ? (
+                                {simulatingIssueId === issue.id ? (
                                   <>
                                     <RefreshCw className="w-4 h-4 animate-spin" />
                                     Simulating...
