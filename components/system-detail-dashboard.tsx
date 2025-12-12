@@ -462,6 +462,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // Add Dependency Map tab to the tabs array
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "issues", label: "Issues", icon: AlertTriangle },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "all-services", label: "All Services", icon: Server },
