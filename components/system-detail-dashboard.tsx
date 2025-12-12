@@ -450,13 +450,77 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setRemediatingPermission(null)
   }
 
+  const fetchFindings = async () => {
+    try {
+      const response = await fetch(`/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`)
+      const data = await response.json()
+      
+      if (!response.ok || !data.success) {
+        console.warn("[v0] Findings endpoint returned error, using gap-analysis only")
+        return
+      }
+
+      const findings = data.findings || []
+      console.log(`[v0] Fetched ${findings.length} findings from /api/findings`)
+      
+      // Convert findings to CriticalIssue format
+      const findingsIssues: CriticalIssue[] = findings.map((finding: any, index: number) => ({
+        id: finding.id || `finding-${index}`,
+        title: finding.title || finding.type || 'Security Finding',
+        impact: finding.description || 'Security issue detected',
+        affected: finding.resource || finding.resourceId || 'Unknown resource',
+        safeToFix: finding.confidence || 85,
+        fixTime: "5-10 minutes",
+        temporalAnalysis: finding.remediation || finding.recommendation || 'Review and remediate',
+        expanded: false,
+        selected: false,
+      }))
+
+      // Merge findings with gap-analysis issues (avoid duplicates by ID)
+      // Keep gap-analysis issues (high-*) and add findings (non-high-* IDs)
+      setIssues((prevIssues) => {
+        const existingIds = new Set(prevIssues.map(i => i.id))
+        const newFindings = findingsIssues.filter(f => !existingIds.has(f.id))
+        
+        // Combine: gap-analysis issues (high-*) + new findings
+        return [...prevIssues.filter(i => i.id.startsWith('high-')), ...newFindings]
+      })
+
+      // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
+      const counts = { critical: 0, high: 0, medium: 0, low: 0 }
+      findings.forEach((f: any) => {
+        const severity = (f.severity || 'medium').toLowerCase()
+        if (severity === 'critical') counts.critical++
+        else if (severity === 'high') counts.high++
+        else if (severity === 'medium') counts.medium++
+        else if (severity === 'low') counts.low++
+      })
+
+      setSeverityCounts((prev) => ({
+        critical: prev.critical + counts.critical,
+        high: prev.high + counts.high,
+        medium: prev.medium + counts.medium,
+        low: prev.low + counts.low,
+        passing: prev.passing,
+      }))
+    } catch (error: any) {
+      // Handle AbortError gracefully (timeout or component unmount)
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.warn("[v0] Findings request was cancelled (timeout or component unmounted)")
+        return
+      }
+      
+      console.error("[v0] Error fetching findings:", error)
+    }
+  }
+
   const fetchAllData = async () => {
     // Don't refresh if simulation is in progress (prevents clearing issues)
     if (isSimulatingRef.current || isApplyingRef.current) {
       console.log('[fetchAllData] Skipping refresh - simulation/apply in progress')
       return
     }
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
+    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
   }
 
   useEffect(() => {
