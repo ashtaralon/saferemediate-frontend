@@ -141,13 +141,27 @@ export async function POST(
 
     if (res.ok) {
       const data = await res.json()
-      console.log(`[proxy] Simulation successful for ${issueId}`, {
+      console.log(`[proxy] Backend simulation response for ${issueId}`, {
         status: data.status,
         confidence: data.confidence,
-        blast_radius: data.blast_radius
+        success: data.success,
+        hasTimeout: data.message?.includes('timeout') || data.recommendation?.includes('timed out')
       })
       
-      // Transform response to match frontend expectations
+      // Check if backend indicated timeout/failure
+      if (data.success === false || data.message?.includes('timeout') || data.recommendation?.includes('timed out')) {
+        console.warn(`[proxy] Backend simulation timed out for ${issueId}`)
+        return NextResponse.json(
+          { 
+            error: "Simulation timeout", 
+            detail: data.message || data.recommendation || "Backend query took too long (25s limit)",
+            status: 504 
+          },
+          { status: 504 }
+        )
+      }
+      
+      // Transform successful response to match frontend expectations
       const decision = data.status || "REVIEW"
       const confidence = Math.round((data.confidence || 0) * 100) // Convert 0.94 -> 94
       

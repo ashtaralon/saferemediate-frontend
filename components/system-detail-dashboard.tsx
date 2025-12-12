@@ -187,6 +187,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   
   // Simulate modal state
   const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
+  const [selectedIssueForSimulation, setSelectedIssueForSimulation] = useState<CriticalIssue | null>(null)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
 
   // =============================================================================
@@ -1296,120 +1297,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               return
                             }
                             
-                            setSimulatingIssue(issue.id)
-                            isSimulatingRef.current = true
-                            console.log(`[simulate] Starting simulation for issue ${issue.id}`)
-                            
-                            try {
-                              // Extract resource name from affected field
-                              let resourceName = issue.affected || ""
-                              if (resourceName.includes("/")) {
-                                resourceName = resourceName.split("/").pop() || resourceName
-                              }
-                              if (resourceName.includes(":role/")) {
-                                resourceName = resourceName.split(":role/").pop() || resourceName
-                              }
-                              
-                              const response = await fetch(
-                                `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(issue.id)}/simulate`,
-                                {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    finding_id: issue.id,
-                                    system_name: systemName,
-                                    resource_name: resourceName,
-                                    resource_arn: issue.affected,
-                                    title: issue.title
-                                  }),
-                                }
-                              )
-                              
-                              const result = await response.json()
-                              
-                              console.log(`[simulate] Response received:`, {
-                                ok: response.ok,
-                                status: response.status,
-                                hasSnapshotId: !!result.snapshot_id,
-                                hasSummary: !!result.summary,
-                                success: result.success,
-                                resultKeys: Object.keys(result)
-                              })
-                              
-                              if (!response.ok) {
-                                const errorMsg = result.detail || result.error || result.message || `Simulation failed: ${response.status}`
-                                console.error(`[simulate] Backend returned ${response.status}:`, result)
-                                throw new Error(errorMsg)
-                              }
-                              
-                              // Check if simulation actually succeeded or timed out
-                              if (result.success === false || result.message?.includes('timeout') || result.recommendation?.includes('timed out')) {
-                                const errorMsg = result.message || result.recommendation || "Simulation timed out"
-                                console.error(`[simulate] Simulation failed or timed out:`, result)
-                                throw new Error(errorMsg)
-                              }
-                              
-                              // Store snapshot_id if present
-                              if (result.snapshot_id) {
-                                setLatestSnapshotByIssue((prev: any) => ({
-                                  ...prev,
-                                  [issue.id]: result.snapshot_id,
-                                }))
-                              }
-                              
-                              // Show success message - handle different response formats
-                              let title = "Simulation Completed"
-                              let description = ""
-                              
-                              if (result.summary) {
-                                // New format with summary
-                                const decision = result.summary.decision || "REVIEW"
-                                const confidence = result.summary.confidence || result.confidence || "N/A"
-                                const affected = result.summary.blastRadius?.affectedResources || 0
-                                description = `Status: ${decision} | Confidence: ${confidence}% | Affected: ${affected} resource(s)`
-                                if (result.recommendation) {
-                                  description = result.recommendation
-                                }
-                              } else if (result.recommendation) {
-                                // Has recommendation
-                                description = result.recommendation
-                                if (result.confidence) {
-                                  description += ` (Confidence: ${result.confidence}%)`
-                                }
-                              } else if (result.snapshot_id) {
-                                // Has snapshot_id
-                                description = `Snapshot created: ${result.snapshot_id}`
-                              } else if (result.status) {
-                                // Has status
-                                description = `Simulation ${result.status}`
-                                if (result.confidence) {
-                                  description += ` (Confidence: ${result.confidence}%)`
-                                }
-                              } else {
-                                // Fallback
-                                description = "Simulation completed successfully"
-                                console.warn("[simulate] Unexpected response format:", result)
-                              }
-                              
-                              toast({
-                                title: title,
-                                description: description,
-                                duration: 8000,
-                              })
-                              
-                              console.log(`[simulate] Simulation completed successfully:`, description)
-                            } catch (err: any) {
-                              console.error("[simulate] Simulation error:", err)
-                              toast({
-                                title: "Simulation Failed",
-                                description: err.message || "Failed to run simulation",
-                                variant: "destructive",
-                                duration: 8000,
-                              })
-                            } finally {
-                              setSimulatingIssue(null)
-                              isSimulatingRef.current = false
-                            }
+                            // Open simulation modal instead of running directly
+                            setSelectedIssueForSimulation(issue)
+                            setShowSimulateModal(true)
                           }}
                           disabled={simulatingIssue === issue.id}
                           className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2027,28 +1917,49 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </div>
       )}
 
-      {/* Simulate Fix Modal for unused permissions */}
-      {selectedPermissionForSimulation && (
+      {/* Simulate Fix Modal */}
+      {(selectedPermissionForSimulation || selectedIssueForSimulation) && (
         <SimulateFixModal
           open={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedPermissionForSimulation(null)
+            setSelectedIssueForSimulation(null)
           }}
-          finding={{
-            id: `SafeRemediate-Lambda-Remediation-Role/${selectedPermissionForSimulation}`,
-            severity: "HIGH",
-            title: `Unused Permission: ${selectedPermissionForSimulation}`,
-            resource: "SafeRemediate-Lambda-Remediation-Role",
-            resourceType: "IAM Role",
-            description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
-            remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
-            category: "Least Privilege",
-            discoveredAt: new Date().toISOString(),
-            status: "open",
-          } as SecurityFinding}
+          finding={
+            selectedIssueForSimulation
+              ? ({
+                  id: selectedIssueForSimulation.id,
+                  severity: selectedIssueForSimulation.safeToFix >= 90 ? "HIGH" : "MEDIUM",
+                  title: selectedIssueForSimulation.title,
+                  resource: selectedIssueForSimulation.affected,
+                  resourceType: selectedIssueForSimulation.affected.includes("IAM Role") ? "IAM Role" : "SecurityGroup",
+                  description: selectedIssueForSimulation.impact,
+                  remediation: selectedIssueForSimulation.temporalAnalysis,
+                  category: "Security Finding",
+                  discoveredAt: new Date().toISOString(),
+                  status: "open",
+                } as SecurityFinding)
+              : selectedPermissionForSimulation
+              ? ({
+                  id: `SafeRemediate-Lambda-Remediation-Role/${selectedPermissionForSimulation}`,
+                  severity: "HIGH",
+                  title: `Unused Permission: ${selectedPermissionForSimulation}`,
+                  resource: "SafeRemediate-Lambda-Remediation-Role",
+                  resourceType: "IAM Role",
+                  description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
+                  remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
+                  category: "Least Privilege",
+                  discoveredAt: new Date().toISOString(),
+                  status: "open",
+                } as SecurityFinding)
+              : null
+          }
+          systemName={systemName}
+          onRunFix={() => {
+            fetchAllData()
+          }}
         />
-      )}
     </div>
   )
 }
