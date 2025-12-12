@@ -183,7 +183,25 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
 
         result = await response.json()
 
-        if (!response.ok || result.success === false) {
+        // Handle timeout response - backend returns success=True with timeout flag
+        const isBackendTimeout = result.timeout === True || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
+        
+        if (!response.ok) {
+          // If backend explicitly returned timeout info, treat as partial success
+          if (isBackendTimeout) {
+            console.log("[SimulateFixModal] Backend simulation timed out, showing REVIEW results")
+            // Continue processing to show timeout result as REVIEW
+          } else {
+            throw new Error(result.detail || result.error || result.message || 'Simulation failed')
+          }
+        }
+        
+        // Backend timeout is now marked as success=True, check timeout flag
+        if (isBackendTimeout || (result.success === false && (result.message?.includes('timeout') || result.recommendation?.includes('timed out')))) {
+          console.log("[SimulateFixModal] Backend returned timeout response, converting to REVIEW status")
+          // Continue to show results with REVIEW status
+        } else if (result.success === false) {
+          // Real error, not timeout
           throw new Error(result.detail || result.error || result.message || 'Simulation failed')
         }
       } catch (fetchError: any) {
@@ -212,13 +230,15 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
       ))
 
       // Transform backend response to our format
-      const confidence = result.summary?.confidence || result.confidence || 99
-      const decision = result.summary?.decision || result.status || 'REVIEW'
+      // Handle timeout response - show as REVIEW with lower confidence
+      const isTimeout = result.timeout === true || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
+      const confidence = isTimeout ? 50 : (result.summary?.confidence || result.confidence || 99)
+      const decision = isTimeout ? 'REVIEW' : (result.summary?.decision || result.status || 'REVIEW')
       const affectedCount = result.summary?.blastRadius?.affectedResources || result.affected_resources_count || 0
 
       setSimulationResult({
-        success: true,
-        confidence: typeof confidence === 'number' ? confidence : parseInt(String(confidence)) || 99,
+        success: true, // Always true now - even timeouts show results with REVIEW status
+        confidence: typeof confidence === 'number' ? confidence : parseInt(String(confidence)) || (isTimeout ? 50 : 99),
         decision: decision,
         whatWillChange: [
           'Block all public internet access',
@@ -241,7 +261,10 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
           reason: 'Data migration project (Jira: PROJ-1234 - Closed)',
           noRecurringPattern: true,
         },
-        confidenceFactors: [
+        confidenceFactors: isTimeout ? [
+          { factor: 'Simulation incomplete - backend timeout', percentage: 50 },
+          { factor: 'Manual review required before applying', percentage: 0 },
+        ] : [
           { factor: '287 days without legitimate public access', percentage: 99 },
           { factor: 'All current access via internal VPC', percentage: 100 },
           { factor: 'No production dependencies on public access', percentage: 100 },
@@ -274,13 +297,22 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         error: err.message || "Failed to run simulation",
       })
       
-      // Also show toast
-      toast({
-        title: "Simulation Failed",
-        description: err.message || "Failed to run simulation",
-        variant: "destructive",
-        duration: 10000, // Show longer for timeout errors
-      })
+        // Show toast only for real errors (not timeouts that we're handling gracefully)
+      if (!err.message?.includes('timeout')) {
+        toast({
+          title: "Simulation Failed",
+          description: err.message || "Failed to run simulation",
+          variant: "destructive",
+          duration: 10000,
+        })
+      } else {
+        // Timeout - show info toast, not error
+        toast({
+          title: "Simulation Timeout",
+          description: "Backend query took too long. Showing partial results with REVIEW status.",
+          duration: 8000,
+        })
+      }
     } finally {
       setSimulating(false)
     }
