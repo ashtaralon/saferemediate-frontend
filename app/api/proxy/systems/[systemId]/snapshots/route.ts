@@ -36,7 +36,7 @@ export async function GET(
   // Seed initial snapshots if needed
   seedInitialSnapshots(systemId)
 
-  // Try backend first, fallback to local storage
+  // ✅ Try backend first (reads from S3 where snapshots are actually stored)
   try {
     const res = await fetchWithTimeout(
       `${BACKEND_URL}/api/systems/${encodeURIComponent(systemId)}/snapshots`,
@@ -51,13 +51,24 @@ export async function GET(
 
     if (res.ok) {
       const data = await res.json()
-      return NextResponse.json(data)
+      // Backend returns array directly, or wrapped in snapshots key
+      const snapshotsArray = Array.isArray(data) ? data : (data.snapshots || [])
+      console.log(`[proxy] ✅ Loaded ${snapshotsArray.length} snapshots from backend for system ${systemId}`)
+      return NextResponse.json(snapshotsArray)
+    } else {
+      console.warn(`[proxy] Backend returned ${res.status} for snapshots`)
     }
   } catch (error: any) {
     console.warn("[proxy] Backend snapshots unavailable, using local storage:", error.message)
   }
 
-  // Fallback to local storage
-  const snapshots = getSnapshots(systemId)
-  return NextResponse.json({ snapshots })
+  // Fallback to local storage (for development/testing)
+  try {
+    const snapshots = getSnapshots(systemId)
+    console.log(`[proxy] Using ${snapshots.length} snapshots from local storage (fallback)`)
+    return NextResponse.json(Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || []))
+  } catch (error: any) {
+    console.error("[proxy] Error getting snapshots from local storage:", error)
+    return NextResponse.json([])
+  }
 }
