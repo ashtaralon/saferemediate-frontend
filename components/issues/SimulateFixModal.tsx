@@ -181,28 +181,43 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         )
         clearTimeout(timeoutId)
 
-        result = await response.json()
+        // Handle 504 Gateway Timeout from proxy
+        if (response.status === 504) {
+          console.log("[SimulateFixModal] Proxy returned 504 timeout, showing REVIEW results")
+          // Create a timeout result to show REVIEW status
+          const timeoutResult = {
+            timeout: true,
+            success: true,
+            status: 'REVIEW',
+            confidence: 0.5,
+            message: 'Simulation timed out - backend query took too long',
+            recommendation: 'Simulation timed out after 20s - backend query took too long. Showing partial results with REVIEW status. Please review manually before applying changes.',
+          }
+          result = timeoutResult
+        } else {
+          result = await response.json()
 
-        // Handle timeout response - backend returns success=True with timeout flag
-        const isBackendTimeout = result.timeout === true || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
-        
-        if (!response.ok) {
-          // If backend explicitly returned timeout info, treat as partial success
-          if (isBackendTimeout) {
-            console.log("[SimulateFixModal] Backend simulation timed out, showing REVIEW results")
-            // Continue processing to show timeout result as REVIEW
-          } else {
+          // Handle timeout response - backend returns success=True with timeout flag
+          const isBackendTimeout = result.timeout === true || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
+          
+          if (!response.ok) {
+            // If backend explicitly returned timeout info, treat as partial success
+            if (isBackendTimeout) {
+              console.log("[SimulateFixModal] Backend simulation timed out, showing REVIEW results")
+              // Continue processing to show timeout result as REVIEW
+            } else {
+              throw new Error(result.detail || result.error || result.message || 'Simulation failed')
+            }
+          }
+          
+          // Backend timeout is now marked as success=True, check timeout flag
+          if (isBackendTimeout || (result.success === false && (result.message?.includes('timeout') || result.recommendation?.includes('timed out')))) {
+            console.log("[SimulateFixModal] Backend returned timeout response, converting to REVIEW status")
+            // Continue to show results with REVIEW status
+          } else if (result.success === false) {
+            // Real error, not timeout
             throw new Error(result.detail || result.error || result.message || 'Simulation failed')
           }
-        }
-        
-        // Backend timeout is now marked as success=True, check timeout flag
-        if (isBackendTimeout || (result.success === false && (result.message?.includes('timeout') || result.recommendation?.includes('timed out')))) {
-          console.log("[SimulateFixModal] Backend returned timeout response, converting to REVIEW status")
-          // Continue to show results with REVIEW status
-        } else if (result.success === false) {
-          // Real error, not timeout
-          throw new Error(result.detail || result.error || result.message || 'Simulation failed')
         }
       } catch (fetchError: any) {
         clearTimeout(timeoutId)
