@@ -482,8 +482,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         const existingIds = new Set(prevIssues.map(i => i.id))
         const newFindings = findingsIssues.filter(f => !existingIds.has(f.id))
         
+        console.log(`[fetchFindings] Merging: ${prevIssues.length} existing issues + ${newFindings.length} new findings = ${prevIssues.filter(i => i.id.startsWith('high-')).length + newFindings.length} total`)
+        
         // Combine: gap-analysis issues (high-*) + new findings
-        return [...prevIssues.filter(i => i.id.startsWith('high-')), ...newFindings]
+        const merged = [...prevIssues.filter(i => i.id.startsWith('high-')), ...newFindings]
+        return merged
       })
 
       // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
