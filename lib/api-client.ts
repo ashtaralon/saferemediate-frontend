@@ -261,16 +261,16 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      console.warn("[v0] Backend returned error for security findings:", response.status, "- using fallback data")
-      return demoSecurityFindings
+      console.warn("[v0] Backend returned error for security findings:", response.status)
+      return [] // Return empty - real data only, no demo
     }
 
     let data: any
     try {
       data = await response.json()
     } catch (parseError) {
-      console.warn("[v0] Failed to parse security findings response - using fallback data")
-      return demoSecurityFindings
+      console.warn("[v0] Failed to parse security findings response")
+      return [] // Return empty - real data only, no demo
     }
 
     console.log("[v0] Security findings response:", { success: data?.success, source: data?.source, count: data?.findings?.length })
@@ -278,10 +278,10 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
 
-    // If backend returns empty findings, use fallback demo data
+    // If backend returns empty findings, return empty (real data only)
     if (!findings || findings.length === 0) {
-      console.warn("[v0] Backend returned empty findings - using fallback data")
-      return demoSecurityFindings
+      console.warn("[v0] Backend returned empty findings - no issues from AWS")
+      return [] // Return empty - real data only, no demo
     }
 
     const mappedFindings = findings.map((f: any) => ({
@@ -297,19 +297,13 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       remediation: f.remediation || f.recommendation || "",
     }))
 
-    // Final check - if mapping produced empty array, return fallback
-    if (mappedFindings.length === 0) {
-      console.warn("[v0] Mapped findings empty - using fallback data")
-      return demoSecurityFindings
-    }
-
-    console.log("[v0] Successfully loaded", mappedFindings.length, "security findings")
+    console.log("[v0] Successfully loaded", mappedFindings.length, "security findings from AWS")
     return mappedFindings
   } catch (error: any) {
     clearTimeout(timeoutId)
     const errorMsg = error.name === 'AbortError' ? 'Request timed out' : error.message
-    console.warn("[v0] Security findings fetch failed:", errorMsg, "- using fallback data")
-    return demoSecurityFindings
+    console.warn("[v0] Security findings fetch failed:", errorMsg)
+    return [] // Return empty - real data only, no demo
   }
 }
 
