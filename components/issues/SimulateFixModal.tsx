@@ -32,6 +32,7 @@ type SimulationResult = {
   success: boolean
   confidence?: number
   decision?: string
+  error?: string
   whatWillChange?: string[]
   servicesAffected?: Array<{ name: string; impact: string }>
   blockedTraffic?: { externalIPs: number; internalPreserved: boolean }
@@ -155,26 +156,43 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         s.id === 'step4' ? { ...s, status: 'active' as const, detail: 'Comparing before and after states' } : s
       ))
 
-      // Call backend simulation API
-      const response = await fetch(
-        `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(finding.id)}/simulate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            finding_id: finding.id,
-            system_name: systemName,
-            resource_name: resourceName,
-            resource_arn: finding.resource,
-            title: finding.title
-          }),
+      // Call backend simulation API with timeout (28s for Vercel)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 28000) // 28s timeout
+
+      let response: Response
+      let result: any
+
+      try {
+        response = await fetch(
+          `/api/proxy/systems/${encodeURIComponent(systemName)}/issues/${encodeURIComponent(finding.id)}/simulate`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              finding_id: finding.id,
+              system_name: systemName,
+              resource_name: resourceName,
+              resource_arn: finding.resource,
+              title: finding.title
+            }),
+            signal: controller.signal,
+          }
+        )
+        clearTimeout(timeoutId)
+
+        result = await response.json()
+
+        if (!response.ok || result.success === false) {
+          throw new Error(result.detail || result.error || result.message || 'Simulation failed')
         }
-      )
-
-      const result = await response.json()
-
-      if (!response.ok || result.success === false) {
-        throw new Error(result.detail || result.error || result.message || 'Simulation failed')
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId)
+        if (fetchError.name === 'AbortError' || controller.signal.aborted) {
+          throw new Error('Simulation timed out after 28 seconds - backend query took too long. Please try again or check backend logs.')
+        }
+        // Re-throw other errors
+        throw fetchError
       }
 
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -239,10 +257,29 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
       })
     } catch (err: any) {
       console.error("Simulation error", err)
+      
+      // Reset all steps to show failure state
+      setSimulationSteps(steps => steps.map(s => {
+        if (s.status === 'active') {
+          return { ...s, status: 'pending' as const, detail: 'Failed' }
+        }
+        return s
+      }))
+      
+      // Show error in modal (not just toast)
+      setSimulationResult({
+        success: false,
+        confidence: 0,
+        decision: 'BLOCK',
+        error: err.message || "Failed to run simulation",
+      })
+      
+      // Also show toast
       toast({
         title: "Simulation Failed",
         description: err.message || "Failed to run simulation",
         variant: "destructive",
+        duration: 10000, // Show longer for timeout errors
       })
     } finally {
       setSimulating(false)
@@ -402,22 +439,25 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
 
         <div className="space-y-4">
           {/* 5-Step Simulation Progress */}
-          {simulating && (
+          {(simulating || (simulationResult && !simulationResult.success)) && (
             <div className="space-y-4">
               {simulationSteps.map((step, idx) => (
                 <div key={step.id} className={`p-4 border rounded-lg transition-all ${
                   step.status === 'active' ? 'border-purple-500 bg-purple-50' :
                   step.status === 'completed' ? 'border-green-200 bg-green-50' :
+                  simulationResult && !simulationResult.success && step.status === 'pending' && idx < 3 ? 'border-red-200 bg-red-50' :
                   'border-gray-200 bg-gray-50'
                 }`}>
                   <div className="flex items-center gap-3">
                     {step.status === 'completed' && <CheckCircle className="w-5 h-5 text-green-600" />}
-                    {step.status === 'active' && <RefreshCw className="w-5 h-5 text-purple-600 animate-spin" />}
-                    {step.status === 'pending' && <Clock className="w-5 h-5 text-gray-400" />}
+                    {step.status === 'active' && !simulationResult?.error && <RefreshCw className="w-5 h-5 text-purple-600 animate-spin" />}
+                    {simulationResult?.error && step.status === 'pending' && idx < 3 && <AlertTriangle className="w-5 h-5 text-red-600" />}
+                    {(step.status === 'pending' && !simulationResult?.error) && <Clock className="w-5 h-5 text-gray-400" />}
                     <div className="flex-1">
                       <p className={`font-medium ${
                         step.status === 'active' ? 'text-purple-900' :
                         step.status === 'completed' ? 'text-green-900' :
+                        simulationResult?.error ? 'text-red-900' :
                         'text-gray-500'
                       }`}>
                         {step.name}
@@ -425,7 +465,7 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
                       {step.detail && (
                         <p className="text-sm text-gray-600 mt-1">{step.detail}</p>
                       )}
-                      {step.status === 'active' && idx === 3 && (
+                      {step.status === 'active' && idx === 3 && !simulationResult?.error && (
                         <div className="mt-2 w-full bg-purple-200 rounded-full h-2">
                           <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: '70%' }} />
                         </div>
@@ -437,15 +477,40 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
               <div className="mt-4">
                 <p className="text-sm text-gray-600 mb-2">Overall Progress</p>
                 <div className="w-full bg-blue-200 rounded-full h-2">
-                  <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${overallProgress}%` }} />
+                  <div className={`h-2 rounded-full transition-all ${
+                    simulationResult?.error ? 'bg-red-600' : 'bg-blue-600'
+                  }`} style={{ width: `${overallProgress}%` }} />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">{Math.round(overallProgress)}% complete</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {simulationResult?.error ? 'Error occurred' : `${Math.round(overallProgress)}% complete`}
+                </p>
               </div>
+
+              {/* Show error in modal if simulation failed */}
+              {simulationResult?.error && (
+                <div className="p-4 border border-red-300 rounded-lg bg-red-50">
+                  <div className="flex items-start gap-2 text-red-700">
+                    <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="font-semibold mb-1">Simulation Failed</p>
+                      <p className="text-sm">{simulationResult.error}</p>
+                      <Button
+                        onClick={handleSimulate}
+                        variant="outline"
+                        className="mt-3"
+                        size="sm"
+                      >
+                        Try Again
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Simulation Results Screen */}
-          {simulationResult && !applying && !monitoring && (
+          {simulationResult && simulationResult.success && !applying && !monitoring && (
             <div className="space-y-6">
               {/* Safety Score */}
               <div className="p-6 border-2 border-green-500 rounded-lg bg-green-50 text-center">
