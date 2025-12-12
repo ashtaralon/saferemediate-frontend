@@ -181,9 +181,9 @@ export async function POST(
         affectedResources: (data.affected_resources || []).map((r: any) => ({
           id: r.id || r.resource_id || issueId,
           type: r.type || resourceType,
-          impact: r.impact || "low",
+          impact: r.impact || r.reason || "Will be affected by remediation",
           reason: r.reason || "Affected by remediation",
-          name: r.name || r.id || r.resource_id,
+          name: r.name || r.id || r.resource_id || r.arn || 'Unknown resource',
         })),
         confidence: confidence,
         snapshot_id: data.snapshot_id, // Include snapshot_id if present
@@ -191,7 +191,7 @@ export async function POST(
         after_state: data.after_state_summary || `Proposed state after remediation`,
         // ✅ Include REAL data for frontend
         evidence: data.evidence || {},
-        proposed_change: proposed_change,
+        proposed_change: proposed_change || data.proposed_change || {},
         affected_resources: data.affected_resources || [],
         affected_resources_count: data.affected_resources_count || 0,
       })

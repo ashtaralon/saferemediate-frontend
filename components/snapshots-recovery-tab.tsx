@@ -39,12 +39,16 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
         throw new Error(`Failed to fetch snapshots: ${response.status}`)
       }
       const data = await response.json()
-      setSnapshots(data || [])
+      // Backend returns array directly, or might be wrapped
+      const snapshotsArray = Array.isArray(data) ? data : (data.snapshots || [])
+      console.log(`[SnapshotsRecoveryTab] Loaded ${snapshotsArray.length} snapshots for ${systemName}`)
+      setSnapshots(snapshotsArray)
     } catch (err: any) {
+      console.error("[SnapshotsRecoveryTab] Error fetching snapshots:", err)
       setError(err.message || "Failed to load snapshots")
       toast({
         title: "Error",
-        description: "Failed to load snapshots",
+        description: "Failed to load snapshots. Make sure S3_SNAPSHOT_BUCKET is configured.",
         variant: "destructive",
       })
     } finally {
