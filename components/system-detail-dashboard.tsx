@@ -523,7 +523,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       console.log('[fetchAllData] Skipping refresh - simulation/apply in progress')
       return
     }
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchFindings()])
+    // Fetch findings first, then gap-analysis, so gap-analysis can merge properly
+    await Promise.all([fetchFindings(), fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
   useEffect(() => {
