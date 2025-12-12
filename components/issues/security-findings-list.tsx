@@ -15,8 +15,6 @@ interface SecurityFindingsListProps {
 export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
-  const [simulationResult, setSimulationResult] = useState<any>(null)
-  const [simulatingFindingId, setSimulatingFindingId] = useState<string | null>(null)
 
   if (findings.length === 0) {
     return (
@@ -50,62 +48,9 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
     return <Shield className="w-5 h-5" />
   }
 
-  const handleSimulate = async (finding: SecurityFinding) => {
-    // Track which finding is being simulated
-    setSimulatingFindingId(finding.id)
-    try {
-      // Extract system name from finding or use default
-      const systemName = finding.resource?.includes('alon') ? 'alon-prod' : 'default'
-      
-      // Try to get issue ID from finding
-      const issueId = finding.id || `${finding.severity}-0-${finding.resourceType}:${finding.resource}`
-      
-      const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          finding_id: finding.id,
-          resource_type: finding.resourceType,
-          resource_id: finding.resource,
-          proposed_change: {
-            action: 'remediate',
-            items: [],
-            reason: finding.remediation || 'Security remediation'
-          }
-        })
-      })
-      
-      if (response.ok) {
-        const result = await response.json()
-        setSimulationResult(result)
-        setSelectedFinding(finding)
-        setShowModal(true)
-      } else {
-        // Handle timeout - return structured BLOCKED response
-        if (response.status === 504 || response.status === 408) {
-          setSimulationResult({
-            status: 'BLOCKED',
-            timeout: true,
-            confidence: {
-              level: 'BLOCKED',
-              numeric: 0.0,
-              criteria_failed: ['simulation_timeout'],
-              summary: 'Simulation incomplete - timeout occurred'
-            },
-            recommendation: '⚠️ REVIEW REQUIRED: Simulation timed out. Manual review required.'
-          })
-          setSelectedFinding(finding)
-          setShowModal(true)
-        } else {
-          alert(`Simulation failed: ${response.statusText}`)
-        }
-      }
-    } catch (err) {
-      console.error('Simulation error:', err)
-      alert('Failed to run simulation. Check console for details.')
-    } finally {
-      setSimulatingFindingId(null)
-    }
+  const handleSimulate = (finding: SecurityFinding) => {
+    setSelectedFinding(finding)
+    setShowModal(true)
   }
 
   return (
@@ -201,25 +146,12 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
 
                 <div className="flex gap-2 mt-4">
                   <Button
-                    onClick={() => {
-                      setSelectedFinding(finding)
-                      handleSimulate(finding)
-                    }}
-                    disabled={simulatingFindingId !== null}
+                    onClick={() => handleSimulate(finding)}
                     size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    {simulatingFindingId === finding.id ? (
-                      <>
-                        <Zap className="w-4 h-4 mr-1 animate-pulse" />
-                        Simulating...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4 mr-1" />
-                        Simulate Fix
-                      </>
-                    )}
+                    <Zap className="w-4 h-4 mr-1" />
+                    Simulate Fix
                   </Button>
                 </div>
               </div>
