@@ -247,13 +247,18 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   }
 }
 
-export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
+export async function fetchSecurityFindings(systemName?: string): Promise<SecurityFinding[]> {
   // Create timeout controller - increased to 30s to match proxy route timeout (25s) + buffer
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout (was 8s)
 
   try {
-    const response = await fetch("/api/proxy/findings", {
+    // Build URL with systemName filter if provided
+    const url = systemName 
+      ? `/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`
+      : "/api/proxy/findings"
+    
+    const response = await fetch(url, {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,

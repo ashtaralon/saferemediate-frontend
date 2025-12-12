@@ -321,12 +321,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     return () => clearInterval(interval)
   }, [systemName])
 
-  // Fetch security findings
+  // Fetch security findings - filtered by systemName
   useEffect(() => {
     const loadSecurityFindings = async () => {
       setLoadingFindings(true)
       try {
-        const findings = await fetchSecurityFindings()
+        // Pass systemName to filter findings to only this system's resources
+        const findings = await fetchSecurityFindings(systemName)
         setSecurityFindings(findings)
       } catch (error) {
         console.error("[system-dashboard] Error fetching security findings:", error)
