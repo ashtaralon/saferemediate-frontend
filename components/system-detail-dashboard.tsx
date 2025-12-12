@@ -1182,7 +1182,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     <div className="flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-red-500" />
                   <h3 className="text-lg font-semibold text-gray-900">
-                    ALL ISSUES ({severityCounts.critical + severityCounts.high + severityCounts.medium})
+                    ALL ISSUES ({issues.length} total - {severityCounts.critical} critical, {severityCounts.high} high, {severityCounts.medium} medium)
                   </h3>
                     </div>
                 <label className="flex items-center gap-2 text-sm text-gray-600">
