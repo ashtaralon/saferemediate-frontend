@@ -111,24 +111,60 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   return (
     <>
       {showModal && selectedFinding && (
-        <SimulationResultsModal
-          isOpen={showModal}
-          onClose={() => {
-            setShowModal(false)
-            setSelectedFinding(null)
-            setSimulationResult(null)
-          }}
-          resourceType={selectedFinding.resourceType || 'IAMRole'}
-          resourceId={selectedFinding.resource || ''}
-          resourceName={selectedFinding.resource || ''}
-          proposedChange={{
-            action: 'remediate',
-            items: [],
-            reason: selectedFinding.remediation || 'Security remediation'
-          }}
-          systemName="alon-prod"
-          result={simulationResult}
-        />
+        <>
+          {/* Option 1: Use SimulationResultsModal (current) */}
+          <SimulationResultsModal
+            isOpen={showModal}
+            onClose={() => {
+              setShowModal(false)
+              setSelectedFinding(null)
+              setSimulationResult(null)
+            }}
+            resourceType={selectedFinding.resourceType || 'IAMRole'}
+            resourceId={selectedFinding.resource || ''}
+            resourceName={selectedFinding.resource || ''}
+            proposedChange={{
+              action: 'remediate',
+              items: [],
+              reason: selectedFinding.remediation || 'Security remediation'
+            }}
+            systemName="alon-prod"
+            result={simulationResult}
+          />
+          
+          {/* Option 2: Use SimulateFixModal with callbacks (alternative)
+          <SimulateFixModal
+            open={showModal}
+            onClose={() => {
+              setShowModal(false)
+              setSelectedFinding(null)
+              setSimulationResult(null)
+            }}
+            finding={selectedFinding}
+            systemName="alon-prod"
+            onExecute={async (findingId, options) => {
+              const response = await fetch('/api/proxy/simulate/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ finding_id: findingId, ...options })
+              })
+              if (!response.ok) throw new Error('Execution failed')
+              const result = await response.json()
+              console.log('Execution result:', result)
+            }}
+            onRequestApproval={async (findingId) => {
+              const response = await fetch('/api/proxy/simulate/approval', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ finding_id: findingId })
+              })
+              if (!response.ok) throw new Error('Approval request failed')
+              const result = await response.json()
+              console.log('Approval request result:', result)
+            }}
+          />
+          */}
+        </>
       )}
 
       <div className="space-y-3">

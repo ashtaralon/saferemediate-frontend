@@ -19,6 +19,8 @@ interface SimulateFixModalProps {
   finding: SecurityFinding | null
   systemName?: string
   onRunFix?: () => void
+  onExecute?: (findingId: string, options?: { snapshot_id?: string }) => Promise<void>
+  onRequestApproval?: (findingId: string) => Promise<void>
 }
 
 type SimulationStep = {
@@ -520,13 +522,31 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         s.id === 'apply3' ? { ...s, status: 'active' as const } : s
       ))
 
-      // Call backend apply API if snapshot_id exists
-      if (simulationResult.snapshot_id) {
+      // Use onExecute callback if provided, otherwise call API directly
+      if (onExecute && finding) {
+        await onExecute(finding.id, { snapshot_id: simulationResult.snapshot_id })
+      } else if (simulationResult.snapshot_id) {
+        // Fallback to direct API call
         const response = await fetch(
           `/api/proxy/snapshots/${encodeURIComponent(simulationResult.snapshot_id)}/apply`,
           { method: "POST" }
         )
         if (!response.ok) throw new Error("Apply failed")
+      } else {
+        // Try safe-remediate execute endpoint
+        const response = await fetch('/api/proxy/safe-remediate/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            finding_id: finding?.id,
+            resource_type: finding?.resourceType,
+            resource_id: finding?.resource,
+          })
+        })
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.message || "Execution failed")
+        }
       }
 
       await new Promise(resolve => setTimeout(resolve, 600))
