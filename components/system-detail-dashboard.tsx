@@ -704,8 +704,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <p className="text-sm font-medium text-gray-900 mb-1">Unable to load GAP Analysis</p>
                       <p className="text-xs text-gray-500 mb-3">{gapError}</p>
                       <button
-                        variant="outline"
-                        size="sm"
                         onClick={() => {
                           setLoadingGap(true)
                           fetchGapAnalysis()
