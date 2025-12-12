@@ -320,8 +320,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setRemediatingPermission(null)
   }
 
+  const loadSecurityFindings = async () => {
+    setLoadingFindings(true)
+    try {
+      const findings = await fetchSecurityFindings()
+      setSecurityFindings(findings)
+    } catch (error) {
+      console.error("[v0] Failed to fetch security findings:", error)
+    } finally {
+      setLoadingFindings(false)
+    }
+  }
+
   const fetchAllData = async () => {
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
+    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), loadSecurityFindings()])
   }
 
   useEffect(() => {
