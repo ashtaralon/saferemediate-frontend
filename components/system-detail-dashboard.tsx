@@ -200,7 +200,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }
 
       const data = await response.json()
-      // </CHANGE> Removed debug console.log
 
       const allowed = Number(data.allowed_actions) || 0
       const actual = Number(data.used_actions) || 0
@@ -210,57 +209,28 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           ? Number.parseInt(data.statistics.remediation_potential.replace("%", ""))
           : data.statistics?.confidence || 99
 
-      // If backend returns all zeros, use fallback demo data
-      if (allowed === 0 && actual === 0 && gap === 0) {
-        console.warn("[v0] Backend returned empty gap analysis, using fallback demo data")
-        const fallbackAllowed = 28
-        const fallbackActual = 6
-        const fallbackGap = 22
-        
-        setGapAnalysis({
-          allowed: fallbackAllowed,
-          actual: fallbackActual,
-          gap: fallbackGap,
-          gapPercent: Math.round((fallbackGap / fallbackAllowed) * 100),
-          confidence: 99,
-        })
+      // Use real data from backend - NO fallback
+      setGapAnalysis({
+        allowed,
+        actual,
+        gap,
+        gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
+        confidence,
+      })
 
-        // Use demo unused actions list
-        const demoUnusedActions = [
-          "iam:CreateUser",
-          "iam:DeleteUser",
-          "iam:UpdateUser",
-          "iam:AttachUserPolicy",
-          "iam:DetachUserPolicy",
-          "iam:ListAttachedUserPolicies",
-          "iam:ListRoles",
-          "iam:CreateRole",
-          "iam:DeleteRole",
-          "iam:UpdateRole",
-          "iam:AttachRolePolicy",
-          "iam:DetachRolePolicy",
-          "iam:ListAttachedRolePolicies",
-          "iam:GetPolicy",
-          "iam:ListPolicies",
-          "iam:CreatePolicy",
-          "iam:DeletePolicy",
-          "iam:UpdatePolicy",
-          "iam:TagRole",
-          "iam:UntagRole",
-          "iam:ListRoleTags",
-          "s3:DeleteObject",
-        ]
-        setUnusedActionsList(demoUnusedActions)
+      const unusedActions = data.unused_actions_list || []
+      setUnusedActionsList(unusedActions)
 
-        // Update severity counts
-        setSeverityCounts((prev) => ({
-          ...prev,
-          high: fallbackGap,
-          passing: Math.max(0, 100 - fallbackGap),
-        }))
+      // Update severity counts - each unused action = 1 HIGH finding
+      setSeverityCounts((prev) => ({
+        ...prev,
+        high: unusedActions.length,
+        passing: Math.max(0, 100 - unusedActions.length),
+      }))
 
-        // Create demo issues from unused actions (all 22)
-        const demoIssues: CriticalIssue[] = demoUnusedActions.map((permission: string, index: number) => ({
+      // Populate issues array from unused permissions (HIGH severity findings)
+      if (unusedActions.length > 0) {
+        const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
           id: `high-${index}-${permission}`,
           title: `Unused IAM Permission: ${permission}`,
           impact: "Increases attack surface and violates least privilege principle",
@@ -271,113 +241,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           selected: false,
           temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
         }))
-        setIssues(demoIssues)
+        setIssues(highIssues)
       } else {
-        setGapAnalysis({
-          allowed,
-          actual,
-          gap,
-          gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
-          confidence,
-        })
-
-        setUnusedActionsList(data.unused_actions_list || [])
-
-        // Update severity counts - each unused action = 1 HIGH finding
-        setSeverityCounts((prev) => ({
-          ...prev,
-          high: gap,
-          passing: Math.max(0, 100 - gap),
-        }))
-
-        // Populate issues array from unused permissions (HIGH severity findings)
-        const unusedActions = data.unused_actions_list || []
-        if (unusedActions.length > 0) {
-          const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
-            id: `high-${index}-${permission}`,
-            title: `Unused IAM Permission: ${permission}`,
-            impact: "Increases attack surface and violates least privilege principle",
-            affected: `SafeRemediate-Lambda-Remediation-Role`,
-            safeToFix: 95,
-            fixTime: "2-3 minutes",
-            expanded: false,
-            selected: false,
-            temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
-          }))
-          setIssues(highIssues)
-        }
+        // No unused actions from backend = no issues
+        setIssues([])
       }
-
-      // Note: Issues are already set above from the API response (lines 289-302)
-      // Do NOT check unusedActionsList here - it's stale state that would clear issues
+      setGapError(null)
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
-      // Use fallback demo data on error too
-      const fallbackAllowed = 28
-      const fallbackActual = 6
-      const fallbackGap = 22
-      const fallbackUnused = [
-        "iam:CreateUser",
-        "iam:DeleteUser",
-        "iam:UpdateUser",
-        "iam:AttachUserPolicy",
-        "iam:DetachUserPolicy",
-        "iam:ListAttachedUserPolicies",
-        "iam:ListRoles",
-        "iam:CreateRole",
-        "iam:DeleteRole",
-        "iam:UpdateRole",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
-        "iam:ListAttachedRolePolicies",
-        "iam:GetPolicy",
-        "iam:ListPolicies",
-        "iam:CreatePolicy",
-        "iam:DeletePolicy",
-        "iam:UpdatePolicy",
-        "iam:TagRole",
-        "iam:UntagRole",
-        "iam:ListRoleTags",
-        "s3:DeleteObject",
-      ]
-
-      setGapAnalysis({
-        allowed: fallbackAllowed,
-        actual: fallbackActual,
-        gap: fallbackGap,
-        gapPercent: Math.round((fallbackGap / fallbackAllowed) * 100),
-        confidence: 99,
-      })
-
-      setUnusedActionsList(fallbackUnused)
-      setSeverityCounts((prev) => ({
-        ...prev,
-        high: fallbackGap,
-        passing: Math.max(0, 100 - fallbackGap),
-      }))
-
-      const highIssues: CriticalIssue[] = fallbackUnused.map((permission: string, index: number) => ({
-        id: `high-${index}-${permission}`,
-        title: `Unused IAM Permission: ${permission}`,
-        impact: "Increases attack surface and violates least privilege principle",
-        affected: `IAM Role: SafeRemediate-Lambda-Remediation-Role`,
-        safeToFix: 95,
-        fixTime: "< 5 min",
-        temporalAnalysis: `This permission has not been used in the last year (365 days). Safe to remove with 99% confidence.`,
-        expanded: false,
-        selected: false,
-      }))
-      // ✅ FIX: Merge fallback issues instead of replacing - keeps existing issues intact
-      setIssues((prevIssues) => {
-        // If we already have issues, don't replace them with fallback
-        if (prevIssues.length > 0) {
-          console.log("[v0] Keeping existing issues on gap-analysis error")
-          return prevIssues
-        }
-        // Only use fallback if we have no issues at all
-        return highIssues
-      })
-      setGapError(null)
+      // On error, show error state - NO fallback demo data
+      setGapError(error instanceof Error ? error.message : "Failed to fetch gap analysis")
+      // Keep existing issues if any, otherwise empty
+      setIssues((prev) => prev)
     } finally {
       setLoadingGap(false)
     }
