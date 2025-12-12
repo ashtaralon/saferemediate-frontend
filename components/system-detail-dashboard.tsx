@@ -262,10 +262,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         return
       }
 
+      const statusValue: "running" | "stopped" | "error" = 
+        (data.status === "running" || data.status === "stopped" || data.status === "error")
+          ? data.status
+          : "stopped"
+      
       setAutoTagStatus({
-        status: (data.status === "running" || data.status === "stopped" || data.status === "error") 
-          ? data.status 
-          : "stopped",
+        status: statusValue,
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
