@@ -123,7 +123,7 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
 
       // Step 1: Loading temporal graph data
       setSimulationSteps(steps => steps.map(s => 
-        s.id === 'step1' ? { ...s, status: 'active' as const, detail: 'Analyzing 287 days of access patterns' } : s
+        s.id === 'step1' ? { ...s, status: 'active' as const, detail: 'Loading infrastructure graph...' } : s
       ))
       await new Promise(resolve => setTimeout(resolve, 800))
 
@@ -133,7 +133,7 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
 
       // Step 2: Analyzing dependencies
       setSimulationSteps(steps => steps.map(s => 
-        s.id === 'step2' ? { ...s, status: 'active' as const, detail: '3 services currently access this bucket' } : s
+        s.id === 'step2' ? { ...s, status: 'active' as const, detail: 'Analyzing resource dependencies...' } : s
       ))
       await new Promise(resolve => setTimeout(resolve, 600))
 
@@ -143,7 +143,7 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
 
       // Step 3: Checking usage patterns
       setSimulationSteps(steps => steps.map(s => 
-        s.id === 'step3' ? { ...s, status: 'active' as const, detail: 'Last external access: 287 days ago' } : s
+        s.id === 'step3' ? { ...s, status: 'active' as const, detail: 'Reviewing CloudTrail access logs...' } : s
       ))
       await new Promise(resolve => setTimeout(resolve, 700))
 
@@ -264,8 +264,8 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
       const cloudtrailEvidence = evidence.cloudtrail || {}
       const flowlogsEvidence = evidence.flowlogs || {}
       
-      // ✅ Update step details with REAL data (if available)
-      if (!isTimeout && cloudtrailEvidence.days_since_last_use !== undefined) {
+      // ✅ Update step details with REAL data (even on timeout if partial data exists)
+      if (cloudtrailEvidence.days_since_last_use !== undefined) {
         const days = cloudtrailEvidence.days_since_last_use
         setSimulationSteps(steps => steps.map(s => {
           if (s.id === 'step1') {
@@ -276,13 +276,31 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
           }
           return s
         }))
+      } else if (isTimeout) {
+        // On timeout, show generic message
+        setSimulationSteps(steps => steps.map(s => {
+          if (s.id === 'step1') {
+            return { ...s, detail: 'Loading infrastructure graph... (timeout - partial data)' }
+          }
+          if (s.id === 'step3') {
+            return { ...s, detail: 'Reviewing CloudTrail access logs... (timeout - partial data)' }
+          }
+          return s
+        }))
       }
       
-      // Update step 2 with real affected count
-      if (!isTimeout && affectedCount > 0) {
+      // Update step 2 with real affected count (even on timeout)
+      if (affectedCount > 0) {
         setSimulationSteps(steps => steps.map(s => {
           if (s.id === 'step2') {
             return { ...s, detail: `${affectedCount} resource(s) will be affected` }
+          }
+          return s
+        }))
+      } else if (isTimeout) {
+        setSimulationSteps(steps => steps.map(s => {
+          if (s.id === 'step2') {
+            return { ...s, detail: 'Analyzing resource dependencies... (timeout - partial data)' }
           }
           return s
         }))
