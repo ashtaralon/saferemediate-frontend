@@ -129,15 +129,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const [remediatingPermission, setRemediatingPermission] = useState<string | null>(null)
 
-  const fallbackGapData: GapAnalysis = {
-    allowed: 28,
+  // Initial state - zeros until real data loads from backend
+  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>({
+    allowed: 0,
     actual: 0,
-    gap: 28,
-    gapPercent: 100,
-    confidence: 99,
-  }
-
-  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(fallbackGapData)
+    gap: 0,
+    gapPercent: 0,
+    confidence: 0,
+  })
   const [loadingGap, setLoadingGap] = useState(true)
   const [gapError, setGapError] = useState<string | null>(null)
   const [loadingAutoTag, setLoadingAutoTag] = useState(true)
