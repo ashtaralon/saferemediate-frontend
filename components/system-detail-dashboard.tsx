@@ -133,6 +133,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [remediatingPermission, setRemediatingPermission] = useState<string | null>(null)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   const [selectedPermissionForSimulation, setSelectedPermissionForSimulation] = useState<string | null>(null)
+  const [simulating, setSimulating] = useState(false)
+  const [simulationResult, setSimulationResult] = useState<any>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loadingFindings, setLoadingFindings] = useState(true)
 
@@ -261,7 +263,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }
 
       setAutoTagStatus({
-        status: data.status || "stopped",
+        status: (data.status === "running" || data.status === "stopped" || data.status === "error") 
+          ? data.status 
+          : "stopped",
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
         lastSync: data.last_sync || data.lastSync || "Never",
@@ -1135,6 +1139,192 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </>
       )}
 
+      {/* Issues Tab Content */}
+      {activeTab === "issues" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
+          {/* All Security Findings */}
+          <div className="bg-white rounded-xl p-6 border border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <h3 className="text-lg font-semibold text-gray-900">All Security Issues</h3>
+                <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-full">
+                  {securityFindings.length + issues.length} total
+                </span>
+              </div>
+              {loadingFindings && (
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+              )}
+            </div>
+            {securityFindings.length > 0 ? (
+              <SecurityFindingsList findings={securityFindings} />
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <p>No security findings found for this system.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Critical/High Issues from Overview */}
+          {issues.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {severityCounts.critical > 0 ? "CRITICAL" : "HIGH"} ISSUES ({issues.length})
+                    </h3>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={issues.length > 0 && issues.every((i) => i.selected)}
+                      onChange={selectAllIssues}
+                      className="rounded border-gray-300"
+                    />
+                    Select All
+                  </label>
+                </div>
+              </div>
+
+              <div className="p-6">
+                <div className="space-y-4">
+                  {issues.map((issue) => (
+                    <div key={issue.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="p-4">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={issue.selected}
+                            onChange={() => toggleIssueSelected(issue.id)}
+                            className="mt-1 rounded border-gray-300"
+                          />
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900">{issue.title}</h4>
+                            <p className="text-sm text-red-600 mt-1">
+                              <span className="font-medium">Impact:</span> {issue.impact}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              <span className="font-medium">Affected:</span> {issue.affected}
+                            </p>
+                            <div className="flex items-center gap-4 mt-2">
+                              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                                ✓ SAFE TO FIX • {issue.safeToFix}%
+                              </span>
+                              <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                                ⏱ {issue.fixTime}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {issue.expanded && (
+                          <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-100">
+                            <p className="text-xs font-semibold text-purple-700 uppercase mb-1">
+                              Temporal Analysis
+                            </p>
+                            <p className="text-sm text-purple-800">{issue.temporalAnalysis}</p>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => toggleIssueExpanded(issue.id)}
+                          className="mt-3 text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                        >
+                          {issue.expanded ? "Hide" : "View"} Current vs Desired State
+                          <span className={`transition-transform ${issue.expanded ? "rotate-180" : ""}`}>▼</span>
+                        </button>
+                      </div>
+
+                      <div className="flex border-t border-gray-200">
+                        <button
+                          onClick={async () => {
+                            setSelectedPermissionForSimulation(issue.id)
+                            setSimulating(true)
+                            try {
+                              // Extract permission from issue title or ID
+                              const permission = issue.title.includes(':') 
+                                ? issue.title.split(':')[1]?.trim() 
+                                : issue.id.replace('high-', '').replace(/-/g, ':')
+                              
+                              const issueId = issue.id
+                              
+                              const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  finding_id: issueId,
+                                  resource_type: 'IAMRole',
+                                  resource_id: issue.affected.replace('IAM Role: ', ''),
+                                  proposed_change: {
+                                    action: 'remediate',
+                                    items: [permission],
+                                    reason: `Remove unused permission: ${permission}`
+                                  }
+                                })
+                              })
+                              
+                              if (response.ok) {
+                                const result = await response.json()
+                                setSimulationResult(result)
+                                setShowSimulateModal(true)
+                              } else {
+                                const errorData = await response.json().catch(() => ({}))
+                                if (response.status === 504 || response.status === 408) {
+                                  setSimulationResult({
+                                    status: 'BLOCKED',
+                                    confidence: {
+                                      level: 'BLOCKED',
+                                      numeric: 0.0,
+                                      criteria_failed: ['simulation_timeout'],
+                                      summary: 'Simulation incomplete - timeout occurred'
+                                    },
+                                    recommendation: '⚠️ REVIEW REQUIRED: Simulation timed out. Manual review required.'
+                                  })
+                                  setShowSimulateModal(true)
+                                } else {
+                                  alert(`Simulation failed: ${errorData.error || response.statusText}`)
+                                }
+                              }
+                            } catch (err) {
+                              console.error('Simulation error:', err)
+                              alert('Failed to run simulation. Check console for details.')
+                            } finally {
+                              setSimulating(false)
+                            }
+                          }}
+                          disabled={simulating}
+                          className="flex-1 py-3 text-sm font-medium text-white bg-[#2D51DA] hover:bg-[#2343B8] flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          {simulating ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              Simulating...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4" />
+                              SIMULATE FIX
+                            </>
+                          )}
+                        </button>
+                        <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
+                          ✨ AUTO-FIX
+                        </button>
+                        <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
+                          👥 REQUEST
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Render the LeastPrivilegeTab component */}
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
@@ -1636,8 +1826,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 setSimulating(true)
                                 try {
                                   // Find the issue ID for this permission
-                                  const issueId = gapAnalysisData?.issues?.find(
-                                    (issue: any) => issue.unusedList?.includes(permission)
+                                  const issueId = issues.find(
+                                    (issue) => issue.title.includes(permission)
                                   )?.id || `high-0-${permission.replace(':', '-')}`
                                   
                                   const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
