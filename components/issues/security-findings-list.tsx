@@ -51,7 +51,8 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   }
 
   const handleSimulate = async (finding: SecurityFinding) => {
-    setSimulating(true)
+    // Track which finding is being simulated
+    setSimulatingFindingId(finding.id)
     try {
       // Extract system name from finding or use default
       const systemName = finding.resource?.includes('alon') ? 'alon-prod' : 'default'
@@ -103,7 +104,7 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
       console.error('Simulation error:', err)
       alert('Failed to run simulation. Check console for details.')
     } finally {
-      setSimulating(false)
+      setSimulatingFindingId(null)
     }
   }
 

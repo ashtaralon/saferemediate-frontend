@@ -1678,13 +1678,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             <button
                               onClick={async () => {
                                 setSelectedPermissionForSimulation(permission)
-                                setSimulating(true)
+                                // Find the issue ID for this permission to track simulation state
+                                const issueId = issues.find(
+                                  (issue) => issue.title.includes(permission)
+                                )?.id || `high-0-${permission.replace(':', '-')}`
+                                setSimulatingIssueId(issueId)
                                 try {
-                                  // Find the issue ID for this permission
-                                  const issueId = issues.find(
-                                    (issue) => issue.title.includes(permission)
-                                  )?.id || `high-0-${permission.replace(':', '-')}`
-                                  
                                   const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' }
