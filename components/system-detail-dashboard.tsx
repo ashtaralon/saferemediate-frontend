@@ -321,6 +321,28 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     return () => clearInterval(interval)
   }, [systemName])
 
+  // Fetch security findings
+  useEffect(() => {
+    const loadSecurityFindings = async () => {
+      setLoadingFindings(true)
+      try {
+        const findings = await fetchSecurityFindings()
+        setSecurityFindings(findings)
+      } catch (error) {
+        console.error("[system-dashboard] Error fetching security findings:", error)
+        setSecurityFindings([])
+      } finally {
+        setLoadingFindings(false)
+      }
+    }
+
+    loadSecurityFindings()
+    
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(loadSecurityFindings, 60000)
+    return () => clearInterval(interval)
+  }, [systemName])
+
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
       setCustomTags([...customTags, { key: newTagKey.trim(), value: newTagValue.trim() }])
