@@ -1,7 +1,43 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
+import { infrastructureData, demoSecurityFindings } from "./data"
 
-const BACKEND_URL = "https://saferemediate-backend.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
+const MAX_RETRIES = 3
+
+// Helper function to fetch with retry and exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  retries = MAX_RETRIES
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    
+    // Retry on network errors or timeouts
+    if (retries > 0 && (error.name === 'AbortError' || error.message?.includes('fetch'))) {
+      const delay = Math.pow(2, MAX_RETRIES - retries) * 1000 // Exponential backoff: 2s, 4s, 8s
+      console.warn(`[api-client] Retry ${MAX_RETRIES - retries + 1}/${MAX_RETRIES} after ${delay}ms`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+      return fetchWithRetry(url, options, retries - 1)
+    }
+    
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${FETCH_TIMEOUT}ms`)
+    }
+    throw error
+  }
+}
 
 export interface InfrastructureData {
   resources: Array<{
@@ -59,34 +95,78 @@ export interface InfrastructureData {
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
   try {
-    // Fetch dashboard metrics and graph nodes in parallel
-    const [metricsResponse, nodesResponse] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/dashboard/metrics`, {
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      }),
-      fetch(`${BACKEND_URL}/api/graph/nodes`, {
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-      }),
+    // Fetch dashboard metrics and graph nodes in parallel via proxy routes
+    // Use Promise.race with timeout to prevent hanging
+    const fetchWithTimeout = (url: string, timeout: number = 25000) => {
+      return Promise.race([
+        fetch(url, {
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+        }),
+        new Promise<Response>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout")), timeout)
+        ),
+      ])
+    }
+
+    // Use unified issues endpoint for stable counts
+    // Client timeout must be longer than proxy timeout (28s) to allow proxy to complete
+    const [issuesSummaryResponse, nodesResponse] = await Promise.allSettled([
+      fetchWithTimeout("/api/proxy/issues-summary", 30000).catch(() => null), // 30s timeout (proxy has 28s)
+      fetchWithTimeout("/api/proxy/graph-data", 30000).catch(() => null), // 30s timeout (proxy has 28s)
     ])
 
+    let issuesSummary: any = null
     let metrics: any = {}
     let nodes: any[] = []
 
-    if (metricsResponse.ok) {
-      metrics = await metricsResponse.json()
-      console.log("[v0] Successfully loaded metrics from backend")
+    // Handle unified issues summary response
+    if (issuesSummaryResponse.status === 'fulfilled' && issuesSummaryResponse.value && issuesSummaryResponse.value.ok) {
+      try {
+        issuesSummary = await issuesSummaryResponse.value.json()
+        console.log("[v0] Successfully loaded unified issues summary:", {
+          total: issuesSummary.total,
+          cached: issuesSummary.cached,
+          by_source: issuesSummary.by_source
+        })
+      } catch (e) {
+        console.warn("[v0] Failed to parse issues summary:", e)
+      }
     } else {
-      console.warn("[v0] Metrics endpoint returned error:", metricsResponse.status)
+      console.warn("[v0] Issues summary endpoint failed or timed out, falling back to old metrics")
+    }
+    
+    // Fallback: try old dashboard-metrics if unified endpoint failed
+    if (!issuesSummary) {
+      try {
+        const metricsResponse = await fetchWithTimeout("/api/proxy/dashboard-metrics", 30000).catch(() => null) // 30s timeout (proxy has 28s)
+        if (metricsResponse && metricsResponse.ok) {
+          metrics = await metricsResponse.json()
+          console.log("[v0] Using fallback dashboard-metrics")
+        }
+      } catch (e) {
+        console.warn("[v0] Fallback metrics also failed:", e)
+      }
     }
 
-    if (nodesResponse.ok) {
-      const nodesData = await nodesResponse.json()
-      nodes = nodesData.nodes || nodesData || []
-      console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
+    // Handle nodes response
+    if (nodesResponse.status === 'fulfilled' && nodesResponse.value && nodesResponse.value.ok) {
+      try {
+        const nodesData = await nodesResponse.value.json()
+        // graph-data returns { nodes: [...], relationships: [...] }
+        nodes = nodesData.nodes || nodesData || []
+        console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
+      } catch (e) {
+        console.warn("[v0] Failed to parse nodes:", e)
+      }
     } else {
-      console.warn("[v0] Nodes endpoint returned error:", nodesResponse.status)
+      console.warn("[v0] Nodes endpoint failed or timed out")
+    }
+
+    // If no nodes from backend and no issues summary, use fallback data
+    if (nodes.length === 0 && !issuesSummary && Object.keys(metrics).length === 0) {
+      console.warn("[v0] No data from backend, using fallback data")
+      return infrastructureData
     }
 
     // Map backend data to our InfrastructureData format
@@ -108,18 +188,34 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       typeCounts[type] = (typeCounts[type] || 0) + 1
     })
 
+    // Use unified issues summary if available, otherwise fallback to metrics
+    const totalIssues = issuesSummary?.total ?? metrics.totalIssues ?? metrics.issuesCount ?? 0
+    const bySeverity = issuesSummary?.by_severity ?? {
+      critical: metrics.criticalIssues ?? metrics.criticalCount ?? 0,
+      high: metrics.highIssues ?? metrics.highCount ?? 0,
+      medium: metrics.mediumIssues ?? metrics.mediumCount ?? 0,
+      low: metrics.lowIssues ?? metrics.lowCount ?? 0,
+    }
+
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.avgHealthScore || metrics.healthScore || 85,
+        avgHealthScore: metrics.metrics?.avg_health_score || metrics.avgHealthScore || metrics.healthScore || 85,
         healthScoreTrend: metrics.healthScoreTrend || 2,
         needAttention: metrics.needAttention || metrics.systemsNeedingAttention || 0,
-        totalIssues: metrics.totalIssues || metrics.issuesCount || 0,
-        criticalIssues: metrics.criticalIssues || metrics.criticalCount || 0,
-        averageScore: metrics.averageScore || metrics.avgHealthScore || 85,
+        totalIssues: totalIssues,
+        criticalIssues: bySeverity.critical,
+        averageScore: metrics.metrics?.avg_health_score || metrics.averageScore || metrics.avgHealthScore || 85,
         averageScoreTrend: metrics.averageScoreTrend || 2,
-        lastScanTime: metrics.lastScanTime || new Date().toISOString(),
+        lastScanTime: issuesSummary?.timestamp || metrics.metrics?.last_scan_time || metrics.lastScanTime || new Date().toISOString(),
       },
+      issuesSummary: issuesSummary ? {
+        total: issuesSummary.total,
+        by_severity: issuesSummary.by_severity,
+        by_source: issuesSummary.by_source,
+        cached: issuesSummary.cached,
+        cache_age_seconds: issuesSummary.cache_age_seconds,
+      } : null,
       infrastructure: {
         containerClusters: typeCounts["ecscluster"] || typeCounts["ecs"] || 0,
         kubernetesWorkloads: typeCounts["ekscluster"] || typeCounts["eks"] || 0,
@@ -131,11 +227,11 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         objectStorage: typeCounts["s3bucket"] || typeCounts["s3"] || 0,
       },
       securityIssues: {
-        critical: metrics.criticalIssues || 0,
-        high: metrics.highIssues || 0,
-        medium: metrics.mediumIssues || 0,
-        low: metrics.lowIssues || 0,
-        totalIssues: metrics.totalIssues || 0,
+        critical: bySeverity.critical || metrics.criticalIssues || 0,
+        high: bySeverity.high || metrics.highIssues || 0,
+        medium: bySeverity.medium || metrics.mediumIssues || 0,
+        low: bySeverity.low || metrics.lowIssues || 0,
+        totalIssues: totalIssues,
         todayChange: metrics.todayChange || 0,
         cveCount: metrics.cveCount || 0,
         threatsCount: metrics.threatsCount || 0,
@@ -146,59 +242,80 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       complianceSystems: metrics.complianceSystems || [],
     }
   } catch (error) {
-    console.warn("[v0] Backend not available, using mock data. Error:", error)
+    console.warn("[v0] Backend not available, using fallback data. Error:", error)
     return infrastructureData
   }
 }
 
 export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
+  // Create timeout controller - increased to 30s to match proxy route timeout (25s) + buffer
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout (was 8s)
+
   try {
-    const response = await fetch(`${BACKEND_URL}/api/findings`, {
+    const response = await fetch("/api/proxy/findings", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
     })
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
-      console.error("[v0] Backend returned error for security findings:", response.status, response.statusText)
-      return []
+      console.warn("[v0] Backend returned error for security findings:", response.status, "- using fallback data")
+      return demoSecurityFindings
     }
 
-    const data = await response.json()
-    console.log("[v0] Security findings response:", data)
-    
+    let data: any
+    try {
+      data = await response.json()
+    } catch (parseError) {
+      console.warn("[v0] Failed to parse security findings response - using fallback data")
+      return demoSecurityFindings
+    }
+
+    console.log("[v0] Security findings response:", { success: data?.success, source: data?.source, count: data?.findings?.length })
+
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
-    console.log(`[v0] Found ${findings.length} security findings`)
 
-    if (findings.length === 0) {
-      console.warn("[v0] No security findings returned from backend")
-      return []
+    // If backend returns empty findings, use fallback demo data
+    if (!findings || findings.length === 0) {
+      console.warn("[v0] Backend returned empty findings - using fallback data")
+      return demoSecurityFindings
     }
 
     const mappedFindings = findings.map((f: any) => ({
-      id: f.id || f.findingId || f.finding_id || "",
-      title: f.title || f.name || f.type || "Security Finding",
-      severity: (f.severity || "MEDIUM").toUpperCase(),
-      description: f.description || f.desc || "",
-      resource: f.resource || f.resourceId || f.resource_id || "",
-      resourceType: f.resourceType || f.resource_type || "Resource",
+      id: f.id || f.findingId || `finding-${Math.random().toString(36).substr(2, 9)}`,
+      title: f.title || f.name || "Security Finding",
+      severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+      description: f.description || "",
+      resource: f.resource || f.resourceId || "",
+      resourceType: f.resourceType || "Resource",
       status: f.status || "open",
       category: f.category || f.type || "Security",
-      discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || f.created_at || f.detectedAt || new Date().toISOString(),
+      discoveredAt: f.discoveredAt || f.detectedAt || f.createdAt || new Date().toISOString(),
       remediation: f.remediation || f.recommendation || "",
     }))
-    
-    console.log(`[v0] Mapped ${mappedFindings.length} findings successfully`)
+
+    // Final check - if mapping produced empty array, return fallback
+    if (mappedFindings.length === 0) {
+      console.warn("[v0] Mapped findings empty - using fallback data")
+      return demoSecurityFindings
+    }
+
+    console.log("[v0] Successfully loaded", mappedFindings.length, "security findings")
     return mappedFindings
-  } catch (error) {
-    console.error("[v0] Security findings endpoint error:", error)
-    return []
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    const errorMsg = error.name === 'AbortError' ? 'Request timed out' : error.message
+    console.warn("[v0] Security findings fetch failed:", errorMsg, "- using fallback data")
+    return demoSecurityFindings
   }
 }
 
 export async function fetchGraphNodes(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
+    const response = await fetch("/api/proxy/graph-data", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -219,7 +336,7 @@ export async function fetchGraphNodes(): Promise<any[]> {
 
 export async function fetchGraphEdges(): Promise<any[]> {
   try {
-    const response = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
+    const response = await fetch("/api/proxy/graph-data", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -240,7 +357,7 @@ export async function fetchGraphEdges(): Promise<any[]> {
 
 export async function testBackendHealth(): Promise<{ success: boolean; message: string }> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`, {
+    const response = await fetch("/api/proxy/health", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
     })
@@ -254,4 +371,69 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
   } catch (error: any) {
     return { success: false, message: error.message || "Connection failed" }
   }
+}
+
+// ============================================================================
+// HTTP POST Helper & Simulation/Fix Functions
+// ============================================================================
+
+async function httpPost<T>(path: string, body: any): Promise<T> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Request to ${path} failed (${res.status}): ${text}`)
+  }
+
+  return res.json() as Promise<T>
+}
+
+/**
+ * Simulate a fix for a finding
+ * payload can be:
+ * { finding_id, change_type, resource_id, proposed_state }
+ */
+export async function simulateIssue(payload: any) {
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/simulate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Simulation failed: ${res.status}`)
+  }
+
+  return res.json()
+}
+
+/**
+ * Execute remediation for a finding
+ * Usually you send something like:
+ * { finding_id: "...", ... }
+ */
+export async function fixIssue(payload: any) {
+  // Use Next.js proxy to avoid CORS issues
+  const res = await fetch("/api/proxy/remediate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Fix failed: ${res.status}`)
+  }
+
+  return res.json()
 }

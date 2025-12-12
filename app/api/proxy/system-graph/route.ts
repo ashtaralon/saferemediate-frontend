@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
-  const backendUrl = process.env.BACKEND_API_URL || "https://unnitrogenous-preshrunk-gena.ngrok-free.dev"
 
   try {
     const { searchParams } = new URL(request.url)

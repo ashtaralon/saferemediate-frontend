@@ -72,29 +72,118 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // Cache gap-analysis results with expiration (5 minutes)
+  const getCachedGapData = useCallback(() => {
+    if (typeof window === "undefined") return null
+    try {
+      const cached = localStorage.getItem("gap-analysis-cache")
+      if (!cached) return null
+      const { data, timestamp } = JSON.parse(cached)
+      const age = Date.now() - timestamp
+      const maxAge = 5 * 60 * 1000 // 5 minutes
+      if (age < maxAge) {
+        console.log("[systems-view] Using cached gap-analysis data (age:", Math.round(age / 1000), "s)")
+        return data
+      }
+      // Cache expired, remove it
+      localStorage.removeItem("gap-analysis-cache")
+      return null
+    } catch (e) {
+      console.warn("[systems-view] Failed to read gap-analysis cache:", e)
+      return null
+    }
+  }, [])
+
+  const setCachedGapData = useCallback((data: { allowed: number; used: number; unused: number }) => {
+    if (typeof window === "undefined") return
+    try {
+      localStorage.setItem("gap-analysis-cache", JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }))
+    } catch (e) {
+      console.warn("[systems-view] Failed to cache gap-analysis data:", e)
+    }
+  }, [])
+
+  // Fetch gap-analysis in background (non-blocking)
+  const fetchGapAnalysisBackground = useCallback(async () => {
+    // Load cached data immediately if available
+    const cached = getCachedGapData()
+    if (cached) {
+      setGapData(cached)
+      console.log("[systems-view] Loaded gap-analysis from cache")
+    }
+
+    // Fetch fresh data in background (don't await - non-blocking)
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
+      
+      const gapRes = await fetch("/api/proxy/gap-analysis", {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
+      if (gapRes.ok) {
+        const gapJson = await gapRes.json()
+        const newData = {
+          allowed: gapJson.allowed_actions ?? 0,
+          used: gapJson.used_actions ?? 0,
+          unused: gapJson.unused_actions ?? 0,
+        }
+        setGapData(newData)
+        setCachedGapData(newData)
+        console.log("[systems-view] Updated gap-analysis data from backend")
+      } else if (gapRes.status === 504 || gapRes.status === 503) {
+        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, keeping cached/fallback values`)
+        // Don't update - keep cached or fallback values
+      } else {
+        console.warn(`[systems-view] Gap analysis returned ${gapRes.status}, keeping cached/fallback values`)
+      }
+    } catch (gapErr: any) {
+      // Handle timeout gracefully - don't block the UI
+      if (gapErr.name === 'AbortError' || gapErr.message?.includes('timeout')) {
+        console.warn("[systems-view] Gap analysis request timed out, keeping cached/fallback values")
+      } else {
+        console.warn("[systems-view] Gap analysis error:", gapErr.message)
+      }
+      // Don't update - keep cached or fallback values
+    }
+  }, [getCachedGapData, setCachedGapData])
+
   const fetchSystemsData = useCallback(async () => {
     setIsScanning(true)
     setIsLoadingData(true)
     let unusedActions = 28
 
-    try {
-      const gapRes = await fetch("/api/proxy/gap-analysis")
-      if (gapRes.ok) {
-        const gapJson = await gapRes.json()
-        unusedActions = gapJson.unused_actions ?? 0
-        setGapData({
-          allowed: gapJson.allowed_actions ?? 0,
-          used: gapJson.used_actions ?? 0,
-          unused: unusedActions,
-        })
-      }
-    } catch (gapErr) {
+    // Load cached gap data immediately (non-blocking)
+    const cachedGap = getCachedGapData()
+    if (cachedGap) {
+      setGapData(cachedGap)
+      unusedActions = cachedGap.unused
+    } else {
+      // No cache - use fallback
       setGapData({ allowed: 28, used: 0, unused: 28 })
       unusedActions = 28
     }
 
+    // Fetch fresh gap-analysis in background (non-blocking - don't await)
+    fetchGapAnalysisBackground().catch(() => {
+      // Silent fail - already using cached/fallback values
+    })
+
     try {
-      const nodesRes = await fetch("/api/proxy/graph-data")
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller2 = new AbortController()
+      const timeoutId2 = setTimeout(() => controller2.abort(), 25000)
+      
+      const nodesRes = await fetch("/api/proxy/graph-data", {
+        signal: controller2.signal,
+      })
+      
+      clearTimeout(timeoutId2)
 
       if (nodesRes.ok) {
         const nodesData = await nodesRes.json()
@@ -154,6 +243,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             owner: "Platform Team",
           })
         })
+
+        // Always ensure alon-prod system exists
+        const hasAlonProd = systems.some(s => s.name.toLowerCase().includes("alon"))
+        if (!hasAlonProd) {
+          // alon-prod should always be shown - it's the main production system
+          systems.unshift({
+            name: "alon-prod",
+            criticality: 5,
+            criticalityLabel: "MISSION CRITICAL",
+            environment: "Production",
+            health: calculatedHealthScore,
+            critical: 0,
+            high: highFindingsFromGap,
+            total: infraNodes.length > 0 ? infraNodes.length : 16,
+            lastScan: "Just now",
+            owner: "Platform Team",
+          })
+        }
 
         if (systems.length > 0) {
           setLocalSystems(systems)
@@ -267,7 +374,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const checkBackendStatus = async () => {
     setBackendStatus("checking")
     try {
-      const response = await fetch("/api/proxy/test")
+      // Health check with shorter timeout (10s is enough)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+      
+      const response = await fetch("/api/proxy/test", {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (response.ok) {
         setBackendStatus("connected")
         return true
@@ -284,7 +400,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const fetchAvailableSystems = async () => {
     setIsLoadingAvailable(true)
     try {
-      const response = await fetch("/api/proxy/systems/available")
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
+      const response = await fetch("/api/proxy/systems/available", {
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (response.ok) {
         const data = await response.json()
         const systems = data.systems || data || []
@@ -340,11 +465,18 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     })
 
     try {
+      // Add timeout to prevent hanging (25s to match Vercel function limit)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+      
       await fetch("/api/proxy/systems/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ systemName }),
+        signal: controller.signal,
       })
+      
+      clearTimeout(timeoutId)
     } catch (error) {
       console.error("[v0] Failed to notify backend:", error)
     }

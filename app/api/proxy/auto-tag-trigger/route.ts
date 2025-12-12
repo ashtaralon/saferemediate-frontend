@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server"
 
 const BACKEND_URL =
-  process.env.BACKEND_API_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "https://unnitrogenous-preshrunk-gena.ngrok-free.dev"
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(request: Request) {
   try {

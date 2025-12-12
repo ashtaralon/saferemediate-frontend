@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
-  const backendUrl = process.env.BACKEND_API_URL || "https://unnitrogenous-preshrunk-gena.ngrok-free.dev"
 
   try {
     const body = await request.json()
