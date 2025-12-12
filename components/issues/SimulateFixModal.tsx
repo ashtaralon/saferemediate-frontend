@@ -184,7 +184,7 @@ export function SimulateFixModal({ open, onClose, finding, systemName, onRunFix 
         result = await response.json()
 
         // Handle timeout response - backend returns success=True with timeout flag
-        const isBackendTimeout = result.timeout === True || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
+        const isBackendTimeout = result.timeout === true || result.message?.includes('timeout') || result.recommendation?.includes('timed out')
         
         if (!response.ok) {
           // If backend explicitly returned timeout info, treat as partial success
