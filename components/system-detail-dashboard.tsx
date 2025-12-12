@@ -290,14 +290,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
         setUnusedActionsList(data.unused_actions_list || [])
 
-        // Update severity counts - each unused action = 1 HIGH finding
+        // ✅ Update severity counts - each unused action = 1 HIGH finding
+        // Only update if gap-analysis succeeded (don't overwrite findings counts)
         setSeverityCounts((prev) => ({
           ...prev,
-          high: gap,
+          high: gap, // Gap-analysis high issues
           passing: Math.max(0, 100 - gap),
         }))
 
         // Populate issues array from unused permissions (HIGH severity findings)
+        // ✅ MERGE with existing issues, don't replace
         const unusedActions = data.unused_actions_list || []
         if (unusedActions.length > 0) {
           const highIssues: CriticalIssue[] = unusedActions.map((permission: string, index: number) => ({
@@ -311,7 +313,17 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             selected: false,
             temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
           }))
-          setIssues(highIssues)
+          
+          // ✅ MERGE: Keep existing non-high-* issues, add new high-* issues
+          setIssues((prevIssues) => {
+            const existingIds = new Set(prevIssues.map(i => i.id))
+            const newHighIssues = highIssues.filter(issue => !existingIds.has(issue.id))
+            const otherIssues = prevIssues.filter(issue => !issue.id.startsWith('high-'))
+            
+            console.log(`[fetchGapAnalysis] Merging: ${otherIssues.length} existing (non-high) + ${newHighIssues.length} new (high-*) = ${otherIssues.length + newHighIssues.length} total`)
+            
+            return [...otherIssues, ...newHighIssues]
+          })
         }
       }
 
@@ -482,36 +494,47 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         selected: false,
       }))
 
-      // Merge findings with gap-analysis issues (avoid duplicates by ID)
-      // Keep gap-analysis issues (high-*) and add findings (non-high-* IDs)
+      // ✅ Merge findings with ALL existing issues (avoid duplicates by ID)
       setIssues((prevIssues) => {
         const existingIds = new Set(prevIssues.map(i => i.id))
         const newFindings = findingsIssues.filter(f => !existingIds.has(f.id))
         
-        console.log(`[fetchFindings] Merging: ${prevIssues.length} existing issues + ${newFindings.length} new findings = ${prevIssues.filter(i => i.id.startsWith('high-')).length + newFindings.length} total`)
+        const merged = [...prevIssues, ...newFindings]
+        console.log(`[fetchFindings] Merging: ${prevIssues.length} existing + ${newFindings.length} new = ${merged.length} total issues`)
         
-        // Combine: gap-analysis issues (high-*) + new findings
-        const merged = [...prevIssues.filter(i => i.id.startsWith('high-')), ...newFindings]
         return merged
       })
 
-      // Update severity counts from findings (additive - don't overwrite gap-analysis counts)
-      const counts = { critical: 0, high: 0, medium: 0, low: 0 }
-      findings.forEach((f: any) => {
-        const severity = (f.severity || 'medium').toLowerCase()
-        if (severity === 'critical') counts.critical++
-        else if (severity === 'high') counts.high++
-        else if (severity === 'medium') counts.medium++
-        else if (severity === 'low') counts.low++
+      // ✅ Calculate severity counts from ALL issues (not additive - recalculate from actual issues)
+      // This ensures counts match the actual displayed issues
+      setIssues((currentIssues) => {
+        // Recalculate counts from all issues
+        const counts = { critical: 0, high: 0, medium: 0, low: 0 }
+        
+        // Count from findings (by severity)
+        findings.forEach((f: any) => {
+          const severity = (f.severity || 'medium').toLowerCase()
+          if (severity === 'critical') counts.critical++
+          else if (severity === 'high') counts.high++
+          else if (severity === 'medium') counts.medium++
+          else if (severity === 'low') counts.low++
+        })
+        
+        // Count gap-analysis issues (all are HIGH)
+        const gapAnalysisHighCount = currentIssues.filter(i => i.id.startsWith('high-')).length
+        counts.high += gapAnalysisHighCount
+        
+        // Update severity counts to match actual issues
+        setSeverityCounts({
+          critical: counts.critical,
+          high: counts.high,
+          medium: counts.medium,
+          low: counts.low,
+          passing: Math.max(0, 100 - (counts.critical + counts.high + counts.medium)),
+        })
+        
+        return currentIssues
       })
-
-      setSeverityCounts((prev) => ({
-        critical: prev.critical + counts.critical,
-        high: prev.high + counts.high,
-        medium: prev.medium + counts.medium,
-        low: prev.low + counts.low,
-        passing: prev.passing,
-      }))
     } catch (error: any) {
       // Handle AbortError gracefully (timeout or component unmount)
       if (error.name === 'AbortError' || error.message?.includes('aborted')) {
