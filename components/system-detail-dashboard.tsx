@@ -35,7 +35,7 @@ import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for th
 import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
 import { DependencyMapTab } from "./dependency-map-tab" // Import DependencyMapTab
 import { AllServicesTab } from "./all-services-tab"
-import { SimulateFixModal } from "./issues/SimulateFixModal"
+import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
@@ -1564,14 +1564,64 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           {/* ACTIONS */}
                           <div className="flex gap-3 pt-2">
                             <button
-                              onClick={() => {
+                              onClick={async () => {
                                 setSelectedPermissionForSimulation(permission)
-                                setShowSimulateModal(true)
+                                setSimulating(true)
+                                try {
+                                  // Find the issue ID for this permission
+                                  const issueId = gapAnalysisData?.issues?.find(
+                                    (issue: any) => issue.unusedList?.includes(permission)
+                                  )?.id || `high-0-${permission.replace(':', '-')}`
+                                  
+                                  const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' }
+                                  })
+                                  
+                                  if (response.ok) {
+                                    const result = await response.json()
+                                    setSimulationResult(result)
+                                    setShowSimulateModal(true)
+                                  } else {
+                                    const errorData = await response.json().catch(() => ({}))
+                                    // Even on timeout, try to show the error response
+                                    if (response.status === 504 || response.status === 408) {
+                                      setSimulationResult({
+                                        status: 'BLOCKED',
+                                        confidence: {
+                                          level: 'BLOCKED',
+                                          numeric: 0.0,
+                                          criteria_failed: ['simulation_timeout'],
+                                          summary: 'Simulation incomplete - timeout occurred'
+                                        },
+                                        recommendation: '⚠️ REVIEW REQUIRED: Simulation timed out. Manual review required.'
+                                      })
+                                      setShowSimulateModal(true)
+                                    } else {
+                                      alert(`Simulation failed: ${errorData.error || response.statusText}`)
+                                    }
+                                  }
+                                } catch (err) {
+                                  console.error('Simulation error:', err)
+                                  alert('Failed to run simulation. Check console for details.')
+                                } finally {
+                                  setSimulating(false)
+                                }
                               }}
-                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm"
+                              disabled={simulating}
+                              className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
                             >
-                              <Zap className="w-4 h-4" />
-                              Simulate Fix
+                              {simulating ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                  Simulating...
+                                </>
+                              ) : (
+                                <>
+                                  <Zap className="w-4 h-4" />
+                                  Simulate Fix
+                                </>
+                              )}
                             </button>
                             <button
                               onClick={() => handleRemediateFromModal(permission)}
@@ -1633,26 +1683,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </div>
       )}
 
-      {/* Simulate Fix Modal for unused permissions */}
-      {selectedPermissionForSimulation && (
-        <SimulateFixModal
-          open={showSimulateModal}
+      {/* Simulation Results Modal - NEW */}
+      {showSimulateModal && selectedPermissionForSimulation && (
+        <SimulationResultsModal
+          isOpen={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedPermissionForSimulation(null)
+            setSimulationResult(null)
           }}
-          finding={{
-            id: `permission-${selectedPermissionForSimulation}`,
-            severity: "HIGH",
-            title: `Unused Permission: ${selectedPermissionForSimulation}`,
-            resource: "SafeRemediate-Lambda-Remediation-Role",
-            resourceType: "IAM Role",
-            description: `This IAM role has the permission "${selectedPermissionForSimulation}" but it has never been used. Removing this unused permission will reduce the attack surface without impacting functionality.`,
-            remediation: `Remove the unused permission "${selectedPermissionForSimulation}" from the IAM role policy. This is safe because the permission has never been used in the observed traffic.`,
-            category: "Least Privilege",
-            discoveredAt: new Date().toISOString(),
-            status: "open",
-          } as SecurityFinding}
+          resourceType="IAMRole"
+          resourceId={selectedPermissionForSimulation}
+          resourceName={selectedPermissionForSimulation}
+          proposedChange={{
+            action: 'remove_permissions',
+            items: [selectedPermissionForSimulation],
+            reason: `Unused permission detected: ${selectedPermissionForSimulation}`
+          }}
+          systemName={systemName}
+          result={simulationResult}
         />
       )}
     </div>

@@ -1,0 +1,775 @@
+"use client"
+
+import { useState, useEffect } from 'react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink } from 'lucide-react'
+import SimulationResultsModal from '@/components/SimulationResultsModal'
+
+// Types
+interface GapResource {
+  id: string
+  resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL'
+  resourceName: string
+  resourceArn: string
+  systemName?: string
+  lpScore: number
+  allowedCount: number
+  usedCount: number
+  gapCount: number
+  gapPercent: number
+  allowedList: string[]
+  usedList: string[]
+  unusedList: string[]
+  highRiskUnused: Array<{
+    permission: string
+    riskLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM'
+    reason: string
+  }>
+  evidence: {
+    dataSources: string[]
+    observationDays: number
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+    lastUsed?: string
+    coverage: {
+      regions: string[]
+      complete: boolean
+    }
+  }
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  confidence: number
+  observationDays: number
+  title: string
+  description: string
+  remediation: string
+}
+
+interface LeastPrivilegeSummary {
+  totalResources: number
+  totalExcessPermissions: number
+  avgLPScore: number
+  iamIssuesCount: number
+  networkIssuesCount: number
+  s3IssuesCount: number
+  criticalCount: number
+  highCount: number
+  mediumCount: number
+  lowCount: number
+  confidenceLevel: number
+  observationDays: number
+  attackSurfaceReduction: number
+}
+
+interface LeastPrivilegeResponse {
+  summary: LeastPrivilegeSummary
+  resources: GapResource[]
+  timestamp: string
+}
+
+export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { systemName?: string }) {
+  const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  useEffect(() => {
+    fetchGaps()
+  }, [systemName])
+
+  const fetchGaps = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365`)
+      if (!response.ok) throw new Error(`Failed: ${response.status}`)
+      
+      const result = await response.json()
+      
+      // Transform to new format
+      const transformed: LeastPrivilegeResponse = {
+        summary: {
+          totalResources: result.resources?.length || 0,
+          totalExcessPermissions: result.summary?.totalExcessPermissions || 0,
+          avgLPScore: result.resources?.length > 0 
+            ? result.resources.reduce((acc: number, r: any) => acc + (100 - r.gapPercent), 0) / result.resources.length
+            : 100,
+          iamIssuesCount: result.summary?.iamIssuesCount || 0,
+          networkIssuesCount: result.summary?.networkIssuesCount || 0,
+          s3IssuesCount: result.summary?.s3IssuesCount || 0,
+          criticalCount: result.summary?.criticalCount || 0,
+          highCount: result.summary?.highCount || 0,
+          mediumCount: result.summary?.mediumCount || 0,
+          lowCount: result.summary?.lowCount || 0,
+          confidenceLevel: result.summary?.confidenceLevel || 0,
+          observationDays: result.observationDays || 365,
+          attackSurfaceReduction: result.resources?.length > 0
+            ? result.resources.reduce((acc: number, r: any) => acc + r.gapPercent, 0) / result.resources.length
+            : 0
+        },
+        resources: (result.resources || []).map((r: any) => ({
+          id: r.id,
+          resourceType: r.resourceType,
+          resourceName: r.resourceName,
+          resourceArn: r.resourceArn,
+          systemName: r.systemName,
+          lpScore: 100 - r.gapPercent,
+          allowedCount: r.allowedCount,
+          usedCount: r.usedCount,
+          gapCount: r.gapCount,
+          gapPercent: r.gapPercent,
+          allowedList: r.allowedList || [],
+          usedList: r.usedList || [],
+          unusedList: r.unusedList || [],
+          highRiskUnused: (r.unusedList || []).slice(0, 5).map((perm: string) => ({
+            permission: perm,
+            riskLevel: perm.includes('PassRole') || perm.includes('Delete') || perm.includes('Admin') ? 'CRITICAL' as const : 'HIGH' as const,
+            reason: perm.includes('PassRole') ? 'Privilege escalation risk' : 
+                   perm.includes('Delete') ? 'Destructive action' : 'High-risk permission'
+          })),
+          evidence: {
+            dataSources: r.evidence?.dataSources || ['CloudTrail'],
+            observationDays: r.observationDays || 365,
+            confidence: r.confidence >= 90 ? 'HIGH' as const : r.confidence >= 70 ? 'MEDIUM' as const : 'LOW' as const,
+            lastUsed: r.lastUsed,
+            coverage: {
+              regions: ['us-east-1'],
+              complete: true
+            }
+          },
+          severity: r.severity || 'medium',
+          confidence: r.confidence || 0,
+          observationDays: r.observationDays || 365,
+          title: r.title || `${r.resourceName} has ${r.gapCount} unused permissions`,
+          description: r.description || '',
+          remediation: r.remediation || ''
+        })),
+        timestamp: result.timestamp || new Date().toISOString()
+      }
+      
+      setData(transformed)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Analyzing least privilege gaps...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="w-6 h-6 text-red-600" />
+          <div>
+            <h3 className="font-semibold text-red-900">Error Loading Data</h3>
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data || data.resources.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+        <p className="text-lg font-medium text-gray-900">No GAP issues found!</p>
+        <p className="text-sm text-gray-500 mt-2">All permissions are being used. Your system follows least privilege! 🎉</p>
+      </div>
+    )
+  }
+
+  const { summary, resources } = data
+
+  return (
+    <div className="space-y-6">
+      {/* Header with LP Score */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Least Privilege Analysis</h1>
+          <p className="text-gray-600 mt-1">GAP between ALLOWED and ACTUAL permissions</p>
+        </div>
+        <div className="text-right">
+          <div className="text-sm text-gray-600">System LP Score</div>
+          <div className="text-4xl font-bold" style={{ color: summary.avgLPScore < 50 ? '#dc2626' : summary.avgLPScore < 75 ? '#ea580c' : '#10b981' }}>
+            {summary.avgLPScore.toFixed(0)}%
+          </div>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <SummaryCard
+          icon={<Shield className="w-5 h-5" />}
+          label="Total Resources"
+          value={summary.totalResources}
+          color="blue"
+        />
+        <SummaryCard
+          icon={<TrendingDown className="w-5 h-5" />}
+          label="Excess Permissions"
+          value={summary.totalExcessPermissions}
+          color="red"
+        />
+        <SummaryCard
+          icon={<Network className="w-5 h-5" />}
+          label="Network Issues"
+          value={summary.networkIssuesCount}
+          color="orange"
+        />
+        <SummaryCard
+          icon={<Clock className="w-5 h-5" />}
+          label="Observation Days"
+          value={summary.observationDays}
+          color="gray"
+        />
+      </div>
+
+      {/* Resources List */}
+      <div className="space-y-4">
+        {resources.map((resource) => (
+          <GapResourceCard
+            key={resource.id}
+            resource={resource}
+            onClick={() => {
+              setSelectedResource(resource)
+              setDrawerOpen(true)
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Remediation Drawer */}
+      {drawerOpen && selectedResource && (
+        <RemediationDrawer
+          resource={selectedResource}
+          onClose={() => {
+            setDrawerOpen(false)
+            setSelectedResource(null)
+            setSimulationResult(null)
+          }}
+          onSimulate={async () => {
+            setSimulating(true)
+            try {
+              const response = await fetch('/api/proxy/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  finding_id: selectedResource.id,
+                  resource_type: selectedResource.resourceType,
+                  resource_id: selectedResource.resourceArn || selectedResource.resourceName,
+                  proposed_change: {
+                    action: 'remove_permissions',
+                    items: selectedResource.unusedList,
+                    reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
+                  },
+                  system_name: systemName
+                })
+              })
+              const result = await response.json()
+              setSimulationResult(result)
+              setSimulationModalOpen(true)
+            } catch (err) {
+              console.error('Simulation error:', err)
+              alert('Failed to run simulation. Check console for details.')
+            } finally {
+              setSimulating(false)
+            }
+          }}
+          simulating={simulating}
+        />
+      )}
+
+      {/* Simulation Results Modal */}
+      {simulationModalOpen && simulationResult && selectedResource && (
+        <SimulationResultsModal
+          isOpen={simulationModalOpen}
+          onClose={() => {
+            setSimulationModalOpen(false)
+            setSimulationResult(null)
+          }}
+          resourceType={selectedResource.resourceType}
+          resourceId={selectedResource.resourceArn || selectedResource.resourceName}
+          resourceName={selectedResource.resourceName}
+          proposedChange={{
+            action: 'remove_permissions',
+            items: selectedResource.unusedList,
+            reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
+          }}
+          systemName={systemName}
+          result={simulationResult}
+        />
+      )}
+    </div>
+  )
+}
+
+// Summary Card Component
+function SummaryCard({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: number, color: string }) {
+  const colorClasses = {
+    blue: 'text-blue-600',
+    red: 'text-red-600',
+    orange: 'text-orange-600',
+    gray: 'text-gray-600'
+  }
+  
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-2 mb-2">
+        <div className={colorClasses[color as keyof typeof colorClasses]}>{icon}</div>
+        <div className="text-sm text-gray-600">{label}</div>
+      </div>
+      <div className="text-3xl font-bold text-gray-900">{value}</div>
+    </div>
+  )
+}
+
+// Gap Resource Card Component
+function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick: () => void }) {
+  const getResourceIcon = () => {
+    if (resource.resourceType === 'IAMRole') return <Shield className="w-5 h-5 text-blue-600" />
+    if (resource.resourceType === 'SecurityGroup') return <Network className="w-5 h-5 text-orange-600" />
+    if (resource.resourceType === 'S3Bucket') return <Database className="w-5 h-5 text-green-600" />
+    return <AlertTriangle className="w-5 h-5 text-gray-600" />
+  }
+
+  const getLPScoreColor = (score: number) => {
+    if (score < 50) return 'text-red-600 bg-red-50 border-red-200'
+    if (score < 75) return 'text-orange-600 bg-orange-50 border-orange-200'
+    return 'text-green-600 bg-green-50 border-green-200'
+  }
+
+  return (
+    <div
+      className="rounded-lg border border-gray-200 bg-white p-6 hover:shadow-md transition-shadow cursor-pointer"
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-4">
+            {getResourceIcon()}
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">{resource.resourceName}</h3>
+              <p className="text-sm text-gray-500">{resource.systemName || 'Unknown System'}</p>
+            </div>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
+              LP Score: {resource.lpScore.toFixed(0)}%
+            </span>
+            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+              {resource.resourceType}
+            </span>
+          </div>
+
+          {/* Gap Bar */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">Permission Usage</span>
+              <span className="text-sm text-gray-600">
+                {resource.usedCount} used • {resource.gapCount} unused ({resource.gapPercent.toFixed(0)}%)
+              </span>
+            </div>
+            <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
+              <div
+                className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+                style={{ width: `${(resource.usedCount / resource.allowedCount) * 100}%` }}
+              >
+                {resource.usedCount > 0 && resource.usedCount}
+              </div>
+              <div
+                className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+                style={{ width: `${(resource.gapCount / resource.allowedCount) * 100}%` }}
+              >
+                {resource.gapCount > 0 && resource.gapCount}
+              </div>
+            </div>
+          </div>
+
+          {/* High-Risk Unused */}
+          {resource.highRiskUnused.length > 0 && (
+            <div className="mb-4">
+              <div className="text-sm font-medium text-gray-700 mb-2">High-Risk Unused Permissions:</div>
+              <div className="flex flex-wrap gap-2">
+                {resource.highRiskUnused.slice(0, 3).map((perm, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium"
+                  >
+                    ⚠️ {perm.permission} ({perm.riskLevel})
+                  </span>
+                ))}
+                {resource.highRiskUnused.length > 3 && (
+                  <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                    +{resource.highRiskUnused.length - 3} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Evidence Badge */}
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Clock className="w-4 h-4" />
+            <span>
+              {resource.evidence.observationDays} days of {resource.evidence.dataSources.join(', ')}, {resource.evidence.confidence} confidence
+            </span>
+          </div>
+        </div>
+
+        <button
+          className="ml-4 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClick()
+          }}
+        >
+          View Remediation
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Remediation Drawer Component
+function RemediationDrawer({ 
+  resource, 
+  onClose, 
+  onSimulate,
+  simulating = false
+}: { 
+  resource: GapResource
+  onClose: () => void
+  onSimulate?: () => void
+  simulating?: boolean
+}) {
+  const [activeTab, setActiveTab] = useState<'summary' | 'before-after' | 'evidence' | 'impact'>('summary')
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center sm:justify-center">
+      <div className="bg-white rounded-t-lg sm:rounded-lg w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">{resource.resourceName}</h2>
+            <p className="text-sm text-gray-600">{resource.resourceType} • {resource.systemName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <XCircle className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-gray-200 px-6">
+          <div className="flex gap-4">
+            {[
+              { id: 'summary', label: 'Summary' },
+              { id: 'before-after', label: 'Before/After' },
+              { id: 'evidence', label: 'Evidence' },
+              { id: 'impact', label: 'Impact' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-4 py-2 border-b-2 font-medium text-sm ${
+                  activeTab === tab.id
+                    ? 'border-indigo-600 text-indigo-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          {activeTab === 'summary' && <SummaryTab resource={resource} />}
+          {activeTab === 'before-after' && <BeforeAfterTab resource={resource} />}
+          {activeTab === 'evidence' && <EvidenceTab resource={resource} />}
+          {activeTab === 'impact' && <ImpactTab resource={resource} />}
+        </div>
+
+        {/* Actions */}
+        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex items-center justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={onSimulate}
+            disabled={simulating}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+          >
+            {simulating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Simulating...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4" />
+                Simulate
+              </>
+            )}
+          </button>
+          <button className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-medium flex items-center gap-2">
+            <FileDown className="w-4 h-4" />
+            Export Terraform
+          </button>
+          <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center gap-2">
+            <Send className="w-4 h-4" />
+            Request Approval
+          </button>
+          {resource.evidence.confidence === 'HIGH' && (
+            <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2">
+              <Zap className="w-4 h-4" />
+              Auto-Apply
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Tab Components
+function SummaryTab({ resource }: { resource: GapResource }) {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-lg border border-gray-200 p-4">
+          <div className="text-sm text-gray-600 mb-1">LP Score</div>
+          <div className="text-3xl font-bold text-gray-900">{resource.lpScore.toFixed(0)}%</div>
+          <div className="text-xs text-gray-500 mt-1">{100 - resource.lpScore.toFixed(0)}% unused</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 p-4">
+          <div className="text-sm text-gray-600 mb-1">Attack Surface Reduction</div>
+          <div className="text-3xl font-bold text-red-600">{resource.gapPercent.toFixed(0)}%</div>
+          <div className="text-xs text-gray-500 mt-1">{resource.gapCount} permissions</div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border-2 border-gray-300 bg-white p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Gap Visualization</h3>
+        <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
+          <div
+            className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+            style={{ width: `${(resource.usedCount / resource.allowedCount) * 100}%` }}
+          >
+            Used ({resource.usedCount})
+          </div>
+          <div
+            className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+            style={{ width: `${(resource.gapCount / resource.allowedCount) * 100}%` }}
+          >
+            Unused ({resource.gapCount})
+          </div>
+        </div>
+        <p className="text-sm text-gray-700">
+          <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
+          In <strong>{resource.evidence.observationDays} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
+          The other <strong>{resource.gapCount} ({resource.gapPercent.toFixed(0)}%)</strong> are your attack surface.
+        </p>
+      </div>
+
+      {resource.highRiskUnused.length > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <h3 className="text-lg font-bold text-red-900 mb-3">High-Risk Unused Permissions</h3>
+          <div className="space-y-2">
+            {resource.highRiskUnused.map((perm, idx) => (
+              <div key={idx} className="flex items-center justify-between bg-white rounded p-3">
+                <div>
+                  <div className="font-mono text-sm font-medium text-gray-900">{perm.permission}</div>
+                  <div className="text-xs text-gray-600">{perm.reason}</div>
+                </div>
+                <span className={`px-2 py-1 rounded text-xs font-bold ${
+                  perm.riskLevel === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'
+                }`}>
+                  {perm.riskLevel}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BeforeAfterTab({ resource }: { resource: GapResource }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* BEFORE */}
+      <div className="border-2 border-red-200 rounded-lg p-6 bg-red-50">
+        <div className="flex items-center gap-2 mb-4">
+          <AlertTriangle className="w-5 h-5 text-red-600" />
+          <h4 className="text-lg font-bold text-gray-900">BEFORE (Current)</h4>
+        </div>
+        <div className="text-3xl font-bold text-gray-900 mb-4">{resource.allowedCount} permissions</div>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {resource.allowedList.slice(0, 10).map((perm, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-sm">
+              <div className={`w-2 h-2 rounded-full ${
+                resource.usedList.includes(perm) ? 'bg-green-500' : 'bg-red-500'
+              }`}></div>
+              <span className="font-mono text-gray-700">{perm}</span>
+            </div>
+          ))}
+          {resource.allowedCount > 10 && (
+            <div className="text-sm text-gray-500 italic">...{resource.allowedCount - 10} more</div>
+          )}
+        </div>
+      </div>
+
+      {/* AFTER */}
+      <div className="border-2 border-green-200 rounded-lg p-6 bg-green-50">
+        <div className="flex items-center gap-2 mb-4">
+          <CheckCircle2 className="w-5 h-5 text-green-600" />
+          <h4 className="text-lg font-bold text-gray-900">AFTER (Recommended)</h4>
+        </div>
+        <div className="text-3xl font-bold text-gray-900 mb-4">{resource.usedCount} permissions</div>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {resource.usedList.slice(0, 10).map((perm, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-sm">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span className="font-mono text-gray-700">{perm}</span>
+            </div>
+          ))}
+          {resource.usedCount > 10 && (
+            <div className="text-sm text-gray-500 italic">...{resource.usedCount - 10} more</div>
+          )}
+        </div>
+        <div className="mt-4 pt-4 border-t border-green-300">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Removed:</span>
+            <span className="text-lg font-bold text-red-600">{resource.gapCount} permissions</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EvidenceTab({ resource }: { resource: GapResource }) {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Evidence Sources</h3>
+        <div className="space-y-3">
+          {resource.evidence.dataSources.map((source, idx) => (
+            <div key={idx} className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <div>
+                <div className="font-medium text-gray-900">{source}</div>
+                <div className="text-sm text-gray-600">
+                  {source === 'CloudTrail' && `${resource.evidence.observationDays} days of API call history`}
+                  {source === 'VPC Flow Logs' && `${resource.evidence.observationDays} days of network traffic`}
+                  {source === 'Graph' && 'Dependency relationships'}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Observation Period</h3>
+        <div className="flex items-center gap-4">
+          <Clock className="w-6 h-6 text-gray-600" />
+          <div>
+            <div className="font-medium text-gray-900">{resource.evidence.observationDays} days</div>
+            <div className="text-sm text-gray-600">
+              From {new Date(Date.now() - resource.evidence.observationDays * 24 * 60 * 60 * 1000).toLocaleDateString()} to {new Date().toLocaleDateString()}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence</h3>
+        <div className="flex items-center gap-4">
+          <div className={`px-4 py-2 rounded-lg font-bold ${
+            resource.evidence.confidence === 'HIGH' ? 'bg-green-100 text-green-800' :
+            resource.evidence.confidence === 'MEDIUM' ? 'bg-orange-100 text-orange-800' :
+            'bg-yellow-100 text-yellow-800'
+          }`}>
+            {resource.evidence.confidence}
+          </div>
+          <div className="text-sm text-gray-600">
+            Based on {resource.evidence.dataSources.length} data source(s) and {resource.evidence.observationDays} days of observation
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ImpactTab({ resource }: { resource: GapResource }) {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-green-200 bg-green-50 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Impact Analysis</h3>
+        <div className="space-y-3">
+          {[
+            'No service disruption expected',
+            'All active workflows will continue',
+            `Reduces attack surface by ${resource.gapPercent.toFixed(0)}%`,
+            'Achieves least privilege compliance'
+          ].map((impact, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+              <span className="text-sm text-gray-700">{impact}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">What Will Continue Working</h3>
+        <div className="space-y-2">
+          {resource.usedList.slice(0, 5).map((perm, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              <span className="font-mono text-gray-700">{perm}</span>
+            </div>
+          ))}
+          {resource.usedList.length > 5 && (
+            <div className="text-sm text-gray-500">...and {resource.usedList.length - 5} more used permissions</div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">What Will Be Removed</h3>
+        <div className="space-y-2">
+          {resource.unusedList.slice(0, 5).map((perm, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-sm">
+              <XCircle className="w-4 h-4 text-red-600" />
+              <span className="font-mono text-gray-700">{perm}</span>
+            </div>
+          ))}
+          {resource.unusedList.length > 5 && (
+            <div className="text-sm text-gray-500">...and {resource.unusedList.length - 5} more unused permissions</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

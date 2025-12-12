@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
-import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
+import SimulationResultsModal from "@/components/SimulationResultsModal"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
@@ -15,6 +15,8 @@ interface SecurityFindingsListProps {
 export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
+  const [simulationResult, setSimulationResult] = useState<any>(null)
+  const [simulating, setSimulating] = useState(false)
 
   if (findings.length === 0) {
     return (
@@ -48,13 +50,85 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
     return <Shield className="w-5 h-5" />
   }
 
+  const handleSimulate = async (finding: SecurityFinding) => {
+    setSimulating(true)
+    try {
+      // Extract system name from finding or use default
+      const systemName = finding.resource?.includes('alon') ? 'alon-prod' : 'default'
+      
+      // Try to get issue ID from finding
+      const issueId = finding.id || `${finding.severity}-0-${finding.resourceType}:${finding.resource}`
+      
+      const response = await fetch(`/api/proxy/systems/${systemName}/issues/${encodeURIComponent(issueId)}/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          finding_id: finding.id,
+          resource_type: finding.resourceType,
+          resource_id: finding.resource,
+          proposed_change: {
+            action: 'remediate',
+            items: [],
+            reason: finding.remediation || 'Security remediation'
+          }
+        })
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        setSimulationResult(result)
+        setSelectedFinding(finding)
+        setShowModal(true)
+      } else {
+        // Handle timeout - return structured BLOCKED response
+        if (response.status === 504 || response.status === 408) {
+          setSimulationResult({
+            status: 'BLOCKED',
+            timeout: true,
+            confidence: {
+              level: 'BLOCKED',
+              numeric: 0.0,
+              criteria_failed: ['simulation_timeout'],
+              summary: 'Simulation incomplete - timeout occurred'
+            },
+            recommendation: '⚠️ REVIEW REQUIRED: Simulation timed out. Manual review required.'
+          })
+          setSelectedFinding(finding)
+          setShowModal(true)
+        } else {
+          alert(`Simulation failed: ${response.statusText}`)
+        }
+      }
+    } catch (err) {
+      console.error('Simulation error:', err)
+      alert('Failed to run simulation. Check console for details.')
+    } finally {
+      setSimulating(false)
+    }
+  }
+
   return (
     <>
-      <SimulateFixModal
-        open={showModal}
-        onClose={() => setShowModal(false)}
-        finding={selectedFinding}
-      />
+      {showModal && selectedFinding && (
+        <SimulationResultsModal
+          isOpen={showModal}
+          onClose={() => {
+            setShowModal(false)
+            setSelectedFinding(null)
+            setSimulationResult(null)
+          }}
+          resourceType={selectedFinding.resourceType || 'IAMRole'}
+          resourceId={selectedFinding.resource || ''}
+          resourceName={selectedFinding.resource || ''}
+          proposedChange={{
+            action: 'remediate',
+            items: [],
+            reason: selectedFinding.remediation || 'Security remediation'
+          }}
+          systemName="alon-prod"
+          result={simulationResult}
+        />
+      )}
 
       <div className="space-y-3">
         {findings.map((finding) => (
@@ -92,13 +166,23 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
                   <Button
                     onClick={() => {
                       setSelectedFinding(finding)
-                      setShowModal(true)
+                      handleSimulate(finding)
                     }}
+                    disabled={simulating}
                     size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
                   >
-                    <Zap className="w-4 h-4 mr-1" />
-                    Simulate Fix
+                    {simulating ? (
+                      <>
+                        <Zap className="w-4 h-4 mr-1 animate-pulse" />
+                        Simulating...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 mr-1" />
+                        Simulate Fix
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
