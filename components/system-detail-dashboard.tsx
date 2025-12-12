@@ -272,7 +272,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           selected: false,
           temporalAnalysis: `This permission has never been used in the last 365 days of CloudTrail logs. Removing it will reduce the attack surface without impacting functionality.`,
         }))
-        setIssues(demoIssues)
+        // Merge with existing issues - preserve non-high-* issues (findings from /api/findings)
+        setIssues((prevIssues) => {
+          const otherIssues = prevIssues.filter(issue => !issue.id.startsWith('high-'))
+          console.log(`[fetchGapAnalysis] Merging demo issues: ${otherIssues.length} existing (non-high) + ${demoIssues.length} new (high-*) = ${otherIssues.length + demoIssues.length} total`)
+          return [...otherIssues, ...demoIssues]
+        })
       } else {
         setGapAnalysis({
           allowed,
@@ -1334,6 +1339,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               if (!response.ok) {
                                 const errorMsg = result.detail || result.error || result.message || `Simulation failed: ${response.status}`
                                 console.error(`[simulate] Backend returned ${response.status}:`, result)
+                                throw new Error(errorMsg)
+                              }
+                              
+                              // Check if simulation actually succeeded or timed out
+                              if (result.success === false || result.message?.includes('timeout') || result.recommendation?.includes('timed out')) {
+                                const errorMsg = result.message || result.recommendation || "Simulation timed out"
+                                console.error(`[simulate] Simulation failed or timed out:`, result)
                                 throw new Error(errorMsg)
                               }
                               
