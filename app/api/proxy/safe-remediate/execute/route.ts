@@ -59,34 +59,31 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      console.log(`[SAFE-REMEDIATE] Backend returned ${response.status}`)
-    } catch (backendError) {
-      console.log(`[SAFE-REMEDIATE] Backend unavailable:`, backendError)
+      // Backend returned error - get the error message
+      const errorText = await response.text().catch(() => 'Unknown error')
+      console.error(`[SAFE-REMEDIATE] Backend error ${response.status}: ${errorText}`)
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Backend error",
+          message: `Backend returned ${response.status}: ${errorText}`
+        },
+        { status: response.status }
+      )
+    } catch (backendError: any) {
+      console.error(`[SAFE-REMEDIATE] Backend unavailable:`, backendError)
+
+      // NO DEMO MODE - fail clearly
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Backend unavailable",
+          message: `Cannot connect to backend at ${BACKEND_URL}. Run the local backend: python run-local-backend.py`
+        },
+        { status: 503 }
+      )
     }
-
-    // Backend not available - generate IDs for demo mode
-    // In a real demo, this allows the full flow to work
-    const executionId = generateId('exec')
-    const snapshotId = body.create_rollback ? generateId('snap') : null
-
-    console.log(`[SAFE-REMEDIATE] Demo mode - execution: ${executionId}, snapshot: ${snapshotId}`)
-
-    return NextResponse.json({
-      success: true,
-      demo_mode: true,
-      execution_id: executionId,
-      snapshot_id: snapshotId,
-      finding_id: body.finding_id,
-      status: 'executed',
-      message: 'Remediation applied successfully',
-      timestamp: new Date().toISOString(),
-      details: {
-        resource_id: body.resource_id,
-        resource_type: body.resource_type,
-        action: 'policy_update',
-        rollback_available: !!snapshotId
-      }
-    })
   } catch (error) {
     console.error("[SAFE-REMEDIATE] Error:", error)
     return NextResponse.json(
