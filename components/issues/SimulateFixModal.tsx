@@ -158,13 +158,21 @@ export function SimulateFixModal({
 
         // Save snapshot to local storage for Snapshots & Recovery tab
         if (result.snapshot_id) {
+          // Get permissions info from simulation if available
+          const permissionsRemoved = simulation?.proposedChange?.permissionsToRemove || []
+          const permissionsKept = simulation?.proposedChange?.permissionsToKeep || []
+          const roleName = finding.resource?.split('/').pop() || 'Unknown'
+
           saveRemediationSnapshot({
             snapshot_id: result.snapshot_id,
             execution_id: result.execution_id,
             finding_id: finding.id,
             resource_id: finding.resource,
             resource_type: finding.resourceType,
-            timestamp: result.timestamp || new Date().toISOString()
+            timestamp: result.timestamp || new Date().toISOString(),
+            role_name: roleName,
+            permissions_removed: permissionsRemoved,
+            permissions_kept: permissionsKept
           })
         }
 

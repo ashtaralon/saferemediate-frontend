@@ -44,22 +44,34 @@ export function saveRemediationSnapshot(snapshot: {
   resource_id?: string
   resource_type?: string
   timestamp?: string
+  role_name?: string
+  permissions_removed?: string[]
+  permissions_kept?: string[]
 }) {
   if (typeof window === 'undefined') return
   try {
     const existing = loadLocalSnapshots()
+    const roleName = snapshot.role_name || snapshot.resource_id?.split('/').pop() || 'Unknown'
+    const permissionsRemoved = snapshot.permissions_removed || []
+
     const newSnapshot: Snapshot = {
       id: snapshot.snapshot_id,
       execution_id: snapshot.execution_id,
       finding_id: snapshot.finding_id,
       issue_id: snapshot.finding_id,
       resource_id: snapshot.resource_id,
-      resource_type: snapshot.resource_type,
+      resource_type: snapshot.resource_type || 'IAMRole',
       created_at: snapshot.timestamp || new Date().toISOString(),
       created_by: 'SafeRemediate',
-      reason: `Remediation backup for ${snapshot.finding_id}`,
+      reason: `Removed ${permissionsRemoved.length} unused permissions from ${roleName}`,
       status: 'REMEDIATED',
-      is_local: true
+      is_local: true,
+      impact_summary: {
+        role_name: roleName,
+        permissions_removed: permissionsRemoved,
+        permissions_kept: snapshot.permissions_kept || [],
+        action: 'LEAST_PRIVILEGE_REMEDIATION'
+      }
     }
 
     // Don't add duplicates
@@ -175,31 +187,49 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
   }
 
   const handleApplySnapshot = async (snapshotId: string) => {
-    if (!confirm("Are you sure you want to apply this snapshot? This will execute the remediation changes.")) {
+    // Find the snapshot to get its details
+    const snapshot = snapshots.find(s => s.id === snapshotId)
+    const roleName = snapshot?.impact_summary?.role_name || snapshot?.resource_id?.split('/').pop() || 'this role'
+
+    if (!confirm(`Are you sure you want to ROLLBACK "${roleName}"?\n\nThis will restore the original IAM permissions that were removed.`)) {
       return
     }
 
     setApplying(snapshotId)
     try {
-      const response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`, {
+      // Call the rollback endpoint
+      const response = await fetch(`/api/proxy/safe-remediate/rollback`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: snapshotId,
+          execution_id: snapshot?.execution_id,
+          finding_id: snapshot?.finding_id
+        })
       })
-      if (!response.ok) {
-        throw new Error("Failed to apply snapshot")
-      }
+
       const result = await response.json()
-      
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to rollback")
+      }
+
       toast({
-        title: "Success",
-        description: result.result?.message || "Snapshot applied successfully",
+        title: "✅ Rollback Successful",
+        description: `Restored original permissions for ${roleName}`,
       })
-      
-      // Refresh snapshots list
-      fetchSnapshots()
+
+      // Update snapshot status locally
+      const updated = snapshots.map(s =>
+        s.id === snapshotId ? { ...s, status: 'ROLLED_BACK' as const } : s
+      )
+      setSnapshots(updated)
+      // Also update localStorage
+      localStorage.setItem(REMEDIATION_SNAPSHOTS_KEY, JSON.stringify(updated.filter(s => s.is_local)))
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: "Failed to apply snapshot",
+        title: "Rollback Failed",
+        description: err.message || "Failed to rollback snapshot",
         variant: "destructive",
       })
     } finally {
@@ -437,16 +467,38 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                   <p className="text-sm text-green-800 flex items-center gap-2">
                     <Shield className="w-4 h-4" />
-                    This is a remediation snapshot stored locally
+                    This is a remediation snapshot - original policy is preserved
                   </p>
                 </div>
               )}
-              {(selectedSnapshot as any).changes && (
+              {/* Show permissions removed */}
+              {selectedSnapshot.impact_summary?.permissions_removed?.length > 0 && (
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Proposed Changes</label>
-                  <pre className="mt-2 p-4 bg-gray-50 rounded-lg text-xs overflow-x-auto">
-                    {JSON.stringify((selectedSnapshot as any).changes || {}, null, 2)}
-                  </pre>
+                  <label className="text-sm font-medium text-gray-700">Permissions Removed ({selectedSnapshot.impact_summary.permissions_removed.length})</label>
+                  <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg max-h-40 overflow-y-auto">
+                    <div className="flex flex-wrap gap-1">
+                      {selectedSnapshot.impact_summary.permissions_removed.map((perm: string, i: number) => (
+                        <span key={i} className="px-2 py-1 bg-red-100 text-red-700 text-xs font-mono rounded">
+                          {perm}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Show permissions kept */}
+              {selectedSnapshot.impact_summary?.permissions_kept?.length > 0 && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Permissions Kept ({selectedSnapshot.impact_summary.permissions_kept.length})</label>
+                  <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg max-h-40 overflow-y-auto">
+                    <div className="flex flex-wrap gap-1">
+                      {selectedSnapshot.impact_summary.permissions_kept.map((perm: string, i: number) => (
+                        <span key={i} className="px-2 py-1 bg-green-100 text-green-700 text-xs font-mono rounded">
+                          {perm}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -457,15 +509,16 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
               >
                 Close
               </button>
-              {(selectedSnapshot.status === "ACTIVE" || selectedSnapshot.status === "simulated") && (
+              {(selectedSnapshot.status === "ACTIVE" || selectedSnapshot.status === "simulated" || selectedSnapshot.status === "REMEDIATED") && (
                 <button
                   onClick={() => {
                     handleApplySnapshot(selectedSnapshot.id)
                     setSelectedSnapshot(null)
                   }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2"
                 >
-                  Apply Snapshot
+                  <RotateCcw className="w-4 h-4" />
+                  Rollback to Original
                 </button>
               )}
             </div>
