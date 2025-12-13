@@ -1,17 +1,75 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Eye, PlayCircle, RotateCcw, Loader2, AlertCircle } from "lucide-react"
+import { Eye, PlayCircle, RotateCcw, Loader2, AlertCircle, Shield } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+
+// Local storage key for remediation snapshots
+const REMEDIATION_SNAPSHOTS_KEY = 'saferemediate_snapshots'
 
 interface Snapshot {
   id: string
   issue_id?: string
+  finding_id?: string
+  execution_id?: string
   created_at: string
   created_by: string
   reason: string
-  status: "simulated" | "applied" | "ACTIVE" | "APPLIED" | "ROLLED_BACK" | "FAILED"
+  status: "simulated" | "applied" | "ACTIVE" | "APPLIED" | "ROLLED_BACK" | "FAILED" | "REMEDIATED"
   impact_summary?: any
+  resource_id?: string
+  resource_type?: string
+  is_local?: boolean  // Flag to indicate locally stored snapshot
+}
+
+// Load locally stored remediation snapshots
+function loadLocalSnapshots(): Snapshot[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = localStorage.getItem(REMEDIATION_SNAPSHOTS_KEY)
+    if (stored) {
+      return JSON.parse(stored)
+    }
+  } catch (e) {
+    console.error('Failed to load local snapshots:', e)
+  }
+  return []
+}
+
+// Save a remediation snapshot locally
+export function saveRemediationSnapshot(snapshot: {
+  snapshot_id: string
+  execution_id?: string
+  finding_id: string
+  resource_id?: string
+  resource_type?: string
+  timestamp?: string
+}) {
+  if (typeof window === 'undefined') return
+  try {
+    const existing = loadLocalSnapshots()
+    const newSnapshot: Snapshot = {
+      id: snapshot.snapshot_id,
+      execution_id: snapshot.execution_id,
+      finding_id: snapshot.finding_id,
+      issue_id: snapshot.finding_id,
+      resource_id: snapshot.resource_id,
+      resource_type: snapshot.resource_type,
+      created_at: snapshot.timestamp || new Date().toISOString(),
+      created_by: 'SafeRemediate',
+      reason: `Remediation backup for ${snapshot.finding_id}`,
+      status: 'REMEDIATED',
+      is_local: true
+    }
+
+    // Don't add duplicates
+    if (!existing.find(s => s.id === newSnapshot.id)) {
+      existing.unshift(newSnapshot)  // Add to beginning
+      localStorage.setItem(REMEDIATION_SNAPSHOTS_KEY, JSON.stringify(existing.slice(0, 50))) // Keep last 50
+    }
+  } catch (e) {
+    console.error('Failed to save remediation snapshot:', e)
+  }
 }
 
 interface SnapshotsRecoveryTabProps {
@@ -34,29 +92,66 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/proxy/systems/${encodeURIComponent(systemName)}/snapshots`)
-      if (!response.ok) {
-        throw new Error(`Failed to fetch snapshots: ${response.status}`)
+      // Load local remediation snapshots first
+      const localSnapshots = loadLocalSnapshots()
+      console.log(`[SnapshotsRecoveryTab] Loaded ${localSnapshots.length} local snapshots`)
+
+      let backendSnapshots: Snapshot[] = []
+      try {
+        const response = await fetch(`/api/proxy/systems/${encodeURIComponent(systemName)}/snapshots`)
+        if (response.ok) {
+          const data = await response.json()
+          backendSnapshots = Array.isArray(data) ? data : (data.snapshots || [])
+          console.log(`[SnapshotsRecoveryTab] Loaded ${backendSnapshots.length} backend snapshots for ${systemName}`)
+        }
+      } catch (backendErr) {
+        console.log("[SnapshotsRecoveryTab] Backend snapshots unavailable, using local only")
       }
-      const data = await response.json()
-      // Backend returns array directly, or might be wrapped
-      const snapshotsArray = Array.isArray(data) ? data : (data.snapshots || [])
-      console.log(`[SnapshotsRecoveryTab] Loaded ${snapshotsArray.length} snapshots for ${systemName}`)
-      setSnapshots(snapshotsArray)
+
+      // Merge: local first (most recent), then backend
+      const allSnapshots = [...localSnapshots, ...backendSnapshots]
+
+      // Remove duplicates by id
+      const uniqueSnapshots = allSnapshots.filter((snap, index, self) =>
+        index === self.findIndex(s => s.id === snap.id)
+      )
+
+      // Sort by created_at descending (newest first)
+      uniqueSnapshots.sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+
+      setSnapshots(uniqueSnapshots)
+      setError(null)
     } catch (err: any) {
       console.error("[SnapshotsRecoveryTab] Error fetching snapshots:", err)
-      setError(err.message || "Failed to load snapshots")
-      toast({
-        title: "Error",
-        description: "Failed to load snapshots. Make sure S3_SNAPSHOT_BUCKET is configured.",
-        variant: "destructive",
-      })
+      // Still try to show local snapshots even on error
+      const localSnapshots = loadLocalSnapshots()
+      if (localSnapshots.length > 0) {
+        setSnapshots(localSnapshots)
+        setError(null)
+      } else {
+        setError(err.message || "Failed to load snapshots")
+        toast({
+          title: "Error",
+          description: "Failed to load snapshots.",
+          variant: "destructive",
+        })
+      }
     } finally {
       setLoading(false)
     }
   }
 
   const handleViewSnapshot = async (snapshotId: string) => {
+    // First check if it's a local snapshot
+    const localSnapshot = snapshots.find(s => s.id === snapshotId && s.is_local)
+    if (localSnapshot) {
+      setSelectedSnapshot(localSnapshot)
+      return
+    }
+
+    // Otherwise fetch from backend
     try {
       const response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}`)
       if (!response.ok) {
@@ -65,11 +160,17 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
       const snapshot = await response.json()
       setSelectedSnapshot(snapshot as any)
     } catch (err: any) {
-      toast({
-        title: "Error",
-        description: "Failed to load snapshot details",
-        variant: "destructive",
-      })
+      // If backend fails, try to show from current snapshots list
+      const fallbackSnapshot = snapshots.find(s => s.id === snapshotId)
+      if (fallbackSnapshot) {
+        setSelectedSnapshot(fallbackSnapshot)
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to load snapshot details",
+          variant: "destructive",
+        })
+      }
     }
   }
 
@@ -107,17 +208,17 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
   }
 
   const getStatusBadge = (status: string) => {
-    const styles = {
+    const styles: Record<string, string> = {
       simulated: "bg-blue-100 text-blue-700",
       applied: "bg-green-100 text-green-700",
-      ACTIVE: "bg-blue-100 text-blue-700",
-      APPLIED: "bg-green-100 text-green-700",
-      ROLLED_BACK: "bg-gray-100 text-gray-700",
-      FAILED: "bg-red-100 text-red-700",
+      active: "bg-blue-100 text-blue-700",
+      remediated: "bg-green-100 text-green-700",
+      rolled_back: "bg-orange-100 text-orange-700",
+      failed: "bg-red-100 text-red-700",
     }
     const normalizedStatus = status.toLowerCase()
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[normalizedStatus as keyof typeof styles] || styles.ACTIVE}`}>
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[normalizedStatus] || "bg-gray-100 text-gray-700"}`}>
         {status.toUpperCase()}
       </span>
     )
@@ -192,10 +293,10 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                   Created At
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Issue
+                  Snapshot ID
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Reason
+                  Resource
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -207,15 +308,38 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {snapshots.map((snapshot) => (
-                <tr key={snapshot.id} className="hover:bg-gray-50">
+                <tr key={snapshot.id} className={`hover:bg-gray-50 ${snapshot.is_local ? 'bg-green-50/50' : ''}`}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(snapshot.created_at)}
+                    <div className="flex items-center gap-2">
+                      {snapshot.is_local && (
+                        <Shield className="w-4 h-4 text-green-600" title="Remediation snapshot" />
+                      )}
+                      {formatDate(snapshot.created_at)}
+                    </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {snapshot.issue_id || "N/A"}
+                  <td className="px-6 py-4 text-sm text-gray-600 font-mono">
+                    <div className="max-w-[200px] truncate" title={snapshot.id}>
+                      {snapshot.id}
+                    </div>
+                    {snapshot.execution_id && (
+                      <div className="text-xs text-gray-400 truncate" title={snapshot.execution_id}>
+                        Exec: {snapshot.execution_id}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">
-                    {snapshot.reason}
+                    <div className="max-w-[250px]">
+                      {snapshot.resource_id ? (
+                        <div className="truncate" title={snapshot.resource_id}>
+                          {snapshot.resource_id.split('/').pop() || snapshot.resource_id}
+                        </div>
+                      ) : (
+                        snapshot.issue_id || snapshot.finding_id || "N/A"
+                      )}
+                      {snapshot.resource_type && (
+                        <div className="text-xs text-gray-400">{snapshot.resource_type}</div>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(snapshot.status)}
@@ -229,17 +353,17 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      {(snapshot.status === "ACTIVE" || snapshot.status === "simulated") && (
+                      {(snapshot.status === "ACTIVE" || snapshot.status === "simulated" || snapshot.status === "REMEDIATED") && (
                         <button
                           onClick={() => handleApplySnapshot(snapshot.id)}
                           disabled={applying === snapshot.id}
-                          className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-                          title="Apply snapshot"
+                          className="p-2 text-gray-600 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="Rollback to this snapshot"
                         >
                           {applying === snapshot.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <PlayCircle className="w-4 h-4" />
+                            <RotateCcw className="w-4 h-4" />
                           )}
                         </button>
                       )}
@@ -272,6 +396,12 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                 <label className="text-sm font-medium text-gray-700">Snapshot ID</label>
                 <p className="text-sm text-gray-900 mt-1 font-mono">{selectedSnapshot.id}</p>
               </div>
+              {selectedSnapshot.execution_id && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Execution ID</label>
+                  <p className="text-sm text-gray-900 mt-1 font-mono">{selectedSnapshot.execution_id}</p>
+                </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700">Created At</label>
                 <p className="text-sm text-gray-900 mt-1">{formatDate(selectedSnapshot.created_at)}</p>
@@ -280,6 +410,21 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                 <label className="text-sm font-medium text-gray-700">Created By</label>
                 <p className="text-sm text-gray-900 mt-1">{selectedSnapshot.created_by}</p>
               </div>
+              {selectedSnapshot.resource_id && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Resource</label>
+                  <p className="text-sm text-gray-900 mt-1 font-mono break-all">{selectedSnapshot.resource_id}</p>
+                  {selectedSnapshot.resource_type && (
+                    <p className="text-xs text-gray-500 mt-1">{selectedSnapshot.resource_type}</p>
+                  )}
+                </div>
+              )}
+              {selectedSnapshot.finding_id && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Finding ID</label>
+                  <p className="text-sm text-gray-900 mt-1 font-mono">{selectedSnapshot.finding_id}</p>
+                </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700">Reason</label>
                 <p className="text-sm text-gray-900 mt-1">{selectedSnapshot.reason}</p>
@@ -288,12 +433,22 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                 <label className="text-sm font-medium text-gray-700">Status</label>
                 <div className="mt-1">{getStatusBadge(selectedSnapshot.status)}</div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Proposed Changes</label>
-                <pre className="mt-2 p-4 bg-gray-50 rounded-lg text-xs overflow-x-auto">
-                  {JSON.stringify((selectedSnapshot as any).changes || {}, null, 2)}
-                </pre>
-              </div>
+              {selectedSnapshot.is_local && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-800 flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    This is a remediation snapshot stored locally
+                  </p>
+                </div>
+              )}
+              {(selectedSnapshot as any).changes && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Proposed Changes</label>
+                  <pre className="mt-2 p-4 bg-gray-50 rounded-lg text-xs overflow-x-auto">
+                    {JSON.stringify((selectedSnapshot as any).changes || {}, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
               <button

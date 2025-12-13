@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { useToast } from "@/hooks/use-toast"
+import { saveRemediationSnapshot } from "@/components/snapshots-recovery-tab"
 
 interface SimulateFixModalProps {
   isOpen: boolean
@@ -143,6 +144,19 @@ export function SimulateFixModal({
       if (result.success) {
         setExecutionResult(result)
         setModalState('success')
+
+        // Save snapshot to local storage for Snapshots & Recovery tab
+        if (result.snapshot_id) {
+          saveRemediationSnapshot({
+            snapshot_id: result.snapshot_id,
+            execution_id: result.execution_id,
+            finding_id: finding.id,
+            resource_id: finding.resource,
+            resource_type: finding.resourceType,
+            timestamp: result.timestamp || new Date().toISOString()
+          })
+        }
+
         toast({
           title: "✅ Remediation Applied!",
           description: `Finding ${finding.id} has been remediated successfully.`
