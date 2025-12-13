@@ -5,6 +5,8 @@
  * 
  * Shows simulation results from background pre-computation.
  * Key principle: Reads pre-computed data (<100ms), not computed on click.
+ * 
+ * FIXED: Loading state now shows properly regardless of status
  */
 
 import { useState, useEffect } from "react"
@@ -138,7 +140,7 @@ export function SimulateFixModal({
   onRequestApproval 
 }: SimulateFixModalProps) {
   const [simulation, setSimulation] = useState<Simulation | null>(null)
-  const [status, setStatus] = useState<"READY" | "COMPUTING" | "DRIFT_DETECTED">("READY")
+  const [status, setStatus] = useState<"READY" | "COMPUTING" | "DRIFT_DETECTED" | "LOADING">("LOADING")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createRollback, setCreateRollback] = useState(true)
@@ -146,10 +148,19 @@ export function SimulateFixModal({
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["confidence", "proposedChange"]))
   const { toast } = useToast()
 
-  // Fetch simulation when modal opens
+  // Reset state when modal opens/closes
   useEffect(() => {
     if (isOpen && finding) {
+      // Reset state on open
+      setSimulation(null)
+      setStatus("LOADING")
+      setError(null)
       fetchSimulation()
+    } else if (!isOpen) {
+      // Reset on close
+      setSimulation(null)
+      setStatus("LOADING")
+      setError(null)
     }
   }, [isOpen, finding])
 
@@ -164,8 +175,8 @@ export function SimulateFixModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-  finding_id: finding.id,
-})
+          finding_id: finding.id,
+        })
       })
 
       if (!response.ok) {
@@ -173,20 +184,28 @@ export function SimulateFixModal({
       }
 
       const data: SimulationResponse = await response.json()
-
-      setStatus(data.status)
+      
+      console.log("[SimulateFixModal] Response:", data)
 
       if (data.status === "READY" && data.simulation) {
         setSimulation(data.simulation)
+        setStatus("READY")
       } else if (data.status === "COMPUTING") {
+        setStatus("COMPUTING")
         // Poll for results
         setTimeout(() => fetchSimulation(), data.retryAfter ? data.retryAfter * 1000 : 3000)
       } else if (data.status === "DRIFT_DETECTED") {
+        setStatus("DRIFT_DETECTED")
         // Resource changed, will refresh automatically
         setTimeout(() => fetchSimulation(), data.retryAfter ? data.retryAfter * 1000 : 60000)
+      } else {
+        // Handle unexpected response
+        console.error("[SimulateFixModal] Unexpected response:", data)
+        setError("Unexpected response format from server")
       }
 
     } catch (err: any) {
+      console.error("[SimulateFixModal] Fetch error:", err)
       setError(err.message || "Failed to fetch simulation")
       toast({
         title: "Simulation Error",
@@ -285,17 +304,24 @@ export function SimulateFixModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Loading State */}
-        {loading && status === "COMPUTING" && (
+        {/* FIXED: Loading State - Show when loading OR when status is LOADING/COMPUTING */}
+        {(loading || status === "LOADING" || status === "COMPUTING") && !simulation && (
           <div className="flex flex-col items-center justify-center py-12">
             <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Computing Simulation...</h3>
-            <p className="text-sm text-gray-600">This may take up to 30 seconds</p>
+            <h3 className="text-lg font-semibold mb-2">
+              {status === "COMPUTING" ? "Computing Simulation..." : "Loading Simulation..."}
+            </h3>
+            <p className="text-sm text-gray-600">
+              {status === "COMPUTING" 
+                ? "This may take up to 30 seconds" 
+                : "Fetching pre-computed results..."
+              }
+            </p>
           </div>
         )}
 
         {/* Drift Detected State */}
-        {status === "DRIFT_DETECTED" && (
+        {status === "DRIFT_DETECTED" && !loading && (
           <div className="flex flex-col items-center justify-center py-12 border-2 border-orange-300 rounded-lg bg-orange-50">
             <AlertTriangle className="w-12 h-12 text-orange-600 mb-4" />
             <h3 className="text-lg font-semibold mb-2">Resource Has Changed</h3>
@@ -310,7 +336,7 @@ export function SimulateFixModal({
         )}
 
         {/* Error State */}
-        {error && (
+        {error && !loading && (
           <div className="p-4 border-2 border-red-300 rounded-lg bg-red-50">
             <div className="flex items-start gap-2">
               <XCircle className="w-5 h-5 text-red-600 mt-0.5" />
@@ -326,8 +352,8 @@ export function SimulateFixModal({
           </div>
         )}
 
-        {/* Simulation Results */}
-        {simulation && status === "READY" && (
+        {/* FIXED: Simulation Results - Show when we have simulation data and not loading */}
+        {simulation && status === "READY" && !loading && (
           <div className="space-y-6">
             {/* Confidence Badge */}
             <div className={`p-6 border-2 rounded-lg text-center ${getConfidenceColor(simulation.confidence.level)}`}>
@@ -424,13 +450,27 @@ export function SimulateFixModal({
                   )}
 
                   {/* Permissions to Remove */}
-                  {simulation.proposedChange.permissionsToRemove && (
+                  {simulation.proposedChange.permissionsToRemove && simulation.proposedChange.permissionsToRemove.length > 0 && (
                     <div className="mt-4">
                       <h4 className="font-semibold mb-2">Permissions to Remove:</h4>
                       <div className="flex flex-wrap gap-2">
                         {simulation.proposedChange.permissionsToRemove.map((perm: string, idx: number) => (
                           <Badge key={idx} variant="outline" className="font-mono text-xs">
                             {perm}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* S3 PAB Settings (for S3 findings) */}
+                  {simulation.proposedChange.settings && (
+                    <div className="mt-4">
+                      <h4 className="font-semibold mb-2">Settings to Enable:</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {simulation.proposedChange.settings.map((setting: string, idx: number) => (
+                          <Badge key={idx} variant="outline" className="font-mono text-xs bg-green-50">
+                            {setting}: true
                           </Badge>
                         ))}
                       </div>
@@ -460,7 +500,7 @@ export function SimulateFixModal({
               </button>
               {expandedSections.has("blastRadius") && (
                 <div className="p-4 border-t space-y-3">
-                  {simulation.blastRadius.affectedResources.length > 0 ? (
+                  {simulation.blastRadius.affectedResources && simulation.blastRadius.affectedResources.length > 0 ? (
                     <>
                       <p className="text-sm text-gray-600">
                         {simulation.blastRadius.affectedResources.length} resource(s) affected
@@ -481,7 +521,7 @@ export function SimulateFixModal({
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-green-700">No resources affected</p>
+                    <p className="text-sm text-green-700">✓ No other resources affected</p>
                   )}
                   <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
                     <p className="text-sm">
@@ -534,7 +574,7 @@ export function SimulateFixModal({
             </div>
 
             {/* Risks */}
-            {simulation.risks.length > 0 && (
+            {simulation.risks && simulation.risks.length > 0 && (
               <div className="border rounded-lg border-orange-200">
                 <button
                   onClick={() => toggleSection("risks")}
@@ -552,8 +592,8 @@ export function SimulateFixModal({
                 </button>
                 {expandedSections.has("risks") && (
                   <div className="p-4 border-t space-y-3">
-                    {simulation.risks.map((risk) => (
-                      <div key={risk.id} className="p-3 bg-orange-50 rounded border border-orange-200">
+                    {simulation.risks.map((risk, idx) => (
+                      <div key={risk.id || idx} className="p-3 bg-orange-50 rounded border border-orange-200">
                         <div className="flex items-center justify-between mb-2">
                           <p className="font-medium">{risk.description}</p>
                           <Badge variant="outline" className={
