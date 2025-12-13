@@ -311,6 +311,15 @@ export function SimulateFixModal({
           </div>
         )}
 
+        {/* Executing State */}
+        {executing && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="w-12 h-12 text-green-600 animate-spin mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Applying Remediation...</h3>
+            <p className="text-sm text-gray-600">This may take a few seconds</p>
+          </div>
+        )}
+
         {/* Drift Detected State */}
         {status === "DRIFT_DETECTED" && (
           <div className="flex flex-col items-center justify-center py-12 border-2 border-orange-300 rounded-lg bg-orange-50">
@@ -344,7 +353,7 @@ export function SimulateFixModal({
         )}
 
         {/* Execution Result */}
-        {status === "EXECUTED" && executionResult && (
+        {status === "EXECUTED" && executionResult && !executing && (
           <div className="space-y-6">
             {/* Success Banner */}
             <div className="p-6 border-2 rounded-lg text-center bg-green-50 border-green-300">
@@ -352,7 +361,10 @@ export function SimulateFixModal({
                 <CheckCircle2 className="w-8 h-8 text-green-600" />
                 <span className="text-2xl font-bold text-green-800">Remediation Applied</span>
               </div>
-              <p className="text-sm text-green-700">{executionResult.message}</p>
+              <p className="text-sm text-green-700">{executionResult.message || "Fix has been successfully applied"}</p>
+              {executionResult.finding_id && (
+                <p className="text-xs text-gray-500 mt-2">Finding: {executionResult.finding_id}</p>
+              )}
             </div>
 
             {/* Remediation Details */}
@@ -429,7 +441,7 @@ export function SimulateFixModal({
         )}
 
         {/* Simulation Results */}
-        {simulation && status === "READY" && (
+        {simulation && status === "READY" && !executing && (
           <div className="space-y-6">
             {/* Confidence Badge */}
             <div className={`p-6 border-2 rounded-lg text-center ${getConfidenceColor(simulation.confidence.level)}`}>
