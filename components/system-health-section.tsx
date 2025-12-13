@@ -2,36 +2,44 @@
 
 import { useState } from "react"
 import { TrendingDown } from "lucide-react"
-import { CriticalFindingsModal } from "./critical-findings-modal"
+import { CriticalFindingsModal } from "./issues/critical-findings-modal"
 import { SimulateFixModal } from "./issues/SimulateFixModal"
+import { useToast } from "@/hooks/use-toast"
 
 export function SystemHealthSection() {
   const [showCriticalModal, setShowCriticalModal] = useState(false)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const { toast } = useToast()
 
   const handleSimulateFix = (finding: any) => {
-<<<<<<< HEAD:components/system-health-section.tsx
-    setSelectedFinding(finding)
-=======
     // Ensure finding has required properties including id
     const safeFinding = {
       id: finding?.id || finding?.findingId || `finding-${Date.now()}`,
       title: finding?.title || finding?.description || "Security Finding",
-      icon: finding?.icon || "⚠️"
+      icon: finding?.icon || "",
+      severity: finding?.severity || "HIGH",
+      category: finding?.category || "Security",
+      description: finding?.description || "",
+      resource: finding?.resource || "",
+      resourceType: finding?.resourceType || "",
+      discoveredAt: finding?.discoveredAt || new Date().toISOString(),
+      remediation: finding?.remediation || "",
     }
     setSelectedFinding(safeFinding)
->>>>>>> e1c24ef (Wire SIMULATE FIX and AUTO-FIX buttons to backend API):components/dashboard/system-health-section.tsx
     setShowCriticalModal(false)
     setShowSimulateModal(true)
   }
 
-<<<<<<< HEAD:components/system-health-section.tsx
-=======
   const handleAutoFix = async (finding: any) => {
     const issueId = finding?.id || finding?.findingId
     if (!issueId) {
-      alert("Error: Finding ID is required for auto-fix")
+      toast({
+        title: "Error",
+        description: "Finding ID is required for auto-fix",
+        variant: "destructive"
+      })
       return
     }
 
@@ -39,39 +47,62 @@ export function SystemHealthSection() {
       return
     }
 
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
-    const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
-
     try {
       setLoading(true)
-      const res = await fetch(`${API_URL}/simulation/issue/remediate`, {
+      const res = await fetch('/api/proxy/simulate/execute', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId, confirm: true }),
+        body: JSON.stringify({ finding_id: issueId, create_rollback: true }),
       })
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(errorData.detail || `Fix failed: ${res.status} ${res.statusText}`)
+        const errorData = await res.json().catch(() => ({ message: res.statusText }))
+        throw new Error(errorData.message || `Fix failed: ${res.status} ${res.statusText}`)
       }
 
-      const data = await res.json()
-      if (data.status === "success") {
-        alert("Issue fixed successfully! The page will reload to show updated status.")
-        window.location.reload()
-      }
+      toast({
+        title: "Fix Applied Successfully",
+        description: "The issue has been fixed. The system is being monitored.",
+        duration: 10000,
+      })
     } catch (err) {
       console.error("Fix failed", err)
-      alert(`Auto-fix failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      toast({
+        title: "Auto-fix Failed",
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: "destructive"
+      })
     } finally {
       setLoading(false)
     }
   }
 
-  const healthScore = healthData?.healthScore || 72
-  const criticalCount = healthData?.criticalCount || 0
+  const handleExecuteFix = async (findingId: string, options?: { createRollback?: boolean }) => {
+    try {
+      const res = await fetch('/api/proxy/simulate/execute', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          finding_id: findingId,
+          create_rollback: options?.createRollback ?? true
+        }),
+      })
 
->>>>>>> e1c24ef (Wire SIMULATE FIX and AUTO-FIX buttons to backend API):components/dashboard/system-health-section.tsx
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: res.statusText }))
+        throw new Error(errorData.message || `Fix failed: ${res.status}`)
+      }
+
+      toast({
+        title: "Fix Applied Successfully",
+        description: `Remediation for "${selectedFinding?.title || 'the issue'}" has been applied. Monitoring in progress.`,
+        duration: 10000,
+      })
+    } catch (err) {
+      throw err
+    }
+  }
+
   return (
     <>
       <div className="space-y-6">
@@ -138,9 +169,10 @@ export function SystemHealthSection() {
           <button
             className="w-[120px] h-[40px] rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 ml-6"
             style={{ background: "var(--action-primary)" }}
+            disabled={loading}
           >
             <span>▶</span>
-            <span>START FIXING</span>
+            <span>{loading ? "FIXING..." : "START FIXING"}</span>
           </button>
         </div>
 
@@ -161,7 +193,7 @@ export function SystemHealthSection() {
           </p>
           <div className="flex items-center gap-4 text-sm">
             <span style={{ color: "var(--text-secondary)" }}>
-              🟢 In production hours • Next maintenance window in 4 hours
+              In production hours • Next maintenance window in 4 hours
             </span>
             <span
               className="px-3 py-1 rounded text-xs font-semibold text-white"
@@ -178,21 +210,19 @@ export function SystemHealthSection() {
         isOpen={showCriticalModal}
         onClose={() => setShowCriticalModal(false)}
         onSimulateFix={handleSimulateFix}
-<<<<<<< HEAD:components/system-health-section.tsx
-=======
         onAutoFix={handleAutoFix}
-        findings={[]} // Pass empty array - real findings will come from API
->>>>>>> e1c24ef (Wire SIMULATE FIX and AUTO-FIX buttons to backend API):components/dashboard/system-health-section.tsx
+        findings={[]}
       />
 
       {selectedFinding && (
         <SimulateFixModal
-          open={showSimulateModal}
+          isOpen={showSimulateModal}
           onClose={() => {
             setShowSimulateModal(false)
             setSelectedFinding(null)
           }}
           finding={selectedFinding}
+          onExecute={handleExecuteFix}
         />
       )}
     </>
