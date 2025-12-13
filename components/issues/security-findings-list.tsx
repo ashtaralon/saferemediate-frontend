@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
+import { AlertTriangle, Shield, CheckCircle2, Zap, Loader2 } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
 
@@ -12,9 +12,12 @@ interface SecurityFindingsListProps {
   findings: SecurityFinding[]
 }
 
+type RemediationStatus = "idle" | "applying" | "success" | "error"
+
 export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
+  const [remediationStatus, setRemediationStatus] = useState<Record<string, RemediationStatus>>({})
 
   if (findings.length === 0) {
     return (
@@ -64,17 +67,25 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
           }}
           finding={selectedFinding}
           onExecute={async (findingId, options) => {
-            const response = await fetch('/api/proxy/simulate/execute', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                finding_id: findingId,
-                create_rollback: options?.createRollback ?? true
+            setRemediationStatus(prev => ({ ...prev, [findingId]: "applying" }))
+            try {
+              const response = await fetch('/api/proxy/simulate/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  finding_id: findingId,
+                  create_rollback: options?.createRollback ?? true
+                })
               })
-            })
-            if (!response.ok) {
-              const error = await response.json().catch(() => ({}))
-              throw new Error(error.message || 'Execution failed')
+              if (!response.ok) {
+                const error = await response.json().catch(() => ({}))
+                setRemediationStatus(prev => ({ ...prev, [findingId]: "error" }))
+                throw new Error(error.message || 'Execution failed')
+              }
+              setRemediationStatus(prev => ({ ...prev, [findingId]: "success" }))
+            } catch (err) {
+              setRemediationStatus(prev => ({ ...prev, [findingId]: "error" }))
+              throw err
             }
           }}
           onRequestApproval={async (findingId) => {
@@ -93,10 +104,31 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
 
       <div className="space-y-3">
         {findings.map((finding) => (
-          <Card key={finding.id} className="p-4 hover:shadow-md transition-shadow">
+          <Card
+            key={finding.id}
+            className={`p-4 hover:shadow-md transition-shadow ${
+              remediationStatus[finding.id] === "success"
+                ? "border-green-300 bg-green-50"
+                : remediationStatus[finding.id] === "applying"
+                ? "border-blue-300 bg-blue-50"
+                : ""
+            }`}
+          >
+            {remediationStatus[finding.id] === "success" && (
+              <div className="flex items-center gap-2 mb-3 p-2 bg-green-100 rounded-lg text-green-800 text-sm font-medium">
+                <CheckCircle2 className="w-4 h-4" />
+                Remediation applied successfully - monitoring for 5 minutes
+              </div>
+            )}
+            {remediationStatus[finding.id] === "applying" && (
+              <div className="flex items-center gap-2 mb-3 p-2 bg-blue-100 rounded-lg text-blue-800 text-sm font-medium">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Applying remediation...
+              </div>
+            )}
             <div className="flex items-start gap-4">
-              <div className={`${getSeverityColor(finding.severity)} rounded-full p-2`}>
-                {getSeverityIcon(finding.severity)}
+              <div className={`${remediationStatus[finding.id] === "success" ? "bg-green-600 text-white" : getSeverityColor(finding.severity)} rounded-full p-2`}>
+                {remediationStatus[finding.id] === "success" ? <CheckCircle2 className="w-5 h-5" /> : getSeverityIcon(finding.severity)}
               </div>
 
               <div className="flex-1 min-w-0">
@@ -124,14 +156,35 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
                 )}
 
                 <div className="flex gap-2 mt-4">
-                  <Button
-                    onClick={() => handleSimulate(finding)}
-                    size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Zap className="w-4 h-4 mr-1" />
-                    Simulate Fix
-                  </Button>
+                  {remediationStatus[finding.id] === "applying" ? (
+                    <Button size="sm" disabled className="bg-blue-600 text-white">
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      Applying Fix...
+                    </Button>
+                  ) : remediationStatus[finding.id] === "success" ? (
+                    <Button size="sm" disabled className="bg-green-600 text-white">
+                      <CheckCircle2 className="w-4 h-4 mr-1" />
+                      Fix Applied
+                    </Button>
+                  ) : remediationStatus[finding.id] === "error" ? (
+                    <Button
+                      onClick={() => handleSimulate(finding)}
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      <AlertTriangle className="w-4 h-4 mr-1" />
+                      Retry Fix
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => handleSimulate(finding)}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Zap className="w-4 h-4 mr-1" />
+                      Simulate Fix
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
