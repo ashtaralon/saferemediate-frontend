@@ -1,12 +1,37 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/issues/SimulateFixModal"
+
+// Persist remediated IDs in localStorage
+const STORAGE_KEY = 'saferemediate_remediated_findings'
+
+function loadRemediatedIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored) {
+      return new Set(JSON.parse(stored))
+    }
+  } catch (e) {
+    console.error('Failed to load remediated IDs:', e)
+  }
+  return new Set()
+}
+
+function saveRemediatedIds(ids: Set<string>) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids]))
+  } catch (e) {
+    console.error('Failed to save remediated IDs:', e)
+  }
+}
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
@@ -17,6 +42,11 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
   const [remediatedIds, setRemediatedIds] = useState<Set<string>>(new Set())
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    setRemediatedIds(loadRemediatedIds())
+  }, [])
 
   // Log render for debugging
   console.log("[LIST] Render - showModal:", showModal, "finding:", selectedFinding?.id, "remediated:", remediatedIds.size)
@@ -30,7 +60,11 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
 
   const markAsRemediated = useCallback((findingId: string) => {
     console.log("[LIST] Marking as remediated:", findingId)
-    setRemediatedIds(prev => new Set([...prev, findingId]))
+    setRemediatedIds(prev => {
+      const newSet = new Set([...prev, findingId])
+      saveRemediatedIds(newSet)  // Persist to localStorage
+      return newSet
+    })
   }, [])
 
   if (findings.length === 0) {

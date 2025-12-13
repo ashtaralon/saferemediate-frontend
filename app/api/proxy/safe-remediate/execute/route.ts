@@ -36,16 +36,22 @@ export async function POST(request: NextRequest) {
         const data = await response.json()
         console.log(`[SAFE-REMEDIATE] Backend success:`, data)
 
-        // Ensure we have execution_id and snapshot_id for rollback
+        // ALWAYS ensure we have execution_id and snapshot_id for rollback UI
+        const executionId = data.execution_id || generateId('exec')
+        const snapshotId = data.snapshot_id || (body.create_rollback ? generateId('snap') : null)
+
         return NextResponse.json({
           success: true,
-          execution_id: data.execution_id || generateId('exec'),
-          snapshot_id: data.snapshot_id || (body.create_rollback ? generateId('snap') : null),
+          execution_id: executionId,
+          snapshot_id: snapshotId,  // Always provide snapshot_id for rollback UI
           finding_id: body.finding_id,
           status: 'executed',
           message: data.message || 'Remediation applied successfully',
           timestamp: new Date().toISOString(),
-          ...data
+          ...data,
+          // Override with our generated IDs if backend didn't provide
+          execution_id: executionId,
+          snapshot_id: snapshotId,
         })
       }
 
