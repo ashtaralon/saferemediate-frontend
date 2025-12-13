@@ -8,7 +8,7 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   process.env.BACKEND_API_URL ||
-  "https://saferemediate-backend.onrender.com"
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     console.log(`[SIMULATE-EXECUTE] Executing remediation for finding: ${finding_id}`)
 
     // Call backend execute endpoint
-    const response = await fetch(`${BACKEND_URL}/api/execute`, {
+    const response = await fetch(`${BACKEND_URL}/api/safe-remediate/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
