@@ -1,16 +1,18 @@
 "use client"
 
 /**
- * SimulateFixModal - FULL VERSION (Working)
- * Uses inline styles instead of Dialog component
+ * SimulateFixModal - FULL VERSION with Execution States
+ * States: Loading → Simulation → Executing → Success/Failed
+ * Includes Rollback capability
  */
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { 
+import {
   X, Shield, Zap, CheckCircle2, AlertTriangle, XCircle,
-  ChevronDown, ChevronRight, Clock, RefreshCw, Loader2, ArrowLeft
+  ChevronDown, ChevronRight, Clock, RefreshCw, Loader2, ArrowLeft,
+  RotateCcw, PartyPopper
 } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { useToast } from "@/hooks/use-toast"
@@ -19,8 +21,17 @@ interface SimulateFixModalProps {
   isOpen: boolean
   onClose: () => void
   finding: SecurityFinding | null
-  onExecute?: (findingId: string, options?: { createRollback?: boolean }) => Promise<void>
+  onExecute?: (findingId: string, options?: { createRollback?: boolean }) => Promise<ExecutionResult>
   onRequestApproval?: (findingId: string) => Promise<void>
+  onRefreshFindings?: () => void
+}
+
+interface ExecutionResult {
+  success: boolean
+  execution_id?: string
+  snapshot_id?: string
+  message?: string
+  error?: string
 }
 
 interface Simulation {
@@ -42,18 +53,21 @@ interface Simulation {
   risks: any[]
 }
 
-export function SimulateFixModal({ 
-  isOpen, 
-  onClose, 
+type ModalState = 'loading' | 'simulation' | 'executing' | 'success' | 'failed' | 'rolling_back'
+
+export function SimulateFixModal({
+  isOpen,
+  onClose,
   finding,
   onExecute,
+  onRefreshFindings,
 }: SimulateFixModalProps) {
   const [simulation, setSimulation] = useState<Simulation | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [modalState, setModalState] = useState<ModalState>('loading')
   const [error, setError] = useState<string | null>(null)
-  const [executing, setExecuting] = useState(false)
   const [createRollback, setCreateRollback] = useState(true)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["confidence", "proposedChange"]))
+  const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null)
   const { toast } = useToast()
 
   // Fetch simulation when modal opens
@@ -61,8 +75,9 @@ export function SimulateFixModal({
     if (isOpen && finding) {
       console.log("[Modal] Opening, fetching simulation for:", finding.id)
       setSimulation(null)
-      setLoading(true)
+      setModalState('loading')
       setError(null)
+      setExecutionResult(null)
       fetchSimulation()
     }
   }, [isOpen, finding?.id])
@@ -91,28 +106,109 @@ export function SimulateFixModal({
 
       if (data.status === "READY" && data.simulation) {
         setSimulation(data.simulation)
+        setModalState('simulation')
       } else {
         setError("Invalid response from server")
+        setModalState('failed')
       }
     } catch (err: any) {
       console.error("[Modal] Error:", err)
       setError(err.message)
-    } finally {
-      setLoading(false)
+      setModalState('failed')
     }
   }
 
   const handleExecute = async () => {
-    if (!finding || !onExecute) return
-    setExecuting(true)
+    if (!finding) return
+
+    setModalState('executing')
+    setError(null)
+
     try {
-      await onExecute(finding.id, { createRollback })
-      toast({ title: "Remediation Started", description: "Fix is being applied. Monitoring for 5 minutes..." })
-      onClose()
+      // Call the execute endpoint
+      const response = await fetch('/api/proxy/safe-remediate/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          finding_id: finding.id,
+          create_rollback: createRollback,
+          resource_id: finding.resource,
+          resource_type: finding.resourceType,
+        })
+      })
+
+      const result = await response.json()
+      console.log("[Modal] Execution result:", result)
+
+      if (result.success) {
+        setExecutionResult(result)
+        setModalState('success')
+        toast({
+          title: "✅ Remediation Applied!",
+          description: `Finding ${finding.id} has been remediated successfully.`
+        })
+        // Trigger refresh of findings list
+        if (onRefreshFindings) {
+          setTimeout(() => onRefreshFindings(), 1000)
+        }
+      } else {
+        setError(result.error || result.message || 'Execution failed')
+        setModalState('failed')
+        toast({
+          title: "Execution Failed",
+          description: result.error || 'Unknown error',
+          variant: "destructive"
+        })
+      }
     } catch (err: any) {
-      toast({ title: "Execution Failed", description: err.message, variant: "destructive" })
-    } finally {
-      setExecuting(false)
+      console.error("[Modal] Execution error:", err)
+      setError(err.message)
+      setModalState('failed')
+      toast({
+        title: "Execution Failed",
+        description: err.message,
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleRollback = async () => {
+    if (!executionResult?.execution_id && !executionResult?.snapshot_id) {
+      toast({ title: "Rollback Failed", description: "No execution or snapshot ID available", variant: "destructive" })
+      return
+    }
+
+    setModalState('rolling_back')
+
+    try {
+      const response = await fetch('/api/proxy/safe-remediate/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          execution_id: executionResult?.execution_id,
+          snapshot_id: executionResult?.snapshot_id,
+          finding_id: finding?.id
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({ title: "✅ Rollback Complete", description: "Changes have been reverted successfully." })
+        setModalState('simulation')
+        setExecutionResult(null)
+        if (onRefreshFindings) {
+          setTimeout(() => onRefreshFindings(), 1000)
+        }
+      } else {
+        setError(result.error || 'Rollback failed')
+        setModalState('failed')
+        toast({ title: "Rollback Failed", description: result.error, variant: "destructive" })
+      }
+    } catch (err: any) {
+      setError(err.message)
+      setModalState('failed')
+      toast({ title: "Rollback Failed", description: err.message, variant: "destructive" })
     }
   }
 
@@ -124,6 +220,14 @@ export function SimulateFixModal({
       newExpanded.add(section)
     }
     setExpandedSections(newExpanded)
+  }
+
+  const handleClose = () => {
+    // If we successfully executed, refresh findings before closing
+    if (modalState === 'success' && onRefreshFindings) {
+      onRefreshFindings()
+    }
+    onClose()
   }
 
   // Don't render if not open
@@ -142,7 +246,7 @@ export function SimulateFixModal({
     <>
       {/* BACKDROP */}
       <div
-        onClick={onClose}
+        onClick={handleClose}
         style={{
           position: 'fixed',
           top: 0, left: 0, width: '100vw', height: '100vh',
@@ -173,47 +277,195 @@ export function SimulateFixModal({
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '16px 24px',
           borderBottom: '1px solid #e5e7eb',
-          backgroundColor: '#f9fafb',
+          backgroundColor: modalState === 'success' ? '#f0fdf4' : modalState === 'failed' ? '#fef2f2' : '#f9fafb',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Shield style={{ width: 24, height: 24, color: '#2563eb' }} />
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Simulate Fix</h2>
+            {modalState === 'success' ? (
+              <CheckCircle2 style={{ width: 24, height: 24, color: '#16a34a' }} />
+            ) : modalState === 'failed' ? (
+              <XCircle style={{ width: 24, height: 24, color: '#dc2626' }} />
+            ) : (
+              <Shield style={{ width: 24, height: 24, color: '#2563eb' }} />
+            )}
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+              {modalState === 'success' ? 'Remediation Complete!' :
+               modalState === 'failed' ? 'Remediation Failed' :
+               modalState === 'executing' ? 'Applying Fix...' :
+               modalState === 'rolling_back' ? 'Rolling Back...' :
+               'Simulate Fix'}
+            </h2>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+          <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
             <X style={{ width: 20, height: 20 }} />
           </button>
         </div>
 
         {/* SCROLLABLE CONTENT */}
         <div style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
-          {/* LOADING */}
-          {loading && (
+
+          {/* LOADING STATE */}
+          {modalState === 'loading' && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0' }}>
               <Loader2 style={{ width: 48, height: 48, color: '#2563eb', animation: 'spin 1s linear infinite' }} />
               <h3 style={{ marginTop: 16, fontSize: 18, fontWeight: 600 }}>Loading Simulation...</h3>
-              <p style={{ color: '#6b7280', fontSize: 14 }}>Fetching pre-computed results...</p>
+              <p style={{ color: '#6b7280', fontSize: 14 }}>Analyzing remediation options...</p>
               <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
             </div>
           )}
 
-          {/* ERROR */}
-          {error && !loading && (
-            <div style={{ padding: 16, backgroundColor: '#fef2f2', border: '2px solid #fca5a5', borderRadius: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <XCircle style={{ width: 24, height: 24, color: '#dc2626' }} />
-                <div>
-                  <h4 style={{ margin: 0, fontWeight: 600, color: '#991b1b' }}>Error Loading Simulation</h4>
-                  <p style={{ margin: '8px 0', color: '#b91c1c', fontSize: 14 }}>{error}</p>
-                  <Button onClick={fetchSimulation} variant="outline" size="sm">
-                    <RefreshCw style={{ width: 16, height: 16, marginRight: 8 }} /> Retry
-                  </Button>
-                </div>
+          {/* EXECUTING STATE */}
+          {modalState === 'executing' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0' }}>
+              <div style={{ position: 'relative' }}>
+                <Loader2 style={{ width: 64, height: 64, color: '#2563eb', animation: 'spin 1s linear infinite' }} />
+                <Zap style={{
+                  position: 'absolute', top: '50%', left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: 28, height: 28, color: '#f59e0b'
+                }} />
+              </div>
+              <h3 style={{ marginTop: 20, fontSize: 20, fontWeight: 700, color: '#1f2937' }}>Applying Remediation...</h3>
+              <p style={{ color: '#6b7280', fontSize: 14, marginTop: 8 }}>Creating snapshot and executing changes</p>
+              <div style={{
+                marginTop: 24, padding: '12px 20px',
+                backgroundColor: '#fef3c7', border: '1px solid #fde68a',
+                borderRadius: 8, fontSize: 13, color: '#92400e'
+              }}>
+                Do not close this window
               </div>
             </div>
           )}
 
+          {/* ROLLING BACK STATE */}
+          {modalState === 'rolling_back' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 0' }}>
+              <div style={{ position: 'relative' }}>
+                <Loader2 style={{ width: 64, height: 64, color: '#f59e0b', animation: 'spin 1s linear infinite' }} />
+                <RotateCcw style={{
+                  position: 'absolute', top: '50%', left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: 28, height: 28, color: '#dc2626'
+                }} />
+              </div>
+              <h3 style={{ marginTop: 20, fontSize: 20, fontWeight: 700, color: '#1f2937' }}>Rolling Back Changes...</h3>
+              <p style={{ color: '#6b7280', fontSize: 14, marginTop: 8 }}>Restoring from snapshot</p>
+            </div>
+          )}
+
+          {/* SUCCESS STATE */}
+          {modalState === 'success' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0' }}>
+              <div style={{
+                width: 100, height: 100, borderRadius: '50%',
+                backgroundColor: '#dcfce7',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                marginBottom: 20
+              }}>
+                <CheckCircle2 style={{ width: 60, height: 60, color: '#16a34a' }} />
+              </div>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: '#166534', margin: 0 }}>
+                Remediation Successful!
+              </h3>
+              <p style={{ color: '#6b7280', fontSize: 15, marginTop: 12, textAlign: 'center' }}>
+                The security finding has been remediated.<br/>
+                Changes have been applied to your AWS environment.
+              </p>
+
+              {/* Execution Details */}
+              <div style={{
+                marginTop: 24, padding: 20, width: '100%',
+                backgroundColor: '#f0fdf4', border: '2px solid #bbf7d0',
+                borderRadius: 12
+              }}>
+                <h4 style={{ margin: '0 0 12px', fontWeight: 600, color: '#166534' }}>Execution Details</h4>
+                <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#6b7280' }}>Finding ID:</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{finding?.id}</span>
+                  </div>
+                  {executionResult?.execution_id && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#6b7280' }}>Execution ID:</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{executionResult.execution_id}</span>
+                    </div>
+                  )}
+                  {executionResult?.snapshot_id && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#6b7280' }}>Snapshot ID:</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>{executionResult.snapshot_id}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#6b7280' }}>Status:</span>
+                    <Badge className="bg-green-600">REMEDIATED</Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rollback Option */}
+              {(executionResult?.execution_id || executionResult?.snapshot_id) && (
+                <div style={{
+                  marginTop: 16, padding: 16, width: '100%',
+                  backgroundColor: '#fef3c7', border: '1px solid #fde68a',
+                  borderRadius: 8
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <RotateCcw style={{ width: 20, height: 20, color: '#92400e' }} />
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 600, color: '#92400e', fontSize: 14 }}>
+                        Rollback Available
+                      </p>
+                      <p style={{ margin: '4px 0 0', fontSize: 13, color: '#a16207' }}>
+                        A snapshot was created. You can undo this change if needed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* FAILED STATE */}
+          {modalState === 'failed' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 0' }}>
+              <div style={{
+                width: 100, height: 100, borderRadius: '50%',
+                backgroundColor: '#fee2e2',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                marginBottom: 20
+              }}>
+                <XCircle style={{ width: 60, height: 60, color: '#dc2626' }} />
+              </div>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: '#991b1b', margin: 0 }}>
+                Remediation Failed
+              </h3>
+              <p style={{ color: '#6b7280', fontSize: 15, marginTop: 12, textAlign: 'center' }}>
+                The remediation could not be applied.
+              </p>
+
+              {error && (
+                <div style={{
+                  marginTop: 24, padding: 16, width: '100%',
+                  backgroundColor: '#fef2f2', border: '2px solid #fca5a5',
+                  borderRadius: 12
+                }}>
+                  <h4 style={{ margin: '0 0 8px', fontWeight: 600, color: '#991b1b' }}>Error Details</h4>
+                  <p style={{ margin: 0, fontFamily: 'monospace', fontSize: 13, color: '#b91c1c' }}>{error}</p>
+                </div>
+              )}
+
+              <Button
+                onClick={() => { setModalState('simulation'); setError(null); }}
+                variant="outline"
+                className="mt-6"
+              >
+                <ArrowLeft style={{ width: 16, height: 16, marginRight: 8 }} /> Back to Simulation
+              </Button>
+            </div>
+          )}
+
           {/* SIMULATION RESULTS */}
-          {simulation && !loading && (
+          {modalState === 'simulation' && simulation && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               {/* CONFIDENCE BANNER */}
               <div style={{
@@ -222,7 +474,7 @@ export function SimulateFixModal({
                 borderRadius: 12, padding: 20, textAlign: 'center',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 8 }}>
-                  {simulation.confidence.level === "HIGH" ? 
+                  {simulation.confidence.level === "HIGH" ?
                     <CheckCircle2 style={{ width: 28, height: 28, color: getConfidenceBg(simulation.confidence.level).text }} /> :
                     <AlertTriangle style={{ width: 28, height: 28, color: getConfidenceBg(simulation.confidence.level).text }} />
                   }
@@ -242,7 +494,7 @@ export function SimulateFixModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {simulation.confidence.criteria.map((c) => (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      {c.met ? 
+                      {c.met ?
                         <CheckCircle2 style={{ width: 20, height: 20, color: '#16a34a', flexShrink: 0 }} /> :
                         <XCircle style={{ width: 20, height: 20, color: '#dc2626', flexShrink: 0 }} />
                       }
@@ -373,36 +625,59 @@ export function SimulateFixModal({
         </div>
 
         {/* FOOTER */}
-        {simulation && !loading && (
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '16px 24px',
-            borderTop: '1px solid #e5e7eb',
-            backgroundColor: '#f9fafb',
-          }}>
-            <Button onClick={onClose} variant="outline">
-              <ArrowLeft style={{ width: 16, height: 16, marginRight: 8 }} /> Back
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '16px 24px',
+          borderTop: '1px solid #e5e7eb',
+          backgroundColor: '#f9fafb',
+        }}>
+          {/* LEFT SIDE */}
+          {modalState === 'success' ? (
+            <Button onClick={handleClose} variant="outline">
+              <CheckCircle2 style={{ width: 16, height: 16, marginRight: 8 }} /> Done
             </Button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={createRollback}
-                  onChange={(e) => setCreateRollback(e.target.checked)}
-                  style={{ width: 16, height: 16 }}
-                />
-                Create rollback checkpoint
-              </label>
-              <Button onClick={handleExecute} disabled={executing} className="bg-blue-600 hover:bg-blue-700">
-                {executing ? (
-                  <><Loader2 style={{ width: 16, height: 16, marginRight: 8, animation: 'spin 1s linear infinite' }} /> Applying...</>
-                ) : (
-                  <><Zap style={{ width: 16, height: 16, marginRight: 8 }} /> Apply Fix Now</>
-                )}
+          ) : (
+            <Button onClick={handleClose} variant="outline">
+              <ArrowLeft style={{ width: 16, height: 16, marginRight: 8 }} />
+              {modalState === 'simulation' ? 'Back' : 'Close'}
+            </Button>
+          )}
+
+          {/* RIGHT SIDE */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Simulation state - show execute button */}
+            {modalState === 'simulation' && (
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={createRollback}
+                    onChange={(e) => setCreateRollback(e.target.checked)}
+                    style={{ width: 16, height: 16 }}
+                  />
+                  Create rollback checkpoint
+                </label>
+                <Button onClick={handleExecute} className="bg-blue-600 hover:bg-blue-700">
+                  <Zap style={{ width: 16, height: 16, marginRight: 8 }} /> Apply Fix Now
+                </Button>
+              </>
+            )}
+
+            {/* Success state - show rollback button */}
+            {modalState === 'success' && (executionResult?.execution_id || executionResult?.snapshot_id) && (
+              <Button onClick={handleRollback} variant="outline" className="border-orange-400 text-orange-600 hover:bg-orange-50">
+                <RotateCcw style={{ width: 16, height: 16, marginRight: 8 }} /> Rollback Changes
               </Button>
-            </div>
+            )}
+
+            {/* Failed state - show retry button */}
+            {modalState === 'failed' && simulation && (
+              <Button onClick={() => setModalState('simulation')} variant="outline">
+                <RefreshCw style={{ width: 16, height: 16, marginRight: 8 }} /> Try Again
+              </Button>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </>
   )

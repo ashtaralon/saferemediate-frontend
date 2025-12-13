@@ -57,7 +57,7 @@ export interface SecurityFinding {
   remediation?: string
   category: string
   discoveredAt: string
-  status: "open" | "resolved" | "suppressed"
+  status: "open" | "simulated" | "approved" | "executing" | "remediated" | "failed" | "rolled_back" | "resolved" | "suppressed"
 }
 
 export interface SecurityData {
