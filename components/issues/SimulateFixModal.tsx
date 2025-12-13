@@ -87,6 +87,9 @@ export function SimulateFixModal({
     if (!finding) return
 
     try {
+      // Include IAM-specific data if available
+      const findingData = finding as any
+
       const response = await fetch(`/api/proxy/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -96,7 +99,15 @@ export function SimulateFixModal({
           resource_id: finding.resource,
           title: finding.title,
           description: finding.description,
-          details: (finding as any).details || {}
+          category: finding.category,
+          type: findingData.type,
+          // IAM-specific fields
+          iam_issue_id: findingData.iam_issue_id,
+          observed_actions: findingData.observed_actions,
+          allowed_actions: findingData.allowed_actions,
+          unused_actions: findingData.unused_actions,
+          metadata: findingData.metadata,
+          details: findingData.details || {}
         })
       })
 

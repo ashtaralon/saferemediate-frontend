@@ -58,6 +58,23 @@ export interface SecurityFinding {
   category: string
   discoveredAt: string
   status: "open" | "simulated" | "approved" | "executing" | "remediated" | "failed" | "rolled_back" | "resolved" | "suppressed"
+
+  // IAM-specific fields (populated for IAM findings)
+  type?: "iam" | "security_group" | "s3" | "network" | string
+  iam_issue_id?: string  // Link to IAM issue in pipeline
+  observed_actions?: string[]  // Actions actually used (from CloudTrail)
+  allowed_actions?: string[]   // Actions allowed by policy
+  unused_actions?: string[]    // allowed - observed
+  confidence?: number          // Detection confidence (0-100)
+  metadata?: {
+    gap?: number
+    allowed?: number
+    actual?: number
+    risk_score?: number
+    last_used?: string | null
+    permissions_level?: string
+    [key: string]: any
+  }
 }
 
 export interface SecurityData {
