@@ -736,25 +736,59 @@ export default function SimulationResultsModal({
                 >
                   Close
                 </button>
-                
-                {result.status === 'EXECUTE' && result.action_policy?.auto_apply && (
+
+                {result.status === 'EXECUTE' && (
                   <button
-                    onClick={() => {
-                      alert('Execute remediation - Coming soon')
-                      onClose()
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/proxy/simulate/execute', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            finding_id: resourceId,
+                            resource_type: resourceType,
+                            proposed_change: proposedChange,
+                            create_rollback: true
+                          })
+                        })
+                        const data = await response.json()
+                        if (data.success) {
+                          alert('✅ Remediation applied successfully!' + (data.simulated ? ' (Simulated)' : ''))
+                        } else {
+                          alert('❌ Remediation failed: ' + (data.error || 'Unknown error'))
+                        }
+                        onClose()
+                      } catch (err) {
+                        console.error('Execute error:', err)
+                        alert('❌ Failed to execute remediation')
+                      }
                     }}
                     className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium flex items-center gap-2"
                   >
                     <Zap className="w-4 h-4" />
-                    Auto-Apply
+                    Apply Fix Now
                   </button>
                 )}
-                
+
                 {result.status !== 'BLOCKED' && (
                   <>
                     <button
-                      onClick={() => {
-                        alert('Request Approval - Coming soon')
+                      onClick={async () => {
+                        try {
+                          const response = await fetch('/api/proxy/simulate/approval', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ finding_id: resourceId })
+                          })
+                          if (response.ok) {
+                            alert('✅ Approval request submitted')
+                          } else {
+                            alert('❌ Failed to submit approval request')
+                          }
+                        } catch (err) {
+                          console.error('Approval error:', err)
+                          alert('❌ Failed to submit approval request')
+                        }
                       }}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium flex items-center gap-2"
                     >
