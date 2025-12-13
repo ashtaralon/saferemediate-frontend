@@ -709,5 +709,3 @@ export function SimulateFixModal({
     </Dialog>
   )
 }
-
-export { SimulateFixModal }

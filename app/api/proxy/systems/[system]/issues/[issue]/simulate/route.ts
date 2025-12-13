@@ -27,17 +27,24 @@ export async function POST(
     // Decode the issue ID (it might be URL encoded)
     const decodedIssue = decodeURIComponent(issue)
 
-    // Call backend simulation endpoint
-    const backendUrl = `${BACKEND_URL}/api/systems/${system}/issues/${encodeURIComponent(decodedIssue)}/simulate`
+    // Extract finding_id from body or use decodedIssue
+    const findingId = body.finding_id || decodedIssue
+
+    // Call backend /api/simulate endpoint (new format)
+    // Only pass finding_id to trigger new format (reads from cached findings)
+    const backendUrl = `${BACKEND_URL}/api/simulate`
     
-    console.log(`[proxy] Calling backend simulation: ${backendUrl}`)
+    console.log(`[proxy] Calling backend /api/simulate with finding_id=${findingId}`)
     
     const response = await fetch(backendUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        finding_id: findingId
+        // Only pass finding_id (without resource_type) to trigger new format
+      }),
       // Increase timeout for simulation (30s)
       signal: AbortSignal.timeout(30000),
     })
