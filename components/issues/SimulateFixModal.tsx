@@ -160,14 +160,12 @@ export function SimulateFixModal({
     setError(null)
 
     try {
-      const response = await fetch(`/api/proxy/systems/alon-prod/issues/${encodeURIComponent(finding.id)}/simulate`, {
+      const response = await fetch(`/api/proxy/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          finding_id: finding.id,
-          resource_type: finding.resourceType,
-          resource_id: finding.resource,
-        })
+  finding_id: finding.id,
+})
       })
 
       if (!response.ok) {
