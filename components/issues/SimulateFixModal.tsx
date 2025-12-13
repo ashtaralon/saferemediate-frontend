@@ -176,6 +176,12 @@ export function SimulateFixModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           finding_id: finding.id,
+          // Send full finding data so backend doesn't need to look it up
+          resource_type: finding.resourceType,
+          resource_id: finding.resource,
+          title: finding.title,
+          description: finding.description,
+          details: (finding as any).details || {}
         })
       })
 
