@@ -16,6 +16,9 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
 
+  // DEBUG: Log every render
+  console.log("🟢 [LIST] Render - showModal:", showModal, "finding:", selectedFinding?.id)
+
   if (findings.length === 0) {
     return (
       <Card className="p-8 text-center">
@@ -28,16 +31,11 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
-      case "CRITICAL":
-        return "bg-red-600 text-white"
-      case "HIGH":
-        return "bg-orange-600 text-white"
-      case "MEDIUM":
-        return "bg-purple-600 text-white"
-      case "LOW":
-        return "bg-gray-400 text-white"
-      default:
-        return "bg-gray-200 text-gray-800"
+      case "CRITICAL": return "bg-red-600 text-white"
+      case "HIGH": return "bg-orange-600 text-white"
+      case "MEDIUM": return "bg-purple-600 text-white"
+      case "LOW": return "bg-gray-400 text-white"
+      default: return "bg-gray-200 text-gray-800"
     }
   }
 
@@ -49,48 +47,72 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
   }
 
   const handleSimulate = (finding: SecurityFinding) => {
+    console.log("🟡 [LIST] Button clicked, opening modal for:", finding.id)
     setSelectedFinding(finding)
     setShowModal(true)
   }
 
+  const handleClose = () => {
+    console.log("🔴 [LIST] Closing modal")
+    setShowModal(false)
+    setSelectedFinding(null)
+  }
+
   return (
     <>
-      {showModal && selectedFinding && (
-        <SimulateFixModal
-          isOpen={showModal}
-          onClose={() => {
-            setShowModal(false)
-            setSelectedFinding(null)
-          }}
-          finding={selectedFinding}
-          onExecute={async (findingId, options) => {
-            const response = await fetch('/api/proxy/simulate/execute', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                finding_id: findingId,
-                create_rollback: options?.createRollback ?? true
-              })
-            })
-            if (!response.ok) {
-              const error = await response.json().catch(() => ({}))
-              throw new Error(error.message || 'Execution failed')
-            }
-          }}
-          onRequestApproval={async (findingId) => {
-            const response = await fetch('/api/proxy/simulate/approval', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ finding_id: findingId })
-            })
-            if (!response.ok) {
-              const error = await response.json().catch(() => ({}))
-              throw new Error(error.message || 'Approval request failed')
-            }
-          }}
-        />
-      )}
+      {/* DEBUG INDICATOR - Shows in bottom right */}
+      <div style={{
+        position: 'fixed',
+        bottom: 10,
+        right: 10,
+        padding: '10px 20px',
+        borderRadius: 8,
+        backgroundColor: showModal ? '#22c55e' : '#ef4444',
+        color: 'white',
+        zIndex: 999999,
+        fontSize: 14,
+        fontWeight: 'bold',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+      }}>
+        {showModal ? '🟢 MODAL: OPEN' : '🔴 MODAL: CLOSED'}
+        <br/>
+        <span style={{ fontSize: 11 }}>Finding: {selectedFinding?.id || 'none'}</span>
+      </div>
 
+      {/* MODAL - Always render, controlled by isOpen prop */}
+      <SimulateFixModal
+        isOpen={showModal}
+        onClose={handleClose}
+        finding={selectedFinding}
+        onExecute={async (findingId, options) => {
+          console.log("🟣 [LIST] Executing remediation:", findingId)
+          const response = await fetch('/api/proxy/simulate/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              finding_id: findingId,
+              create_rollback: options?.createRollback ?? true
+            })
+          })
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}))
+            throw new Error(error.message || 'Execution failed')
+          }
+        }}
+        onRequestApproval={async (findingId) => {
+          const response = await fetch('/api/proxy/simulate/approval', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ finding_id: findingId })
+          })
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}))
+            throw new Error(error.message || 'Approval request failed')
+          }
+        }}
+      />
+
+      {/* FINDINGS LIST */}
       <div className="space-y-3">
         {findings.map((finding) => (
           <Card key={finding.id} className="p-4 hover:shadow-md transition-shadow">
@@ -106,7 +128,6 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
                 </div>
 
                 <h4 className="text-base font-semibold text-gray-900 mb-1">{finding.title}</h4>
-
                 <p className="text-sm text-gray-600 mb-2">{finding.description}</p>
 
                 <div className="flex items-center gap-4 text-xs text-gray-500">
@@ -141,6 +162,3 @@ export function SecurityFindingsList({ findings }: SecurityFindingsListProps) {
     </>
   )
 }
-
-
-
