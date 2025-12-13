@@ -44,6 +44,13 @@ export async function POST(
 
     if (response.ok) {
       const data = await response.json()
+      
+      // Handle new format response (status: READY/COMPUTING/ERROR)
+      if (data.status) {
+        return NextResponse.json(data)
+      }
+      
+      // Handle legacy format
       return NextResponse.json({
         success: true,
         ...data,
