@@ -22,7 +22,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     console.log(`[SAFE-REMEDIATE] Executing: ${body.finding_id}`)
+    console.log(`[SAFE-REMEDIATE] Role: ${body.role_name}`)
+    console.log(`[SAFE-REMEDIATE] Resource: ${body.resource_id}`)
+    console.log(`[SAFE-REMEDIATE] Unused actions: ${JSON.stringify(body.unused_actions)}`)
     console.log(`[SAFE-REMEDIATE] Create rollback: ${body.create_rollback}`)
+    console.log(`[SAFE-REMEDIATE] Backend URL: ${BACKEND_URL}`)
 
     // Try the backend first
     try {

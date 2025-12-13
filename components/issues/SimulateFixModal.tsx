@@ -137,6 +137,23 @@ export function SimulateFixModal({
     setError(null)
 
     try {
+      // Get unused actions from simulation or finding
+      const unusedActions = simulation?.proposedChange?.permissionsToRemove ||
+                            finding.unused_actions ||
+                            finding.metadata?.gap?.unused ||
+                            []
+
+      // Extract role name from resource
+      const roleName = finding.resource?.includes('/role/')
+        ? finding.resource.split('/role/').pop()
+        : finding.resource?.split('/').pop()
+
+      console.log("[Modal] Executing with:", {
+        role_name: roleName,
+        unused_actions: unusedActions,
+        resource_id: finding.resource
+      })
+
       // Call the execute endpoint
       const response = await fetch('/api/proxy/safe-remediate/execute', {
         method: 'POST',
@@ -146,6 +163,8 @@ export function SimulateFixModal({
           create_rollback: createRollback,
           resource_id: finding.resource,
           resource_type: finding.resourceType,
+          role_name: roleName,
+          unused_actions: unusedActions,
         })
       })
 
