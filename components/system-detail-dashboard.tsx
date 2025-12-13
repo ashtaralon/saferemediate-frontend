@@ -186,16 +186,26 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
-      // Use the provided backend URL
-      // Update backend URL and fetch logic
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+      // Use proxy route to handle backend unavailability gracefully
+      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        // Use fallback data on error
+        console.log("[v0] Gap analysis endpoint returned error, using fallback")
+        setGapAnalysis(fallbackGapData)
+        setLoadingGap(false)
+        return
       }
 
       const data = await response.json()
+
+      // Check if response contains an error field (proxy error response)
+      if (data.error) {
+        console.log("[v0] Gap analysis returned error:", data.error)
+        setGapAnalysis(fallbackGapData)
+        setLoadingGap(false)
+        return
+      }
       // </CHANGE> Removed debug console.log
 
       const allowed = Number(data.allowed_actions) || 0
