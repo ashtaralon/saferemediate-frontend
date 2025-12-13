@@ -156,6 +156,8 @@ export default function SimulationResultsModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'summary' | 'steps' | 'evidence' | 'edge-cases'>('summary')
+  const [executing, setExecuting] = useState(false)
+  const [executed, setExecuted] = useState(false)
 
   useEffect(() => {
     if (isOpen && !result && !initialResult) {
@@ -192,6 +194,35 @@ export default function SimulationResultsModal({
       console.error('[Simulation] Error:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const executeRemediation = async () => {
+    setExecuting(true)
+    try {
+      const response = await fetch('/api/proxy/simulate/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          finding_id: resourceId,
+          resource_type: resourceType,
+          proposed_change: proposedChange,
+          system_name: systemName,
+          create_rollback: true
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Execution failed: ${response.status}`)
+      }
+
+      setExecuted(true)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[Execute] Error:', err)
+      alert(`Execution failed: ${errorMessage}`)
+    } finally {
+      setExecuting(false)
     }
   }
 
@@ -728,30 +759,69 @@ export default function SimulationResultsModal({
                 </div>
               )}
 
+              {/* Execution Success Message */}
+              {executed && (
+                <div className="rounded-lg border-2 border-green-300 bg-green-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-8 h-8 text-green-600" />
+                    <div>
+                      <h3 className="font-bold text-green-900 text-lg">Remediation Applied Successfully!</h3>
+                      <p className="text-sm text-green-700 mt-1">
+                        The fix has been applied. Monitoring for 5 minutes to ensure stability...
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
                 <button
                   onClick={onClose}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm font-medium"
                 >
-                  Close
+                  {executed ? 'Done' : 'Close'}
                 </button>
-                
-                {result.status === 'EXECUTE' && result.action_policy?.auto_apply && (
+
+                {!executed && result.status === 'EXECUTE' && (
                   <button
-                    onClick={() => {
-                      alert('Execute remediation - Coming soon')
-                      onClose()
-                    }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium flex items-center gap-2"
+                    onClick={executeRemediation}
+                    disabled={executing}
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
                   >
-                    <Zap className="w-4 h-4" />
-                    Auto-Apply
+                    {executing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Applying Fix...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        Apply Fix Now
+                      </>
+                    )}
                   </button>
                 )}
-                
-                {result.status !== 'BLOCKED' && (
+
+                {!executed && result.status !== 'BLOCKED' && result.status !== 'EXECUTE' && (
                   <>
+                    <button
+                      onClick={executeRemediation}
+                      disabled={executing}
+                      className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {executing ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4" />
+                          Apply Fix (Review Required)
+                        </>
+                      )}
+                    </button>
                     <button
                       onClick={() => {
                         alert('Request Approval - Coming soon')
@@ -760,15 +830,6 @@ export default function SimulationResultsModal({
                     >
                       <Send className="w-4 h-4" />
                       Request Approval
-                    </button>
-                    <button
-                      onClick={() => {
-                        alert('Export Terraform - Coming soon')
-                      }}
-                      className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium flex items-center gap-2"
-                    >
-                      <FileDown className="w-4 h-4" />
-                      Export Terraform
                     </button>
                   </>
                 )}
