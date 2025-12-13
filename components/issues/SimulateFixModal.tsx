@@ -138,11 +138,12 @@ export function SimulateFixModal({
   onRequestApproval 
 }: SimulateFixModalProps) {
   const [simulation, setSimulation] = useState<Simulation | null>(null)
-  const [status, setStatus] = useState<"READY" | "COMPUTING" | "DRIFT_DETECTED">("READY")
+  const [status, setStatus] = useState<"READY" | "COMPUTING" | "DRIFT_DETECTED" | "EXECUTED">("READY")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createRollback, setCreateRollback] = useState(true)
   const [executing, setExecuting] = useState(false)
+  const [executionResult, setExecutionResult] = useState<any>(null)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["confidence", "proposedChange"]))
   const { toast } = useToast()
 
@@ -199,16 +200,32 @@ export function SimulateFixModal({
   }
 
   const handleExecute = async () => {
-    if (!finding || !onExecute) return
+    if (!finding) return
 
     setExecuting(true)
     try {
-      await onExecute(finding.id, { createRollback })
-      toast({
-        title: "Remediation Started",
-        description: "Fix is being applied. Monitoring for 5 minutes..."
+      // Call execute endpoint directly to get the result
+      const response = await fetch('/api/proxy/simulate/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          finding_id: finding.id,
+          create_rollback: createRollback
+        })
       })
-      onClose()
+
+      const result = await response.json()
+
+      if (result.success) {
+        setExecutionResult(result)
+        setStatus("EXECUTED")
+        toast({
+          title: "Remediation Applied",
+          description: result.message || "Fix has been successfully applied"
+        })
+      } else {
+        throw new Error(result.message || 'Execution failed')
+      }
     } catch (err: any) {
       toast({
         title: "Execution Failed",
@@ -322,6 +339,91 @@ export function SimulateFixModal({
                   Retry
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Execution Result */}
+        {status === "EXECUTED" && executionResult && (
+          <div className="space-y-6">
+            {/* Success Banner */}
+            <div className="p-6 border-2 rounded-lg text-center bg-green-50 border-green-300">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
+                <span className="text-2xl font-bold text-green-800">Remediation Applied</span>
+              </div>
+              <p className="text-sm text-green-700">{executionResult.message}</p>
+            </div>
+
+            {/* Remediation Details */}
+            {executionResult.remediation && (
+              <div className="border rounded-lg p-4 space-y-4">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-blue-600" />
+                  What Was Done
+                </h3>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Type:</span>
+                    <span className="ml-2 font-medium">{executionResult.remediation.type}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Action:</span>
+                    <span className="ml-2 font-medium">{executionResult.remediation.action}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-gray-600">Resource:</span>
+                    <span className="ml-2 font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                      {executionResult.remediation.resource}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Details List */}
+                {executionResult.remediation.details && (
+                  <div className="space-y-2 mt-4">
+                    <h4 className="font-medium text-gray-700">Actions Performed:</h4>
+                    <ul className="space-y-2">
+                      {executionResult.remediation.details.map((detail: string, idx: number) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                          <span className="text-sm">{detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rollback Info */}
+            {executionResult.rollback && executionResult.rollback.created && (
+              <div className="border rounded-lg p-4 bg-blue-50 border-blue-200">
+                <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-800">
+                  <RefreshCw className="w-5 h-5" />
+                  Rollback Checkpoint Created
+                </h3>
+                <p className="text-sm text-blue-700 mt-2">
+                  If something goes wrong, you can restore the previous state using checkpoint:
+                </p>
+                <code className="block mt-2 text-xs bg-blue-100 p-2 rounded font-mono">
+                  {executionResult.rollback.checkpoint_id}
+                </code>
+              </div>
+            )}
+
+            {/* Timestamp */}
+            <div className="text-center text-sm text-gray-500">
+              Executed at: {new Date(executionResult.timestamp).toLocaleString()}
+            </div>
+
+            {/* Close Button */}
+            <div className="flex justify-center pt-4 border-t">
+              <Button onClick={onClose} className="bg-green-600 hover:bg-green-700">
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Done
+              </Button>
             </div>
           </div>
         )}
