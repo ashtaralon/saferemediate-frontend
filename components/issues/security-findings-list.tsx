@@ -69,8 +69,10 @@ export function SecurityFindingsList({ findings, onFindingFixed }: SecurityFindi
           }}
           finding={selectedFinding}
           onExecute={async (findingId, options) => {
+            console.log('[SecurityFindingsList] onExecute called with findingId:', findingId)
             setExecutingFix(true)
             try {
+              console.log('[SecurityFindingsList] Making execute request...')
               const response = await fetch('/api/proxy/simulate/execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -79,13 +81,25 @@ export function SecurityFindingsList({ findings, onFindingFixed }: SecurityFindi
                   create_rollback: options?.createRollback ?? true
                 })
               })
+              console.log('[SecurityFindingsList] Execute response status:', response.status)
+
               if (!response.ok) {
                 const error = await response.json().catch(() => ({}))
+                console.error('[SecurityFindingsList] Execute failed:', error)
                 throw new Error(error.message || 'Execution failed')
               }
 
+              const result = await response.json()
+              console.log('[SecurityFindingsList] Execute result:', result)
+
               // Mark this finding as fixed locally
-              setFixedFindings(prev => new Set(prev).add(findingId))
+              console.log('[SecurityFindingsList] Marking finding as fixed:', findingId)
+              setFixedFindings(prev => {
+                const newSet = new Set(prev)
+                newSet.add(findingId)
+                console.log('[SecurityFindingsList] Fixed findings now:', Array.from(newSet))
+                return newSet
+              })
 
               // Notify parent component if callback provided
               if (onFindingFixed) {
@@ -93,11 +107,15 @@ export function SecurityFindingsList({ findings, onFindingFixed }: SecurityFindi
               }
 
               // Show a persistent success message
+              console.log('[SecurityFindingsList] Showing success toast')
               toast({
-                title: "✅ Fix Applied Successfully",
-                description: `Remediation for "${selectedFinding?.title || 'the issue'}" has been applied. The system is being monitored for the next 5 minutes.`,
+                title: "Fix Applied Successfully",
+                description: `Remediation for "${selectedFinding?.title || 'the issue'}" has been applied. The system is being monitored.`,
                 duration: 10000, // Show for 10 seconds
               })
+            } catch (err) {
+              console.error('[SecurityFindingsList] Error in onExecute:', err)
+              throw err
             } finally {
               setExecutingFix(false)
             }

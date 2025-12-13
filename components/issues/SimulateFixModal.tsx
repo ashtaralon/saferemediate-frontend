@@ -199,17 +199,28 @@ export function SimulateFixModal({
   }
 
   const handleExecute = async () => {
-    if (!finding || !onExecute) return
+    console.log('[SimulateFixModal] handleExecute called')
+    console.log('[SimulateFixModal] finding:', finding)
+    console.log('[SimulateFixModal] onExecute exists:', !!onExecute)
+
+    if (!finding || !onExecute) {
+      console.log('[SimulateFixModal] Early return - missing finding or onExecute')
+      return
+    }
 
     setExecuting(true)
     try {
+      console.log('[SimulateFixModal] Calling onExecute with findingId:', finding.id)
       await onExecute(finding.id, { createRollback })
+      console.log('[SimulateFixModal] onExecute completed successfully')
       toast({
         title: "Remediation Started",
         description: "Fix is being applied. Monitoring for 5 minutes..."
       })
+      console.log('[SimulateFixModal] Closing modal')
       onClose()
     } catch (err: any) {
+      console.error('[SimulateFixModal] onExecute failed:', err)
       toast({
         title: "Execution Failed",
         description: err.message || "Failed to execute remediation",
