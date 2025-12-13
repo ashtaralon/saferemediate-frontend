@@ -216,7 +216,12 @@ export default function SimulationResultsModal({
         throw new Error(`Execution failed: ${response.status}`)
       }
 
+      const data = await response.json()
+      console.log('[SimulationResultsModal] Execute success:', data)
       setExecuted(true)
+
+      // Show obvious success feedback
+      alert('✅ Fix Applied Successfully!\n\nThe remediation has been applied. Monitoring for stability...')
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error('[Execute] Error:', err)
