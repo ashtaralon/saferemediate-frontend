@@ -22,7 +22,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
 // Helper function to fetch with timeout
@@ -71,8 +70,8 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    // Trigger traffic ingestion (non-blocking)
-    fetchWithTimeout(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
+    // Note: Traffic ingestion is handled server-side by the proxy route
+    // No direct backend calls from client
 
     // Fetch gap analysis via proxy route with timeout (30s to allow proxy's 28s timeout to complete)
     fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 30000)
