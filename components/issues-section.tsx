@@ -1,176 +1,242 @@
 "use client"
 
-import { AlertTriangle } from "lucide-react"
-import { SystemAtRiskCard } from "./system-at-risk-card"
-import { EmptyState } from "./empty-state"
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { AlertTriangle, Shield, Play, CheckCircle, RotateCcw, Loader2, ChevronDown, ChevronUp } from "lucide-react"
+import { fetchSecurityFindings, simulateRemediation, executeRemediation, rollbackRemediation, triggerScan, getScanStatus, type SecurityFinding, type SimulationResult } from "@/lib/api-client"
 
-interface SystemAtRisk {
-  name: string
-  health: number
-  critical: number
-  high: number
-  severity: "critical" | "high"
+interface SimulationState {
+  [findingId: string]: {
+    loading: boolean
+    simulation?: SimulationResult
+    executed?: boolean
+    snapshotId?: string
+    error?: string
+  }
 }
 
-interface IssueStats {
-  critical: number
-  high: number
-  medium: number
-  low: number
-}
+export function IssuesSection({ stats, systemsAtRisk, totalCritical, missionCriticalCount }: any) {
+  const [findings, setFindings] = useState<SecurityFinding[]>([])
+  const [loading, setLoading] = useState(true)
+  const [scanning, setScanning] = useState(false)
+  const [scanStatus, setScanStatus] = useState<string>("")
+  const [simulations, setSimulations] = useState<SimulationState>({})
+  const [expandedFinding, setExpandedFinding] = useState<string | null>(null)
 
-interface IssuesSectionProps {
-  systemsAtRisk?: SystemAtRisk[]
-  stats?: IssueStats
-  totalCritical?: number
-  missionCriticalCount?: number
-}
+  useEffect(() => { loadFindings() }, [])
 
-export function IssuesSection({
-  systemsAtRisk = [],
-  stats = { critical: 0, high: 0, medium: 0, low: 0 },
-  totalCritical = 0,
-  missionCriticalCount = 0,
-}: IssuesSectionProps) {
-  if (systemsAtRisk.length === 0 && totalCritical === 0) {
+  const loadFindings = async () => {
+    setLoading(true)
+    const data = await fetchSecurityFindings()
+    setFindings(data)
+    setLoading(false)
+  }
+
+  const handleScan = async () => {
+    setScanning(true)
+    setScanStatus("Starting scan...")
+    const result = await triggerScan(30)
+    if (result.success) {
+      const pollInterval = setInterval(async () => {
+        const status = await getScanStatus()
+        setScanStatus(`Scanning: ${status.roles_scanned || 0}/${status.total_roles || '?'} roles`)
+        if (status.status === 'completed') {
+          clearInterval(pollInterval)
+          setScanning(false)
+          setScanStatus("")
+          loadFindings()
+        }
+      }, 2000)
+    } else {
+      setScanning(false)
+      setScanStatus("Scan failed")
+    }
+  }
+
+  const handleSimulate = async (findingId: string) => {
+    setSimulations(prev => ({ ...prev, [findingId]: { loading: true } }))
+    const result = await simulateRemediation(findingId)
+    setSimulations(prev => ({
+      ...prev,
+      [findingId]: result ? { loading: false, simulation: result } : { loading: false, error: "Simulation failed" }
+    }))
+  }
+
+  const handleExecute = async (findingId: string) => {
+    const sim = simulations[findingId]?.simulation
+    if (!sim) return
+    setSimulations(prev => ({ ...prev, [findingId]: { ...prev[findingId], loading: true } }))
+    const result = await executeRemediation(findingId)
+    if (result.success) {
+      setSimulations(prev => ({
+        ...prev,
+        [findingId]: { ...prev[findingId], loading: false, executed: true, snapshotId: result.snapshot_id }
+      }))
+      setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'remediated' } : f))
+    } else {
+      setSimulations(prev => ({ ...prev, [findingId]: { ...prev[findingId], loading: false, error: result.error } }))
+    }
+  }
+
+  const handleRollback = async (findingId: string) => {
+    const snapshotId = simulations[findingId]?.snapshotId
+    if (!snapshotId) return
+    setSimulations(prev => ({ ...prev, [findingId]: { ...prev[findingId], loading: true } }))
+    const result = await rollbackRemediation(findingId, snapshotId)
+    if (result.success) {
+      setSimulations(prev => ({ ...prev, [findingId]: { loading: false } }))
+      setFindings(prev => prev.map(f => f.id === findingId ? { ...f, status: 'open' } : f))
+    } else {
+      setSimulations(prev => ({ ...prev, [findingId]: { ...prev[findingId], loading: false, error: result.error } }))
+    }
+  }
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity.toLowerCase()) {
+      case 'critical': return 'bg-red-600 text-white'
+      case 'high': return 'bg-orange-500 text-white'
+      case 'medium': return 'bg-yellow-500 text-black'
+      case 'low': return 'bg-blue-500 text-white'
+      default: return 'bg-gray-500 text-white'
+    }
+  }
+
+  const counts = {
+    critical: findings.filter(f => f.severity.toLowerCase() === 'critical').length,
+    high: findings.filter(f => f.severity.toLowerCase() === 'high').length,
+    medium: findings.filter(f => f.severity.toLowerCase() === 'medium').length,
+    low: findings.filter(f => f.severity.toLowerCase() === 'low').length,
+  }
+
+  if (loading) {
     return (
-      <div className="space-y-6">
-        <EmptyState
-          icon="shield"
-          title="No Security Issues Detected"
-          description="Great job! Your systems are currently showing no critical security issues. Continue monitoring for new findings."
-          actionLabel="Run Security Scan"
-          onAction={() => console.log("Run scan clicked")}
-        />
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-gray-600">Loading security findings...</span>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Critical Issues Alert */}
-      {totalCritical > 0 && (
-        <div
-          className="rounded-xl p-6 border-l-4"
-          style={{
-            background: "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)",
-            borderLeftColor: "#dc2626",
-            borderTop: "1px solid #fca5a5",
-            borderRight: "1px solid #fca5a5",
-            borderBottom: "1px solid #fca5a5",
-          }}
-        >
-          <div className="flex items-start gap-4">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ background: "#dc2626" }}
-            >
-              <AlertTriangle className="w-6 h-6 text-white" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-xl font-bold mb-2" style={{ color: "#991b1b" }}>
-                {totalCritical} Critical Security Issues Detected
-              </h2>
-              <p className="text-sm mb-4" style={{ color: "#7f1d1d" }}>
-                {stats.critical} critical findings require immediate attention. {missionCriticalCount} mission-critical
-                systems are at risk.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:opacity-90"
-                  style={{ background: "#dc2626" }}
-                >
-                  Fix Critical Issues
-                </button>
-                <button
-                  className="px-5 py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
-                  style={{
-                    background: "white",
-                    color: "#dc2626",
-                    border: "1px solid #dc2626",
-                  }}
-                >
-                  View All Issues
-                </button>
-              </div>
-            </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-900">Security Issues</h2>
+          <div className="flex gap-2">
+            <Badge className="bg-red-100 text-red-700">{counts.critical} Critical</Badge>
+            <Badge className="bg-orange-100 text-orange-700">{counts.high} High</Badge>
+            <Badge className="bg-yellow-100 text-yellow-700">{counts.medium} Medium</Badge>
+            <Badge className="bg-blue-100 text-blue-700">{counts.low} Low</Badge>
           </div>
         </div>
-      )}
-
-      {/* Systems at Risk */}
-      {systemsAtRisk.length > 0 && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
-            Systems at Risk
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {systemsAtRisk.map((system) => (
-              <SystemAtRiskCard key={system.name} system={system} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Issue Statistics */}
-      <div className="grid grid-cols-4 gap-4">
-        <div
-          className="rounded-xl p-6"
-          style={{
-            background: "white",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <div className="text-4xl font-bold mb-2" style={{ color: "#dc2626" }}>
-            {stats.critical}
-          </div>
-          <div className="text-sm font-medium" style={{ color: "#6b7280" }}>
-            Critical Issues
-          </div>
-        </div>
-        <div
-          className="rounded-xl p-6"
-          style={{
-            background: "white",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <div className="text-4xl font-bold mb-2" style={{ color: "#f97316" }}>
-            {stats.high}
-          </div>
-          <div className="text-sm font-medium" style={{ color: "#6b7280" }}>
-            High Severity
-          </div>
-        </div>
-        <div
-          className="rounded-xl p-6"
-          style={{
-            background: "white",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <div className="text-4xl font-bold mb-2" style={{ color: "#eab308" }}>
-            {stats.medium}
-          </div>
-          <div className="text-sm font-medium" style={{ color: "#6b7280" }}>
-            Medium Severity
-          </div>
-        </div>
-        <div
-          className="rounded-xl p-6"
-          style={{
-            background: "white",
-            border: "1px solid #e5e7eb",
-          }}
-        >
-          <div className="text-4xl font-bold mb-2" style={{ color: "#3b82f6" }}>
-            {stats.low}
-          </div>
-          <div className="text-sm font-medium" style={{ color: "#6b7280" }}>
-            Low Severity
-          </div>
+        <div className="flex items-center gap-3">
+          {scanStatus && <span className="text-sm text-gray-500">{scanStatus}</span>}
+          <Button onClick={handleScan} disabled={scanning} variant="outline">
+            {scanning ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Scanning...</> : <><Shield className="h-4 w-4 mr-2" />Run Scan</>}
+          </Button>
+          <Button onClick={loadFindings} variant="ghost" size="sm">Refresh</Button>
         </div>
       </div>
+
+      {findings.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <CheckCircle className="h-16 w-16 text-green-500 mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Security Issues</h3>
+            <p className="text-gray-500 text-center max-w-md">Run a scan to check for vulnerabilities.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {findings.map((finding) => {
+            const simState = simulations[finding.id]
+            const isExpanded = expandedFinding === finding.id
+
+            return (
+              <Card key={finding.id} className={`transition-all ${simState?.executed ? 'border-green-300 bg-green-50/30' : ''}`}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Badge className={getSeverityColor(finding.severity)}>{finding.severity.toUpperCase()}</Badge>
+                        {simState?.executed ? <Badge className="bg-green-600 text-white">REMEDIATED</Badge> : 
+                         simState?.simulation ? <Badge className="bg-blue-600 text-white">SIMULATED</Badge> : 
+                         <Badge variant="outline">OPEN</Badge>}
+                        <span className="text-xs text-gray-400">{finding.category}</span>
+                      </div>
+                      <CardTitle className="text-lg">{finding.title}</CardTitle>
+                      <p className="text-sm text-gray-600 mt-1">{finding.description}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setExpandedFinding(isExpanded ? null : finding.id)}>
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </CardHeader>
+
+                {isExpanded && (
+                  <CardContent className="pt-0 border-t">
+                    <div className="grid grid-cols-2 gap-4 py-4">
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase">Resource</p>
+                        <p className="text-sm font-mono truncate">{finding.resourceId}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase">Type</p>
+                        <p className="text-sm">{finding.resourceType}</p>
+                      </div>
+                      {finding.unused_actions && (
+                        <div className="col-span-2">
+                          <p className="text-xs text-gray-500 uppercase mb-2">Unused Permissions ({finding.unused_actions_count})</p>
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                            {finding.unused_actions.slice(0, 10).map((action, i) => (
+                              <code key={i} className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded">{action}</code>
+                            ))}
+                            {finding.unused_actions.length > 10 && <span className="text-xs text-gray-500">+{finding.unused_actions.length - 10} more</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {simState?.simulation && !simState.executed && (
+                      <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                        <h4 className="font-semibold text-blue-900 mb-2">Simulation Preview</h4>
+                        <div className="grid grid-cols-3 gap-4 text-sm">
+                          <div><p className="text-blue-700">Impact</p><p className="font-semibold">{simState.simulation.impact.blast_radius}</p></div>
+                          <div><p className="text-blue-700">Risk</p><p className="font-semibold">{simState.simulation.impact.risk_level}</p></div>
+                          <div><p className="text-blue-700">Recommendation</p><p className="font-semibold text-green-600">{simState.simulation.recommendation}</p></div>
+                        </div>
+                      </div>
+                    )}
+
+                    {simState?.error && <div className="bg-red-50 text-red-700 rounded-lg p-3 mb-4 text-sm">{simState.error}</div>}
+
+                    <div className="flex items-center gap-3 pt-2">
+                      {!simState?.executed && !simState?.simulation && (
+                        <Button onClick={() => handleSimulate(finding.id)} disabled={simState?.loading} className="bg-blue-600 hover:bg-blue-700">
+                          {simState?.loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}Simulate Fix
+                        </Button>
+                      )}
+                      {simState?.simulation && !simState.executed && (
+                        <Button onClick={() => handleExecute(finding.id)} disabled={simState?.loading} className="bg-green-600 hover:bg-green-700">
+                          {simState?.loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}Apply Fix
+                        </Button>
+                      )}
+                      {simState?.executed && simState.snapshotId && (
+                        <Button onClick={() => handleRollback(finding.id)} disabled={simState?.loading} variant="outline" className="border-orange-500 text-orange-600">
+                          {simState?.loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}Rollback
+                        </Button>
+                      )}
+                      <span className="text-xs text-gray-400 ml-auto">Discovered: {new Date(finding.discoveredAt).toLocaleDateString()}</span>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

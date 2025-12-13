@@ -39,3 +39,6 @@ export function TabsNavigation({ tabs, activeTab, onTabChange }: TabsNavigationP
 
 
 
+
+
+
