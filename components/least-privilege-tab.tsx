@@ -1,832 +1,558 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import {
-  AlertTriangle,
-  CheckCircle,
-  Lock,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  FileText,
-  Download,
-  ChevronDown,
-  ChevronRight,
-  Zap,
-  Code,
-  Copy,
-  Check,
-  Wrench,
-} from "lucide-react"
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Play, Wrench, X, Eye, EyeOff } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { SimulateModal } from "./simulate-modal"
+import { fetchSecurityFindings } from "@/lib/api-client"
+import type { SecurityFinding } from "@/lib/types"
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
 interface LeastPrivilegeTabProps {
   systemName: string
+  onSimulate?: (finding: SecurityFinding) => void
+  onRemediate?: (finding: SecurityFinding) => void
 }
 
-export function LeastPrivilegeTab({ systemName }: LeastPrivilegeTabProps) {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-  const [remediating, setRemediating] = useState<string | null>(null)
-  const [expandedPermission, setExpandedPermission] = useState<string | null>(null)
-  const [showPolicyDiff, setShowPolicyDiff] = useState(false)
-  const [copiedPolicy, setCopiedPolicy] = useState(false)
-  const [activeView, setActiveView] = useState<"overview" | "permissions" | "policy">("overview")
-
-  // Data from API
-  const [allowedActions, setAllowedActions] = useState<number>(0)
-  const [usedActions, setUsedActions] = useState<number>(0)
-  const [unusedActions, setUnusedActions] = useState<number>(0)
-  const [allowedActionsList, setAllowedActionsList] = useState<string[]>([])
-  const [usedActionsList, setUsedActionsList] = useState<string[]>([])
-  const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
-  const [roleName, setRoleName] = useState<string>("")
-
-  // Demo data fallback (28 permissions: 6 used, 22 unused = 78% reduction)
-  const DEMO_DATA = {
-    role_name: "SafeRemediate-Lambda-Remediation-Role",
-    allowed_actions: 28,
-    used_actions: 6,
-    unused_actions: 22,
-    allowed_actions_list: [
-      "iam:GetUser",
-      "iam:ListUsers",
-      "iam:CreateUser",
-      "iam:DeleteUser",
-      "iam:UpdateUser",
-      "iam:AttachUserPolicy",
-      "iam:DetachUserPolicy",
-      "iam:ListAttachedUserPolicies",
-      "iam:GetRole",
-      "iam:ListRoles",
-      "iam:CreateRole",
-      "iam:DeleteRole",
-      "iam:UpdateRole",
-      "iam:AttachRolePolicy",
-      "iam:DetachRolePolicy",
-      "iam:ListAttachedRolePolicies",
-      "iam:GetPolicy",
-      "iam:ListPolicies",
-      "iam:CreatePolicy",
-      "iam:DeletePolicy",
-      "iam:UpdatePolicy",
-      "iam:TagRole",
-      "iam:UntagRole",
-      "iam:ListRoleTags",
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:DeleteObject",
-      "s3:ListBucket",
-    ],
-    used_actions_list: [
-      "iam:GetUser",
-      "iam:ListUsers",
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:ListBucket",
-      "iam:GetRole",
-    ],
-    unused_actions_list: [
-      "iam:CreateUser",
-      "iam:DeleteUser",
-      "iam:UpdateUser",
-      "iam:AttachUserPolicy",
-      "iam:DetachUserPolicy",
-      "iam:ListAttachedUserPolicies",
-      "iam:ListRoles",
-      "iam:CreateRole",
-      "iam:DeleteRole",
-      "iam:UpdateRole",
-      "iam:AttachRolePolicy",
-      "iam:DetachRolePolicy",
-      "iam:ListAttachedRolePolicies",
-      "iam:GetPolicy",
-      "iam:ListPolicies",
-      "iam:CreatePolicy",
-      "iam:DeletePolicy",
-      "iam:UpdatePolicy",
-      "iam:TagRole",
-      "iam:UntagRole",
-      "iam:ListRoleTags",
-      "s3:DeleteObject",
-    ],
+interface GapResource {
+  id: string
+  resourceType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL'
+  resourceName: string
+  resourceArn?: string
+  allowedCount: number
+  usedCount: number
+  gapCount: number
+  gapPercent: number
+  allowedList: string[]
+  usedList: string[]
+  unusedList: string[]
+  confidence: number
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  title: string
+  description: string
+  observationDays: number
+  evidence?: {
+    dataSources: string[]
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+    lastUsed?: string
   }
+}
 
-  const fetchData = async () => {
+export function LeastPrivilegeTab({ systemName, onSimulate, onRemediate }: LeastPrivilegeTabProps) {
+  const [findings, setFindings] = useState<SecurityFinding[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedResources, setSelectedResources] = useState<Set<string>>(new Set())
+  const [selectedDetail, setSelectedDetail] = useState<GapResource | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [simulateModalOpen, setSimulateModalOpen] = useState(false)
+  const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
+  const [timeRange, setTimeRange] = useState<number>(30)
+
+  useEffect(() => {
+    loadFindings()
+  }, [systemName])
+
+  const loadFindings = async () => {
+    setLoading(true)
     try {
-      setError(null)
-      setLoading(true)
-
-      // Use systemName from props in the API call
-      const apiUrl = systemName 
-        ? `/api/proxy/least-privilege?systemName=${encodeURIComponent(systemName)}`
-        : "/api/proxy/least-privilege"
-      
-      const response = await fetch(apiUrl)
-      const data = await response.json()
-
-      // If backend returns error or empty data, use demo data
-      if (data.success === false || !data.roles || data.roles.length === 0) {
-        console.log("[v0] Using demo data fallback for least privilege")
-        const demo = DEMO_DATA
-        setRoleName(demo.role_name)
-        setAllowedActions(demo.allowed_actions)
-        setUsedActions(demo.used_actions)
-        setUnusedActions(demo.unused_actions)
-        setAllowedActionsList(demo.allowed_actions_list)
-        setUsedActionsList(demo.used_actions_list)
-        setUnusedActionsList(demo.unused_actions_list)
-        setLastUpdated(new Date())
-        return
-      }
-
-      // Extract data from backend response (could be single role or array)
-      const role = data.roles?.[0] || data
-      
-      // Find the specific role we're looking for, or use first one
-      const targetRole = data.roles?.find((r: any) => 
-        r.roleName === "SafeRemediate-Lambda-Remediation-Role" || 
-        r.roleName?.includes("SafeRemediate-Lambda") ||
-        r.roleArn?.includes("SafeRemediate-Lambda-Remediation-Role")
-      ) || role
-      
-      const allowed = (targetRole.allowed || targetRole.allowed_actions) ?? 0
-      const used = (targetRole.used || targetRole.used_actions) ?? 0
-      const unused = (targetRole.unused || targetRole.unused_actions) ?? 0
-      
-      // If backend returns empty data (all zeros), use demo data
-      if (allowed === 0 && used === 0 && unused === 0) {
-        console.log("[v0] Backend returned empty data (0,0,0), using demo data fallback")
-        const demo = DEMO_DATA
-        setRoleName(demo.role_name)
-        setAllowedActions(demo.allowed_actions)
-        setUsedActions(demo.used_actions)
-        setUnusedActions(demo.unused_actions)
-        setAllowedActionsList(demo.allowed_actions_list)
-        setUsedActionsList(demo.used_actions_list)
-        setUnusedActionsList(demo.unused_actions_list)
-        setLastUpdated(new Date())
-        return
-      }
-      
-      setRoleName(targetRole.roleName || targetRole.role_name || data.role_name || "SafeRemediate-Lambda-Remediation-Role")
-      setAllowedActions(allowed)
-      setUsedActions(used)
-      setUnusedActions(unused)
-      setAllowedActionsList(targetRole.allowed_actions_list || data.allowed_actions_list || [])
-      setUsedActionsList(targetRole.used_actions_list || targetRole.actual_actions_list || data.used_actions_list || [])
-      setUnusedActionsList(targetRole.unused_actions_list || data.unused_actions_list || [])
-
-      setLastUpdated(new Date())
-    } catch (err) {
-      console.log("[v0] Error fetching least privilege data, using demo fallback:", err)
-      // Use demo data on error
-      const demo = DEMO_DATA
-      setRoleName(demo.role_name)
-      setAllowedActions(demo.allowed_actions)
-      setUsedActions(demo.used_actions)
-      setUnusedActions(demo.unused_actions)
-      setAllowedActionsList(demo.allowed_actions_list)
-      setUsedActionsList(demo.used_actions_list)
-      setUnusedActionsList(demo.unused_actions_list)
-      setLastUpdated(new Date())
+      const data = await fetchSecurityFindings()
+      setFindings(data)
+    } catch (error) {
+      console.error("[LeastPrivilegeTab] Error loading findings:", error)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [systemName])
+  // Convert findings to GapResource format
+  const gapResources: GapResource[] = findings.map((f: any) => ({
+    id: f.id,
+    resourceType: f.resourceType === 'IAMRole' ? 'IAMRole' : 'SecurityGroup',
+    resourceName: f.resource || f.resourceId || f.role_name || 'Unknown',
+    resourceArn: f.resourceArn,
+    allowedCount: f.allowed_actions_count || f.allowedCount || 0,
+    usedCount: f.used_actions_count || f.usedCount || 0,
+    gapCount: f.unused_actions_count || f.gapCount || 0,
+    gapPercent: f.gapPercent || ((f.unused_actions_count || 0) / (f.allowed_actions_count || 1) * 100),
+    allowedList: f.allowed_actions || f.allowedList || [],
+    usedList: f.used_actions || f.usedList || [],
+    unusedList: f.unused_actions || f.unusedList || [],
+    confidence: f.confidence || 85,
+    severity: (f.severity || 'medium').toLowerCase() as 'critical' | 'high' | 'medium' | 'low',
+    title: f.title,
+    description: f.description,
+    observationDays: timeRange,
+    evidence: {
+      dataSources: ['CloudTrail', 'VPC Flow Logs'],
+      confidence: f.confidence >= 85 ? 'HIGH' : f.confidence >= 70 ? 'MEDIUM' : 'LOW',
+    }
+  }))
 
-  const handleRemediate = async (permission: string) => {
-    setRemediating(permission)
+  // Calculate summary stats
+  const summary = {
+    totalResources: gapResources.length,
+    totalExcessPermissions: gapResources.reduce((sum, r) => sum + r.gapCount, 0),
+    unusedNetworkRules: gapResources.filter(r => r.resourceType === 'SecurityGroup').reduce((sum, r) => sum + r.gapCount, 0),
+    dataAccessIssues: gapResources.filter(r => r.resourceType === 'S3Bucket').length,
+    avgConfidence: gapResources.length > 0 
+      ? Math.round(gapResources.reduce((sum, r) => sum + r.confidence, 0) / gapResources.length)
+      : 0,
+    autoRemediatable: gapResources.filter(r => r.confidence >= 85 && r.severity !== 'critical').length
+  }
 
-    try {
-      const response = await fetch("/api/proxy/remediate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roleName: roleName,
-          permission: permission,
-          action: "remove",
-        }),
-      })
+  const handleSimulate = (finding: SecurityFinding) => {
+    setSelectedFinding(finding)
+    setSimulateModalOpen(true)
+    if (onSimulate) {
+      onSimulate(finding)
+    }
+  }
 
-      const result = await response.json()
-      console.log("[v0] Remediation result:", result)
-
-      if (result.success) {
-        // Update UI state
-        setUnusedActionsList((prev) => prev.filter((p) => p !== permission))
-        setUnusedActions((prev) => prev - 1)
+  const handleRemediate = async (finding: SecurityFinding) => {
+    if (onRemediate) {
+      onRemediate(finding)
+    } else {
+      // Fallback: call backend directly
+      try {
+        const findingId = (finding as any).finding_id || finding.id
+        const response = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ finding_id: findingId })
+        })
+        
+        if (response.ok) {
+          await loadFindings() // Refresh
+        }
+      } catch (error) {
+        console.error("[LeastPrivilegeTab] Remediation failed:", error)
       }
-    } catch (error) {
-      console.error("[v0] Remediation failed:", error)
-      // Still update UI for demo purposes
-      setUnusedActionsList((prev) => prev.filter((p) => p !== permission))
-      setUnusedActions((prev) => prev - 1)
-    }
-
-    setRemediating(null)
-  }
-
-  const handleRemediateAll = async () => {
-    setRemediating("all")
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setUnusedActionsList([])
-    setUnusedActions(0)
-    setRemediating(null)
-  }
-
-  const getPermissionDescription = (permission: string): string => {
-    const [service, action] = permission.split(":")
-    const descriptions: Record<string, Record<string, string>> = {
-      ec2: {
-        DescribeInstances: "View all EC2 instances and their configurations",
-        DescribeSecurityGroups: "View all security group rules and configurations",
-        DescribeVpcs: "View VPC network configurations",
-        DescribeSubnets: "View subnet configurations",
-        CreateSecurityGroup: "Create new security groups",
-        DeleteSecurityGroup: "Delete security groups",
-      },
-      s3: {
-        GetObject: "Read objects from S3 buckets",
-        PutObject: "Write objects to S3 buckets",
-        DeleteObject: "Delete objects from S3 buckets",
-        ListBucket: "List contents of S3 buckets",
-      },
-      iam: {
-        GetRole: "View IAM role configurations",
-        ListRoles: "List all IAM roles",
-        CreateRole: "Create new IAM roles",
-        DeleteRole: "Delete IAM roles",
-        AttachRolePolicy: "Attach policies to roles",
-      },
-      lambda: {
-        InvokeFunction: "Execute Lambda functions",
-        GetFunction: "View Lambda function configurations",
-        ListFunctions: "List all Lambda functions",
-      },
-      cloudtrail: {
-        LookupEvents: "Search CloudTrail event history",
-        DescribeTrails: "View CloudTrail configurations",
-      },
-    }
-    return descriptions[service]?.[action] || `Allows ${action} operation on ${service.toUpperCase()}`
-  }
-
-  const getRiskDescription = (permission: string): string => {
-    const [service] = permission.split(":")
-    const risks: Record<string, string> = {
-      ec2: "Could enumerate infrastructure, find attack targets, or modify network access",
-      s3: "Could access sensitive data, exfiltrate information, or plant malicious files",
-      iam: "Could escalate privileges, create backdoor users, or modify security policies",
-      lambda: "Could execute arbitrary code or access connected resources",
-      cloudtrail: "Could discover security monitoring gaps or audit configurations",
-    }
-    return risks[service] || "Could be exploited to expand access or exfiltrate data"
-  }
-
-  const generateLeastPrivilegePolicy = () => {
-    return {
-      Version: "2012-10-17",
-      Statement:
-        usedActionsList.length > 0
-          ? [
-              {
-                Effect: "Allow",
-                Action: usedActionsList,
-                Resource: "*",
-              },
-            ]
-          : [],
     }
   }
 
-  const generateCurrentPolicy = () => {
-    return {
-      Version: "2012-10-17",
-      Statement: [
-        {
-          Effect: "Allow",
-          Action: allowedActionsList.length > 0 ? allowedActionsList : unusedActionsList,
-          Resource: "*",
-        },
-      ],
+  const toggleSelection = (id: string) => {
+    const newSelected = new Set(selectedResources)
+    if (newSelected.has(id)) {
+      newSelected.delete(id)
+    } else {
+      newSelected.add(id)
+    }
+    setSelectedResources(newSelected)
+  }
+
+  const handleBulkSimulate = () => {
+    const selectedFindings = findings.filter(f => selectedResources.has(f.id))
+    if (selectedFindings.length > 0) {
+      handleSimulate(selectedFindings[0]) // Simulate first one
     }
   }
 
-  const copyPolicy = async () => {
-    const policy = JSON.stringify(generateLeastPrivilegePolicy(), null, 2)
-    await navigator.clipboard.writeText(policy)
-    setCopiedPolicy(true)
-    setTimeout(() => setCopiedPolicy(false), 2000)
+  const handleBulkRemediate = async () => {
+    const selectedFindings = findings.filter(f => 
+      selectedResources.has(f.id) && 
+      gapResources.find(r => r.id === f.id)?.confidence >= 85
+    )
+    
+    for (const finding of selectedFindings) {
+      await handleRemediate(finding)
+    }
+    
+    setSelectedResources(new Set())
   }
 
-  const reductionPercent = allowedActions > 0 ? Math.round((unusedActions / allowedActions) * 100) : 0
+  const getSeverityColor = (severity: string) => {
+    switch (severity.toLowerCase()) {
+      case 'critical': return 'bg-red-600 text-white'
+      case 'high': return 'bg-orange-500 text-white'
+      case 'medium': return 'bg-yellow-500 text-black'
+      case 'low': return 'bg-blue-500 text-white'
+      default: return 'bg-gray-500 text-white'
+    }
+  }
+
+  const getResourceIcon = (type: string) => {
+    switch (type) {
+      case 'IAMRole': return <Shield className="w-4 h-4" />
+      case 'SecurityGroup': return <Network className="w-4 h-4" />
+      case 'S3Bucket': return <Database className="w-4 h-4" />
+      default: return <AlertTriangle className="w-4 h-4" />
+    }
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent"></div>
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading least privilege analysis...</p>
+        </div>
       </div>
     )
   }
-
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
-        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-red-800 mb-2">Failed to Load Data</h3>
-        <p className="text-red-600 mb-4">{error}</p>
-        <button
-          onClick={fetchData}
-          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors inline-flex items-center gap-2"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Retry
-        </button>
-      </div>
-    )
-  }
-
-  const allPermissions = unusedActionsList.length > 0 ? unusedActionsList : allowedActionsList
 
   return (
     <div className="space-y-6">
-      {/* Header with Actions */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Least Privilege Analysis</h2>
-          <p className="text-sm text-gray-500 mt-1">Role: {roleName}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={copyPolicy}
-            className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors inline-flex items-center gap-2"
-          >
-            {copiedPolicy ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-            {copiedPolicy ? "Copied!" : "Copy Policy"}
-          </button>
-          <button className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors inline-flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Export Report
-          </button>
-          <button onClick={fetchData} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Refresh">
-            <RefreshCw className="w-4 h-4 text-gray-600" />
-          </button>
-        </div>
+      {/* Section A: Summary Header */}
+      <div className="grid grid-cols-6 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600">Excess IAM Permissions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{summary.totalExcessPermissions}</div>
+            <div className="text-xs text-gray-500 mt-1">across {summary.totalResources} resources</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600">Unused Network Rules</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-600">{summary.unusedNetworkRules}</div>
+            <div className="text-xs text-gray-500 mt-1">security group rules</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600">Data Access Issues</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">{summary.dataAccessIssues}</div>
+            <div className="text-xs text-gray-500 mt-1">S3 bucket policies</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600">Overall Confidence</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{summary.avgConfidence}%</div>
+            <Progress value={summary.avgConfidence} className="mt-2" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600">Resources Analyzed</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-900">{summary.totalResources}</div>
+            <div className="text-xs text-gray-500 mt-1">IAM roles & SGs</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600">Auto-Remediatable</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{summary.autoRemediatable}</div>
+            <div className="text-xs text-gray-500 mt-1">high confidence</div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Overview Section with Pie Chart */}
-      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Summary</h3>
-            <p className="text-2xl font-bold text-gray-900 mb-1">
-              Your role has <span className="text-blue-600">{allowedActions}</span> permissions but uses{" "}
-              <span className="text-green-600">{usedActions}</span>
-            </p>
-            <p className="text-lg text-gray-700">
-              We can safely remove <span className="text-red-600 font-semibold">{unusedActions} permissions</span>{" "}
-              <span className="text-gray-500">({reductionPercent}% reduction)</span>
-            </p>
+      {/* Section B: Resource List */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Resource List</CardTitle>
+            <Select value={timeRange.toString()} onValueChange={(v) => setTimeRange(Number(v))}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30">30 days</SelectItem>
+                <SelectItem value="60">60 days</SelectItem>
+                <SelectItem value="90">90 days</SelectItem>
+                <SelectItem value="365">365 days</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-
-          {/* Pie Chart */}
-          <div className="flex-shrink-0 ml-8">
-            <div className="relative w-32 h-32">
-              <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
-                {/* Background circle */}
-                <circle cx="18" cy="18" r="15.915" fill="none" stroke="#e5e7eb" strokeWidth="3" />
-                {/* Used portion (green) */}
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.915"
-                  fill="none"
-                  stroke="#22c55e"
-                  strokeWidth="3"
-                  strokeDasharray={`${(usedActions / allowedActions) * 100} 100`}
-                  strokeLinecap="round"
-                />
-                {/* Unused portion (red) */}
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.915"
-                  fill="none"
-                  stroke="#ef4444"
-                  strokeWidth="3"
-                  strokeDasharray={`${(unusedActions / allowedActions) * 100} 100`}
-                  strokeDashoffset={`-${(usedActions / allowedActions) * 100}`}
-                  strokeLinecap="round"
-                />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-center flex-col">
-                <span className="text-2xl font-bold text-gray-900">{reductionPercent}%</span>
-                <span className="text-xs text-gray-500">unused</span>
-              </div>
-            </div>
-            <div className="flex items-center justify-center gap-4 mt-3 text-xs">
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Used ({usedActions})</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                <span>Unused ({unusedActions})</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Before & After Comparison */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Before */}
-        <div className="bg-white border-2 border-red-200 rounded-xl overflow-hidden">
-          <div className="bg-red-50 px-6 py-4 border-b border-red-200">
-            <h3 className="font-semibold text-red-800 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5" />
-              BEFORE (Current Policy)
-            </h3>
-          </div>
-          <div className="p-6">
-            <p className="text-3xl font-bold text-gray-900 mb-4">{allowedActions} permissions</p>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {allPermissions.slice(0, 5).map((perm, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <div className="w-1.5 h-1.5 bg-red-400 rounded-full"></div>
-                  <code className="text-gray-700">{perm}</code>
-                </div>
-              ))}
-              {allPermissions.length > 5 && (
-                <p className="text-sm text-gray-500 pl-4">... {allPermissions.length - 5} more</p>
-              )}
-            </div>
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Attack Surface:</span>
-                <span className="px-3 py-1 bg-red-100 text-red-700 font-semibold rounded-full">HIGH</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* After */}
-        <div className="bg-white border-2 border-green-200 rounded-xl overflow-hidden">
-          <div className="bg-green-50 px-6 py-4 border-b border-green-200">
-            <h3 className="font-semibold text-green-800 flex items-center gap-2">
-              <CheckCircle className="w-5 h-5" />
-              AFTER (Recommended Policy)
-            </h3>
-          </div>
-          <div className="p-6">
-            <p className="text-3xl font-bold text-gray-900 mb-4">{usedActions} permissions</p>
-            {usedActions === 0 ? (
-              <div className="flex items-center gap-3 py-4">
-                <Lock className="w-8 h-8 text-green-600" />
-                <div>
-                  <p className="font-medium text-gray-900">Zero permissions needed</p>
-                  <p className="text-sm text-gray-500">This role can be safely deleted or restricted</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {usedActionsList.map((perm, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
-                    <code className="text-gray-700">{perm}</code>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-6 pt-4 border-t border-gray-200 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Attack Surface:</span>
-                <span className="px-3 py-1 bg-green-100 text-green-700 font-semibold rounded-full">MINIMAL</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Risk Reduction:</span>
-                <span className="font-semibold text-green-700">{reductionPercent}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recording Period Section */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center gap-3">
-          <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          <div>
-            <h3 className="font-semibold text-gray-900">365-Day Recording Period</h3>
-            <p className="text-sm text-gray-600">
-              Tracked from {new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toLocaleDateString()} to {new Date().toLocaleDateString()} - 365K permission checks analyzed
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Permission Usage Breakdown */}
-      <div className="space-y-6">
-        {/* Actually Used Permissions */}
-        {usedActionsList.length > 0 && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                <h3 className="text-lg font-bold text-gray-900">Actually Used Permissions ({usedActionsList.length})</h3>
-              </div>
-              <button className="px-3 py-1 bg-green-600 text-white rounded text-xs font-medium">Keep these</button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
-              {usedActionsList.map((perm, idx) => {
-                const hash = perm.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-                const usageFreq = 100 + (hash % 2000)
-                const descriptions: { [key: string]: string } = {
-                  'Get': 'Active API calls',
-                  'Put': 'File uploads',
-                  'Query': 'Database reads',
-                  'PutItem': 'Database writes',
-                  'PutMetric': 'Monitoring',
-                  'Publish': 'Notifications',
-                  'SendMessage': 'Queue operations',
-                  'Decrypt': 'Data decryption',
-                  'GetSecret': 'Config access',
-                  'List': 'Resource listing'
-                }
-                const desc = Object.keys(descriptions).find(k => perm.includes(k)) ? descriptions[Object.keys(descriptions).find(k => perm.includes(k))!] : 'Active usage'
-                
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">
+                  <input
+                    type="checkbox"
+                    checked={selectedResources.size === gapResources.length && gapResources.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedResources(new Set(gapResources.map(r => r.id)))
+                      } else {
+                        setSelectedResources(new Set())
+                      }
+                    }}
+                  />
+                </TableHead>
+                <TableHead>Resource</TableHead>
+                <TableHead>GAP Analysis</TableHead>
+                <TableHead>Confidence</TableHead>
+                <TableHead>Severity</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {gapResources.map((resource) => {
+                const finding = findings.find(f => f.id === resource.id)
                 return (
-                  <div key={idx} className="flex items-center gap-2 bg-white rounded p-3">
-                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-mono text-gray-900 truncate">{perm}</div>
-                      <div className="text-xs text-green-700">- {usageFreq.toLocaleString()} uses/day</div>
-                      <div className="text-xs text-gray-500">{desc}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Never Used Permissions */}
-        {unusedActionsList.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <EyeOff className="w-5 h-5 text-red-600" />
-                <h3 className="text-lg font-bold text-gray-900">Never Used Permissions ({unusedActionsList.length})</h3>
-              </div>
-              <button className="px-3 py-1 bg-red-600 text-white rounded text-xs font-medium">Remove these</button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
-              {unusedActionsList.slice(0, 20).map((perm, idx) => {
-                const isCritical = perm.includes('Create') || perm.includes('Delete') || perm.includes('Admin') || perm.includes('*')
-                const riskLevel = isCritical ? 'Critical Risk' : 'High Risk'
-                const riskColor = isCritical ? 'bg-red-600' : 'bg-orange-500'
-                
-                return (
-                  <div key={idx} className="flex items-center gap-2 bg-white rounded p-3 border border-red-200">
-                    <EyeOff className="w-4 h-4 text-red-600 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-mono text-gray-900 truncate">{perm}</span>
-                        <span className={`px-2 py-0.5 ${riskColor} text-white rounded text-xs font-semibold whitespace-nowrap`}>
-                          {riskLevel}
-                        </span>
+                  <TableRow key={resource.id} className="cursor-pointer hover:bg-gray-50" onClick={() => {
+                    setSelectedDetail(resource)
+                    setDetailOpen(true)
+                  }}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedResources.has(resource.id)}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          toggleSelection(resource.id)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {getResourceIcon(resource.resourceType)}
+                        <div>
+                          <div className="font-medium">{resource.resourceName}</div>
+                          <div className="text-xs text-gray-500">{resource.resourceType}</div>
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-500">Never used</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{resource.usedCount} / {resource.allowedCount}</span>
+                        <Badge className="bg-red-100 text-red-700">
+                          {resource.gapCount} unused
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Progress value={resource.confidence} className="w-20" />
+                        <span className="text-sm font-medium">{resource.confidence}%</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={getSeverityColor(resource.severity)}>
+                        {resource.severity.toUpperCase()}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (finding) handleSimulate(finding)
+                          }}
+                        >
+                          <Play className="w-3 h-3 mr-1" />
+                          Simulate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (finding) handleRemediate(finding)
+                          }}
+                        >
+                          <Wrench className="w-3 h-3 mr-1" />
+                          Remediate
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Section C: Issue Details Panel (Slide-out) */}
+      <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Issue Details</SheetTitle>
+          </SheetHeader>
+          
+          {selectedDetail && (
+            <div className="space-y-6 mt-6">
+              {/* 3 Stat Boxes */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-medium text-gray-600">Allowed</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-blue-600">{selectedDetail.allowedCount}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-medium text-gray-600">Used</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-green-600">{selectedDetail.usedCount}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-medium text-gray-600">GAP</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-red-600">{selectedDetail.gapCount}</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Time Range & Evidence */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Evidence</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Data Source:</span>
+                    <Badge>{selectedDetail.evidence?.dataSources.join(', ') || 'CloudTrail'}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Confidence:</span>
+                    <div className="flex items-center gap-2">
+                      <Progress value={selectedDetail.confidence} className="w-24" />
+                      <span className="text-sm font-medium">{selectedDetail.confidence}%</span>
                     </div>
                   </div>
-                )
-              })}
-              {unusedActionsList.length > 20 && (
-                <div className="col-span-2 text-center text-sm text-gray-500 py-2">
-                  ...and {unusedActionsList.length - 20} more unused permissions
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Observation Period:</span>
+                    <span className="text-sm font-medium">{selectedDetail.observationDays} days</span>
+                  </div>
+                </CardContent>
+              </Card>
 
-      {/* Impact Analysis */}
-      <div className="bg-white border border-gray-200 rounded-lg p-5">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Impact Analysis</h3>
-        <div className="space-y-3 mb-6">
-          {[
-            'No service disruption expected',
-            'All active workflows will continue',
-            `Reduces attack surface by ${reductionPercent}%`,
-            'Achieves least privilege compliance'
-          ].map((impact, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-              <span className="text-sm text-gray-700">{impact}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+              {/* 3 Tabs */}
+              <Tabs defaultValue="gap">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="gap">GAP Analysis</TabsTrigger>
+                  <TabsTrigger value="allowed">Allowed</TabsTrigger>
+                  <TabsTrigger value="used">Actually Used</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="gap" className="space-y-2">
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {selectedDetail.unusedList.map((perm, i) => (
+                      <code key={i} className="block text-xs bg-red-50 text-red-700 px-2 py-1 rounded">
+                        {perm}
+                      </code>
+                    ))}
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="allowed" className="space-y-2">
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {selectedDetail.allowedList.map((perm, i) => (
+                      <code key={i} className="block text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                        {perm}
+                      </code>
+                    ))}
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="used" className="space-y-2">
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {selectedDetail.usedList.map((perm, i) => (
+                      <code key={i} className="block text-xs bg-green-50 text-green-700 px-2 py-1 rounded">
+                        {perm}
+                      </code>
+                    ))}
+                  </div>
+                </TabsContent>
+              </Tabs>
 
-      {/* Action Buttons */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={handleRemediateAll}
-          disabled={remediating === "all" || unusedActions === 0}
-          className="flex-1 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3 font-semibold text-lg shadow-lg"
-        >
-          {remediating === "all" ? (
-            <>
-              <RefreshCw className="w-5 h-5 animate-spin" />
-              Applying Remediation...
-            </>
-          ) : (
-            <>
-              <Zap className="w-5 h-5" />
-              Apply Remediation
-            </>
+              {/* System Context (A7 Patent) */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">System Context</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm text-gray-600">
+                    <p>Resource: <span className="font-mono">{selectedDetail.resourceName}</span></p>
+                    <p className="mt-2">Part of system: <span className="font-medium">{systemName}</span></p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Analyzed using A7 patent system discovery methodology
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
-        </button>
-        <button
-          onClick={() => setShowPolicyDiff(!showPolicyDiff)}
-          className="px-6 py-4 bg-white border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-3 font-medium"
-        >
-          <Code className="w-5 h-5" />
-          {showPolicyDiff ? "Hide" : "View"} Policy Diff
-        </button>
-        <button className="px-6 py-4 bg-white border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors flex items-center gap-3 font-medium">
-          <FileText className="w-5 h-5" />
-          Generate Report
-        </button>
-      </div>
+        </SheetContent>
+      </Sheet>
 
-      {/* Policy Diff View */}
-      {showPolicyDiff && (
-        <div className="bg-gray-900 rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-3 bg-gray-800 border-b border-gray-700">
-            <h3 className="font-medium text-white">IAM Policy Diff</h3>
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-red-500 rounded"></div>
-                <span className="text-gray-400">Remove</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-green-500 rounded"></div>
-                <span className="text-gray-400">Keep</span>
-              </div>
+      {/* Section D: Floating Footer */}
+      {selectedResources.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg p-4 z-50">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">
+                {selectedResources.size} item(s) selected
+              </span>
             </div>
-          </div>
-          <div className="p-6 font-mono text-sm overflow-x-auto">
-            <pre className="text-gray-300">
-              <span className="text-gray-500">{"{"}</span>
-              {"\n"}
-              <span className="text-gray-500"> "Version": "2012-10-17",</span>
-              {"\n"}
-              <span className="text-gray-500"> "Statement": [</span>
-              {"\n"}
-              <span className="text-gray-500"> {"{"}</span>
-              {"\n"}
-              <span className="text-gray-500"> "Effect": "Allow",</span>
-              {"\n"}
-              <span className="text-gray-500"> "Action": [</span>
-              {"\n"}
-              {allPermissions.map((perm, i) => {
-                const isUsed = usedActionsList.includes(perm)
-                return (
-                  <span key={i} className={isUsed ? "text-green-400" : "text-red-400"}>
-                    {"        "}
-                    {isUsed ? "+" : "-"} "{perm}"{i < allPermissions.length - 1 ? "," : ""}
-                    {"\n"}
-                  </span>
-                )
-              })}
-              <span className="text-gray-500"> ],</span>
-              {"\n"}
-              <span className="text-gray-500"> "Resource": "*"</span>
-              {"\n"}
-              <span className="text-gray-500"> {"}"}</span>
-              {"\n"}
-              <span className="text-gray-500"> ]</span>
-              {"\n"}
-              <span className="text-gray-500">{"}"}</span>
-            </pre>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleBulkSimulate}>
+                <Play className="w-4 h-4 mr-2" />
+                Bulk Simulate All
+              </Button>
+              <Button 
+                variant="default" 
+                className="bg-green-600 hover:bg-green-700"
+                onClick={handleBulkRemediate}
+              >
+                <Wrench className="w-4 h-4 mr-2" />
+                Bulk Remediate Safe Items
+              </Button>
+              <Button variant="outline">
+                <FileDown className="w-4 h-4 mr-2" />
+                Export PDF
+              </Button>
+              <Button variant="ghost" onClick={() => setSelectedResources(new Set())}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Detailed Permissions List */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">Permission Details ({allPermissions.length})</h3>
-          <span className="text-sm text-gray-500">Click to expand</span>
-        </div>
-
-        <div className="divide-y divide-gray-200">
-          {allPermissions.map((permission, index) => {
-            const isUsed = usedActionsList.includes(permission)
-            const isExpanded = expandedPermission === permission
-
-            return (
-              <div key={index} className={isUsed ? "bg-white" : "bg-red-50/50"}>
-                <button
-                  onClick={() => setExpandedPermission(isExpanded ? null : permission)}
-                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    <code
-                      className={`text-sm font-mono px-3 py-1.5 rounded ${isUsed ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
-                    >
-                      {permission}
-                    </code>
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${isUsed ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}
-                    >
-                      {isUsed ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                      {isUsed ? "USED" : "UNUSED"}
-                    </span>
-                  </div>
-                  {isExpanded ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
-                  ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
-                  )}
-                </button>
-
-                {isExpanded && (
-                  <div className="px-6 pb-6 border-t border-gray-100">
-                    <div className="grid grid-cols-2 gap-6 mt-4">
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-2">What This Permission Does</h4>
-                        <p className="text-sm text-gray-600">{getPermissionDescription(permission)}</p>
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 mb-2">Times Used (Last Year - 365 Days)</h4>
-                        <p className="text-2xl font-bold text-gray-900">{isUsed ? "Active" : "0"}</p>
-                      </div>
-                    </div>
-
-                    {!isUsed && (
-                      <>
-                        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                          <h4 className="text-sm font-semibold text-red-800 mb-1">Risk If Kept</h4>
-                          <p className="text-sm text-red-700">
-                            An attacker with access to this role could: {getRiskDescription(permission)}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                          <h4 className="text-sm font-semibold text-green-800 mb-1">Impact If Removed</h4>
-                          <p className="text-sm text-green-700">
-                            None - this permission has never been used in the observation period. Safe to remove with
-                            99% confidence.
-                          </p>
-                        </div>
-
-                        <div className="mt-4 flex items-center gap-3">
-                          <button
-                            onClick={() => handleRemediate(permission)}
-                            disabled={remediating === permission}
-                            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
-                          >
-                            {remediating === permission ? (
-                              <>
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                                Remediating...
-                              </>
-                            ) : (
-                              <>
-                                <Wrench className="w-4 h-4" />
-                                Remediate
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {allPermissions.length === 0 && (
-          <div className="px-6 py-12 text-center">
-            <Lock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No permissions data available</p>
-          </div>
-        )}
-      </div>
+      {/* Simulate Modal */}
+      {selectedFinding && (
+        <SimulateModal
+          isOpen={simulateModalOpen}
+          onClose={() => {
+            setSimulateModalOpen(false)
+            setSelectedFinding(null)
+          }}
+          finding={selectedFinding}
+          onExecute={handleRemediate}
+        />
+      )}
     </div>
   )
 }
