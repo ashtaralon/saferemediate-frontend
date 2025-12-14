@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { TrendingDown } from "lucide-react"
 import { CriticalFindingsModal } from "./critical-findings-modal"
-import { SimulateFixModal } from "./issues/SimulateFixModal"
+import { SimulateFixModal } from "./SimulateFixModal"
 
 export function SystemHealthSection() {
   const [showCriticalModal, setShowCriticalModal] = useState(false)
