@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
+import { fetchSecurityFindings, triggerScan, getScanStatus } from "@/lib/api-client"
+import type { SecurityFinding } from "@/lib/types"
 
-const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
 interface Finding {
   id: string
@@ -47,69 +49,75 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
   const [showModal, setShowModal] = useState(false)
   const [autoScanned, setAutoScanned] = useState(false)
 
-  // Fetch findings from backend
+  // Fetch findings from backend using api-client
   const fetchFindings = useCallback(async (): Promise<Finding[]> => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/findings`, {
-        cache: "no-store",
-        headers: {
-          "Cache-Control": "no-cache",
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch findings: ${response.status}`)
-      }
-
-      const data = await response.json()
-      return data.findings || []
+      const data = await fetchSecurityFindings()
+      return data as Finding[]
     } catch (err) {
       console.error("Error fetching findings:", err)
       throw err
     }
   }, [])
 
-  // Trigger a scan
-  const triggerScan = useCallback(async () => {
+  // Trigger a scan with proper status polling
+  const handleScan = useCallback(async () => {
     setScanning(true)
     setScanStatus("Starting scan...")
+    setError(null)
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/scan`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          lookback_days: 30,
-          scan_iam: true,
-          scan_security_groups: true,
-          scan_s3: true,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Scan failed: ${response.status}`)
+      const result = await triggerScan(30)
+      if (!result.success) {
+        throw new Error("Scan failed to start")
       }
 
-      const data = await response.json()
-      setScanStatus(`Scan complete: ${data.findings_count || 0} findings`)
+      // Poll for scan status
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getScanStatus()
+          setScanStatus(
+            status.status === "scanning"
+              ? `Scanning: ${status.roles_scanned || 0}/${status.total_roles || "?"} roles`
+              : status.status === "completed" || status.status === "complete"
+              ? `Scan complete: ${status.findings_count || 0} findings found`
+              : status.status || "Scanning..."
+          )
 
-      // Wait a moment for backend to process
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+          if (status.status === "completed" || status.status === "complete") {
+            clearInterval(pollInterval)
+            setScanning(false)
+            setScanStatus("")
+            // Wait a moment for backend to process, then reload findings
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+            const newFindings = await fetchFindings()
+            setFindings(newFindings)
+            setError(null)
+          } else if (status.status === "error" || status.status === "failed") {
+            clearInterval(pollInterval)
+            setScanning(false)
+            setError(status.error || "Scan failed")
+          }
+        } catch (err) {
+          console.error("[IssuesSection] Error polling scan status:", err)
+        }
+      }, 2000)
 
-      // Fetch fresh findings
-      const newFindings = await fetchFindings()
-      setFindings(newFindings)
-      setError(null)
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval)
+        if (scanning) {
+          setScanning(false)
+          setError("Scan timed out")
+        }
+      }, 300000)
     } catch (err) {
-      console.error("Scan error:", err)
-      setScanStatus("Scan failed")
-      setError(err instanceof Error ? err.message : "Scan failed")
-    } finally {
+      console.error("[IssuesSection] Error starting scan:", err)
+      setError(err instanceof Error ? err.message : "Failed to start scan")
       setScanning(false)
+      setScanStatus("")
     }
-  }, [fetchFindings])
+  }, [fetchFindings, scanning])
 
   // Initial load - fetch findings, auto-scan if empty
   useEffect(() => {
@@ -130,7 +138,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
     }
 
     loadFindings()
-  }, [fetchFindings, triggerScan, autoScanned])
+  }, [fetchFindings, autoScanned])
 
   // Handle simulate fix click
   const handleSimulateFix = (finding: Finding) => {
@@ -259,9 +267,18 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button variant="default" size="sm" onClick={triggerScan} disabled={scanning}>
-            <Play className="h-4 w-4 mr-1" />
-            Scan Now
+          <Button variant="default" size="sm" onClick={handleScan} disabled={scanning}>
+            {scanning ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                Scanning...
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-1" />
+                Scan Now
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -274,10 +291,22 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
           <p className="text-muted-foreground mb-4">
             Click "Scan Now" to analyze your AWS resources for security issues.
           </p>
-          <Button variant="default" onClick={triggerScan} size="lg">
-            <Play className="h-4 w-4 mr-2" />
-            Scan AWS Resources
+          <Button variant="default" onClick={handleScan} size="lg" disabled={scanning}>
+            {scanning ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Scanning...
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                Scan AWS Resources
+              </>
+            )}
           </Button>
+          {scanStatus && (
+            <p className="text-sm text-blue-600 mt-2">{scanStatus}</p>
+          )}
           <p className="text-xs text-muted-foreground mt-3">
             Scans IAM roles, Security Groups, and S3 buckets (takes 30-60 seconds)
           </p>
