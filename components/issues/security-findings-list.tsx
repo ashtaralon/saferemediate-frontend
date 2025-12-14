@@ -186,7 +186,17 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
                   <span>Discovered {new Date(finding.discoveredAt).toLocaleDateString()}</span>
                 </div>
 
-                {finding.remediation && !finding.isRemediated && (
+                {/* Use specialized template for new finding types */}
+                {!finding.isRemediated && (finding as any).type && 
+                 ((finding as any).type === "admin_user_no_mfa" || (finding as any).type === "nacl_overly_permissive") && (
+                  <div className="mt-4">
+                    <FindingTemplates finding={finding} />
+                  </div>
+                )}
+
+                {finding.remediation && !finding.isRemediated && 
+                 !(finding as any).type?.includes("admin_user_no_mfa") && 
+                 !(finding as any).type?.includes("nacl_overly_permissive") && (
                   <div className="mt-2 p-2 bg-blue-50 rounded text-sm text-blue-900">
                     <strong>Remediation:</strong> {finding.remediation}
                   </div>
