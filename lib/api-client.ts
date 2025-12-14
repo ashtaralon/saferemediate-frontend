@@ -290,18 +290,41 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       return demoSecurityFindings
     }
 
-    const mappedFindings = findings.map((f: any) => ({
-      id: f.id || f.findingId || `finding-${Math.random().toString(36).substr(2, 9)}`,
-      title: f.title || f.name || "Security Finding",
-      severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
-      description: f.description || "",
-      resource: f.resource || f.resourceId || "",
-      resourceType: f.resourceType || "Resource",
-      status: f.status || "open",
-      category: f.category || f.type || "Security",
-      discoveredAt: f.discoveredAt || f.detectedAt || f.createdAt || new Date().toISOString(),
-      remediation: f.remediation || f.recommendation || "",
-    }))
+    const mappedFindings = findings.map((f: any) => {
+      // Use finding_id from backend as the primary ID (this is the real ID)
+      const findingId = f.finding_id || f.id || f.findingId
+      if (!findingId) {
+        console.warn("[api-client] Finding missing ID:", f)
+      }
+      
+      return {
+        // CRITICAL: Use finding_id from backend, not generated ID
+        id: findingId || `finding-${Math.random().toString(36).substr(2, 9)}`,
+        finding_id: findingId, // Preserve original finding_id for API calls
+        title: f.title || f.name || "Security Finding",
+        severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+        description: f.description || "",
+        resource: f.resource || f.resourceId || f.role_name || "",
+        resourceType: f.resourceType || "Resource",
+        status: f.status || "open",
+        category: f.category || f.type || "Security",
+        discoveredAt: f.discoveredAt || f.detectedAt || f.created_at || f.createdAt || new Date().toISOString(),
+        remediation: f.remediation || f.recommendation || "",
+        // Preserve all backend fields needed for simulation
+        role_name: f.role_name,
+        resourceId: f.resourceId || f.role_name,
+        unused_actions: f.unused_actions || [],
+        unused_actions_count: f.unused_actions_count || 0,
+        allowed_actions: f.allowed_actions || [],
+        allowed_actions_count: f.allowed_actions_count || 0,
+        used_actions: f.observed_actions || f.used_actions || [],
+        used_actions_count: f.used_actions_count || f.observed_actions?.length || 0,
+        confidence: f.confidence || 85,
+        observation_days: f.observation_days || 30,
+        // Preserve all other fields
+        ...f
+      }
+    })
 
     // Final check - if mapping produced empty array, return fallback
     if (mappedFindings.length === 0) {

@@ -49,15 +49,28 @@ export interface ComplianceIssue {
 
 export interface SecurityFinding {
   id: string
+  finding_id?: string // Real finding ID from backend
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
   title: string
   resource: string
   resourceType: string
+  resourceId?: string
   description: string
   remediation?: string
   category: string
   discoveredAt: string
   status: "open" | "simulated" | "approved" | "executing" | "remediated" | "failed" | "rolled_back" | "resolved" | "suppressed"
+  // Backend fields for simulation
+  role_name?: string
+  unused_actions?: string[]
+  unused_actions_count?: number
+  allowed_actions?: string[]
+  allowed_actions_count?: number
+  used_actions?: string[]
+  used_actions_count?: number
+  confidence?: number
+  observation_days?: number
+  [key: string]: any // Allow additional fields from backend
 }
 
 export interface SecurityData {
