@@ -8,6 +8,8 @@
  */
 
 import { useState, useEffect } from "react"
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 import {
   Dialog,
   DialogContent,
@@ -160,13 +162,14 @@ export function SimulateFixModal({
     setError(null)
 
     try {
-      const response = await fetch(`/api/proxy/systems/alon-prod/issues/${encodeURIComponent(finding.id)}/simulate`, {
+      // Use real backend API endpoint
+      const response = await fetch(`${BACKEND_URL}/api/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           finding_id: finding.id,
           resource_type: finding.resourceType,
-          resource_id: finding.resource,
+          resource_id: finding.resource || finding.resourceId,
         })
       })
 
