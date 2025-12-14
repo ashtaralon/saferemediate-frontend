@@ -37,3 +37,6 @@ export function ResourceTypesCard({ resourceTypes }: ResourceTypesCardProps) {
 
 
 
+
+
+
