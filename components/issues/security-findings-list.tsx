@@ -9,6 +9,7 @@ import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { FindingTemplates } from "./FindingTemplates"
 import { FindingCard } from "@/components/FindingCard"
+import { FindingCard } from "@/components/FindingCard"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
