@@ -1,5 +1,5 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData, demoSecurityFindings } from "./data"
+import { infrastructureData } from "./data"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
@@ -267,16 +267,16 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      console.warn("[v0] Backend returned error for security findings:", response.status, "- using fallback data")
-      return demoSecurityFindings
+      console.warn("[api-client] Backend returned error for security findings:", response.status, "- returning empty array")
+      return []
     }
 
     let data: any
     try {
       data = await response.json()
     } catch (parseError) {
-      console.warn("[v0] Failed to parse security findings response - using fallback data")
-      return demoSecurityFindings
+      console.warn("[api-client] Failed to parse security findings response - returning empty array")
+      return []
     }
 
     console.log("[v0] Security findings response:", { success: data?.success, source: data?.source, count: data?.findings?.length })
@@ -284,10 +284,10 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
     // Handle both array response and object with findings property
     const findings = Array.isArray(data) ? data : data.findings || []
 
-    // If backend returns empty findings, use fallback demo data
+    // If backend returns empty findings, return empty array (no mock data)
     if (!findings || findings.length === 0) {
-      console.warn("[v0] Backend returned empty findings - using fallback data")
-      return demoSecurityFindings
+      console.log("[api-client] Backend returned empty findings - returning empty array")
+      return []
     }
 
     const mappedFindings = findings.map((f: any) => {
@@ -326,10 +326,10 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
       }
     })
 
-    // Final check - if mapping produced empty array, return fallback
+    // Final check - if mapping produced empty array, return empty
     if (mappedFindings.length === 0) {
-      console.warn("[v0] Mapped findings empty - using fallback data")
-      return demoSecurityFindings
+      console.log("[api-client] Mapped findings empty - returning empty array")
+      return []
     }
 
     console.log("[v0] Successfully loaded", mappedFindings.length, "security findings")
@@ -337,8 +337,8 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   } catch (error: any) {
     clearTimeout(timeoutId)
     const errorMsg = error.name === 'AbortError' ? 'Request timed out' : error.message
-    console.warn("[v0] Security findings fetch failed:", errorMsg, "- using fallback data")
-    return demoSecurityFindings
+    console.warn("[api-client] Security findings fetch failed:", errorMsg, "- returning empty array")
+    return []
   }
 }
 
