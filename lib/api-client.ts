@@ -247,18 +247,13 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   }
 }
 
-export async function fetchSecurityFindings(systemName?: string): Promise<SecurityFinding[]> {
+export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   // Create timeout controller - increased to 30s to match proxy route timeout (25s) + buffer
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout (was 8s)
 
   try {
-    // Build URL with systemName filter if provided
-    const url = systemName 
-      ? `/api/proxy/findings?systemName=${encodeURIComponent(systemName)}`
-      : "/api/proxy/findings"
-    
-    const response = await fetch(url, {
+    const response = await fetch("/api/proxy/findings", {
       cache: "no-store",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -441,4 +436,76 @@ export async function fixIssue(payload: any) {
   }
 
   return res.json()
+}
+
+// ============================================================================
+// New Real Backend Functions
+// ============================================================================
+
+export interface SimulationResult {
+  success: boolean
+  simulation_id: string
+  finding_id: string
+  diff: { removed_permissions: string[]; added_permissions: string[]; changed_resources: string[] }
+  impact: { blast_radius: string; risk_level: string; affected_resources: number; downtime: string; confidence: number }
+  recommendation: string
+  warnings: string[]
+  estimated_time: string
+  rollback_available: boolean
+  simulated_at: string
+  resource_type: string
+  resource_id: string
+  before_state: any
+  after_state: any
+}
+
+export async function triggerScan(days = 30) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lookback_days: days })
+    })
+    return { success: res.ok, message: 'Scan started' }
+  } catch { return { success: false, message: 'Failed' } }
+}
+
+export async function getScanStatus() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/scan/status`)
+    return await res.json()
+  } catch { return { status: 'unknown' } }
+}
+
+export async function simulateRemediation(findingId: string): Promise<SimulationResult | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ finding_id: findingId })
+    })
+    return res.ok ? await res.json() : null
+  } catch { return null }
+}
+
+export async function executeRemediation(findingId: string) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ finding_id: findingId })
+    })
+    return await res.json()
+  } catch { return { success: false, error: 'Failed' } }
+}
+
+export async function rollbackRemediation(findingId: string, snapshotId: string) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ finding_id: findingId, snapshot_id: snapshotId })
+    })
+    return await res.json()
+  } catch { return { success: false, error: 'Failed' } }
 }
