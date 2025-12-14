@@ -39,6 +39,7 @@ import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
+import { SnapshotsRecoveryTab } from "./snapshots-recovery-tab"
 
 // =============================================================================
 // API CONFIGURATION
@@ -1207,15 +1208,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📸</span>
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Snapshots & Recovery</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
-              View and manage system snapshots, backup schedules, and recovery points. Coming soon.
-            </p>
-          </div>
+          <SnapshotsRecoveryTab systemName={systemName} />
         </div>
       )}
 

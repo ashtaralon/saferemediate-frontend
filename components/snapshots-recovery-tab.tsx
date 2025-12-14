@@ -271,7 +271,7 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      {snapshot.status === "available" && (
+                      {(snapshot.status === "available" || snapshot.status === "ACTIVE" || !snapshot.status) && (
                         <button
                           onClick={() => handleRollback(snapshot.id, snapshot.finding_id)}
                           disabled={applying === snapshot.id}
