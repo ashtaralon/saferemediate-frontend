@@ -253,8 +253,8 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout (was 8s)
 
   try {
-    // Use direct backend URL with cache: "no-store" to always fetch fresh
-    const response = await fetch(`${BACKEND_URL}/api/findings?t=${Date.now()}`, {
+    // Use direct backend URL with cache: "no-store" and cache-busting headers to always fetch fresh
+    const response = await fetch(`${BACKEND_URL}/api/findings?_t=${Date.now()}`, {
       cache: "no-store",
       headers: { 
         "Content-Type": "application/json",
@@ -469,7 +469,12 @@ export async function triggerScan(days = 30) {
   try {
     const res = await fetch(`${BACKEND_URL}/api/scan`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+      },
+      cache: "no-store",
       body: JSON.stringify({ lookback_days: days })
     })
     return { success: res.ok, message: 'Scan started' }
@@ -478,7 +483,13 @@ export async function triggerScan(days = 30) {
 
 export async function getScanStatus() {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/scan/status`)
+    const res = await fetch(`${BACKEND_URL}/api/scan/status?_t=${Date.now()}`, {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+      }
+    })
     return await res.json()
   } catch { return { status: 'unknown' } }
 }
@@ -487,7 +498,12 @@ export async function simulateRemediation(findingId: string): Promise<Simulation
   try {
     const res = await fetch(`${BACKEND_URL}/api/simulate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+      },
+      cache: "no-store",
       body: JSON.stringify({ finding_id: findingId })
     })
     return res.ok ? await res.json() : null
@@ -498,7 +514,12 @@ export async function executeRemediation(findingId: string) {
   try {
     const res = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+      },
+      cache: "no-store",
       body: JSON.stringify({ finding_id: findingId })
     })
     return await res.json()

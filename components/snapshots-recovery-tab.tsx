@@ -123,38 +123,6 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
     }
   }
 
-  const handleApplySnapshot = async (snapshotId: string) => {
-    if (!confirm("Are you sure you want to apply this snapshot? This will execute the remediation changes.")) {
-      return
-    }
-
-    setApplying(snapshotId)
-    try {
-      const response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/apply`, {
-        method: "POST",
-      })
-      if (!response.ok) {
-        throw new Error("Failed to apply snapshot")
-      }
-      const result = await response.json()
-      
-      toast({
-        title: "Success",
-        description: result.result?.message || "Snapshot applied successfully",
-      })
-      
-      // Refresh snapshots list
-      fetchSnapshots()
-    } catch (err: any) {
-      toast({
-        title: "Error",
-        description: "Failed to apply snapshot",
-        variant: "destructive",
-      })
-    } finally {
-      setApplying(null)
-    }
-  }
 
   const getStatusBadge = (status: string) => {
     const styles = {
@@ -242,10 +210,13 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                   Created At
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Issue
+                  Finding ID
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Reason
+                  Role Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Policies
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -261,11 +232,14 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {formatDate(snapshot.created_at)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {snapshot.issue_id || "N/A"}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
+                    {snapshot.finding_id || snapshot.issue_id || "N/A"}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {snapshot.reason}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    {snapshot.role_name || "N/A"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    {snapshot.policy_count || 0} policy(ies)
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(snapshot.status)}
@@ -279,17 +253,17 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      {(snapshot.status === "ACTIVE" || snapshot.status === "simulated") && (
+                      {snapshot.status === "available" && (
                         <button
-                          onClick={() => handleApplySnapshot(snapshot.id)}
+                          onClick={() => handleRollback(snapshot.id, snapshot.finding_id)}
                           disabled={applying === snapshot.id}
-                          className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-                          title="Apply snapshot"
+                          className="p-2 text-gray-600 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="Rollback to this snapshot"
                         >
                           {applying === snapshot.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <PlayCircle className="w-4 h-4" />
+                            <RotateCcw className="w-4 h-4" />
                           )}
                         </button>
                       )}
@@ -326,24 +300,36 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                 <label className="text-sm font-medium text-gray-700">Created At</label>
                 <p className="text-sm text-gray-900 mt-1">{formatDate(selectedSnapshot.created_at)}</p>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Created By</label>
-                <p className="text-sm text-gray-900 mt-1">{selectedSnapshot.created_by}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Reason</label>
-                <p className="text-sm text-gray-900 mt-1">{selectedSnapshot.reason}</p>
-              </div>
+              {selectedSnapshot.role_name && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Role Name</label>
+                  <p className="text-sm text-gray-900 mt-1 font-mono">{selectedSnapshot.role_name}</p>
+                </div>
+              )}
+              {selectedSnapshot.finding_id && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Finding ID</label>
+                  <p className="text-sm text-gray-900 mt-1 font-mono">{selectedSnapshot.finding_id}</p>
+                </div>
+              )}
+              {selectedSnapshot.policy_count !== undefined && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Policies</label>
+                  <p className="text-sm text-gray-900 mt-1">{selectedSnapshot.policy_count} policy(ies) saved</p>
+                </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700">Status</label>
                 <div className="mt-1">{getStatusBadge(selectedSnapshot.status)}</div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Proposed Changes</label>
-                <pre className="mt-2 p-4 bg-gray-50 rounded-lg text-xs overflow-x-auto">
-                  {JSON.stringify((selectedSnapshot as any).changes || {}, null, 2)}
-                </pre>
-              </div>
+              {selectedSnapshot.policies && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Saved Policies</label>
+                  <pre className="mt-2 p-4 bg-gray-50 rounded-lg text-xs overflow-x-auto max-h-64">
+                    {JSON.stringify(selectedSnapshot.policies, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
             <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
               <button
@@ -352,15 +338,16 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
               >
                 Close
               </button>
-              {(selectedSnapshot.status === "ACTIVE" || selectedSnapshot.status === "simulated") && (
+              {selectedSnapshot.status === "available" && (
                 <button
                   onClick={() => {
-                    handleApplySnapshot(selectedSnapshot.id)
+                    handleRollback(selectedSnapshot.id, selectedSnapshot.finding_id)
                     setSelectedSnapshot(null)
                   }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
                 >
-                  Apply Snapshot
+                  <RotateCcw className="w-4 h-4 inline mr-2" />
+                  Rollback
                 </button>
               )}
             </div>
