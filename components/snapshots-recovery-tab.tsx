@@ -41,16 +41,34 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
     setLoading(true)
     setError(null)
     try {
-      // Use direct backend endpoint
-      const response = await fetch(`${BACKEND_URL}/api/snapshots`)
+      // Use direct backend endpoint with cache-busting
+      const response = await fetch(`${BACKEND_URL}/api/snapshots?_t=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache"
+        }
+      })
       if (!response.ok) {
         throw new Error(`Failed to fetch snapshots: ${response.status}`)
       }
       const data = await response.json()
+      console.log("[SnapshotsRecoveryTab] Backend response:", data)
+      
       // Backend returns {success: true, snapshots: [...], count: N}
       const snapshotsArray = data.success && data.snapshots ? data.snapshots : []
       console.log(`[SnapshotsRecoveryTab] Loaded ${snapshotsArray.length} snapshots`)
-      setSnapshots(snapshotsArray)
+      
+      // Ensure all snapshots have required fields
+      const normalizedSnapshots = snapshotsArray.map((snap: any) => ({
+        ...snap,
+        finding_id: snap.finding_id || snap.issue_id || "",
+        role_name: snap.role_name || snap.resource_id || "N/A",
+        status: snap.status || "available",
+        policy_count: snap.policy_count || 0
+      }))
+      
+      setSnapshots(normalizedSnapshots)
     } catch (err: any) {
       console.error("[SnapshotsRecoveryTab] Error fetching snapshots:", err)
       setError(err.message || "Failed to load snapshots")
@@ -235,8 +253,8 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
                     {snapshot.finding_id || snapshot.issue_id || "N/A"}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {snapshot.role_name || "N/A"}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono">
+                    {snapshot.role_name || snapshot.resource_id || "N/A"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                     {snapshot.policy_count || 0} policy(ies)
