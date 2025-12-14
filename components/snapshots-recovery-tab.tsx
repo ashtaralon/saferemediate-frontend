@@ -4,13 +4,20 @@ import { useState, useEffect } from "react"
 import { Eye, PlayCircle, RotateCcw, Loader2, AlertCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+
 interface Snapshot {
   id: string
+  finding_id?: string
   issue_id?: string
+  role_name?: string
+  resource_type?: string
   created_at: string
-  created_by: string
-  reason: string
-  status: "simulated" | "applied" | "ACTIVE" | "APPLIED" | "ROLLED_BACK" | "FAILED"
+  created_by?: string
+  reason?: string
+  status: "simulated" | "applied" | "ACTIVE" | "APPLIED" | "ROLLED_BACK" | "available" | "FAILED"
+  policies?: any
+  policy_count?: number
   impact_summary?: any
 }
 
@@ -34,21 +41,22 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`/api/proxy/systems/${encodeURIComponent(systemName)}/snapshots`)
+      // Use direct backend endpoint
+      const response = await fetch(`${BACKEND_URL}/api/snapshots`)
       if (!response.ok) {
         throw new Error(`Failed to fetch snapshots: ${response.status}`)
       }
       const data = await response.json()
-      // Backend returns array directly, or might be wrapped
-      const snapshotsArray = Array.isArray(data) ? data : (data.snapshots || [])
-      console.log(`[SnapshotsRecoveryTab] Loaded ${snapshotsArray.length} snapshots for ${systemName}`)
+      // Backend returns {success: true, snapshots: [...], count: N}
+      const snapshotsArray = data.success && data.snapshots ? data.snapshots : []
+      console.log(`[SnapshotsRecoveryTab] Loaded ${snapshotsArray.length} snapshots`)
       setSnapshots(snapshotsArray)
     } catch (err: any) {
       console.error("[SnapshotsRecoveryTab] Error fetching snapshots:", err)
       setError(err.message || "Failed to load snapshots")
       toast({
         title: "Error",
-        description: "Failed to load snapshots. Make sure S3_SNAPSHOT_BUCKET is configured.",
+        description: "Failed to load snapshots from backend",
         variant: "destructive",
       })
     } finally {
@@ -58,18 +66,60 @@ export function SnapshotsRecoveryTab({ systemName }: SnapshotsRecoveryTabProps) 
 
   const handleViewSnapshot = async (snapshotId: string) => {
     try {
-      const response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}`)
-      if (!response.ok) {
-        throw new Error("Failed to fetch snapshot details")
+      // Find snapshot in local list (backend doesn't have individual snapshot endpoint yet)
+      const snapshot = snapshots.find(s => s.id === snapshotId)
+      if (snapshot) {
+        setSelectedSnapshot(snapshot)
+      } else {
+        throw new Error("Snapshot not found")
       }
-      const snapshot = await response.json()
-      setSelectedSnapshot(snapshot as any)
     } catch (err: any) {
       toast({
         title: "Error",
         description: "Failed to load snapshot details",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleRollback = async (snapshotId: string, findingId?: string) => {
+    if (!confirm("Are you sure you want to rollback this remediation? This will restore the IAM role to its previous state.")) {
+      return
+    }
+
+    setApplying(snapshotId)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/rollback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          snapshot_id: snapshotId,
+          finding_id: findingId || ""
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || "Failed to rollback")
+      }
+      
+      const result = await response.json()
+      
+      toast({
+        title: "Success",
+        description: result.message || "Rollback completed successfully",
+      })
+      
+      // Refresh snapshots list
+      fetchSnapshots()
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to rollback",
+        variant: "destructive",
+      })
+    } finally {
+      setApplying(null)
     }
   }
 
