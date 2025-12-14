@@ -8,6 +8,7 @@ import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { FindingTemplates } from "./FindingTemplates"
+import { FindingCard } from "@/components/FindingCard"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
@@ -19,6 +20,7 @@ interface SecurityFindingsListProps {
 export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFindingsListProps) {
   const [showModal, setShowModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
+  const [simulatingId, setSimulatingId] = useState<string | null>(null)
   const [remediatedIds, setRemediatedIds] = useState<Set<string>>(new Set())
 
   // Log render for debugging
@@ -131,7 +133,24 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
         }}
       />
 
-      {/* FINDINGS LIST */}
+      {/* FINDINGS LIST - Using FindingCard component */}
+      <div className="space-y-4">
+        {sortedFindings.map((finding) => (
+          <FindingCard
+            key={finding.id}
+            finding={finding}
+            onSimulate={(f) => {
+              setSelectedFinding(f)
+              setShowModal(true)
+              setSimulatingId(f.id)
+            }}
+            isSimulating={simulatingId === finding.id}
+          />
+        ))}
+      </div>
+
+      {/* OLD FINDINGS LIST - Keep for reference, can be removed */}
+      {false && sortedFindings.length > 0 && (
       <div className="space-y-3">
         {sortedFindings.map((finding) => (
           <Card
