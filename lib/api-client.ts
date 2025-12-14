@@ -253,9 +253,15 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
   const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout (was 8s)
 
   try {
-    const response = await fetch("/api/proxy/findings", {
+    // Use direct backend URL with cache: "no-store" to always fetch fresh
+    const response = await fetch(`${BACKEND_URL}/api/findings?t=${Date.now()}`, {
       cache: "no-store",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      },
       signal: controller.signal,
     })
     clearTimeout(timeoutId)
