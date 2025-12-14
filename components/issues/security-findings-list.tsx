@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
+import { FindingTemplates } from "./FindingTemplates"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
