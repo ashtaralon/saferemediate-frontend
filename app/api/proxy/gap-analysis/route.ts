@@ -43,13 +43,13 @@ export async function GET(req: NextRequest) {
 
     clearTimeout(timeoutId)
 
-    // If 404, try the least-privilege endpoint
+    // If 404, try the /api/gap-analysis endpoint
     if (!res.ok && res.status === 404) {
       const controller2 = new AbortController()
       const timeoutId2 = setTimeout(() => controller2.abort(), 25000) // 25s for fallback endpoint
       try {
         res = await fetch(
-          `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,
+          `${BACKEND_URL}/api/gap-analysis?systemName=${encodeURIComponent(systemName)}`,
           {
             signal: controller2.signal,
             headers: { "Content-Type": "application/json" },
@@ -59,21 +59,8 @@ export async function GET(req: NextRequest) {
 
         if (res.ok) {
           const data = await res.json()
-          // Transform least-privilege response to gap-analysis format
-          const role = data.roles?.[0] || {}
-          return NextResponse.json({
-            role_name: role.roleName || roleName,
-            allowed_actions: role.allowed || 0,
-            used_actions: role.used || 0,
-            unused_actions: role.unused || 0,
-            statistics: {
-              total_allowed: role.allowed || 0,
-              total_used: role.used || 0,
-              total_unused: role.unused || 0,
-              confidence: role.gap || 0,
-              remediation_potential: `${role.gap || 0}%`,
-            },
-          })
+          // /api/gap-analysis returns the correct format already
+          return NextResponse.json(data)
         }
       } catch (e: any) {
         clearTimeout(timeoutId2)
