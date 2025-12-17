@@ -12,7 +12,16 @@ const BACKEND_URL =
 
 export async function GET(req: NextRequest) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/graph/nodes`, {
+    const { searchParams } = new URL(req.url)
+    const systemName = searchParams.get('system')
+    
+    // Build backend URL with system parameter if provided
+    let backendUrl = `${BACKEND_URL}/api/graph/nodes`
+    if (systemName) {
+      backendUrl += `?systemName=${encodeURIComponent(systemName)}`
+    }
+    
+    const res = await fetch(backendUrl, {
       headers: {
         "Content-Type": "application/json",
       },

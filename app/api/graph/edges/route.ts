@@ -12,8 +12,14 @@ const BACKEND_URL =
 
 export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url)
+    const systemName = searchParams.get('system')
+    
+    // Build backend URL with system parameter if provided
+    const systemParam = systemName ? `?systemName=${encodeURIComponent(systemName)}` : ''
+    
     // Try /api/graph/relationships first, then /api/graph/edges
-    let res = await fetch(`${BACKEND_URL}/api/graph/relationships`, {
+    let res = await fetch(`${BACKEND_URL}/api/graph/relationships${systemParam}`, {
       headers: {
         "Content-Type": "application/json",
       },
@@ -22,7 +28,7 @@ export async function GET(req: NextRequest) {
 
     // If relationships doesn't exist, try edges
     if (!res.ok) {
-      res = await fetch(`${BACKEND_URL}/api/graph/edges`, {
+      res = await fetch(`${BACKEND_URL}/api/graph/edges${systemParam}`, {
         headers: {
           "Content-Type": "application/json",
         },
