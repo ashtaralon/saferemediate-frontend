@@ -61,51 +61,58 @@ export default function HomePage() {
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
   const [gapData, setGapData] = useState<GapAnalysisData>({
-    allowed: 28,
+    allowed: 0,
     used: 0,
-    unused: 28,
+    unused: 0,
     confidence: 99,
-    roleName: "SafeRemediate-Lambda-Remediation-Role",
+    roleName: "Loading...",
   })
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    // Trigger traffic ingestion (non-blocking)
-    fetchWithTimeout(`${BACKEND_URL}/api/traffic/ingest?days=365`).catch(() => {})
-
-    // Fetch gap analysis via proxy route with timeout (30s to allow proxy's 28s timeout to complete)
-    fetchWithTimeout("/api/proxy/gap-analysis?systemName=SafeRemediate-Lambda-Remediation-Role", {}, 30000)
+    // Fetch all findings and sum up IAM unused permissions
+    fetchWithTimeout("/api/proxy/findings", {}, 30000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
       })
-      .then((gapJson) => {
-        const allowed = gapJson.allowed_actions ?? gapJson.statistics?.total_allowed ?? 28
-        const used = gapJson.used_actions ?? gapJson.statistics?.total_used ?? 0
-        const unused = gapJson.unused_actions ?? gapJson.statistics?.total_unused ?? 28
-
-        let confidence = 99
-        const remPotential = gapJson.statistics?.remediation_potential
-        const confValue = gapJson.statistics?.confidence
-        if (remPotential) {
-          confidence = Number.parseInt(String(remPotential).replace("%", ""), 10) || 99
-        } else if (confValue) {
-          confidence = Number.parseInt(String(confValue).replace("%", ""), 10) || 99
-        }
-
+      .then((findingsJson) => {
+        const findings = findingsJson.findings || []
+        
+        // Filter IAM unused permissions findings
+        const iamFindings = findings.filter((f: any) => f.type === "iam_unused_permissions")
+        
+        // Sum up all unused permissions across all IAM roles
+        let totalAllowed = 0
+        let totalUnused = 0
+        let totalUsed = 0
+        
+        iamFindings.forEach((finding: any) => {
+          totalAllowed += finding.allowed_actions?.length || 0
+          totalUnused += finding.unused_count || 0
+          totalUsed += finding.observed_actions?.length || 0
+        })
+        
         setGapData({
-          allowed: Number(allowed),
-          used: Number(used),
-          unused: Number(unused),
-          confidence: Number(confidence),
-          roleName: gapJson.role_name || "SafeRemediate-Lambda-Remediation-Role",
+          allowed: totalAllowed,
+          used: totalUsed,
+          unused: totalUnused,
+          confidence: 99,
+          roleName: `${iamFindings.length} IAM Role${iamFindings.length !== 1 ? 's' : ''}`,
         })
         setLastRefresh(new Date())
       })
       .catch((err) => {
-        // Silent fail - use default values already set in state
         console.warn("Gap analysis fetch failed:", err)
+        // Keep default values or set to zero
+        setGapData({
+          allowed: 0,
+          used: 0,
+          unused: 0,
+          confidence: 99,
+          roleName: "Error loading",
+        })
       })
   }, [])
 
@@ -286,11 +293,11 @@ export default function HomePage() {
   const renderContent = () => {
     switch (activeSection) {
       case "home":
-        const gapAllowed = gapData?.allowed ?? 28
+        const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0
-        const gapUnused = gapData?.unused ?? 28
+        const gapUnused = gapData?.unused ?? 0
         const gapConfidence = gapData?.confidence ?? 99
-        const gapRoleName = gapData?.roleName ?? "SafeRemediate-Lambda-Remediation-Role"
+        const gapRoleName = gapData?.roleName ?? "IAM Roles"
 
         return (
           <div className="space-y-6">
