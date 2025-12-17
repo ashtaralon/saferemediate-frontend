@@ -1,0 +1,60 @@
+// DEPENDENCY MAP VIEW WRAPPER
+// File: components/DependencyMap/index.tsx
+
+import React, { useState } from 'react';
+import DependencyMapPro from './DependencyMapPro';
+import DependencyTable from './DependencyTable';
+
+interface DependencyMapViewProps {
+  systemName: string;
+}
+
+export default function DependencyMapView({ systemName }: DependencyMapViewProps) {
+  const [viewType, setViewType] = useState<'graph' | 'table'>('graph');
+
+  return (
+    <div className="dependency-map-container">
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', justifyContent: 'center', padding: '20px' }}>
+        <button
+          onClick={() => setViewType('graph')}
+          style={{
+            padding: '12px 32px',
+            border: viewType === 'graph' ? '2px solid #2196F3' : '1px solid #ddd',
+            borderRadius: '8px',
+            background: viewType === 'graph' ? '#E3F2FD' : 'white',
+            cursor: 'pointer',
+            fontWeight: viewType === 'graph' ? 'bold' : 'normal',
+            fontSize: '15px',
+            boxShadow: viewType === 'graph' ? '0 2px 8px rgba(33, 150, 243, 0.3)' : 'none'
+          }}
+        >
+          📊 Graph View
+        </button>
+        <button
+          onClick={() => setViewType('table')}
+          style={{
+            padding: '12px 32px',
+            border: viewType === 'table' ? '2px solid #2196F3' : '1px solid #ddd',
+            borderRadius: '8px',
+            background: viewType === 'table' ? '#E3F2FD' : 'white',
+            cursor: 'pointer',
+            fontWeight: viewType === 'table' ? 'bold' : 'normal',
+            fontSize: '15px',
+            boxShadow: viewType === 'table' ? '0 2px 8px rgba(33, 150, 243, 0.3)' : 'none'
+          }}
+        >
+          📋 Table View
+        </button>
+      </div>
+
+      <div style={{ minHeight: '800px' }}>
+        {viewType === 'graph' ? (
+          <DependencyMapPro systemName={systemName} />
+        ) : (
+          <DependencyTable systemName={systemName} />
+        )}
+      </div>
+    </div>
+  );
+}
+
