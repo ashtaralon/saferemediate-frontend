@@ -22,8 +22,6 @@ export default function RecoveryTab() {
   const [restoring, setRestoring] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com';
-
   useEffect(() => {
     fetchSnapshots();
   }, []);
@@ -31,7 +29,7 @@ export default function RecoveryTab() {
   const fetchSnapshots = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${backendUrl}/api/snapshots`);
+      const response = await fetch('/api/proxy/snapshots');
       
       if (!response.ok) {
         throw new Error(`Failed to fetch snapshots: ${response.statusText}`);
@@ -70,7 +68,7 @@ export default function RecoveryTab() {
     try {
       setRestoring(snapshotId);
       
-      const response = await fetch(`${backendUrl}/api/snapshots/${snapshotId}/rollback`, {
+      const response = await fetch(`/api/proxy/snapshots/${snapshotId}/rollback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,7 +156,7 @@ export default function RecoveryTab() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="font-semibold text-lg">
-                        {snapshot.current_state?.role_name || snapshot.current_state?.resource_name || snapshot.finding_id || 'Unknown Resource'}
+                        {snapshot.system_name || snapshot.finding_id || snapshot.issue_id || 'Unknown Resource'}
                       </h3>
                       <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
                         {snapshot.resource_type || 'Unknown'}
