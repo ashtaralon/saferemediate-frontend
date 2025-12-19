@@ -1,8 +1,8 @@
 "use client"
 
-console.log("🔥🔥🔥 NEW RECOVERY FILE LOADED 🔥🔥🔥");
-
 import { useState, useEffect } from 'react'
+
+console.log("🔥🔥🔥 NEW RECOVERY FILE LOADED 🔥🔥🔥");
 
 export default function RecoveryTab() {
   return (
