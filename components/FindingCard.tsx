@@ -73,9 +73,14 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
   // Render IAM Role finding
   if (findingType === "iam_unused_permissions" || findingType === "unused_permission") {
     const iamData = finding as any
-    const unusedActions = iamData.unused_actions || []
-    const allowedActions = iamData.allowed_actions || []
-    const usedActions = iamData.used_actions || []
+    // Try multiple field names for backward compatibility
+    const unusedActions = iamData.unusedActions || iamData.unused_actions || iamData.unused_permissions || iamData.details?.unusedActions || []
+    const allowedActions = iamData.allowed_actions || iamData.details?.allowedActions || []
+    const usedActions = iamData.used_actions || iamData.details?.usedActions || []
+    // Get counts - prefer direct count fields, fallback to array length
+    const allowedCount = iamData.allowedCount || iamData.details?.allowedCount || allowedActions.length || 0
+    const usedCount = iamData.usedCount || iamData.details?.usedCount || usedActions.length || 0
+    const unusedCount = iamData.unusedCount || iamData.details?.unusedCount || unusedActions.length || 0
     const roleName = iamData.role_name || finding.resourceId
 
     return (
@@ -154,15 +159,15 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                 <h4 className="font-semibold text-blue-900 mb-3">📊 Gap Analysis</h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">{allowedActions.length || 0}</div>
+                    <div className="text-2xl font-bold text-blue-600">{allowedCount}</div>
                     <div className="text-xs text-gray-600 mt-1">Allowed Actions</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{usedActions.length || 0}</div>
+                    <div className="text-2xl font-bold text-green-600">{usedCount}</div>
                     <div className="text-xs text-gray-600 mt-1">Actually Used</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">{unusedActions.length || 0}</div>
+                    <div className="text-2xl font-bold text-red-600">{unusedCount}</div>
                     <div className="text-xs text-gray-600 mt-1">Unused</div>
                   </div>
                 </div>
