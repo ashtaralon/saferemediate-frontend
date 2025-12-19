@@ -4,16 +4,17 @@ import { useState, useEffect } from 'react'
 
 interface Snapshot {
   snapshot_id: string
-  finding_id: string
+  finding_id?: string
+  issue_id?: string
   resource_type: string
+  resource_name?: string
+  resource_id?: string
+  system_name?: string
   created_at: string
-  current_state: any
+  current_state?: any
 }
 
-// ✅ CORRECT BACKEND URL
-const BACKEND_URL = 'https://saferemediate-backend-f.onrender.com'
-
-export default function RecoveryTab() {
+export default function SnapshotsRecoveryTab({ systemName }: { systemName?: string }) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<string | null>(null)
@@ -28,7 +29,7 @@ export default function RecoveryTab() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch(`${BACKEND_URL}/api/snapshots`, {
+      const res = await fetch('/api/proxy/snapshots', {
         cache: 'no-store',
       })
 
@@ -38,10 +39,8 @@ export default function RecoveryTab() {
 
       const data = await res.json()
       
-      // Handle both array response and object with snapshots property
       const snapshotList = Array.isArray(data) ? data : (data.snapshots || [])
       
-      // Sort by created_at (newest first)
       const sorted = snapshotList.sort((a: Snapshot, b: Snapshot) => 
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       )
@@ -55,12 +54,20 @@ export default function RecoveryTab() {
     }
   }
 
-  async function handleRestore(snapshot: Snapshot) {
-    const resourceName = snapshot.current_state?.role_name || 
-                        snapshot.current_state?.resource_name ||
-                        snapshot.finding_id
+  function getDisplayName(snapshot: Snapshot): string {
+    return snapshot.resource_name ||
+           snapshot.system_name ||
+           snapshot.resource_id ||
+           snapshot.current_state?.role_name ||
+           snapshot.current_state?.resource_name ||
+           snapshot.finding_id ||
+           snapshot.snapshot_id.substring(0, 20) + '...'
+  }
 
-    if (!confirm(`Restore this snapshot?\n\nResource: ${resourceName}\nType: ${snapshot.resource_type}`)) {
+  async function handleRestore(snapshot: Snapshot) {
+    const displayName = getDisplayName(snapshot)
+
+    if (!confirm(`Restore this snapshot?\n\nResource: ${displayName}\nType: ${snapshot.resource_type}`)) {
       return
     }
 
@@ -69,7 +76,7 @@ export default function RecoveryTab() {
       setError(null)
 
       const res = await fetch(
-        `${BACKEND_URL}/api/snapshots/${snapshot.snapshot_id}/restore`,
+        `/api/proxy/snapshots/${snapshot.snapshot_id}/rollback`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -81,9 +88,7 @@ export default function RecoveryTab() {
         throw new Error(errorData.detail || `Failed: ${res.status}`)
       }
 
-      const result = await res.json()
-      
-      alert(`✅ Restored!\n\nResource: ${resourceName}\nType: ${snapshot.resource_type}`)
+      alert(`✅ Restored!\n\nResource: ${displayName}\nType: ${snapshot.resource_type}`)
       
       await loadSnapshots()
       
@@ -111,10 +116,7 @@ export default function RecoveryTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading snapshots...</p>
-        </div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
   }
@@ -135,95 +137,39 @@ export default function RecoveryTab() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Recovery & Rollback</h2>
-          <p className="text-gray-600 mt-1">Restore infrastructure to previous snapshots</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-500">
-            {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
-          </span>
-          <button
-            onClick={loadSnapshots}
-            disabled={loading}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <p className="text-yellow-800">{error}</p>
-        </div>
-      )}
-
-      {/* List */}
+    <div className="space-y-4">
       {snapshots.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
           <h3 className="text-lg font-medium text-gray-900">No snapshots yet</h3>
-          <p className="mt-2 text-gray-600">
-            Snapshots appear after you execute remediations
-          </p>
+          <p className="mt-2 text-gray-600">Snapshots appear after remediations</p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Resource
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Created
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {snapshots.map((snapshot) => (
-                <tr key={snapshot.snapshot_id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {snapshot.current_state?.role_name || 
-                       snapshot.current_state?.resource_name ||
-                       snapshot.finding_id}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {snapshot.snapshot_id.substring(0, 24)}...
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+        <div className="space-y-3">
+          {snapshots.map((snapshot) => (
+            <div key={snapshot.snapshot_id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="text-sm font-semibold text-gray-900">
+                      {getDisplayName(snapshot)}
+                    </h4>
+                    <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded">
                       {snapshot.resource_type}
                     </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {getTimeAgo(snapshot.created_at)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <button
-                      onClick={() => handleRestore(snapshot)}
-                      disabled={restoring === snapshot.snapshot_id}
-                      className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {restoring === snapshot.snapshot_id ? 'Restoring...' : 'Restore'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                  <p className="text-xs text-gray-500">ID: {snapshot.snapshot_id}</p>
+                  <p className="text-xs text-gray-500 mt-1">Created: {getTimeAgo(snapshot.created_at)}</p>
+                </div>
+                <button
+                  onClick={() => handleRestore(snapshot)}
+                  disabled={restoring === snapshot.snapshot_id}
+                  className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 disabled:opacity-50"
+                >
+                  {restoring === snapshot.snapshot_id ? 'Restoring...' : 'Restore'}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
