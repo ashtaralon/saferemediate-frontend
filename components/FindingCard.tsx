@@ -225,7 +225,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <CardContent className="pt-0">
               <div className="flex items-center justify-between">
                 <div className="text-sm text-gray-600">
-                  {unusedActions.length} unused permissions • {iamData.confidence || 0}% confidence
+                  {unusedCount} unused permissions • {iamData.confidence || 0}% confidence
                 </div>
                 <Button
                   variant="outline"
