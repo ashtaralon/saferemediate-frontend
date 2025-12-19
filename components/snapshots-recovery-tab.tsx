@@ -98,15 +98,24 @@ export default function RecoveryTab() {
     }
   }
 
-  function getTimeAgo(dateStr: string): string {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+  function getTimeAgo(dateStr: string | undefined | null): string {
+    if (!dateStr) return 'Unknown'
     
-    if (seconds < 60) return `${seconds}s ago`
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
-    return `${Math.floor(seconds / 86400)}d ago`
+    try {
+      const date = new Date(dateStr)
+      if (isNaN(date.getTime())) return 'Invalid date'
+      
+      const now = new Date()
+      const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+      
+      if (seconds < 0) return 'Just now'
+      if (seconds < 60) return `${seconds}s ago`
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+      return `${Math.floor(seconds / 86400)}d ago`
+    } catch {
+      return 'Invalid date'
+    }
   }
 
   if (loading) {
@@ -192,37 +201,54 @@ export default function RecoveryTab() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {snapshots.map((snapshot) => (
-                <tr key={snapshot.snapshot_id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {snapshot.current_state?.role_name || 
-                       snapshot.current_state?.resource_name ||
-                       snapshot.finding_id}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {snapshot.snapshot_id.substring(0, 24)}...
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                      {snapshot.resource_type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {getTimeAgo(snapshot.created_at)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <button
-                      onClick={() => handleRestore(snapshot)}
-                      disabled={restoring === snapshot.snapshot_id}
-                      className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {restoring === snapshot.snapshot_id ? 'Restoring...' : 'Restore'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {snapshots.map((snapshot) => {
+                const resourceName = snapshot.current_state?.role_name || 
+                                   snapshot.current_state?.resource_name ||
+                                   snapshot.finding_id?.replace('REAL-IAM-', '').replace('-unused-permissions', '') ||
+                                   'Unknown Resource'
+                const findingId = snapshot.finding_id || 'N/A'
+                const reason = snapshot.reason || snapshot.current_state?.reason || 'Remediation snapshot'
+                
+                return (
+                  <tr key={snapshot.snapshot_id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">
+                        {resourceName}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        <div>Finding: {findingId}</div>
+                        <div className="mt-1">ID: {snapshot.snapshot_id.substring(0, 24)}...</div>
+                        {reason && (
+                          <div className="mt-1 text-blue-600">📋 {reason}</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+                        {snapshot.resource_type || 'IAMRole'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      <div>{getTimeAgo(snapshot.created_at)}</div>
+                      {snapshot.created_at && !isNaN(new Date(snapshot.created_at).getTime()) && (
+                        <div className="text-xs text-gray-400 mt-1">
+                          {new Date(snapshot.created_at).toLocaleString()}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <button
+                        onClick={() => handleRestore(snapshot)}
+                        disabled={restoring === snapshot.snapshot_id}
+                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+                        title={`Restore ${resourceName} to state before remediation`}
+                      >
+                        {restoring === snapshot.snapshot_id ? 'Restoring...' : 'Restore'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
