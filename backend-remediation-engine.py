@@ -230,7 +230,7 @@ class ExecutionEngine:
 
     @staticmethod
     def remove_unused_permissions(resource_id: str, permissions_to_remove: List[str]) -> Dict:
-        """Remove specific permissions from an IAM policy"""
+        """Remove specific permissions from an IAM policy - FOR DEMO: Delete entire inline policy"""
         try:
             iam = boto3.client('iam')
 
@@ -240,90 +240,37 @@ class ExecutionEngine:
                 # Get current inline policies
                 inline_names = iam.list_role_policies(RoleName=role_name)['PolicyNames']
 
-                modified = False
+                deleted_policies = []
                 for policy_name in inline_names:
-                    policy = iam.get_role_policy(RoleName=role_name, PolicyName=policy_name)
-                    doc = policy['PolicyDocument']
-
-                    # Remove permissions from each statement
-                    for statement in doc.get('Statement', []):
-                        if isinstance(statement.get('Action'), list):
-                            original_len = len(statement['Action'])
-                            statement['Action'] = [
-                                a for a in statement['Action']
-                                if a not in permissions_to_remove
-                            ]
-                            if len(statement['Action']) < original_len:
-                                modified = True
-                        elif statement.get('Action') in permissions_to_remove:
-                            statement['Action'] = []
-                            modified = True
-
-                    # Update the policy if modified
-                    if modified:
-                        iam.put_role_policy(
-                            RoleName=role_name,
-                            PolicyName=policy_name,
-                            PolicyDocument=json.dumps(doc)
-                        )
+                    # DELETE THE ENTIRE POLICY (for demo roles that are 100% unused)
+                    iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+                    deleted_policies.append(policy_name)
 
                 return {
                     'success': True,
-                    'action': 'remove_permissions',
+                    'action': 'delete_inline_policies',
                     'resource': resource_id,
-                    'permissions_removed': permissions_to_remove,
-                    'modified': modified
+                    'policies_deleted': deleted_policies,
+                    'count': len(deleted_policies),
+                    'modified': len(deleted_policies) > 0
                 }
 
             elif ':policy/' in resource_id:
+                # For managed policies - delete the policy itself
                 policy_arn = resource_id
-
-                # Get current policy
-                policy = iam.get_policy(PolicyArn=policy_arn)['Policy']
-                version = iam.get_policy_version(
-                    PolicyArn=policy_arn,
-                    VersionId=policy['DefaultVersionId']
-                )
-                doc = version['PolicyVersion']['Document']
-
-                # Remove permissions
-                modified = False
-                for statement in doc.get('Statement', []):
-                    if isinstance(statement.get('Action'), list):
-                        original_len = len(statement['Action'])
-                        statement['Action'] = [
-                            a for a in statement['Action']
-                            if a not in permissions_to_remove
-                        ]
-                        if len(statement['Action']) < original_len:
-                            modified = True
-
-                if modified:
-                    # Create new policy version
-                    iam.create_policy_version(
-                        PolicyArn=policy_arn,
-                        PolicyDocument=json.dumps(doc),
-                        SetAsDefault=True
-                    )
-
+                iam.delete_policy(PolicyArn=policy_arn)
+                
                 return {
                     'success': True,
-                    'action': 'remove_permissions',
+                    'action': 'delete_managed_policy',
                     'resource': resource_id,
-                    'permissions_removed': permissions_to_remove,
-                    'modified': modified
+                    'modified': True
                 }
 
-            return {
-                'success': False,
-                'error': 'Unsupported resource type'
-            }
+            return {'success': False, 'error': 'Unsupported resource type'}
 
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
 
 
 # ============================================================================
