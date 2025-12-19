@@ -158,7 +158,7 @@ export default function RecoveryTab() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="font-semibold text-lg">
-                        {snapshot.system_name || snapshot.finding_id || snapshot.issue_id || 'Unknown Resource'}
+                        {snapshot.current_state?.role_name || snapshot.current_state?.resource_name || snapshot.finding_id || 'Unknown Resource'}
                       </h3>
                       <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
                         {snapshot.resource_type || 'Unknown'}
