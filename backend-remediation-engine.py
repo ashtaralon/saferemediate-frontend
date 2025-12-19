@@ -259,7 +259,7 @@ class ExecutionEngine:
                 # For managed policies - delete the policy itself
                 policy_arn = resource_id
                 iam.delete_policy(PolicyArn=policy_arn)
-                
+
                 return {
                     'success': True,
                     'action': 'delete_managed_policy',

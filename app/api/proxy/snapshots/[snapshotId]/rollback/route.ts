@@ -1,7 +1,14 @@
-import { NextRequest, NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
+
+export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
+export const revalidate = 0
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.BACKEND_API_URL ||
+  "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(
   request: NextRequest,
@@ -11,29 +18,33 @@ export async function POST(
   const { snapshotId } = await params
 
   try {
-    const res = await fetch(`${BACKEND_URL}/api/snapshots/${encodeURIComponent(snapshotId)}/rollback`, {
+    console.log(`[SNAPSHOTS-ROLLBACK] Rolling back snapshot: ${snapshotId}`)
+
+    const response = await fetch(`${BACKEND_URL}/api/snapshots/${encodeURIComponent(snapshotId)}/rollback`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({}),
       cache: "no-store",
     })
 
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ detail: res.statusText }))
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: `Backend returned ${response.status}` }))
+      console.error(`[SNAPSHOTS-ROLLBACK] Backend returned ${response.status}:`, errorData)
       return NextResponse.json(
-        { error: errorData.detail || "Backend error", status: res.status },
-        { status: res.status }
+        { error: "Failed to rollback snapshot", message: errorData.detail || errorData.message || `Backend returned ${response.status}` },
+        { status: response.status }
       )
     }
 
-    const data = await res.json()
+    const data = await response.json()
+    console.log(`[SNAPSHOTS-ROLLBACK] ✅ Success:`, data)
+    
     return NextResponse.json(data)
-  } catch (error: any) {
-    console.error("[proxy] rollback error:", error)
+  } catch (error) {
+    console.error("[SNAPSHOTS-ROLLBACK] Error:", error)
     return NextResponse.json(
-      { error: error.message || "Failed to rollback snapshot" },
+      { error: "Failed to rollback snapshot", message: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     )
   }
