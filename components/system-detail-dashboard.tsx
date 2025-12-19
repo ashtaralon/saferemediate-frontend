@@ -40,6 +40,7 @@ import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
+import SnapshotsRecoveryTab from "./snapshots-recovery-tab"
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
@@ -1207,6 +1208,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <SnapshotsRecoveryTab systemName={systemName} />
         </div>
       )}
 
