@@ -28,7 +28,8 @@ export default function RecoveryTab() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch(`${BACKEND_URL}/api/snapshots`, {
+      // Use proxy route to avoid CORS and ensure proper routing
+      const res = await fetch('/api/proxy/snapshots', {
         cache: 'no-store',
       })
 
@@ -69,7 +70,7 @@ export default function RecoveryTab() {
       setError(null)
 
       const res = await fetch(
-        `${BACKEND_URL}/api/snapshots/${snapshot.snapshot_id}/restore`,
+        `/api/proxy/snapshots/${snapshot.snapshot_id}/rollback`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
