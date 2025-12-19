@@ -73,7 +73,8 @@ export function SimulateFixModal({ finding, isOpen, onClose }: SimulateFixModalP
     setError(null)
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+      // Use proxy route to avoid CORS and ensure proper routing
+      const response = await fetch(`/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -84,8 +85,8 @@ export function SimulateFixModal({ finding, isOpen, onClose }: SimulateFixModalP
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.detail || `Execution failed: ${response.status}`)
+        const errorData = await response.json().catch(() => ({ detail: `Execution failed: ${response.status}` }))
+        throw new Error(errorData.detail || errorData.message || `Execution failed: ${response.status}`)
       }
 
       const data = await response.json()
