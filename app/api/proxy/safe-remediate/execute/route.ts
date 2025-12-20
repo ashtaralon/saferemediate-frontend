@@ -49,6 +49,41 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      // Handle 403 Forbidden - Protected resource
+      if (response.status === 403) {
+        const errorData = await response.json().catch(() => ({ detail: 'Access Denied - Resource is protected' }))
+        const errorMessage = errorData.detail || errorData.message || 'Access Denied - Role is protected'
+        console.log(`[SAFE-REMEDIATE] Backend returned 403 Forbidden: ${errorMessage}`)
+        
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Access Denied',
+            message: errorMessage,
+            finding_id: body.finding_id,
+            status: 'forbidden'
+          },
+          { status: 403 }
+        )
+      }
+
+      // Handle other error status codes
+      if (response.status >= 400) {
+        const errorData = await response.json().catch(() => ({ detail: `Request failed with status ${response.status}` }))
+        const errorMessage = errorData.detail || errorData.message || `Request failed with status ${response.status}`
+        console.log(`[SAFE-REMEDIATE] Backend returned ${response.status}: ${errorMessage}`)
+        
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Remediation Failed',
+            message: errorMessage,
+            finding_id: body.finding_id
+          },
+          { status: response.status }
+        )
+      }
+
       console.log(`[SAFE-REMEDIATE] Backend returned ${response.status}`)
     } catch (backendError) {
       console.log(`[SAFE-REMEDIATE] Backend unavailable:`, backendError)
