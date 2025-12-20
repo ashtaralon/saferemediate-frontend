@@ -406,6 +406,21 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 // HTTP POST Helper & Simulation/Fix Functions
 // ============================================================================
 
+export async function apiPost<T = any>(path: string, body?: any): Promise<T> {
+  const url = path.startsWith("http") ? path : path.startsWith("/") ? path : `/${path}`
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store"
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ message: `Request failed with status ${res.status}` }))
+    throw new Error(errorData.message || errorData.detail || `POST ${path} failed: ${res.status}`)
+  }
+  return res.json()
+}
+
 async function httpPost<T>(path: string, body: any): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
     method: "POST",
