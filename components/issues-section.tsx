@@ -323,7 +323,14 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
             )}
           </Button>
           {scanStatus && (
-            <p className="text-sm text-blue-600 mt-2">{scanStatus}</p>
+            <div className="mt-2">
+              <p className="text-sm text-blue-600">{scanStatus}</p>
+            </div>
+          )}
+          {lastScanTime && !scanning && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Last scan: {lastScanTime.toLocaleString()} ({getTimeAgo(lastScanTime)})
+            </p>
           )}
           <p className="text-xs text-muted-foreground mt-3">
             Scans IAM roles, Security Groups, and S3 buckets (takes 30-60 seconds)
