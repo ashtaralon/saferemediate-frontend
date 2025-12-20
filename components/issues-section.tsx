@@ -48,6 +48,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [autoScanned, setAutoScanned] = useState(false)
+  const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
 
   // Fetch findings from backend using api-client
   const fetchFindings = useCallback(async (): Promise<Finding[]> => {
@@ -88,6 +89,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
             clearInterval(pollInterval)
             setScanning(false)
             setScanStatus("")
+            setLastScanTime(new Date()) // ✅ Track last scan time
             // Wait a moment for backend to process, then reload findings
             await new Promise((resolve) => setTimeout(resolve, 2000))
             const newFindings = await fetchFindings()
@@ -212,6 +214,15 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
     }
   }
 
+  // Get time ago helper
+  const getTimeAgo = (date: Date): string => {
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
+    if (seconds < 60) return `${seconds}s ago`
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+    return `${Math.floor(seconds / 86400)}d ago`
+  }
+
   // Loading state
   if (loading && !scanning) {
     return (
@@ -258,16 +269,23 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
     <div className="space-y-4">
       {/* Header with actions */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold">Security Findings</h3>
-          <Badge variant="secondary">{findings.length}</Badge>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold">Security Findings</h3>
+            <Badge variant="secondary">{findings.length}</Badge>
+          </div>
+          {lastScanTime && (
+            <span className="text-sm text-muted-foreground">
+              Last scan: {lastScanTime.toLocaleTimeString()} ({getTimeAgo(lastScanTime)})
+            </span>
+          )}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading || scanning}>
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button variant="default" size="sm" onClick={handleScan} disabled={scanning}>
+          <Button variant="default" size="sm" onClick={handleScan} disabled={scanning || loading}>
             {scanning ? (
               <>
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
