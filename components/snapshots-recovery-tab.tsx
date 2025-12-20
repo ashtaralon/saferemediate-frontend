@@ -18,6 +18,7 @@ export default function RecoveryTab() {
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deletingAll, setDeletingAll] = useState(false)
 
   useEffect(() => {
     loadSnapshots()
@@ -53,6 +54,42 @@ export default function RecoveryTab() {
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleDeleteAll() {
+    if (!confirm(`⚠️ Delete ALL ${snapshots.length} snapshots?\n\nThis action cannot be undone!`)) {
+      return
+    }
+
+    try {
+      setDeletingAll(true)
+      setError(null)
+
+      const res = await fetch('/api/proxy/snapshots/delete-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Failed: ${res.status}`)
+      }
+
+      const result = await res.json()
+      
+      alert(`✅ Deleted ${result.deleted_count} of ${result.total_count} snapshots`)
+      
+      // Reload snapshots list
+      await loadSnapshots()
+      
+    } catch (err) {
+      console.error('Delete all error:', err)
+      const message = err instanceof Error ? err.message : 'Delete failed'
+      setError(message)
+      alert(`❌ Failed: ${message}`)
+    } finally {
+      setDeletingAll(false)
     }
   }
 
@@ -158,11 +195,20 @@ export default function RecoveryTab() {
           </span>
           <button
             onClick={loadSnapshots}
-            disabled={loading}
+            disabled={loading || deletingAll}
             className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
           >
             Refresh
           </button>
+          {snapshots.length > 0 && (
+            <button
+              onClick={handleDeleteAll}
+              disabled={deletingAll || loading}
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+            >
+              {deletingAll ? 'Deleting...' : 'Delete All'}
+            </button>
+          )}
         </div>
       </div>
 
