@@ -34,31 +34,29 @@ interface SimulateFixModalProps {
   };
 }
 
-type ModalState = 'confirmation' | 'loading' | 'success' | 'error';
+type Step = "INTRO" | "SIMULATED" | "ERROR";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com";
 
 export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFixModalProps) {
-  const [modalState, setModalState] = useState<ModalState>('confirmation');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [step, setStep] = useState<Step>("INTRO");
   const [simulation, setSimulation] = useState<any>(null);
   const [decision, setDecision] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [hasSimulated, setHasSimulated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Handle simulate - this is what should be called when modal opens
+  // Handle simulate - called when user clicks "Run Simulation" button
   const handleSimulate = async () => {
     if (!finding && !role) {
-      setErrorMessage('Finding or role is required');
-      setModalState('error');
+      setError('Finding or role is required');
+      setStep('ERROR');
       return;
     }
 
-    setLoading(true);
-    setModalState('loading');
-    setErrorMessage('');
-
     try {
+      setLoading(true);
+      setError(null);
+
       // If we have a finding, call simulate endpoint
       if (finding) {
         const findingId = finding.finding_id || finding.id;
@@ -66,29 +64,22 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
           throw new Error('Finding ID is required');
         }
 
-        const response = await fetch(`${BACKEND_URL}/api/simulate`, {
+        const res = await fetch(`${BACKEND_URL}/api/simulate`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            finding_id: findingId,
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ finding_id: findingId }),
         });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ detail: `API error: ${response.status}` }));
-          throw new Error(errorData?.detail || errorData?.message || `API error: ${response.status}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data?.error || data?.detail || `Simulation failed: ${res.status}`);
         }
 
-        const data = await response.json();
-        console.log("SIMULATE RESPONSE", data); // Debug log
-        
         // Extract simulation and decision from response
         setSimulation(data.simulation ?? null);
         setDecision(data.decision ?? null);
-        setHasSimulated(true);
-        setModalState('success');
+        setStep('SIMULATED');
       } else if (role) {
         // Legacy role-based remediation (keep for backward compatibility)
         const response = await fetch('/api/proxy/remediate', {
@@ -110,29 +101,27 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
         }
 
         const data = await response.json();
-        setModalState('success');
+        setStep('SIMULATED');
       }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : typeof error === 'string' ? error : 'An unexpected error occurred';
-      setErrorMessage(errorMsg);
-      setModalState('error');
+    } catch (e: any) {
+      setError(e.message || 'An unexpected error occurred');
+      setStep('ERROR');
     } finally {
       setLoading(false);
     }
   };
 
   const handleRemediateClick = async () => {
-    // This is for executing remediation after simulation
-    // For now, keep the existing logic for role-based remediation
+    // Legacy role-based remediation (for backward compatibility)
     if (role) {
       if (!role?.name) {
-        setErrorMessage('Role name is required');
-        setModalState('error');
+        setError('Role name is required');
+        setStep('ERROR');
         return;
       }
 
-      setModalState('loading');
-      setErrorMessage('');
+      setLoading(true);
+      setError(null);
 
       try {
         const response = await fetch('/api/proxy/remediate', {
@@ -154,31 +143,33 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
         }
 
         const data = await response.json();
-        setModalState('success');
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : typeof error === 'string' ? error : 'An unexpected error occurred';
-        setErrorMessage(errorMsg);
-        setModalState('error');
+        setStep('SIMULATED');
+      } catch (e: any) {
+        setError(e.message || 'An unexpected error occurred');
+        setStep('ERROR');
+      } finally {
+        setLoading(false);
       }
     }
   };
 
   const handleClose = () => {
-    setModalState('confirmation');
-    setErrorMessage('');
+    setStep('INTRO');
+    setError(null);
     setSimulation(null);
     setDecision(null);
-    setHasSimulated(false);
     onClose();
   };
 
-  // Auto-trigger simulate when modal opens with a finding
+  // Reset to INTRO when modal opens
   useEffect(() => {
-    if (isOpen && finding && !hasSimulated && modalState === 'confirmation') {
-      handleSimulate();
+    if (isOpen) {
+      setStep('INTRO');
+      setError(null);
+      setSimulation(null);
+      setDecision(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, finding]);
+  }, [isOpen]);
 
   // Early return if modal is not open
   if (!isOpen) {
@@ -201,9 +192,51 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {modalState === 'confirmation' && !finding && (
-            <>
-              {/* Role Details Section (only for role-based) */}
+          {/* INTRO Screen - Before simulation */}
+          {step === "INTRO" && finding && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Simulation Preview</h3>
+
+              <p className="text-sm text-slate-600">
+                You are about to simulate remediation for:
+              </p>
+
+              <div className="rounded border p-3 text-sm space-y-2">
+                <div><strong>Resource:</strong> {finding.resource || finding.resourceId || 'N/A'}</div>
+                <div><strong>Issue:</strong> {finding.title || 'N/A'}</div>
+                <div><strong>Severity:</strong> {finding.severity || 'N/A'}</div>
+                {finding.description && (
+                  <div className="mt-2 pt-2 border-t">
+                    <strong>Description:</strong> {finding.description}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleClose}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSimulate}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    'Run Simulation'
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* INTRO Screen - For role-based (legacy) */}
+          {step === "INTRO" && !finding && role && (
+            <div className="space-y-4">
               <div className="space-y-4 bg-slate-50 p-4 rounded-lg">
                 <h3 className="font-semibold text-sm text-slate-900">Role Details</h3>
                 
@@ -217,110 +250,75 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                     <label className="text-xs font-medium text-slate-600">Role ARN</label>
                     <p className="text-sm text-slate-900 mt-1 break-all font-mono text-xs">{role?.arn || 'N/A'}</p>
                   </div>
-
-                  {role?.policies && Array.isArray(role.policies) && role.policies.length > 0 && (
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">Attached Policies</label>
-                      <ul className="mt-2 space-y-1">
-                        {role.policies
-                          .filter((policy) => policy != null)
-                          .map((policy, index) => (
-                            <li key={policy?.id || `policy-${index}`} className="text-sm text-slate-900">
-                              • {policy?.name || 'Unknown Policy'}
-                            </li>
-                          ))}
-                      </ul>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* Warning Message */}
-              <div className="flex gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-amber-900">This action cannot be undone</p>
-                  <p className="text-xs text-amber-800 mt-1">
-                    Remediation will modify the role's policies. Please ensure you have backed up any important configuration.
-                  </p>
-                </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleClose}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleRemediateClick}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  Execute Remediation
+                </Button>
               </div>
-            </>
-          )}
-
-          {modalState === 'confirmation' && finding && (
-            <div className="text-center py-4">
-              <p className="text-sm text-slate-600">Starting simulation...</p>
             </div>
           )}
 
-          {modalState === 'loading' && (
+          {/* Loading State */}
+          {loading && (
             <div className="flex flex-col items-center justify-center gap-4 py-8">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
               <p className="text-sm text-slate-600">
-                {finding ? 'Running simulation and decision engine...' : 'Executing remediation...'}
+                Running simulation and decision engine...
               </p>
             </div>
           )}
 
-          {modalState === 'success' && (decision || simulation) && (
+          {/* SIMULATED Screen - Results */}
+          {step === "SIMULATED" && decision && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle className="h-5 w-5" />
-                <span className="font-semibold">Simulation Complete</span>
+              <h3 className="text-lg font-semibold">Simulation Results</h3>
+
+              <div className="rounded border p-3 space-y-2">
+                <div className="text-sm">
+                  <strong>Decision:</strong> <span className="font-mono">{decision.action}</span>
+                </div>
+                <div className="text-sm">
+                  <strong>Confidence:</strong> {typeof decision.confidence === "number"
+                    ? `${(decision.confidence * 100).toFixed(1)}%`
+                    : "—"}
+                </div>
+                <div className="text-sm">
+                  <strong>Safety:</strong> {typeof decision.safety === "number"
+                    ? `${(decision.safety * 100).toFixed(1)}%`
+                    : "—"}
+                </div>
               </div>
 
-              {/* Decision Result */}
-              {decision && (
-                <div className="mt-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-slate-600">Decision</div>
-                    <div className="font-mono text-sm font-semibold">{decision.action}</div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="rounded-lg border p-3">
-                      <div className="text-xs text-slate-500">Confidence</div>
-                      <div className="text-lg font-semibold">
-                        {typeof decision.confidence === "number"
-                          ? `${(decision.confidence * 100).toFixed(1)}%`
-                          : "—"}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border p-3">
-                      <div className="text-xs text-slate-500">Safety</div>
-                      <div className="text-lg font-semibold">
-                        {typeof decision.safety === "number"
-                          ? `${(decision.safety * 100).toFixed(1)}%`
-                          : "—"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {decision.breakdown && (
-                    <div className="rounded-lg border p-3">
-                      <div className="text-sm font-medium mb-2">Breakdown</div>
-                      <pre className="text-xs overflow-auto bg-slate-50 p-2 rounded">
-                        {JSON.stringify(decision.breakdown, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-
-                  {Array.isArray(decision.reasons) && decision.reasons.length > 0 && (
-                    <div className="rounded-lg border p-3">
-                      <div className="text-sm font-medium mb-2">Reasons</div>
-                      <ul className="list-disc ml-5 text-sm text-slate-700 space-y-1">
-                        {decision.reasons.map((r: string, i: number) => (
-                          <li key={i}>{r}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+              {Array.isArray(decision.reasons) && decision.reasons.length > 0 && (
+                <div className="rounded-lg border p-3">
+                  <div className="text-sm font-medium mb-2">Decision Reasons</div>
+                  <ul className="list-disc ml-5 text-sm text-slate-700 space-y-1">
+                    {decision.reasons.map((r: string, i: number) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
-              {/* Simulation Result - Only show if data exists */}
+              {decision.breakdown && (
+                <div className="rounded-lg border p-3">
+                  <div className="text-sm font-medium mb-2">Score Breakdown</div>
+                  <pre className="text-xs overflow-auto bg-slate-50 p-2 rounded">
+                    {JSON.stringify(decision.breakdown, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Simulation Details - Only if exists */}
               {simulation?.before_state && (
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <h4 className="font-semibold text-sm mb-2">Simulation Details</h4>
@@ -342,54 +340,39 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                   </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {modalState === 'success' && !decision && !simulation && (
-            <div className="flex flex-col items-center justify-center gap-4 py-8">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-              <div className="text-center">
-                <p className="text-sm font-medium text-slate-900">Remediation completed successfully</p>
-                <p className="text-xs text-slate-600 mt-1">
-                  The role "{role?.name || 'selected role'}" has been remediated
-                </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleClose}>
+                  Close
+                </Button>
+                {decision.action !== "BLOCK" && (
+                  <Button className="bg-green-600 hover:bg-green-700">
+                    Approve & Apply
+                  </Button>
+                )}
               </div>
             </div>
           )}
 
-          {modalState === 'error' && (
+          {/* ERROR Screen */}
+          {step === "ERROR" && (
             <div className="flex flex-col items-center justify-center gap-4 py-8">
               <AlertCircle className="h-8 w-8 text-red-600" />
               <div className="text-center">
-                <p className="text-sm font-medium text-slate-900">Remediation failed</p>
+                <p className="text-sm font-medium text-slate-900">Simulation failed</p>
                 <p className="text-xs text-red-600 mt-2 break-words">
-                  {errorMessage}
+                  {error || 'An unexpected error occurred'}
                 </p>
               </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleClose}>
+                  Close
+                </Button>
+                <Button onClick={() => setStep('INTRO')} variant="outline">
+                  Try Again
+                </Button>
+              </div>
             </div>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-3 justify-end">
-          {(modalState === 'confirmation' || modalState === 'error') && (
-            <>
-              <Button variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleRemediateClick}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                Execute Remediation
-              </Button>
-            </>
-          )}
-
-          {(modalState === 'success' || (modalState === 'error' && false)) && (
-            <Button onClick={handleClose} className="bg-blue-600 hover:bg-blue-700">
-              Close
-            </Button>
           )}
         </div>
       </DialogContent>
