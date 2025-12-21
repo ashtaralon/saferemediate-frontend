@@ -79,7 +79,8 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
 
   const handleExecute = async (findingId: string, options?: { createRollback?: boolean }) => {
     console.log("[LIST] Executing remediation:", findingId)
-    const response = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+    // Use proxy route to avoid CORS issues
+    const response = await fetch(`/api/proxy/simulate/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
