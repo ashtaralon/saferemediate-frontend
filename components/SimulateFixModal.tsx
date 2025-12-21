@@ -8,14 +8,14 @@ import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 interface SimulateFixModalProps {
   isOpen: boolean;
   onClose: () => void;
-  role: {
-    id: string;
-    name: string;
-    arn: string;
+  role?: {
+    id?: string;
+    name?: string;
+    arn?: string;
     policies?: Array<{
-      id: string;
-      name: string;
-      document: any;
+      id?: string;
+      name?: string;
+      document?: any;
     }>;
   };
 }
@@ -26,7 +26,23 @@ export function SimulateFixModal({ isOpen, onClose, role }: SimulateFixModalProp
   const [modalState, setModalState] = useState<ModalState>('confirmation');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // Early return if modal is not open
+  if (!isOpen) {
+    return null;
+  }
+
+  // Early return if role is missing
+  if (!role) {
+    return null;
+  }
+
   const handleRemediateClick = async () => {
+    if (!role?.name) {
+      setErrorMessage('Role name is required');
+      setModalState('error');
+      return;
+    }
+
     setModalState('loading');
     setErrorMessage('');
 
@@ -37,22 +53,23 @@ export function SimulateFixModal({ isOpen, onClose, role }: SimulateFixModalProp
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          roleId: role.id,
-          roleName: role.name,
-          roleArn: role.arn,
-          policies: role.policies || [],
+          roleId: role?.id || '',
+          roleName: role?.name || '',
+          roleArn: role?.arn || '',
+          policies: role?.policies || [],
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `API error: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ message: `API error: ${response.status}` }));
+        throw new Error(errorData?.message || errorData?.detail || `API error: ${response.status}`);
       }
 
       const data = await response.json();
       setModalState('success');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'An unexpected error occurred');
+      const errorMsg = error instanceof Error ? error.message : typeof error === 'string' ? error : 'An unexpected error occurred';
+      setErrorMessage(errorMsg);
       setModalState('error');
     }
   };
@@ -83,23 +100,25 @@ export function SimulateFixModal({ isOpen, onClose, role }: SimulateFixModalProp
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs font-medium text-slate-600">Role Name</label>
-                    <p className="text-sm text-slate-900 mt-1 break-all">{role.name}</p>
+                    <p className="text-sm text-slate-900 mt-1 break-all">{role?.name || 'N/A'}</p>
                   </div>
                   
                   <div>
                     <label className="text-xs font-medium text-slate-600">Role ARN</label>
-                    <p className="text-sm text-slate-900 mt-1 break-all font-mono text-xs">{role.arn}</p>
+                    <p className="text-sm text-slate-900 mt-1 break-all font-mono text-xs">{role?.arn || 'N/A'}</p>
                   </div>
 
-                  {role.policies && role.policies.length > 0 && (
+                  {role?.policies && Array.isArray(role.policies) && role.policies.length > 0 && (
                     <div>
                       <label className="text-xs font-medium text-slate-600">Attached Policies</label>
                       <ul className="mt-2 space-y-1">
-                        {role.policies.map((policy) => (
-                          <li key={policy.id} className="text-sm text-slate-900">
-                            • {policy.name}
-                          </li>
-                        ))}
+                        {role.policies
+                          .filter((policy) => policy != null)
+                          .map((policy, index) => (
+                            <li key={policy?.id || `policy-${index}`} className="text-sm text-slate-900">
+                              • {policy?.name || 'Unknown Policy'}
+                            </li>
+                          ))}
                       </ul>
                     </div>
                   )}
@@ -132,7 +151,7 @@ export function SimulateFixModal({ isOpen, onClose, role }: SimulateFixModalProp
               <div className="text-center">
                 <p className="text-sm font-medium text-slate-900">Remediation completed successfully</p>
                 <p className="text-xs text-slate-600 mt-1">
-                  The role "{role.name}" has been remediated
+                  The role "{role?.name || 'selected role'}" has been remediated
                 </p>
               </div>
             </div>
