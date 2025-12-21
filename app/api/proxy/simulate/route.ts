@@ -121,13 +121,19 @@ export async function POST(request: NextRequest) {
       data.decision = generateMockDecision(finding_id)
     }
 
-    return NextResponse.json(data)
+    // Add X-Proxy header to prove this route was used
+    return NextResponse.json(data, {
+      headers: {
+        "X-Proxy": "simulate",
+        "X-Proxy-Timestamp": new Date().toISOString(),
+      }
+    })
 
   } catch (error) {
     console.error("Simulation error:", error)
     return NextResponse.json(
       { success: false, error: "Simulation failed" },
-      { status: 500 }
+      { status: 500, headers: { "X-Proxy": "simulate-error" } }
     )
   }
 }
