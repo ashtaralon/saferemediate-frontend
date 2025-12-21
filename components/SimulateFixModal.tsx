@@ -41,7 +41,8 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediat
 export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFixModalProps) {
   const [modalState, setModalState] = useState<ModalState>('confirmation');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [simulationResult, setSimulationResult] = useState<any>(null);
+  const [simulation, setSimulation] = useState<any>(null);
+  const [decision, setDecision] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [hasSimulated, setHasSimulated] = useState(false);
 
@@ -81,7 +82,11 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
         }
 
         const data = await response.json();
-        setSimulationResult(data);
+        console.log("SIMULATE RESPONSE", data); // Debug log
+        
+        // Extract simulation and decision from response
+        setSimulation(data.simulation ?? null);
+        setDecision(data.decision ?? null);
         setHasSimulated(true);
         setModalState('success');
       } else if (role) {
@@ -161,7 +166,8 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
   const handleClose = () => {
     setModalState('confirmation');
     setErrorMessage('');
-    setSimulationResult(null);
+    setSimulation(null);
+    setDecision(null);
     setHasSimulated(false);
     onClose();
   };
@@ -257,7 +263,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
             </div>
           )}
 
-          {modalState === 'success' && simulationResult && (
+          {modalState === 'success' && (decision || simulation) && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-green-600">
                 <CheckCircle className="h-5 w-5" />
@@ -265,53 +271,48 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
               </div>
 
               {/* Decision Result */}
-              {simulationResult.decision && (
-                <div className="bg-slate-50 p-4 rounded-lg space-y-3">
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">Decision Engine Result</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Action:</span>
-                        <span className="font-medium">{simulationResult.decision.action}</span>
+              {decision && (
+                <div className="mt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-slate-600">Decision</div>
+                    <div className="font-mono text-sm font-semibold">{decision.action}</div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-slate-500">Confidence</div>
+                      <div className="text-lg font-semibold">
+                        {typeof decision.confidence === "number"
+                          ? `${(decision.confidence * 100).toFixed(1)}%`
+                          : "—"}
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Confidence:</span>
-                        <span className="font-medium">{(simulationResult.decision.confidence * 100).toFixed(0)}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Safety:</span>
-                        <span className="font-medium">{(simulationResult.decision.safety * 100).toFixed(0)}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Auto Allowed:</span>
-                        <span className="font-medium">{simulationResult.decision.auto_allowed ? 'Yes' : 'No'}</span>
+                    </div>
+
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-slate-500">Safety</div>
+                      <div className="text-lg font-semibold">
+                        {typeof decision.safety === "number"
+                          ? `${(decision.safety * 100).toFixed(1)}%`
+                          : "—"}
                       </div>
                     </div>
                   </div>
 
-                  {simulationResult.decision.breakdown && (
-                    <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs font-medium text-slate-600 mb-2">Score Breakdown:</p>
-                      <div className="space-y-1 text-xs">
-                        {Object.entries(simulationResult.decision.breakdown).map(([key, value]) => (
-                          <div key={key} className="flex justify-between">
-                            <span className="text-slate-600 capitalize">{key}:</span>
-                            <span className="font-mono">{(value as number * 100).toFixed(0)}%</span>
-                          </div>
-                        ))}
-                      </div>
+                  {decision.breakdown && (
+                    <div className="rounded-lg border p-3">
+                      <div className="text-sm font-medium mb-2">Breakdown</div>
+                      <pre className="text-xs overflow-auto bg-slate-50 p-2 rounded">
+                        {JSON.stringify(decision.breakdown, null, 2)}
+                      </pre>
                     </div>
                   )}
 
-                  {simulationResult.decision.reasons && simulationResult.decision.reasons.length > 0 && (
-                    <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs font-medium text-slate-600 mb-2">Decision Reasons:</p>
-                      <ul className="space-y-1 text-xs text-slate-700">
-                        {simulationResult.decision.reasons.map((reason: string, idx: number) => (
-                          <li key={idx} className="flex items-start gap-2">
-                            <span className="text-slate-400">•</span>
-                            <span>{reason}</span>
-                          </li>
+                  {Array.isArray(decision.reasons) && decision.reasons.length > 0 && (
+                    <div className="rounded-lg border p-3">
+                      <div className="text-sm font-medium mb-2">Reasons</div>
+                      <ul className="list-disc ml-5 text-sm text-slate-700 space-y-1">
+                        {decision.reasons.map((r: string, i: number) => (
+                          <li key={i}>{r}</li>
                         ))}
                       </ul>
                     </div>
@@ -319,18 +320,20 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                 </div>
               )}
 
-              {/* Simulation Result */}
-              {simulationResult.simulation && (
+              {/* Simulation Result - Only show if data exists */}
+              {simulation?.before_state && (
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <h4 className="font-semibold text-sm mb-2">Simulation Details</h4>
                   <div className="text-sm space-y-1">
-                    <p><span className="font-medium">Before:</span> {simulationResult.simulation.before_state}</p>
-                    <p><span className="font-medium">After:</span> {simulationResult.simulation.after_state}</p>
-                    {simulationResult.simulation.warnings && simulationResult.simulation.warnings.length > 0 && (
+                    <p><span className="font-medium">Before:</span> {simulation.before_state}</p>
+                    {simulation.after_state && (
+                      <p><span className="font-medium">After:</span> {simulation.after_state}</p>
+                    )}
+                    {simulation.warnings && Array.isArray(simulation.warnings) && simulation.warnings.length > 0 && (
                       <div className="mt-2">
                         <p className="font-medium text-xs">Warnings:</p>
                         <ul className="list-disc list-inside text-xs">
-                          {simulationResult.simulation.warnings.map((w: string, idx: number) => (
+                          {simulation.warnings.map((w: string, idx: number) => (
                             <li key={idx}>{w}</li>
                           ))}
                         </ul>
@@ -342,7 +345,7 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
             </div>
           )}
 
-          {modalState === 'success' && !simulationResult && (
+          {modalState === 'success' && !decision && !simulation && (
             <div className="flex flex-col items-center justify-center gap-4 py-8">
               <CheckCircle className="h-8 w-8 text-green-600" />
               <div className="text-center">
