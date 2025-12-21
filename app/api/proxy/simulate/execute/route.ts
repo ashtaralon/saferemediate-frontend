@@ -30,7 +30,9 @@ export async function POST(request: NextRequest) {
     if (response.ok) {
       const data = await response.json()
       console.log(`[SIMULATE-EXECUTE] ✅ Success:`, data)
-      return NextResponse.json({ success: true, ...data })
+      return NextResponse.json({ success: true, ...data }, {
+        headers: { "X-Proxy": "simulate-execute" }
+      })
     }
 
     // Backend endpoint not available yet - return simulated success for UI
@@ -42,6 +44,8 @@ export async function POST(request: NextRequest) {
       status: 'executed',
       message: 'Remediation applied successfully',
       timestamp: new Date().toISOString(),
+    }, {
+      headers: { "X-Proxy": "simulate-execute-mock" }
     })
   } catch (error) {
     console.error("[SIMULATE-EXECUTE] Error:", error)

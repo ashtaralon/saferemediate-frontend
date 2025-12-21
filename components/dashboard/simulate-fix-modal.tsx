@@ -189,7 +189,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       }, 500)
 
       // Use the Next.js proxy route
-      const res = await fetch(`/api/proxy/safe-remediate/execute`, {
+      console.log("APPLY CLICKED", { step, findingId: safeFinding.id })
+      const res = await fetch(`/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
