@@ -36,8 +36,6 @@ interface SimulateFixModalProps {
 
 type Step = "INTRO" | "SIMULATED" | "ERROR";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com";
-
 export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFixModalProps) {
   const [step, setStep] = useState<Step>("INTRO");
   const [simulation, setSimulation] = useState<any>(null);
@@ -64,7 +62,8 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
           throw new Error('Finding ID is required');
         }
 
-        const res = await fetch(`${BACKEND_URL}/api/simulate`, {
+        // Use proxy route - no direct backend calls
+        const res = await fetch('/api/proxy/simulate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ finding_id: findingId }),

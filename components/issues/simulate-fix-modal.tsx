@@ -56,7 +56,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const [loading, setLoading] = useState(false)
   const [hasRunInitialSimulation, setHasRunInitialSimulation] = useState(false)
 
-  // Use proxy routes only - never call backend directly from browser
+  // Use proxy routes only - no direct backend calls
+  // This ensures all requests go through Next.js API routes for proper routing
 
   const handleSimulate = useCallback(async () => {
     if (!finding?.id) {
@@ -68,8 +69,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     setIsAnalyzing(true)
     setLoading(true)
     try {
-      // Use proxy route - never call backend directly
-      const res = await fetch(`/api/proxy/simulate`, {
+      // Use proxy route - no direct backend calls
+      const res = await fetch('/api/proxy/simulate', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ finding_id: finding.id }),
@@ -108,8 +109,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     setApplyStep(1)
 
     try {
-      // Use proxy route - never call backend directly
-      const res = await fetch(`/api/proxy/simulate/execute`, {
+      // Use proxy route for remediation - no direct backend calls
+      const res = await fetch('/api/proxy/simulate/execute', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ finding_id: finding.id, create_rollback: true }),
