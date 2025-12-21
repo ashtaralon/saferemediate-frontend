@@ -168,17 +168,21 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   }
 
   const handleApplyFix = async () => {
+    // Debug log FIRST - before any guards
+    console.log("🔥 APPLY BUTTON CLICKED", {
+      step,
+      findingId: safeFinding.id,
+      hasId: !!safeFinding.id
+    })
+
     if (!safeFinding.id) {
+      console.log("❌ No finding ID - showing error")
       setError("Finding ID is required")
       setStep("ERROR")
       return
     }
 
-    // Confirm with user
-    if (!confirm("Are you sure you want to apply this fix? This will modify your infrastructure.")) {
-      return
-    }
-
+    // Skip confirm dialog for smoother demo
     setStep("APPLYING")
     setApplyProgress(0)
 
