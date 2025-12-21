@@ -110,6 +110,70 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
     }
   };
 
+  const handleApplyFix = async () => {
+    console.log('🔥 APPLY BUTTON CLICKED');
+    
+    if (!finding && !role) {
+      console.error('No finding or role available');
+      setError('Finding or role is required');
+      setStep('ERROR');
+      return;
+    }
+
+    const findingId = finding?.finding_id || finding?.id;
+    console.log('🔥 APPLY DEBUG:', {
+      step,
+      findingId,
+      hasId: !!findingId,
+      decision: decision?.action,
+      finding: finding ? { id: finding.id, finding_id: finding.finding_id } : null
+    });
+
+    if (!findingId) {
+      console.error('Finding ID is missing');
+      setError('Finding ID is required');
+      setStep('ERROR');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Use proxy route for remediation execution
+      const response = await fetch('/api/proxy/simulate/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          finding_id: findingId,
+          create_rollback: true,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: `API error: ${response.status}` }));
+        throw new Error(errorData?.detail || errorData?.message || `API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ Remediation executed:', data);
+      
+      // Show success and close after a moment
+      setStep('SIMULATED');
+      setTimeout(() => {
+        handleClose();
+      }, 2000);
+    } catch (e: any) {
+      console.error('❌ Remediation failed:', e);
+      setError(e.message || 'An unexpected error occurred');
+      setStep('ERROR');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleRemediateClick = async () => {
     // Legacy role-based remediation (for backward compatibility)
     if (role) {
@@ -345,8 +409,19 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
                   Close
                 </Button>
                 {decision.action !== "BLOCK" && (
-                  <Button className="bg-green-600 hover:bg-green-700">
-                    Approve & Apply
+                  <Button 
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={handleApplyFix}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Applying...
+                      </>
+                    ) : (
+                      'Approve & Apply'
+                    )}
                   </Button>
                 )}
               </div>
