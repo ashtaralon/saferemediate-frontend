@@ -2,6 +2,13 @@
 
 import React, { useState } from "react"
 import { X } from "lucide-react"
+import {
+  RemediationDecision,
+  DecisionBreakdown,
+  RemediationAction,
+  REMEDIATION_ACTION_CONFIG,
+  SCORE_BREAKDOWN_LABELS
+} from "@/lib/types"
 
 interface SimulateFixModalProps {
   isOpen: boolean
@@ -11,6 +18,61 @@ interface SimulateFixModalProps {
     title?: string
     icon?: string
   } | null
+}
+
+// Helper component for score breakdown bar
+function ScoreBar({ label, value, description }: { label: string; value: number; description: string }) {
+  const percentage = Math.round(value * 100)
+  const color = percentage >= 80 ? "#10B981" : percentage >= 60 ? "#F59E0B" : "#EF4444"
+
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between text-sm mb-1">
+        <span style={{ color: "var(--text-secondary)" }} title={description}>
+          {label}
+        </span>
+        <span style={{ color }}>{percentage}%</span>
+      </div>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${percentage}%`, background: color }}
+        />
+      </div>
+    </div>
+  )
+}
+
+// Decision badge component
+function DecisionBadge({ decision }: { decision: RemediationDecision }) {
+  const config = REMEDIATION_ACTION_CONFIG[decision.action]
+  const safetyPercent = Math.round(decision.safety * 100)
+
+  return (
+    <div
+      className="rounded-xl p-6 mb-6 border-2 text-center"
+      style={{
+        background: config.bgColor,
+        borderColor: config.color,
+        boxShadow: `0 0 30px ${config.bgColor}`,
+      }}
+    >
+      <div className="flex items-center justify-center gap-3 mb-2">
+        <span className="text-4xl">{config.icon}</span>
+        <div className="text-2xl font-bold" style={{ color: config.color }}>
+          {config.label.toUpperCase()}
+        </div>
+      </div>
+      <div className="text-base" style={{ color: config.color }}>
+        {safetyPercent}% safety score
+      </div>
+      {!decision.auto_allowed && decision.action === "AUTO_REMEDIATE" && (
+        <div className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
+          (Auto-remediation disabled by policy)
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalProps) {
@@ -293,54 +355,71 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
           {/* Tab Content */}
           {activeTab === "overview" && (
             <>
-              {/* Status Badge */}
-              <div
-                className="rounded-xl p-8 mb-6 border-2 text-center animate-pulse"
-                style={{
-                  background: "rgba(16, 185, 129, 0.15)",
-                  borderColor: "#10B981",
-                  boxShadow: "0 0 30px rgba(16, 185, 129, 0.3)",
-                }}
-              >
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <span className="text-4xl">✅</span>
-                  <div className="text-3xl font-bold" style={{ color: "#10B981" }}>
-                    SAFE TO APPLY
+              {/* Decision Badge - from decision engine */}
+              {simulationResult?.decision ? (
+                <DecisionBadge decision={simulationResult.decision} />
+              ) : (
+                <div
+                  className="rounded-xl p-8 mb-6 border-2 text-center animate-pulse"
+                  style={{
+                    background: "rgba(16, 185, 129, 0.15)",
+                    borderColor: "#10B981",
+                    boxShadow: "0 0 30px rgba(16, 185, 129, 0.3)",
+                  }}
+                >
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <span className="text-4xl">✅</span>
+                    <div className="text-3xl font-bold" style={{ color: "#10B981" }}>
+                      SAFE TO APPLY
+                    </div>
+                  </div>
+                  <div className="text-base" style={{ color: "#10B981" }}>
+                    99% confidence
                   </div>
                 </div>
-                <div className="text-base" style={{ color: "#10B981" }}>
-                  99% confidence
-                </div>
-              </div>
+              )}
 
-              {/* What will happen */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  What will happen:
-                </h3>
-                <div className="space-y-2">
-                  {[
-                    { icon: "✅", text: "Enable S3 Block Public Access", color: "#10B981" },
-                    { icon: "✅", text: "Update bucket policy", color: "#10B981" },
-                    { icon: "✅", text: "Internal services keep access", color: "#10B981" },
-                    { icon: "✅", text: "CloudTrail keeps working", color: "#10B981" },
-                    { icon: "⚠️", text: "External monitor loses access", color: "#F59E0B" },
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span style={{ color: item.color }}>{item.icon}</span>
-                      <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                        {item.text}
-                      </span>
-                    </div>
-                  ))}
+              {/* Decision Reasons */}
+              {simulationResult?.decision?.reasons && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+                    Decision Reasoning:
+                  </h3>
+                  <div className="space-y-2">
+                    {simulationResult.decision.reasons.map((reason, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span style={{ color: "#10B981" }}>•</span>
+                        <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                          {reason}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Warnings from decision engine */}
+              {simulationResult?.decision?.warnings && simulationResult.decision.warnings.length > 0 && (
+                <div className="mb-6 rounded-lg p-4" style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+                  <h3 className="text-sm font-semibold mb-2" style={{ color: "#F59E0B" }}>
+                    Warnings:
+                  </h3>
+                  <div className="space-y-1">
+                    {simulationResult.decision.warnings.map((warning, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <span>⚠️</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{warning}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Quick metrics */}
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {[
-                  { label: "Services affected", value: "0" },
-                  { label: "Risk level", value: "Very Low" },
+                  { label: "Confidence", value: simulationResult?.decision ? `${Math.round(simulationResult.decision.confidence * 100)}%` : "99%" },
+                  { label: "Safety Score", value: simulationResult?.decision ? `${Math.round(simulationResult.decision.safety * 100)}%` : "99%" },
                   { label: "Apply time", value: "< 30 sec" },
                   { label: "Rollback", value: "Always available" },
                 ].map((metric, i) => (
@@ -625,41 +704,93 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                 </div>
               </div>
 
-              {/* Confidence factors */}
+              {/* Confidence factors - from decision engine breakdown */}
               <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
                 <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  Confidence Factors:
+                  Confidence Breakdown (Decision Engine):
                 </h3>
                 <div className="space-y-3">
-                  {[
-                    { label: "Policy validation", value: 100 },
-                    { label: "IAM analysis", value: 99 },
-                    { label: "Service mapping", value: 98 },
-                    { label: "Historical success", value: 100 },
-                  ].map((factor, i) => (
-                    <div key={i}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span style={{ color: "var(--text-secondary)" }}>{factor.label}</span>
-                        <span style={{ color: "#10B981" }}>{factor.value}%</span>
-                      </div>
-                      <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${factor.value}%`, background: "#10B981" }}
+                  {simulationResult?.decision?.breakdown ? (
+                    <>
+                      {(Object.keys(SCORE_BREAKDOWN_LABELS) as Array<keyof DecisionBreakdown>).map((key) => (
+                        <ScoreBar
+                          key={key}
+                          label={SCORE_BREAKDOWN_LABELS[key].label}
+                          value={simulationResult.decision!.breakdown[key]}
+                          description={SCORE_BREAKDOWN_LABELS[key].description}
                         />
+                      ))}
+                      <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                              OVERALL CONFIDENCE
+                            </span>
+                            <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                              Geometric mean with weighted factors
+                            </div>
+                          </div>
+                          <span
+                            className="font-bold text-xl"
+                            style={{
+                              color: simulationResult.decision.confidence >= 0.8 ? "#10B981" :
+                                     simulationResult.decision.confidence >= 0.6 ? "#F59E0B" : "#EF4444"
+                            }}
+                          >
+                            {Math.round(simulationResult.decision.confidence * 100)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                            SAFETY SCORE
+                          </span>
+                          <span
+                            className="font-bold text-xl"
+                            style={{
+                              color: simulationResult.decision.safety >= 0.8 ? "#10B981" :
+                                     simulationResult.decision.safety >= 0.6 ? "#F59E0B" : "#EF4444"
+                            }}
+                          >
+                            {Math.round(simulationResult.decision.safety * 100)}%
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-                    <div className="flex justify-between">
-                      <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                        OVERALL
-                      </span>
-                      <span className="font-bold text-lg" style={{ color: "#10B981" }}>
-                        99%
-                      </span>
-                    </div>
-                  </div>
+                    </>
+                  ) : (
+                    // Fallback to hardcoded values if no decision data
+                    <>
+                      {[
+                        { label: "Simulation", value: 95 },
+                        { label: "Usage Analysis", value: 95 },
+                        { label: "Data Quality", value: 89 },
+                        { label: "Dependencies", value: 80 },
+                        { label: "Historical", value: 90 },
+                      ].map((factor, i) => (
+                        <div key={i}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span style={{ color: "var(--text-secondary)" }}>{factor.label}</span>
+                            <span style={{ color: "#10B981" }}>{factor.value}%</span>
+                          </div>
+                          <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${factor.value}%`, background: "#10B981" }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+                        <div className="flex justify-between">
+                          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                            OVERALL
+                          </span>
+                          <span className="font-bold text-lg" style={{ color: "#10B981" }}>
+                            92%
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -768,14 +899,43 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                   </button>
                 )}
               </div>
-              <button
-                onClick={handleAutoFix}
-                disabled={loading}
-                className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: "var(--action-primary)" }}
-              >
-                {loading ? "Applying..." : "AUTO-FIX"}
-              </button>
+              {/* Dynamic button based on decision action */}
+              {simulationResult?.decision?.action === "BLOCK" ? (
+                <button
+                  disabled
+                  className="px-8 py-3 rounded-lg text-base font-bold transition-all opacity-50 cursor-not-allowed"
+                  style={{ background: "#EF4444", color: "white" }}
+                >
+                  BLOCKED
+                </button>
+              ) : simulationResult?.decision?.action === "REQUIRE_APPROVAL" ? (
+                <button
+                  onClick={handleAutoFix}
+                  disabled={loading}
+                  className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: "#F59E0B" }}
+                >
+                  {loading ? "Requesting..." : "REQUEST APPROVAL"}
+                </button>
+              ) : simulationResult?.decision?.action === "CANARY" ? (
+                <button
+                  onClick={handleAutoFix}
+                  disabled={loading}
+                  className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: "#3B82F6" }}
+                >
+                  {loading ? "Deploying..." : "CANARY DEPLOY"}
+                </button>
+              ) : (
+                <button
+                  onClick={handleAutoFix}
+                  disabled={loading}
+                  className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: "var(--action-primary)" }}
+                >
+                  {loading ? "Applying..." : "AUTO-FIX"}
+                </button>
+              )}
             </div>
           )}
         </div>

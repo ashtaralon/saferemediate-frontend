@@ -102,3 +102,105 @@ export interface InfrastructureData {
     openIssues: Array<{ date: string; count: number }>
   }
 }
+
+// ============================================================================
+// REMEDIATION DECISION ENGINE TYPES
+// ============================================================================
+
+export type RemediationAction = "AUTO_REMEDIATE" | "CANARY" | "REQUIRE_APPROVAL" | "BLOCK"
+
+export interface DecisionBreakdown {
+  simulation: number
+  usage: number
+  data: number
+  dependency: number
+  historical: number
+}
+
+export interface RemediationDecision {
+  confidence: number
+  safety: number
+  action: RemediationAction
+  auto_allowed: boolean
+  reasons: string[]
+  breakdown: DecisionBreakdown
+  warnings: string[]
+}
+
+export interface ResourceChange {
+  resource_id: string
+  resource_type: string
+  change_type: string
+  before: string
+  after: string
+}
+
+export interface TemporalInfo {
+  start_time: string
+  estimated_completion: string
+}
+
+export interface SimulationResponse {
+  success: boolean
+  confidence: number // Legacy 0-100 scale
+  before_state: string
+  after_state: string
+  estimated_time: string
+  temporal_info: TemporalInfo
+  warnings: string[]
+  resource_changes: ResourceChange[]
+  impact_summary: string
+  decision?: RemediationDecision
+}
+
+// Action colors and labels for UI
+export const REMEDIATION_ACTION_CONFIG: Record<RemediationAction, { label: string; color: string; bgColor: string; icon: string }> = {
+  AUTO_REMEDIATE: {
+    label: "Auto-Remediate",
+    color: "#10B981",
+    bgColor: "rgba(16, 185, 129, 0.15)",
+    icon: "✅"
+  },
+  CANARY: {
+    label: "Canary Deploy",
+    color: "#3B82F6",
+    bgColor: "rgba(59, 130, 246, 0.15)",
+    icon: "🐤"
+  },
+  REQUIRE_APPROVAL: {
+    label: "Requires Approval",
+    color: "#F59E0B",
+    bgColor: "rgba(245, 158, 11, 0.15)",
+    icon: "⚠️"
+  },
+  BLOCK: {
+    label: "Blocked",
+    color: "#EF4444",
+    bgColor: "rgba(239, 68, 68, 0.15)",
+    icon: "🚫"
+  }
+}
+
+// Score breakdown labels for UI
+export const SCORE_BREAKDOWN_LABELS: Record<keyof DecisionBreakdown, { label: string; description: string }> = {
+  simulation: {
+    label: "Simulation",
+    description: "Results from dry-run simulation"
+  },
+  usage: {
+    label: "Usage",
+    description: "Permission usage patterns"
+  },
+  data: {
+    label: "Data Quality",
+    description: "Observation coverage & sources"
+  },
+  dependency: {
+    label: "Dependencies",
+    description: "Resource graph analysis"
+  },
+  historical: {
+    label: "Historical",
+    description: "Past remediation success rate"
+  }
+}
