@@ -1,13 +1,27 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
+interface Finding {
+  id?: string;
+  finding_id?: string;
+  title?: string;
+  description?: string;
+  severity?: string;
+  resource?: string;
+  resourceId?: string;
+  resourceType?: string;
+  type?: string;
+  role_name?: string;
+}
+
 interface SimulateFixModalProps {
   isOpen: boolean;
   onClose: () => void;
+  finding?: Finding;
   role?: {
     id?: string;
     name?: string;
@@ -22,78 +36,168 @@ interface SimulateFixModalProps {
 
 type ModalState = 'confirmation' | 'loading' | 'success' | 'error';
 
-export function SimulateFixModal({ isOpen, onClose, role }: SimulateFixModalProps) {
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com";
+
+export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFixModalProps) {
   const [modalState, setModalState] = useState<ModalState>('confirmation');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [simulationResult, setSimulationResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [hasSimulated, setHasSimulated] = useState(false);
 
-  // Early return if modal is not open
-  if (!isOpen) {
-    return null;
-  }
-
-  // Early return if role is missing
-  if (!role) {
-    return null;
-  }
-
-  const handleRemediateClick = async () => {
-    if (!role?.name) {
-      setErrorMessage('Role name is required');
+  // Handle simulate - this is what should be called when modal opens
+  const handleSimulate = async () => {
+    if (!finding && !role) {
+      setErrorMessage('Finding or role is required');
       setModalState('error');
       return;
     }
 
+    setLoading(true);
     setModalState('loading');
     setErrorMessage('');
 
     try {
-      const response = await fetch('/api/proxy/remediate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          roleId: role?.id || '',
-          roleName: role?.name || '',
-          roleArn: role?.arn || '',
-          policies: role?.policies || [],
-        }),
-      });
+      // If we have a finding, call simulate endpoint
+      if (finding) {
+        const findingId = finding.finding_id || finding.id;
+        if (!findingId) {
+          throw new Error('Finding ID is required');
+        }
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: `API error: ${response.status}` }));
-        throw new Error(errorData?.message || errorData?.detail || `API error: ${response.status}`);
+        const response = await fetch(`${BACKEND_URL}/api/simulate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            finding_id: findingId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: `API error: ${response.status}` }));
+          throw new Error(errorData?.detail || errorData?.message || `API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setSimulationResult(data);
+        setHasSimulated(true);
+        setModalState('success');
+      } else if (role) {
+        // Legacy role-based remediation (keep for backward compatibility)
+        const response = await fetch('/api/proxy/remediate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            roleId: role?.id || '',
+            roleName: role?.name || '',
+            roleArn: role?.arn || '',
+            policies: role?.policies || [],
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: `API error: ${response.status}` }));
+          throw new Error(errorData?.message || errorData?.detail || `API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setModalState('success');
       }
-
-      const data = await response.json();
-      setModalState('success');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : typeof error === 'string' ? error : 'An unexpected error occurred';
       setErrorMessage(errorMsg);
       setModalState('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemediateClick = async () => {
+    // This is for executing remediation after simulation
+    // For now, keep the existing logic for role-based remediation
+    if (role) {
+      if (!role?.name) {
+        setErrorMessage('Role name is required');
+        setModalState('error');
+        return;
+      }
+
+      setModalState('loading');
+      setErrorMessage('');
+
+      try {
+        const response = await fetch('/api/proxy/remediate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            roleId: role?.id || '',
+            roleName: role?.name || '',
+            roleArn: role?.arn || '',
+            policies: role?.policies || [],
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: `API error: ${response.status}` }));
+          throw new Error(errorData?.message || errorData?.detail || `API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setModalState('success');
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : typeof error === 'string' ? error : 'An unexpected error occurred';
+        setErrorMessage(errorMsg);
+        setModalState('error');
+      }
     }
   };
 
   const handleClose = () => {
     setModalState('confirmation');
     setErrorMessage('');
+    setSimulationResult(null);
+    setHasSimulated(false);
     onClose();
   };
+
+  // Auto-trigger simulate when modal opens with a finding
+  useEffect(() => {
+    if (isOpen && finding && !hasSimulated && modalState === 'confirmation') {
+      handleSimulate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, finding]);
+
+  // Early return if modal is not open
+  if (!isOpen) {
+    return null;
+  }
+
+  // Early return if both finding and role are missing
+  if (!finding && !role) {
+    return null;
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Remediate Role</DialogTitle>
+          <DialogTitle>{finding ? 'Simulate Remediation' : 'Remediate Role'}</DialogTitle>
           <DialogDescription>
-            Review the role details before executing remediation
+            {finding ? 'Analyzing impact and determining remediation action' : 'Review the role details before executing remediation'}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {modalState === 'confirmation' && (
+          {modalState === 'confirmation' && !finding && (
             <>
-              {/* Role Details Section */}
+              {/* Role Details Section (only for role-based) */}
               <div className="space-y-4 bg-slate-50 p-4 rounded-lg">
                 <h3 className="font-semibold text-sm text-slate-900">Role Details</h3>
                 
@@ -138,14 +242,107 @@ export function SimulateFixModal({ isOpen, onClose, role }: SimulateFixModalProp
             </>
           )}
 
-          {modalState === 'loading' && (
-            <div className="flex flex-col items-center justify-center gap-4 py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <p className="text-sm text-slate-600">Executing remediation...</p>
+          {modalState === 'confirmation' && finding && (
+            <div className="text-center py-4">
+              <p className="text-sm text-slate-600">Starting simulation...</p>
             </div>
           )}
 
-          {modalState === 'success' && (
+          {modalState === 'loading' && (
+            <div className="flex flex-col items-center justify-center gap-4 py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <p className="text-sm text-slate-600">
+                {finding ? 'Running simulation and decision engine...' : 'Executing remediation...'}
+              </p>
+            </div>
+          )}
+
+          {modalState === 'success' && simulationResult && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle className="h-5 w-5" />
+                <span className="font-semibold">Simulation Complete</span>
+              </div>
+
+              {/* Decision Result */}
+              {simulationResult.decision && (
+                <div className="bg-slate-50 p-4 rounded-lg space-y-3">
+                  <div>
+                    <h4 className="font-semibold text-sm mb-2">Decision Engine Result</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Action:</span>
+                        <span className="font-medium">{simulationResult.decision.action}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Confidence:</span>
+                        <span className="font-medium">{(simulationResult.decision.confidence * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Safety:</span>
+                        <span className="font-medium">{(simulationResult.decision.safety * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Auto Allowed:</span>
+                        <span className="font-medium">{simulationResult.decision.auto_allowed ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {simulationResult.decision.breakdown && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs font-medium text-slate-600 mb-2">Score Breakdown:</p>
+                      <div className="space-y-1 text-xs">
+                        {Object.entries(simulationResult.decision.breakdown).map(([key, value]) => (
+                          <div key={key} className="flex justify-between">
+                            <span className="text-slate-600 capitalize">{key}:</span>
+                            <span className="font-mono">{(value as number * 100).toFixed(0)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {simulationResult.decision.reasons && simulationResult.decision.reasons.length > 0 && (
+                    <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs font-medium text-slate-600 mb-2">Decision Reasons:</p>
+                      <ul className="space-y-1 text-xs text-slate-700">
+                        {simulationResult.decision.reasons.map((reason: string, idx: number) => (
+                          <li key={idx} className="flex items-start gap-2">
+                            <span className="text-slate-400">•</span>
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Simulation Result */}
+              {simulationResult.simulation && (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-sm mb-2">Simulation Details</h4>
+                  <div className="text-sm space-y-1">
+                    <p><span className="font-medium">Before:</span> {simulationResult.simulation.before_state}</p>
+                    <p><span className="font-medium">After:</span> {simulationResult.simulation.after_state}</p>
+                    {simulationResult.simulation.warnings && simulationResult.simulation.warnings.length > 0 && (
+                      <div className="mt-2">
+                        <p className="font-medium text-xs">Warnings:</p>
+                        <ul className="list-disc list-inside text-xs">
+                          {simulationResult.simulation.warnings.map((w: string, idx: number) => (
+                            <li key={idx}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {modalState === 'success' && !simulationResult && (
             <div className="flex flex-col items-center justify-center gap-4 py-8">
               <CheckCircle className="h-8 w-8 text-green-600" />
               <div className="text-center">
