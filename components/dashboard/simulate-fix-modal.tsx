@@ -193,7 +193,6 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       }, 500)
 
       // Use the Next.js proxy route
-      console.log("APPLY CLICKED", { step, findingId: safeFinding.id })
       const res = await fetch(`/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -207,19 +206,21 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
 
       clearInterval(progressInterval)
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.detail || `Remediation failed: ${res.status}`)
+      const data = await res.json()
+      console.log("✅ APPLY RESULT:", data)
+
+      // Check for success - either res.ok or data.success
+      if (!res.ok && !data.success) {
+        throw new Error(data.detail || data.error || `Remediation failed: ${res.status}`)
       }
 
-      const data = await res.json()
-      console.log("Remediation result:", data)
-
+      // 🔥 Advance to SUCCESS state
       setApplyProgress(100)
-      setTimeout(() => setStep("SUCCESS"), 500)
+      setStep("SUCCESS")
+      console.log("✅ Step changed to SUCCESS")
 
     } catch (err) {
-      console.error("Remediation error:", err)
+      console.error("❌ Remediation error:", err)
       setError(err instanceof Error ? err.message : "Remediation failed")
       setStep("ERROR")
     }
