@@ -125,9 +125,6 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     return { title: "Security Finding", icon: "⚠️", id: finding?.id }
   }, [finding])
 
-  // API URL
-  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-
   // ========== HANDLERS ==========
 
   const handleSimulate = async () => {
@@ -141,8 +138,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     setError(null)
 
     try {
-      // Try the simulate endpoint
-      const res = await fetch(`${BACKEND_URL}/api/simulate`, {
+      // Use the Next.js proxy route to avoid CORS issues
+      const res = await fetch(`/api/proxy/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -191,7 +188,8 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
         setApplyProgress(prev => Math.min(prev + 20, 80))
       }, 500)
 
-      const res = await fetch(`${BACKEND_URL}/api/safe-remediate/execute`, {
+      // Use the Next.js proxy route
+      const res = await fetch(`/api/proxy/safe-remediate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
