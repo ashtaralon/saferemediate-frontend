@@ -2,6 +2,24 @@
 
 import React, { useState } from "react"
 import { X } from "lucide-react"
+import {
+  RemediationDecision,
+  DecisionBreakdown,
+  REMEDIATION_ACTION_CONFIG,
+  SCORE_BREAKDOWN_LABELS
+} from "@/lib/types"
+
+// ============================================================================
+// STATE MACHINE - Clear flow with explicit steps
+// ============================================================================
+
+type SimulationStep =
+  | "CONFIRM"      // Initial: show what we're about to simulate
+  | "LOADING"      // Running simulation
+  | "PREVIEW"      // Show results, let user decide
+  | "APPLYING"     // Executing remediation
+  | "SUCCESS"      // Done!
+  | "ERROR"        // Something went wrong
 
 interface SimulateFixModalProps {
   isOpen: boolean
@@ -10,163 +28,362 @@ interface SimulateFixModalProps {
     id?: string
     title?: string
     icon?: string
+    resourceId?: string
+    resourceType?: string
+    roleName?: string
   } | null
 }
 
+// ============================================================================
+// HELPER COMPONENTS
+// ============================================================================
+
+function ScoreBar({ label, value, description }: { label: string; value: number; description: string }) {
+  const percentage = Math.round(value * 100)
+  const color = percentage >= 80 ? "#10B981" : percentage >= 60 ? "#F59E0B" : "#EF4444"
+
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between text-sm mb-1">
+        <span style={{ color: "var(--text-secondary)" }} title={description}>
+          {label}
+        </span>
+        <span style={{ color }}>{percentage}%</span>
+      </div>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${percentage}%`, background: color }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function DecisionBadge({ decision }: { decision: RemediationDecision }) {
+  const config = REMEDIATION_ACTION_CONFIG[decision.action]
+  const safetyPercent = Math.round(decision.safety * 100)
+
+  return (
+    <div
+      className="rounded-xl p-6 mb-6 border-2 text-center"
+      style={{
+        background: config.bgColor,
+        borderColor: config.color,
+        boxShadow: `0 0 30px ${config.bgColor}`,
+      }}
+    >
+      <div className="flex items-center justify-center gap-3 mb-2">
+        <span className="text-4xl">{config.icon}</span>
+        <div className="text-2xl font-bold" style={{ color: config.color }}>
+          {config.label.toUpperCase()}
+        </div>
+      </div>
+      <div className="text-base" style={{ color: config.color }}>
+        {safetyPercent}% safety score
+      </div>
+      {!decision.auto_allowed && decision.action === "AUTO_REMEDIATE" && (
+        <div className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
+          (Auto-remediation disabled by policy)
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Spinner() {
+  return <span className="animate-spin text-2xl">🔄</span>
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalProps) {
-  // CRITICAL: Early return if modal is not open - prevents any rendering issues
+  // CRITICAL: Early return if modal is not open
   if (!isOpen) return null
 
-  // Safety check: provide default values IMMEDIATELY if finding is undefined or missing properties
-  // This MUST be computed before any state or other logic to prevent "reading title of undefined" errors
+  // ========== STATE MACHINE ==========
+  const [step, setStep] = useState<SimulationStep>("CONFIRM")
+  const [simulationResult, setSimulationResult] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [applyProgress, setApplyProgress] = useState(0)
+  const [activeTab, setActiveTab] = useState<"overview" | "impact" | "code" | "timeline" | "tests">("overview")
+
+  // Safe finding with defaults
   const safeFinding = React.useMemo(() => {
-    try {
-      if (finding && typeof finding === 'object' && 'title' in finding && finding.title) {
-        return { title: String(finding.title), icon: String(finding.icon || "⚠️") }
+    if (finding && typeof finding === 'object' && finding.title) {
+      return {
+        title: String(finding.title),
+        icon: String(finding.icon || "⚠️"),
+        id: finding.id,
+        resourceId: finding.resourceId,
+        resourceType: finding.resourceType,
+        roleName: finding.roleName
       }
-    } catch (e) {
-      // If anything goes wrong, return safe defaults
-      console.warn('Error processing finding:', e)
     }
-    return { title: "Security Finding", icon: "⚠️" }
+    return { title: "Security Finding", icon: "⚠️", id: finding?.id }
   }, [finding])
 
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [showResults, setShowResults] = useState(false)
-  const [isApplying, setIsApplying] = useState(false)
-  const [applyStep, setApplyStep] = useState(0)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const [showCodeDiff, setShowCodeDiff] = useState(false)
-  const [activeTab, setActiveTab] = useState<"overview" | "impact" | "code" | "timeline" | "tests">("overview")
-  const [showExtendedSim, setShowExtendedSim] = useState(false)
-  const [extendedSimProgress, setExtendedSimProgress] = useState(0)
-  const [simulationResult, setSimulationResult] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-
-  // Get API base URL
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
-  const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
+  // ========== HANDLERS ==========
 
   const handleSimulate = async () => {
-    if (!finding?.id) {
-      console.error("No finding ID available for simulation")
-      alert("Error: Finding ID is required for simulation")
+    if (!safeFinding.id) {
+      setError("Finding ID is required for simulation")
+      setStep("ERROR")
       return
     }
 
-    setIsAnalyzing(true)
-    setLoading(true)
+    setStep("LOADING")
+    setError(null)
+
     try {
-      const res = await fetch(`${API_URL}/simulation/issue/preview`, {
+      // Use the Next.js proxy route to avoid CORS issues
+      const res = await fetch(`/api/proxy/simulate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId: finding.id }),
+        body: JSON.stringify({
+          finding_id: safeFinding.id,
+          resource_id: safeFinding.resourceId,
+          resource_type: safeFinding.resourceType
+        }),
       })
 
       if (!res.ok) {
-        throw new Error(`Simulation failed: ${res.status} ${res.statusText}`)
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Simulation failed: ${res.status}`)
       }
 
       const data = await res.json()
+      console.log("Simulation result:", data)
+
       setSimulationResult(data)
-      setIsAnalyzing(false)
-      setShowResults(true)
+      setStep("PREVIEW")
+
     } catch (err) {
-      console.error("Simulation failed", err)
-      setIsAnalyzing(false)
-      alert(`Simulation failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    } finally {
-      setLoading(false)
+      console.error("Simulation error:", err)
+      setError(err instanceof Error ? err.message : "Simulation failed")
+      setStep("ERROR")
     }
   }
 
-  const handleAutoFix = async () => {
-    if (!finding?.id) {
-      console.error("No finding ID available for auto-fix")
-      alert("Error: Finding ID is required for auto-fix")
+  const handleApplyFix = async () => {
+    if (!safeFinding.id) {
+      setError("Finding ID is required")
+      setStep("ERROR")
       return
     }
 
+    // Confirm with user
     if (!confirm("Are you sure you want to apply this fix? This will modify your infrastructure.")) {
       return
     }
 
-    setIsApplying(true)
-    setLoading(true)
-    setApplyStep(1)
+    setStep("APPLYING")
+    setApplyProgress(0)
 
     try {
-      const res = await fetch(`${API_URL}/simulation/issue/remediate`, {
+      // Progress animation
+      const progressInterval = setInterval(() => {
+        setApplyProgress(prev => Math.min(prev + 20, 80))
+      }, 500)
+
+      // Use the Next.js proxy route
+      const res = await fetch(`/api/proxy/safe-remediate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId: finding.id, confirm: true }),
+        body: JSON.stringify({
+          finding_id: safeFinding.id,
+          resource_id: safeFinding.resourceId,
+          resource_type: safeFinding.resourceType,
+          create_rollback: true
+        }),
       })
 
+      clearInterval(progressInterval)
+
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(errorData.detail || `Fix failed: ${res.status} ${res.statusText}`)
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Remediation failed: ${res.status}`)
       }
 
       const data = await res.json()
+      console.log("Remediation result:", data)
 
-      // Simulate progress steps
-      const steps = [2, 3, 4, 5]
-      steps.forEach((step, index) => {
-        setTimeout(() => {
-          setApplyStep(step)
-          if (step === 5) {
-            setTimeout(() => {
-              setIsApplying(false)
-              setShowSuccess(true)
-            }, 1000)
-          }
-        }, (index + 1) * 1000)
-      })
+      setApplyProgress(100)
+      setTimeout(() => setStep("SUCCESS"), 500)
 
-      if (data.status === "success") {
-        // Success will be shown in the success screen
-        console.log("Fix applied successfully:", data)
-      }
     } catch (err) {
-      console.error("Fix failed", err)
-      setIsApplying(false)
-      setApplyStep(0)
-      alert(`Auto-fix failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    } finally {
-      setLoading(false)
+      console.error("Remediation error:", err)
+      setError(err instanceof Error ? err.message : "Remediation failed")
+      setStep("ERROR")
     }
   }
 
-
   const handleClose = () => {
-    setShowResults(false)
-    setIsAnalyzing(false)
-    setIsApplying(false)
-    setApplyStep(0)
-    setShowSuccess(false)
-    setShowCodeDiff(false)
+    // Reset all state
+    setStep("CONFIRM")
+    setSimulationResult(null)
+    setError(null)
+    setApplyProgress(0)
     setActiveTab("overview")
-    setShowExtendedSim(false)
-    setExtendedSimProgress(0)
     onClose()
   }
 
-  const handleExtendedSimulation = () => {
-    setShowExtendedSim(true)
-    setExtendedSimProgress(0)
-
-    const interval = setInterval(() => {
-      setExtendedSimProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          return 100
-        }
-        return prev + 7
-      })
-    }, 200)
+  const handleRetry = () => {
+    setError(null)
+    setStep("CONFIRM")
   }
 
-  if (showSuccess) {
+  // ========== RENDER STATES ==========
+
+  // ----- CONFIRM STATE -----
+  if (step === "CONFIRM") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
+        <div
+          className="relative w-[500px] rounded-2xl p-8 shadow-2xl"
+          style={{ background: "var(--bg-secondary)" }}
+        >
+          <button
+            onClick={handleClose}
+            className="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="text-center">
+            <div className="text-5xl mb-4">🔍</div>
+            <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>
+              Run Simulation
+            </h2>
+            <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
+              Analyze the impact before making any changes
+            </p>
+          </div>
+
+          <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-2xl">{safeFinding.icon}</span>
+              <div>
+                <div className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {safeFinding.title}
+                </div>
+                {safeFinding.roleName && (
+                  <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Resource: {safeFinding.roleName}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 mb-6">
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span>✅</span> Dry-run simulation - no changes made
+            </div>
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span>✅</span> Impact analysis on services and dependencies
+            </div>
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span>✅</span> Confidence scoring with decision engine
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleClose}
+              className="flex-1 px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSimulate}
+              className="flex-1 px-6 py-3 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90"
+              style={{ background: "var(--action-primary)" }}
+            >
+              Run Simulation
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ----- LOADING STATE -----
+  if (step === "LOADING") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/85" />
+        <div
+          className="relative w-[400px] rounded-2xl p-8 shadow-2xl text-center"
+          style={{ background: "var(--bg-secondary)" }}
+        >
+          <Spinner />
+          <h2 className="text-xl font-bold mt-4" style={{ color: "var(--text-primary)" }}>
+            Analyzing...
+          </h2>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            Running simulation and impact analysis
+          </p>
+          <div className="mt-4 space-y-2 text-left">
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span className="animate-pulse">📊</span> Checking permission usage...
+            </div>
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span className="animate-pulse">🔗</span> Mapping dependencies...
+            </div>
+            <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span className="animate-pulse">🧠</span> Running decision engine...
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ----- ERROR STATE -----
+  if (step === "ERROR") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
+        <div
+          className="relative w-[400px] rounded-2xl p-8 shadow-2xl text-center"
+          style={{ background: "var(--bg-secondary)" }}
+        >
+          <div className="text-5xl mb-4">❌</div>
+          <h2 className="text-xl font-bold" style={{ color: "#EF4444" }}>
+            Simulation Failed
+          </h2>
+          <p className="text-sm mt-2 mb-4" style={{ color: "var(--text-secondary)" }}>
+            {error || "An unexpected error occurred"}
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={handleClose}
+              className="flex-1 px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
+            >
+              Close
+            </button>
+            <button
+              onClick={handleRetry}
+              className="flex-1 px-6 py-3 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90"
+              style={{ background: "var(--action-primary)" }}
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ----- SUCCESS STATE -----
+  if (step === "SUCCESS") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
@@ -184,15 +401,15 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
           <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <div style={{ color: "var(--text-secondary)" }}>New health score:</div>
+                <div style={{ color: "var(--text-secondary)" }}>Status:</div>
                 <div className="text-lg font-bold" style={{ color: "#10B981" }}>
-                  84/100 (+12)
+                  Remediated
                 </div>
               </div>
               <div>
-                <div style={{ color: "var(--text-secondary)" }}>Time taken:</div>
+                <div style={{ color: "var(--text-secondary)" }}>Rollback:</div>
                 <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-                  4.2 seconds
+                  Available
                 </div>
               </div>
             </div>
@@ -212,30 +429,70 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
     )
   }
 
-  if (isAnalyzing) {
+  // ----- APPLYING STATE -----
+  if (step === "APPLYING") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
         <div className="absolute inset-0 bg-black/85" />
         <div
-          className="relative w-[400px] rounded-2xl p-8 shadow-2xl text-center"
+          className="relative w-[500px] rounded-2xl p-8 shadow-2xl"
           style={{ background: "var(--bg-secondary)" }}
         >
-          <div className="text-5xl mb-4 animate-spin">🔄</div>
-          <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Analyzing...
+          <h2 className="text-xl font-bold mb-4 text-center" style={{ color: "var(--text-primary)" }}>
+            Applying Fix...
           </h2>
-          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
-            Running simulation and impact analysis
-          </p>
+
+          <div className="mb-4">
+            <div className="h-3 rounded-full overflow-hidden" style={{ background: "#374151" }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${applyProgress}%`, background: "#10B981" }}
+              />
+            </div>
+            <div className="text-center mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+              {applyProgress}% complete
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {[
+              { step: 1, text: "Creating snapshot..." },
+              { step: 2, text: "Backing up current config..." },
+              { step: 3, text: "Applying security fix..." },
+              { step: 4, text: "Validating changes..." },
+              { step: 5, text: "Running health checks..." },
+            ].map((item) => (
+              <div key={item.step} className="flex items-center gap-3">
+                {applyProgress >= item.step * 20 ? (
+                  <span style={{ color: "#10B981" }}>✅</span>
+                ) : applyProgress >= (item.step - 1) * 20 ? (
+                  <Spinner />
+                ) : (
+                  <span style={{ color: "var(--text-secondary)" }}>⏳</span>
+                )}
+                <span
+                  className="text-sm"
+                  style={{
+                    color: applyProgress >= (item.step - 1) * 20 ? "var(--text-primary)" : "var(--text-secondary)",
+                  }}
+                >
+                  {item.text}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )
   }
 
-  if (showResults) {
+  // ----- PREVIEW STATE (main results view) -----
+  if (step === "PREVIEW") {
+    const decision = simulationResult?.decision as RemediationDecision | undefined
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/85" onClick={!isApplying ? handleClose : undefined} />
+        <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
 
         <div
           className="relative w-[900px] max-h-[90vh] overflow-y-auto rounded-2xl p-8 shadow-2xl"
@@ -245,21 +502,19 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
           <div className="flex items-start justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-                Advanced Simulation
+                Simulation Results
               </h2>
               <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
                 {safeFinding.title}
               </p>
             </div>
-            {!isApplying && (
-              <button
-                onClick={handleClose}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            )}
+            <button
+              onClick={handleClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Tab Navigation */}
@@ -268,8 +523,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
               { key: "overview", label: "Overview" },
               { key: "impact", label: "Impact" },
               { key: "code", label: "Code Changes" },
-              { key: "timeline", label: "Timeline" },
-              { key: "tests", label: "Test Results" },
+              { key: "tests", label: "Confidence" },
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -293,55 +547,68 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
           {/* Tab Content */}
           {activeTab === "overview" && (
             <>
-              {/* Status Badge */}
-              <div
-                className="rounded-xl p-8 mb-6 border-2 text-center animate-pulse"
-                style={{
-                  background: "rgba(16, 185, 129, 0.15)",
-                  borderColor: "#10B981",
-                  boxShadow: "0 0 30px rgba(16, 185, 129, 0.3)",
-                }}
-              >
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <span className="text-4xl">✅</span>
+              {/* Decision Badge */}
+              {decision ? (
+                <DecisionBadge decision={decision} />
+              ) : (
+                <div
+                  className="rounded-xl p-6 mb-6 border-2 text-center"
+                  style={{
+                    background: "rgba(16, 185, 129, 0.15)",
+                    borderColor: "#10B981",
+                  }}
+                >
                   <div className="text-3xl font-bold" style={{ color: "#10B981" }}>
                     SAFE TO APPLY
                   </div>
+                  <div className="text-sm mt-1" style={{ color: "#10B981" }}>
+                    {simulationResult?.confidence || 95}% confidence
+                  </div>
                 </div>
-                <div className="text-base" style={{ color: "#10B981" }}>
-                  99% confidence
-                </div>
-              </div>
+              )}
 
-              {/* What will happen */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  What will happen:
-                </h3>
-                <div className="space-y-2">
-                  {[
-                    { icon: "✅", text: "Enable S3 Block Public Access", color: "#10B981" },
-                    { icon: "✅", text: "Update bucket policy", color: "#10B981" },
-                    { icon: "✅", text: "Internal services keep access", color: "#10B981" },
-                    { icon: "✅", text: "CloudTrail keeps working", color: "#10B981" },
-                    { icon: "⚠️", text: "External monitor loses access", color: "#F59E0B" },
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span style={{ color: item.color }}>{item.icon}</span>
-                      <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                        {item.text}
-                      </span>
-                    </div>
-                  ))}
+              {/* Decision Reasons */}
+              {decision?.reasons && decision.reasons.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+                    Decision Reasoning:
+                  </h3>
+                  <div className="space-y-2">
+                    {decision.reasons.map((reason, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span style={{ color: "#10B981" }}>•</span>
+                        <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                          {reason}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Warnings */}
+              {decision?.warnings && decision.warnings.length > 0 && (
+                <div className="mb-6 rounded-lg p-4" style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+                  <h3 className="text-sm font-semibold mb-2" style={{ color: "#F59E0B" }}>
+                    Warnings:
+                  </h3>
+                  <div className="space-y-1">
+                    {decision.warnings.map((warning, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <span>⚠️</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{warning}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Quick metrics */}
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {[
-                  { label: "Services affected", value: "0" },
-                  { label: "Risk level", value: "Very Low" },
-                  { label: "Apply time", value: "< 30 sec" },
+                  { label: "Confidence", value: decision ? `${Math.round(decision.confidence * 100)}%` : `${simulationResult?.confidence || 95}%` },
+                  { label: "Safety Score", value: decision ? `${Math.round(decision.safety * 100)}%` : "95%" },
+                  { label: "Apply time", value: simulationResult?.estimated_time || "< 30 sec" },
                   { label: "Rollback", value: "Always available" },
                 ].map((metric, i) => (
                   <div key={i} className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
@@ -359,7 +626,6 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
 
           {activeTab === "impact" && (
             <>
-              {/* 6 metric cards */}
               <div className="grid grid-cols-3 gap-4 mb-6">
                 {[
                   { icon: "🎯", label: "Services", value: "0 affected", color: "#10B981" },
@@ -381,75 +647,43 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                 ))}
               </div>
 
-              {/* Affected resources table */}
-              <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-                <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  Affected Resources:
-                </h3>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ color: "var(--text-secondary)" }}>
-                      <th className="text-left py-2">Resource</th>
-                      <th className="text-left py-2">Current</th>
-                      <th className="text-left py-2">After</th>
-                      <th className="text-left py-2">Impact</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      {
-                        resource: "logs-prod",
-                        current: "Public",
-                        after: "Private",
-                        impact: "✅ Secure",
-                        color: "#10B981",
-                      },
-                      {
-                        resource: "log-processor",
-                        current: "Access",
-                        after: "Access",
-                        impact: "✅ No change",
-                        color: "#10B981",
-                      },
-                      {
-                        resource: "monitor-ext",
-                        current: "Access",
-                        after: "Blocked",
-                        impact: "⚠️ Loses access",
-                        color: "#F59E0B",
-                      },
-                    ].map((row, i) => (
-                      <tr key={i} style={{ borderTop: i > 0 ? `1px solid var(--border)` : "none" }}>
-                        <td className="py-2" style={{ color: "var(--text-primary)" }}>
-                          {row.resource}
-                        </td>
-                        <td className="py-2" style={{ color: "var(--text-secondary)" }}>
-                          {row.current}
-                        </td>
-                        <td className="py-2" style={{ color: "var(--text-secondary)" }}>
-                          {row.after}
-                        </td>
-                        <td className="py-2" style={{ color: row.color }}>
-                          {row.impact}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* Resource changes */}
+              {simulationResult?.resource_changes && (
+                <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+                    Resource Changes:
+                  </h3>
+                  {simulationResult.resource_changes.map((change: any, i: number) => (
+                    <div key={i} className="mb-3 pb-3 border-b last:border-0" style={{ borderColor: "var(--border)" }}>
+                      <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {change.resource_id}
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 mt-2 text-xs">
+                        <div>
+                          <span style={{ color: "var(--text-secondary)" }}>Before: </span>
+                          <span style={{ color: "#EF4444" }}>{change.before}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "var(--text-secondary)" }}>After: </span>
+                          <span style={{ color: "#10B981" }}>{change.after}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
 
           {activeTab === "code" && (
             <>
-              {/* Side-by-side diff */}
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-                  <div className="text-xs font-semibold mb-3" style={{ color: "var(--text-secondary)" }}>
+                  <div className="text-xs font-semibold mb-3" style={{ color: "#EF4444" }}>
                     BEFORE
                   </div>
-                  <pre className="text-xs" style={{ color: "var(--text-primary)" }}>
-                    {`{
+                  <pre className="text-xs overflow-auto" style={{ color: "var(--text-primary)" }}>
+{`{
   "Statement": [{
     "Effect": "Allow",
     "Principal": "*",
@@ -459,11 +693,11 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                   </pre>
                 </div>
                 <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-                  <div className="text-xs font-semibold mb-3" style={{ color: "var(--text-secondary)" }}>
+                  <div className="text-xs font-semibold mb-3" style={{ color: "#10B981" }}>
                     AFTER
                   </div>
-                  <pre className="text-xs" style={{ color: "#10B981" }}>
-                    {`{
+                  <pre className="text-xs overflow-auto" style={{ color: "#10B981" }}>
+{`{
   "Statement": [{
     "Effect": "Deny",
     "Principal": "*",
@@ -474,310 +708,102 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                   </pre>
                 </div>
               </div>
-
-              {/* Files affected */}
-              <div className="rounded-lg p-4 mb-4" style={{ background: "var(--bg-primary)" }}>
-                <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
-                  Files Affected:
-                </h3>
-                <ul className="text-sm space-y-1" style={{ color: "var(--text-secondary)" }}>
-                  <li>• bucket-policy.json (modified)</li>
-                  <li>• iam-roles.json (no change)</li>
-                  <li>• block-public-access (enabled)</li>
-                </ul>
-              </div>
-
-              {/* Download options */}
-              <div className="flex gap-2">
-                <button
-                  className="px-4 py-2 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-                  style={{
-                    color: "var(--text-secondary)",
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  Download as Terraform
-                </button>
-                <button
-                  className="px-4 py-2 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-                  style={{
-                    color: "var(--text-secondary)",
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  Download as JSON
-                </button>
-                <button
-                  className="px-4 py-2 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-                  style={{
-                    color: "var(--text-secondary)",
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  Copy to clipboard
-                </button>
-              </div>
             </>
-          )}
-
-          {activeTab === "timeline" && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-                Timeline Simulation:
-              </h3>
-              <div className="space-y-4">
-                {[
-                  {
-                    time: "T+0s",
-                    title: "Start applying fix",
-                    steps: ["Create snapshot", "Backup current config", "Lock bucket for changes"],
-                  },
-                  {
-                    time: "T+5s",
-                    title: "Apply policy update",
-                    steps: ["Update bucket policy", "Enable block public access", "Validate syntax"],
-                  },
-                  {
-                    time: "T+10s",
-                    title: "Test internal access",
-                    steps: ["Test log-processor IAM role", "Test CloudTrail write", "Verify no 403 errors"],
-                  },
-                  {
-                    time: "T+20s",
-                    title: "Run compliance scan",
-                    steps: ["CIS AWS benchmark", "PCI-DSS requirements", "SOC2 controls"],
-                  },
-                  { time: "T+30s", title: "Complete", steps: ["Release bucket lock"] },
-                ].map((phase, i) => (
-                  <div key={i} className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="font-bold" style={{ color: "var(--action-primary)" }}>
-                        {phase.time}
-                      </span>
-                      <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                        {phase.title}
-                      </span>
-                    </div>
-                    <ul className="ml-6 space-y-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-                      {phase.steps.map((step, j) => (
-                        <li key={j}>├─ {step}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
           )}
 
           {activeTab === "tests" && (
             <>
-              {/* Pre-flight checks */}
-              <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
-                <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  Pre-flight Checks:
-                </h3>
-                <div className="space-y-2">
-                  {[
-                    "Snapshot creation: Success",
-                    "Policy syntax: Valid",
-                    "IAM permissions: Verified",
-                    "Service dependencies: Mapped",
-                    "Rollback path: Tested",
-                  ].map((check, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <span style={{ color: "#10B981" }}>✅</span>
-                      <span style={{ color: "var(--text-secondary)" }}>{check}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Historical data */}
-              <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
-                <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  Historical Data:
-                </h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div style={{ color: "var(--text-secondary)" }}>Similar fixes:</div>
-                    <div className="font-semibold" style={{ color: "#10B981" }}>
-                      23 successful
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ color: "var(--text-secondary)" }}>Success rate:</div>
-                    <div className="font-semibold" style={{ color: "#10B981" }}>
-                      100%
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ color: "var(--text-secondary)" }}>Average time:</div>
-                    <div className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                      28 seconds
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ color: "var(--text-secondary)" }}>Rollbacks needed:</div>
-                    <div className="font-semibold" style={{ color: "#10B981" }}>
-                      0
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Confidence factors */}
+              {/* Confidence breakdown from decision engine */}
               <div className="rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-                <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                  Confidence Factors:
+                <h3 className="text-sm font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+                  Confidence Breakdown (Decision Engine):
                 </h3>
-                <div className="space-y-3">
-                  {[
-                    { label: "Policy validation", value: 100 },
-                    { label: "IAM analysis", value: 99 },
-                    { label: "Service mapping", value: 98 },
-                    { label: "Historical success", value: 100 },
-                  ].map((factor, i) => (
-                    <div key={i}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span style={{ color: "var(--text-secondary)" }}>{factor.label}</span>
-                        <span style={{ color: "#10B981" }}>{factor.value}%</span>
-                      </div>
-                      <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
-                        <div
-                          className="h-full rounded-full"
-                          style={{ width: `${factor.value}%`, background: "#10B981" }}
-                        />
+                {decision?.breakdown ? (
+                  <>
+                    {(Object.keys(SCORE_BREAKDOWN_LABELS) as Array<keyof DecisionBreakdown>).map((key) => (
+                      <ScoreBar
+                        key={key}
+                        label={SCORE_BREAKDOWN_LABELS[key].label}
+                        value={decision.breakdown[key]}
+                        description={SCORE_BREAKDOWN_LABELS[key].description}
+                      />
+                    ))}
+                    <div className="pt-4 mt-4 border-t" style={{ borderColor: "var(--border)" }}>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                            OVERALL CONFIDENCE
+                          </span>
+                          <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                            Geometric mean with weighted factors
+                          </div>
+                        </div>
+                        <span
+                          className="font-bold text-2xl"
+                          style={{
+                            color: decision.confidence >= 0.8 ? "#10B981" :
+                                   decision.confidence >= 0.6 ? "#F59E0B" : "#EF4444"
+                          }}
+                        >
+                          {Math.round(decision.confidence * 100)}%
+                        </span>
                       </div>
                     </div>
-                  ))}
-                  <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-                    <div className="flex justify-between">
-                      <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
-                        OVERALL
-                      </span>
-                      <span className="font-bold text-lg" style={{ color: "#10B981" }}>
-                        99%
-                      </span>
-                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    No detailed breakdown available
                   </div>
-                </div>
+                )}
               </div>
             </>
           )}
 
-          {/* Progress Indicator */}
-          {isApplying && (
-            <div className="mb-6 rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-              <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                Applying fix...
-              </h3>
-              <div className="space-y-3">
-                {[
-                  { step: 1, text: "Creating snapshot..." },
-                  { step: 2, text: "Backing up current config..." },
-                  { step: 3, text: "Applying security fix..." },
-                  { step: 4, text: "Validating changes..." },
-                  { step: 5, text: "Running health checks..." },
-                ].map((item) => (
-                  <div key={item.step} className="flex items-center gap-3">
-                    {applyStep > item.step ? (
-                      <span style={{ color: "#10B981" }}>✅</span>
-                    ) : applyStep === item.step ? (
-                      <span className="animate-spin">🔄</span>
-                    ) : (
-                      <span style={{ color: "var(--text-secondary)" }}>⏳</span>
-                    )}
-                    <span
-                      className="text-sm"
-                      style={{
-                        color: applyStep >= item.step ? "var(--text-primary)" : "var(--text-secondary)",
-                      }}
-                    >
-                      {item.text}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Action Buttons */}
+          <div className="flex items-center justify-between pt-6 mt-6 border-t" style={{ borderColor: "var(--border)" }}>
+            <button
+              onClick={handleClose}
+              className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border)" }}
+            >
+              Cancel
+            </button>
 
-          {/* Extended Simulation */}
-          {showExtendedSim && extendedSimProgress < 100 && (
-            <div className="mb-6 rounded-lg p-4" style={{ background: "var(--bg-primary)" }}>
-              <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-                Running Extended Simulation (15 scenarios)...
-              </h3>
-              <div className="space-y-2 mb-3">
-                {[
-                  { label: "Test with high traffic", progress: 100 },
-                  { label: "Test with multiple IAM roles", progress: 100 },
-                  { label: "Test with CloudTrail enabled", progress: 100 },
-                  { label: "Test with monitoring tools", progress: extendedSimProgress > 50 ? 70 : 0 },
-                  { label: "Test with backup jobs", progress: 0 },
-                ].map((test, i) => (
-                  <div key={i} className="flex items-center gap-3 text-sm">
-                    {test.progress === 100 ? (
-                      <span style={{ color: "#10B981" }}>✅</span>
-                    ) : test.progress > 0 ? (
-                      <span className="animate-spin">🔄</span>
-                    ) : (
-                      <span style={{ color: "var(--text-secondary)" }}>⏳</span>
-                    )}
-                    <span style={{ color: "var(--text-secondary)" }}>{test.label}</span>
-                    {test.progress > 0 && test.progress < 100 && (
-                      <span className="ml-auto text-xs" style={{ color: "var(--text-secondary)" }}>
-                        ({test.progress}/10)
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${extendedSimProgress}%`, background: "var(--action-primary)" }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          {!isApplying && (
-            <div className="flex items-center justify-between pt-6 border-t" style={{ borderColor: "var(--border)" }}>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleClose}
-                  className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-                  style={{
-                    color: "var(--text-secondary)",
-                    borderColor: "var(--border)",
-                  }}
-                >
-                  Cancel
-                </button>
-                {!showExtendedSim && (
-                  <button
-                    onClick={handleExtendedSimulation}
-                    className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-                    style={{
-                      color: "var(--text-secondary)",
-                      borderColor: "var(--border)",
-                    }}
-                  >
-                    Run Extended Simulation
-                  </button>
-                )}
-              </div>
+            {/* Dynamic button based on decision action */}
+            {decision?.action === "BLOCK" ? (
               <button
-                onClick={handleAutoFix}
-                disabled={loading}
-                className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+                className="px-8 py-3 rounded-lg text-base font-bold opacity-50 cursor-not-allowed"
+                style={{ background: "#EF4444", color: "white" }}
+              >
+                BLOCKED - Manual Review Required
+              </button>
+            ) : decision?.action === "REQUIRE_APPROVAL" ? (
+              <button
+                onClick={handleApplyFix}
+                className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90"
+                style={{ background: "#F59E0B" }}
+              >
+                REQUEST APPROVAL
+              </button>
+            ) : decision?.action === "CANARY" ? (
+              <button
+                onClick={handleApplyFix}
+                className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90"
+                style={{ background: "#3B82F6" }}
+              >
+                CANARY DEPLOY
+              </button>
+            ) : (
+              <button
+                onClick={handleApplyFix}
+                className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90"
                 style={{ background: "var(--action-primary)" }}
               >
-                {loading ? "Applying..." : "AUTO-FIX"}
+                APPLY FIX
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     )

@@ -103,7 +103,8 @@ export function SecurityDashboard() {
 
   const handleExecute = async (findingId: string) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+      // Use proxy route to avoid CORS issues
+      const response = await fetch(`/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

@@ -120,10 +120,10 @@ export function LeastPrivilegeTab({ systemName, onSimulate, onRemediate }: Least
     if (onRemediate) {
       onRemediate(finding)
     } else {
-      // Fallback: call backend directly
+      // Fallback: use proxy route
       try {
         const findingId = (finding as any).finding_id || finding.id
-        const response = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+        const response = await fetch(`/api/proxy/simulate/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ finding_id: findingId })

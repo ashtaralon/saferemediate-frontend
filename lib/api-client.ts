@@ -519,9 +519,10 @@ export async function getScanStatus() {
 
 export async function simulateRemediation(findingId: string): Promise<SimulationResult | null> {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/simulate`, {
+    // Use proxy route to avoid CORS and get mock fallback
+    const res = await fetch(`/api/proxy/simulate`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache"
@@ -535,9 +536,10 @@ export async function simulateRemediation(findingId: string): Promise<Simulation
 
 export async function executeRemediation(findingId: string) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/simulate/execute`, {
+    // Use proxy route
+    const res = await fetch(`/api/proxy/simulate/execute`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache"
@@ -551,7 +553,8 @@ export async function executeRemediation(findingId: string) {
 
 export async function rollbackRemediation(findingId: string, snapshotId: string) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/rollback`, {
+    // Use proxy route
+    const res = await fetch(`/api/proxy/safe-remediate/rollback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ finding_id: findingId, snapshot_id: snapshotId })
