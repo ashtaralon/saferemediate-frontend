@@ -168,17 +168,21 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   }
 
   const handleApplyFix = async () => {
+    // Debug log FIRST - before any guards
+    console.log("🔥 APPLY BUTTON CLICKED", {
+      step,
+      findingId: safeFinding.id,
+      hasId: !!safeFinding.id
+    })
+
     if (!safeFinding.id) {
+      console.log("❌ No finding ID - showing error")
       setError("Finding ID is required")
       setStep("ERROR")
       return
     }
 
-    // Confirm with user
-    if (!confirm("Are you sure you want to apply this fix? This will modify your infrastructure.")) {
-      return
-    }
-
+    // Skip confirm dialog for smoother demo
     setStep("APPLYING")
     setApplyProgress(0)
 
@@ -189,7 +193,6 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
       }, 500)
 
       // Use the Next.js proxy route
-      console.log("APPLY CLICKED", { step, findingId: safeFinding.id })
       const res = await fetch(`/api/proxy/simulate/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,19 +206,21 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
 
       clearInterval(progressInterval)
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.detail || `Remediation failed: ${res.status}`)
+      const data = await res.json()
+      console.log("✅ APPLY RESULT:", data)
+
+      // Check for success - either res.ok or data.success
+      if (!res.ok && !data.success) {
+        throw new Error(data.detail || data.error || `Remediation failed: ${res.status}`)
       }
 
-      const data = await res.json()
-      console.log("Remediation result:", data)
-
+      // 🔥 Advance to SUCCESS state
       setApplyProgress(100)
-      setTimeout(() => setStep("SUCCESS"), 500)
+      setStep("SUCCESS")
+      console.log("✅ Step changed to SUCCESS")
 
     } catch (err) {
-      console.error("Remediation error:", err)
+      console.error("❌ Remediation error:", err)
       setError(err instanceof Error ? err.message : "Remediation failed")
       setStep("ERROR")
     }
