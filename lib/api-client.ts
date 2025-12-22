@@ -201,13 +201,15 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.metrics?.avg_health_score ?? metrics.avgHealthScore ?? metrics.healthScore ?? null,
-        healthScoreTrend: metrics.healthScoreTrend ?? null,
+        // Force null - DO NOT use any backend health scores
+        avgHealthScore: null,
+        healthScoreTrend: null,
         needAttention: metrics.needAttention ?? metrics.systemsNeedingAttention ?? 0,
         totalIssues: totalIssues,
         criticalIssues: bySeverity.critical,
-        averageScore: metrics.metrics?.avg_health_score ?? metrics.averageScore ?? metrics.avgHealthScore ?? null,
-        averageScoreTrend: metrics.averageScoreTrend ?? null,
+        // Force null - DO NOT use any backend health scores
+        averageScore: null,
+        averageScoreTrend: null,
         lastScanTime: issuesSummary?.timestamp || metrics.metrics?.last_scan_time || metrics.lastScanTime || new Date().toISOString(),
       },
       issuesSummary: issuesSummary ? {

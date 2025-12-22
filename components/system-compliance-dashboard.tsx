@@ -15,141 +15,35 @@ export function SystemComplianceDashboard() {
   const [applyStep, setApplyStep] = useState(0)
   const [showSuccess, setShowSuccess] = useState(false)
 
-  const frameworks = [
-    {
-      id: "soc2",
-      name: "SOC 2 Type II",
-      required: true,
-      score: 78,
-      controlsPassing: 143,
-      controlsTotal: 184,
-      gaps: 5,
-      nextAudit: "10 months",
-      description: "Payment processing systems require SOC 2 certification",
-      status: "warning",
-    },
-    {
-      id: "pci",
-      name: "PCI DSS v4.0",
-      required: true,
-      score: 64,
-      controlsPassing: 195,
-      controlsTotal: 305,
-      gaps: 12,
-      nextAudit: "11 months",
-      description: "Mandatory for systems handling credit card data",
-      status: "fail",
-    },
-    {
-      id: "iso",
-      name: "ISO 27001:2022",
-      required: false,
-      score: 92,
-      controlsPassing: 105,
-      controlsTotal: 114,
-      gaps: 1,
-      nextAudit: "8 months",
-      description: "International information security standard",
-      status: "pass",
-    },
-    {
-      id: "gdpr",
-      name: "GDPR",
-      required: true,
-      score: 85,
-      controlsPassing: 43,
-      controlsTotal: 51,
-      gaps: 3,
-      nextAudit: "Ongoing",
-      description: "Required for systems processing EU customer data",
-      status: "warning",
-    },
-  ]
+  // No mock data - frameworks should come from backend API
+  const frameworks: Array<{
+    id: string
+    name: string
+    required: boolean
+    score: number
+    controlsPassing: number
+    controlsTotal: number
+    gaps: number
+    nextAudit: string
+    description: string
+    status: string
+  }> = []
 
-  const criticalGaps = [
-    {
-      id: "gap-1",
-      title: "Unencrypted Cardholder Data at Rest",
-      framework: "PCI DSS v4.0",
-      controlId: "Req 3.5.1",
-      severity: "critical",
-      description: 'S3 bucket "payment-logs-prod" stores credit card logs without encryption',
-      impact: "$50K-500K fines per violation",
-      businessImpact: "Payment processor suspension",
-      affected: ["s3://payment-logs-prod"],
-      fixes: [
-        "Enable AES-256 encryption on S3 bucket",
-        "Rotate existing unencrypted data",
-        "Update bucket policies to enforce encryption",
-      ],
-      confidence: 99,
-      fixTime: "2 hours",
-    },
-    {
-      id: "gap-2",
-      title: "MFA Not Enabled for Admin Accounts",
-      framework: "PCI DSS v4.0",
-      controlId: "Req 8.3.1",
-      severity: "critical",
-      description: "3 administrator accounts lack multi-factor authentication",
-      impact: "Credential compromise risk",
-      businessImpact: "Unauthorized access to payment systems",
-      affected: ["admin-user-1", "admin-user-2", "admin-user-3"],
-      fixes: ["Enable MFA for all admin accounts", "Enforce MFA policy via IAM", "Audit MFA compliance weekly"],
-      confidence: 98,
-      fixTime: "30 minutes",
-    },
-    {
-      id: "gap-3",
-      title: "Insufficient Audit Log Retention",
-      framework: "SOC 2 Type II",
-      controlId: "CC6.1",
-      severity: "high",
-      description: "CloudTrail logs retained for only 90 days, compliance requires 1 year",
-      impact: "Audit failure risk",
-      businessImpact: "SOC 2 certification at risk",
-      affected: ["CloudTrail", "VPC Flow Logs"],
-      fixes: [
-        "Extend CloudTrail retention to 365 days",
-        "Enable log archiving to S3 with lifecycle policies",
-        "Configure VPC Flow Logs retention",
-      ],
-      confidence: 97,
-      fixTime: "1 hour",
-    },
-    {
-      id: "gap-4",
-      title: "Missing Network Segmentation",
-      framework: "PCI DSS v4.0",
-      controlId: "Req 1.2.1",
-      severity: "critical",
-      description: "Payment processing systems not isolated from other networks",
-      impact: "Cardholder Data Environment (CDE) breach risk",
-      businessImpact: "Entire payment infrastructure at risk",
-      affected: ["vpc-payment-prod", "subnet-public", "subnet-private"],
-      fixes: [
-        "Create dedicated VPC for payment systems",
-        "Implement network ACLs to isolate CDE",
-        "Configure security groups with least privilege",
-      ],
-      confidence: 96,
-      fixTime: "8 hours",
-    },
-    {
-      id: "gap-5",
-      title: "Missing TLS 1.3 Encryption",
-      framework: "GDPR",
-      controlId: "Article 32",
-      severity: "high",
-      description: "Internal APIs not using TLS 1.3 for data in transit",
-      impact: "GDPR fines up to 4% of annual revenue",
-      businessImpact: "Customer data exposure risk",
-      affected: ["api-internal-v1", "api-internal-v2"],
-      fixes: ["Upgrade ALB listeners to TLS 1.3", "Update SSL/TLS policies", "Test API compatibility with TLS 1.3"],
-      confidence: 95,
-      fixTime: "4 hours",
-    },
-  ]
+  // No mock data - critical gaps should come from backend API
+  const criticalGaps: Array<{
+    id: string
+    title: string
+    framework: string
+    controlId: string
+    severity: string
+    description: string
+    impact: string
+    businessImpact: string
+    affected: string[]
+    fixes: string[]
+    confidence: number
+    fixTime: string
+  }> = []
 
   const getStatusColor = (status: string) => {
     switch (status) {

@@ -159,9 +159,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
               criticality: isMissionCritical ? 5 : 3,
               criticalityLabel: isMissionCritical ? "MISSION CRITICAL" : "3 - Medium",
               environment: sys.environment || (isProd ? "Production" : "Development"),
-              health: sys.health_score || 44, // Default to 44 based on screenshot
-              critical: sys.critical_count || 0,
-              high: sys.high_count || 28, // Default based on screenshot
+              health: sys.health_score ?? 0, // Use backend value only, no mock
+              critical: sys.critical_count ?? 0,
+              high: sys.high_count ?? 0, // Use backend value only, no mock
               total: resourceCount,
               lastScan: "Just now",
               owner: sys.owner || "Platform Team",

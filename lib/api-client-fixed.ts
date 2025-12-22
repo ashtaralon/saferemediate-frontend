@@ -246,13 +246,15 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.avgHealthScore ?? metrics.healthScore ?? null,
-        healthScoreTrend: metrics.healthScoreTrend ?? null,
+        // Force null - DO NOT use any backend health scores (no mock data)
+        avgHealthScore: null,
+        healthScoreTrend: null,
         needAttention: metrics.needAttention ?? metrics.systemsNeedingAttention ?? 0,
         totalIssues: metrics.totalIssues ?? metrics.issuesCount ?? 0,
         criticalIssues: metrics.criticalIssues ?? metrics.criticalCount ?? 0,
-        averageScore: metrics.averageScore ?? metrics.avgHealthScore ?? null,
-        averageScoreTrend: metrics.averageScoreTrend ?? null,
+        // Force null - DO NOT use any backend health scores (no mock data)
+        averageScore: null,
+        averageScoreTrend: null,
         lastScanTime: metrics.lastScanTime || new Date().toISOString(),
       },
       infrastructure: {
