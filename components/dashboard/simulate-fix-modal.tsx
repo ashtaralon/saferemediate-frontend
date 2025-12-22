@@ -109,6 +109,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
   const [error, setError] = useState<string | null>(null)
   const [applyProgress, setApplyProgress] = useState(0)
   const [activeTab, setActiveTab] = useState<"overview" | "impact" | "code" | "timeline" | "tests">("overview")
+  const [wasSimulated, setWasSimulated] = useState(false) // Track if remediation was mock/simulated
 
   // Safe finding with defaults
   const safeFinding = React.useMemo(() => {
@@ -214,10 +215,13 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
         throw new Error(data.detail || data.error || `Remediation failed: ${res.status}`)
       }
 
+      // Track if this was a simulated/mock remediation (backend blocked it)
+      setWasSimulated(data.simulated === true)
+
       // 🔥 Advance to SUCCESS state
       setApplyProgress(100)
       setStep("SUCCESS")
-      console.log("✅ Step changed to SUCCESS")
+      console.log("✅ Step changed to SUCCESS, simulated:", data.simulated)
 
     } catch (err) {
       console.error("❌ Remediation error:", err)
@@ -397,38 +401,80 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
           className="relative w-[600px] rounded-2xl p-8 shadow-2xl text-center"
           style={{ background: "var(--bg-secondary)" }}
         >
-          <div className="text-6xl mb-4 animate-bounce">✅</div>
-          <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>
-            Fix Applied Successfully
-          </h2>
-          <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-            {safeFinding.title}
-          </p>
-          <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div style={{ color: "var(--text-secondary)" }}>Status:</div>
-                <div className="text-lg font-bold" style={{ color: "#10B981" }}>
-                  Remediated
+          {wasSimulated ? (
+            // Protected resource - simulated only
+            <>
+              <div className="text-6xl mb-4">🔒</div>
+              <h2 className="text-2xl font-bold mb-2" style={{ color: "#F59E0B" }}>
+                Protected Resource
+              </h2>
+              <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                {safeFinding.title}
+              </p>
+              <div className="rounded-lg p-4 mb-6" style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid #F59E0B" }}>
+                <p className="text-sm" style={{ color: "#F59E0B" }}>
+                  This role is protected and cannot be remediated automatically.
+                  <br />
+                  Simulation completed successfully - no changes were made.
+                </p>
+              </div>
+              <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div style={{ color: "var(--text-secondary)" }}>Status:</div>
+                    <div className="text-lg font-bold" style={{ color: "#F59E0B" }}>
+                      Simulated Only
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "var(--text-secondary)" }}>Changes:</div>
+                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+                      None
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div style={{ color: "var(--text-secondary)" }}>Rollback:</div>
-                <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-                  Available
+              <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
+                To remediate protected resources, contact your administrator
+              </p>
+            </>
+          ) : (
+            // Actual remediation success
+            <>
+              <div className="text-6xl mb-4 animate-bounce">✅</div>
+              <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>
+                Fix Applied Successfully
+              </h2>
+              <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                {safeFinding.title}
+              </p>
+              <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary)" }}>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div style={{ color: "var(--text-secondary)" }}>Status:</div>
+                    <div className="text-lg font-bold" style={{ color: "#10B981" }}>
+                      Remediated
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "var(--text-secondary)" }}>Rollback:</div>
+                    <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
+                      Available
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-          <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
-            All services operational • No disruptions detected
-          </p>
+              <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
+                All services operational • No disruptions detected
+              </p>
+            </>
+          )}
           <button
             onClick={handleClose}
             className="px-8 py-3 rounded-lg text-sm font-bold text-white transition-all hover:opacity-90"
-            style={{ background: "var(--action-primary)" }}
+            style={{ background: wasSimulated ? "#F59E0B" : "var(--action-primary)" }}
           >
-            Done
+            {wasSimulated ? "Understood" : "Done"}
           </button>
         </div>
       </div>
