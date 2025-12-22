@@ -1,5 +1,6 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
+
+// No fallback data - all data must come from backend
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
@@ -163,10 +164,10 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       console.warn("[v0] Nodes endpoint failed or timed out")
     }
 
-    // If no nodes from backend and no issues summary, use fallback data
+    // If no data from backend, throw error - no fallback
     if (nodes.length === 0 && !issuesSummary && Object.keys(metrics).length === 0) {
-      console.warn("[v0] No data from backend, using fallback data")
-      return infrastructureData
+      console.error("[v0] No data from backend")
+      throw new Error("Backend returned no data")
     }
 
     // Map backend data to our InfrastructureData format
@@ -242,8 +243,8 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       complianceSystems: metrics.complianceSystems || [],
     }
   } catch (error) {
-    console.warn("[v0] Backend not available, using fallback data. Error:", error)
-    return infrastructureData
+    console.error("[v0] Backend not available. Error:", error)
+    throw error
   }
 }
 
@@ -519,7 +520,7 @@ export async function getScanStatus() {
 
 export async function simulateRemediation(findingId: string): Promise<SimulationResult | null> {
   try {
-    // Use proxy route to avoid CORS and get mock fallback
+    // Use proxy route to avoid CORS
     const res = await fetch(`/api/proxy/simulate`, {
       method: 'POST',
       headers: {

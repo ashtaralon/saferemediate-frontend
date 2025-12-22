@@ -138,8 +138,7 @@ export function DependencyMapTab({ systemName }: { systemName: string }) {
 
       if (result.error && result.nodes?.length === 0) {
         setError("Backend unavailable")
-        // Use mock data for demo
-        setData(getMockData())
+        setData({ nodes: [], edges: [] })
       } else {
         setData(result)
         setError(null)
@@ -148,7 +147,7 @@ export function DependencyMapTab({ systemName }: { systemName: string }) {
     } catch (err) {
       console.error("[v0] Failed to fetch dependency map:", err)
       setError("Failed to load dependency map")
-      setData(getMockData())
+      setData({ nodes: [], edges: [] })
     } finally {
       setLoading(false)
     }
@@ -797,103 +796,4 @@ export function DependencyMapTab({ systemName }: { systemName: string }) {
   )
 }
 
-// Mock data for demo when backend is unavailable
-function getMockData(): DependencyData {
-  return {
-    nodes: [
-      {
-        id: "1",
-        name: "payment-processor",
-        type: "Lambda",
-        category: "Compute",
-        totalConnections: 8,
-        criticality: "critical",
-      },
-      {
-        id: "2",
-        name: "prod-database",
-        type: "RDS",
-        category: "Database",
-        totalConnections: 12,
-        criticality: "critical",
-      },
-      { id: "3", name: "user-api", type: "Lambda", category: "Compute", totalConnections: 6, criticality: "high" },
-      { id: "4", name: "payment-logs", type: "S3", category: "Storage", totalConnections: 4, criticality: "medium" },
-      {
-        id: "5",
-        name: "payment-queue",
-        type: "SQS",
-        category: "Integration",
-        totalConnections: 5,
-        criticality: "high",
-      },
-      {
-        id: "6",
-        name: "auth-service",
-        type: "Lambda",
-        category: "Compute",
-        totalConnections: 7,
-        criticality: "critical",
-      },
-      {
-        id: "7",
-        name: "cache-cluster",
-        type: "ElastiCache",
-        category: "Database",
-        totalConnections: 9,
-        criticality: "high",
-      },
-      {
-        id: "8",
-        name: "api-gateway",
-        type: "APIGateway",
-        category: "Networking",
-        totalConnections: 10,
-        criticality: "critical",
-      },
-      { id: "9", name: "prod-vpc", type: "VPC", category: "Networking", totalConnections: 15, criticality: "critical" },
-      {
-        id: "10",
-        name: "payment-sg",
-        type: "SecurityGroup",
-        category: "Security",
-        totalConnections: 8,
-        criticality: "high",
-      },
-    ],
-    edges: [
-      { source: "8", target: "1", type: "ACTUAL_INVOKES", isActual: true },
-      { source: "1", target: "2", type: "ACTUAL_QUERIES", isActual: true },
-      { source: "1", target: "4", type: "ACTUAL_WRITES", isActual: true },
-      { source: "1", target: "5", type: "ACTUAL_PUBLISHES", isActual: true },
-      { source: "8", target: "3", type: "ACTUAL_INVOKES", isActual: true },
-      { source: "3", target: "2", type: "ACTUAL_QUERIES", isActual: true },
-      { source: "6", target: "7", type: "ACTUAL_CACHES", isActual: true },
-      { source: "8", target: "6", type: "ACTUAL_INVOKES", isActual: true },
-      { source: "1", target: "9", type: "RESIDES_IN", isActual: false },
-      { source: "2", target: "9", type: "RESIDES_IN", isActual: false },
-      { source: "1", target: "10", type: "PROTECTED_BY", isActual: false },
-      { source: "2", target: "10", type: "PROTECTED_BY", isActual: false },
-    ],
-    statistics: { totalNodes: 10, totalEdges: 12, actualEdges: 8, infrastructureEdges: 4 },
-    criticalNodes: [
-      {
-        id: "1",
-        name: "payment-processor",
-        type: "Lambda",
-        category: "Compute",
-        totalConnections: 8,
-        criticality: "critical",
-      },
-      {
-        id: "2",
-        name: "prod-database",
-        type: "RDS",
-        category: "Database",
-        totalConnections: 12,
-        criticality: "critical",
-      },
-    ],
-    clusters: {},
-  }
-}
+// Mock data removed - all data must come from backend

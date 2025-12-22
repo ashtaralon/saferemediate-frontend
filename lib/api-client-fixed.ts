@@ -1,5 +1,6 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
+
+// No fallback data - all data must come from backend
 
 // Backend URL - Direct to Render, no proxy
 const API_BASE = "https://saferemediate-backend.onrender.com"
@@ -280,8 +281,8 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       complianceSystems: metrics.complianceSystems || [],
     }
   } catch (error) {
-    console.warn("[v0] Backend not available, using mock data. Error:", error)
-    return infrastructureData
+    console.error("[v0] Backend not available. Error:", error)
+    throw error
   }
 }
 
