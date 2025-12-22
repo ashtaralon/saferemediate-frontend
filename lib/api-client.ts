@@ -178,7 +178,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       provider: "AWS",
       region: node.region || "us-east-1",
       status: node.status || "active",
-      healthScore: node.healthScore || 100,
+      healthScore: node.healthScore ?? null,
       tags: node.tags || {},
     }))
 
@@ -201,13 +201,13 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.metrics?.avg_health_score || metrics.avgHealthScore || metrics.healthScore || 85,
-        healthScoreTrend: metrics.healthScoreTrend || 2,
-        needAttention: metrics.needAttention || metrics.systemsNeedingAttention || 0,
+        avgHealthScore: metrics.metrics?.avg_health_score ?? metrics.avgHealthScore ?? metrics.healthScore ?? null,
+        healthScoreTrend: metrics.healthScoreTrend ?? null,
+        needAttention: metrics.needAttention ?? metrics.systemsNeedingAttention ?? 0,
         totalIssues: totalIssues,
         criticalIssues: bySeverity.critical,
-        averageScore: metrics.metrics?.avg_health_score || metrics.averageScore || metrics.avgHealthScore || 85,
-        averageScoreTrend: metrics.averageScoreTrend || 2,
+        averageScore: metrics.metrics?.avg_health_score ?? metrics.averageScore ?? metrics.avgHealthScore ?? null,
+        averageScoreTrend: metrics.averageScoreTrend ?? null,
         lastScanTime: issuesSummary?.timestamp || metrics.metrics?.last_scan_time || metrics.lastScanTime || new Date().toISOString(),
       },
       issuesSummary: issuesSummary ? {
@@ -320,7 +320,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
         allowed_actions_count: f.allowed_actions_count || 0,
         used_actions: f.observed_actions || f.used_actions || [],
         used_actions_count: f.used_actions_count || f.observed_actions?.length || 0,
-        confidence: f.confidence || 85,
+        confidence: f.confidence ?? null,
         observation_days: f.observation_days || 30,
         // Preserve all other fields
         ...f

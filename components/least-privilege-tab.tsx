@@ -85,7 +85,7 @@ export function LeastPrivilegeTab({ systemName, onSimulate, onRemediate }: Least
     allowedList: f.allowed_actions || f.allowedList || [],
     usedList: f.used_actions || f.usedList || [],
     unusedList: f.unused_actions || f.unusedList || [],
-    confidence: f.confidence || 85,
+    confidence: f.confidence ?? null,
     severity: (f.severity || 'medium').toLowerCase() as 'critical' | 'high' | 'medium' | 'low',
     title: f.title,
     description: f.description,

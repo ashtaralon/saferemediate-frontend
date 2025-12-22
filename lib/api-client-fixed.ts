@@ -232,7 +232,7 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       provider: "AWS",
       region: node.region || "us-east-1",
       status: node.status || "active",
-      healthScore: node.healthScore || 100,
+      healthScore: node.healthScore ?? null,
       tags: node.tags || {},
     }))
 
@@ -246,13 +246,13 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.avgHealthScore || metrics.healthScore || 85,
-        healthScoreTrend: metrics.healthScoreTrend || 2,
-        needAttention: metrics.needAttention || metrics.systemsNeedingAttention || 0,
-        totalIssues: metrics.totalIssues || metrics.issuesCount || 0,
-        criticalIssues: metrics.criticalIssues || metrics.criticalCount || 0,
-        averageScore: metrics.averageScore || metrics.avgHealthScore || 85,
-        averageScoreTrend: metrics.averageScoreTrend || 2,
+        avgHealthScore: metrics.avgHealthScore ?? metrics.healthScore ?? null,
+        healthScoreTrend: metrics.healthScoreTrend ?? null,
+        needAttention: metrics.needAttention ?? metrics.systemsNeedingAttention ?? 0,
+        totalIssues: metrics.totalIssues ?? metrics.issuesCount ?? 0,
+        criticalIssues: metrics.criticalIssues ?? metrics.criticalCount ?? 0,
+        averageScore: metrics.averageScore ?? metrics.avgHealthScore ?? null,
+        averageScoreTrend: metrics.averageScoreTrend ?? null,
         lastScanTime: metrics.lastScanTime || new Date().toISOString(),
       },
       infrastructure: {

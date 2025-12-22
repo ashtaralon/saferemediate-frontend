@@ -117,7 +117,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
       } else if (data.success !== false) {
         // New format with decision engine - store directly
         setSimulation({
-          confidence: data.confidence || 85,
+          confidence: data.confidence ?? null,
           safe: data.decision?.safety >= 0.75,
           decision: data.decision,
           resource_changes: data.resource_changes,

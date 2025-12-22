@@ -189,34 +189,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
   }, [fetchGapAnalysisFromFindings])
 
-  // Helper function for fallback systems
+  // No fallback - set empty array when backend fails
   const setFallbackSystems = () => {
-    setLocalSystems([
-      {
-        name: "alon-prod",
-        criticality: 5,
-        criticalityLabel: "MISSION CRITICAL",
-        environment: "Production",
-        health: 44,
-        critical: 0,
-        high: 28,
-        total: 16,
-        lastScan: "Just now",
-        owner: "Platform Team",
-      },
-      {
-        name: "Payment-Production",
-        criticality: 5,
-        criticalityLabel: "MISSION CRITICAL",
-        environment: "Production",
-        health: 85,
-        critical: 0,
-        high: 0,
-        total: 3,
-        lastScan: "Just now",
-        owner: "Platform Team",
-      },
-    ])
+    setLocalSystems([])
   }
 
   useEffect(() => {
