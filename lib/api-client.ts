@@ -189,25 +189,25 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     })
 
     // Use unified issues summary if available, otherwise fallback to metrics
-    const totalIssues = issuesSummary?.total ?? metrics.totalIssues ?? metrics.issuesCount ?? 0
+    const totalIssues = issuesSummary?.total ?? metrics?.total_issues ?? metrics?.totalIssues ?? metrics?.issuesCount ?? 0
     const bySeverity = issuesSummary?.by_severity ?? {
-      critical: metrics.criticalIssues ?? metrics.criticalCount ?? 0,
-      high: metrics.highIssues ?? metrics.highCount ?? 0,
-      medium: metrics.mediumIssues ?? metrics.mediumCount ?? 0,
-      low: metrics.lowIssues ?? metrics.lowCount ?? 0,
+      critical: metrics?.issues_by_severity?.CRITICAL ?? metrics?.issues_by_severity?.critical ?? metrics?.criticalIssues ?? metrics?.criticalCount ?? 0,
+      high: metrics?.issues_by_severity?.HIGH ?? metrics?.issues_by_severity?.high ?? metrics?.highIssues ?? metrics?.highCount ?? 0,
+      medium: metrics?.issues_by_severity?.MEDIUM ?? metrics?.issues_by_severity?.medium ?? metrics?.mediumIssues ?? metrics?.mediumCount ?? 0,
+      low: metrics?.issues_by_severity?.LOW ?? metrics?.issues_by_severity?.low ?? metrics?.lowIssues ?? metrics?.lowCount ?? 0,
     }
 
     return {
       resources,
       stats: {
-        avgHealthScore: metrics.metrics?.avg_health_score || metrics.avgHealthScore || metrics.healthScore || 85,
-        healthScoreTrend: metrics.healthScoreTrend || 2,
-        needAttention: metrics.needAttention || metrics.systemsNeedingAttention || 0,
+        avgHealthScore: metrics?.avg_health_score ?? metrics?.avgHealthScore ?? metrics?.healthScore ?? 100,
+        healthScoreTrend: metrics?.healthScoreTrend ?? 0,
+        needAttention: metrics?.need_attention ?? metrics?.needAttention ?? metrics?.systemsNeedingAttention ?? 0,
         totalIssues: totalIssues,
         criticalIssues: bySeverity.critical,
-        averageScore: metrics.metrics?.avg_health_score || metrics.averageScore || metrics.avgHealthScore || 85,
-        averageScoreTrend: metrics.averageScoreTrend || 2,
-        lastScanTime: issuesSummary?.timestamp || metrics.metrics?.last_scan_time || metrics.lastScanTime || new Date().toISOString(),
+        averageScore: metrics?.avg_health_score ?? metrics?.averageScore ?? metrics?.avgHealthScore ?? 100,
+        averageScoreTrend: metrics?.averageScoreTrend ?? 0,
+        lastScanTime: issuesSummary?.timestamp ?? metrics?.most_recent_scan ?? metrics?.lastScanTime ?? new Date().toISOString(),
       },
       issuesSummary: issuesSummary ? {
         total: issuesSummary.total,
@@ -227,17 +227,17 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
         objectStorage: typeCounts["s3bucket"] || typeCounts["s3"] || 0,
       },
       securityIssues: {
-        critical: bySeverity.critical || metrics.criticalIssues || 0,
-        high: bySeverity.high || metrics.highIssues || 0,
-        medium: bySeverity.medium || metrics.mediumIssues || 0,
-        low: bySeverity.low || metrics.lowIssues || 0,
+        critical: bySeverity.critical ?? 0,
+        high: bySeverity.high ?? 0,
+        medium: bySeverity.medium ?? 0,
+        low: bySeverity.low ?? 0,
         totalIssues: totalIssues,
-        todayChange: metrics.todayChange || 0,
-        cveCount: metrics.cveCount || 0,
-        threatsCount: metrics.threatsCount || 0,
-        zeroDayCount: metrics.zeroDayCount || 0,
-        secretsCount: metrics.secretsCount || 0,
-        complianceCount: metrics.complianceCount || 0,
+        todayChange: metrics?.todayChange ?? 0,
+        cveCount: metrics?.cveCount ?? 0,
+        threatsCount: metrics?.threatsCount ?? 0,
+        zeroDayCount: metrics?.zeroDayCount ?? 0,
+        secretsCount: metrics?.secretsCount ?? 0,
+        complianceCount: metrics?.complianceCount ?? 0,
       },
       complianceSystems: metrics.complianceSystems || [],
     }
@@ -319,7 +319,7 @@ export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
         allowed_actions_count: f.allowed_actions_count || 0,
         used_actions: f.observed_actions || f.used_actions || [],
         used_actions_count: f.used_actions_count || f.observed_actions?.length || 0,
-        confidence: f.confidence || 85,
+        confidence: f.confidence ?? undefined,
         observation_days: f.observation_days || 30,
         // Preserve all other fields
         ...f

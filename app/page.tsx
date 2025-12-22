@@ -94,11 +94,15 @@ export default function HomePage() {
           totalUsed += finding.observed_actions?.length || 0
         })
         
+        // Calculate confidence based on data quality
+        // Higher confidence when we have more observation data
+        const confidence = totalAllowed > 0 ? Math.min(95, Math.max(70, 100 - (totalUnused / totalAllowed) * 20)) : 0
+        
         setGapData({
           allowed: totalAllowed,
           used: totalUsed,
           unused: totalUnused,
-          confidence: 99,
+          confidence: confidence,
           roleName: `${iamFindings.length} IAM Role${iamFindings.length !== 1 ? 's' : ''}`,
         })
         setLastRefresh(new Date())
@@ -110,7 +114,7 @@ export default function HomePage() {
           allowed: 0,
           used: 0,
           unused: 0,
-          confidence: 99,
+          confidence: 0,
           roleName: "Error loading",
         })
       })

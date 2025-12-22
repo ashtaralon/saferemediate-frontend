@@ -35,9 +35,10 @@ export async function GET() {
     const data = await response.json()
     console.log("[proxy] Dashboard metrics fetched successfully")
 
+    // Backend returns data directly, wrap it for frontend compatibility
     return NextResponse.json({
       success: true,
-      metrics: data.metrics || data,
+      metrics: data, // Backend already returns the metrics object
     })
   } catch (error: any) {
     console.error("[proxy] Dashboard metrics fetch error:", error.name === 'AbortError' ? 'Request timed out' : error)
