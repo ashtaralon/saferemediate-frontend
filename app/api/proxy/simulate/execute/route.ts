@@ -59,17 +59,34 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Backend blocked or unavailable - return simulated success for UI
-    console.log(`[SIMULATE-EXECUTE] Backend returned ${response.status}, simulating success`)
+    // Backend blocked (403) - return blocked status, don't simulate success
+    if (response.status === 403) {
+      const errorData = await response.json().catch(() => ({ detail: "Remediation blocked by policy" }))
+      console.log(`[SIMULATE-EXECUTE] ❌ Blocked (403):`, errorData)
+      return NextResponse.json({
+        success: false,
+        blocked: true,
+        reason: "protected_role",
+        details: errorData.detail || errorData.message || "Remediation blocked by protection policy",
+        finding_id,
+        timestamp: new Date().toISOString(),
+      }, {
+        status: 403,
+        headers: { "X-Proxy": "simulate-execute-blocked" }
+      })
+    }
+
+    // Other errors (500, etc.) - return error
+    const errorData = await response.json().catch(() => ({ detail: `Backend error: ${response.status}` }))
+    console.log(`[SIMULATE-EXECUTE] ❌ Error (${response.status}):`, errorData)
     return NextResponse.json({
-      success: true,
-      simulated: true,
+      success: false,
+      error: errorData.detail || errorData.message || `Backend error: ${response.status}`,
       finding_id,
-      status: 'executed',
-      message: 'Remediation applied successfully',
       timestamp: new Date().toISOString(),
     }, {
-      headers: { "X-Proxy": "simulate-execute-mock" }
+      status: response.status,
+      headers: { "X-Proxy": "simulate-execute-error" }
     })
   } catch (error) {
     console.error("[SIMULATE-EXECUTE] Error:", error)

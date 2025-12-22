@@ -158,13 +158,29 @@ export function SimulateFixModal({ isOpen, onClose, finding, role }: SimulateFix
       }
 
       const data = await response.json();
-      console.log('✅ Remediation executed:', data);
+      console.log('✅ Remediation response:', data);
       
-      // Show success and close after a moment
-      setStep('SIMULATED');
-      setTimeout(() => {
-        handleClose();
-      }, 2000);
+      // Check if blocked by policy
+      if (data.blocked === true) {
+        console.log('🚫 Remediation blocked by policy:', data.details);
+        setError(data.details || data.reason || 'Remediation blocked by protection policy');
+        setStep('ERROR');
+        return;
+      }
+      
+      // Check if successful
+      if (data.success === true) {
+        console.log('✅ Remediation executed successfully');
+        // Show success and close after a moment
+        setStep('SIMULATED');
+        setTimeout(() => {
+          handleClose();
+        }, 2000);
+      } else {
+        // Not blocked but not successful either
+        setError(data.error || data.message || 'Remediation failed');
+        setStep('ERROR');
+      }
     } catch (e: any) {
       console.error('❌ Remediation failed:', e);
       setError(e.message || 'An unexpected error occurred');
