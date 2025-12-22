@@ -203,6 +203,11 @@ export default function HomePage() {
   const computedFindingsStats = computeStatsFromFindings(securityFindings)
   const statsData = {
     ...baseStatsData,
+    // FORCE health scores to 0 - no mock data allowed
+    avgHealthScore: 0,
+    averageScore: 0,
+    healthScoreTrend: 0,
+    averageScoreTrend: 0,
     totalIssues: baseStatsData.totalIssues > 0 ? baseStatsData.totalIssues : securityFindings.length,
     criticalIssues: baseStatsData.criticalIssues > 0 ? baseStatsData.criticalIssues : computedFindingsStats.critical,
   }
