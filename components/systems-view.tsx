@@ -159,9 +159,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
               criticality: isMissionCritical ? 5 : 3,
               criticalityLabel: isMissionCritical ? "MISSION CRITICAL" : "3 - Medium",
               environment: sys.environment || (isProd ? "Production" : "Development"),
-              health: sys.health_score ?? 0, // Use backend value only, no mock
+              health: sys.health_score ?? 0,
               critical: sys.critical_count ?? 0,
-              high: sys.high_count ?? 0, // Use backend value only, no mock
+              high: sys.high_count ?? 0,
               total: resourceCount,
               lastScan: "Just now",
               owner: sys.owner || "Platform Team",
@@ -189,7 +189,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
   }, [fetchGapAnalysisFromFindings])
 
-  // No fallback - set empty array when backend fails
+  // No mock data - return empty array when backend fails
   const setFallbackSystems = () => {
     setLocalSystems([])
   }
