@@ -1,0 +1,24 @@
+# Render.com deployment configuration
+# Deploy at: https://dashboard.render.com/
+
+services:
+  - type: web
+    name: saferemediate-backend
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false  # Set manually in Render dashboard
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: HISTORICAL_DB_PATH
+        value: /tmp/remediation_history.db
