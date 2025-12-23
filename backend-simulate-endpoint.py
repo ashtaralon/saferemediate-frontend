@@ -5,12 +5,36 @@ Add this to your FastAPI backend application.
 
 This endpoint now integrates the Remediation Decision Engine for
 enterprise-grade confidence scoring and action recommendations.
+
+PHASE 1 UPDATE: Now uses CloudTrail for real usage data
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
+import os
+
+# Import the CloudTrail usage collector (Phase 1)
+try:
+    from backend_engines.cloudtrail_usage_collector import get_usage_data_for_finding
+    CLOUDTRAIL_AVAILABLE = True
+except ImportError:
+    CLOUDTRAIL_AVAILABLE = False
+    print("WARNING: CloudTrail collector not available, using defaults")
+
+# Import the historical tracker (Phase 2)
+try:
+    from backend_engines.historical_tracker import (
+        get_historical_data_for_finding,
+        record_remediation_start,
+        record_remediation_success,
+        record_remediation_failure,
+    )
+    HISTORICAL_DB_AVAILABLE = True
+except ImportError:
+    HISTORICAL_DB_AVAILABLE = False
+    print("WARNING: Historical tracker not available, using defaults")
 
 # Import the decision engine
 # In production: from engines.remediation_decision_engine import RemediationDecisionEngine
@@ -282,17 +306,32 @@ async def simulate_fix(request: SimulateRequest):
     }
 
     # =========================================================================
-    # STEP 2: Gather Context Data
+    # STEP 2: Gather Context Data - PHASE 1: Real CloudTrail Integration
     # =========================================================================
 
-    usage_data = {
-        "days_since_last_use": 120,
-        "usage_count_90d": 0,
-        "observation_days": 90,
-        "sources_available": 3,
-        "usage_pattern": "NONE",
-        "last_used_by": None
-    }
+    # Get real usage data from CloudTrail (Phase 1)
+    if CLOUDTRAIL_AVAILABLE:
+        # Fetch actual usage metrics from AWS CloudTrail & Access Advisor
+        finding_context = {
+            "finding_id": finding_id,
+            "role_name": request.resource_id,  # IAM role name
+        }
+        usage_data = get_usage_data_for_finding(
+            finding_context,
+            region=os.getenv("AWS_REGION", "us-east-1")
+        )
+        print(f"[Phase 1] CloudTrail usage data collected: {usage_data.get('usage_pattern')}")
+    else:
+        # Fallback to conservative defaults when CloudTrail not available
+        usage_data = {
+            "days_since_last_use": 0,      # Conservative: assume recently used
+            "usage_count_90d": 100,        # Conservative: assume moderate usage
+            "observation_days": 0,         # No observation data
+            "sources_available": 0,        # No sources connected
+            "usage_pattern": "MEDIUM",     # Conservative: don't auto-remediate
+            "last_used_by": None
+        }
+        print("[Phase 1] WARNING: Using fallback usage data - CloudTrail not connected")
 
     graph_data = {
         "total_resources": 5,
@@ -304,13 +343,24 @@ async def simulate_fix(request: SimulateRequest):
         "circular_dependencies": False
     }
 
-    history_data = {
-        "total": 23,
-        "successes": 23,
-        "rollbacks": 0,
-        "similar_resource_type_success_rate": 1.0,
-        "last_failure_days_ago": None
-    }
+    # Get real historical data (Phase 2)
+    if HISTORICAL_DB_AVAILABLE:
+        finding_context = {
+            "finding_id": finding_id,
+            "resource_type": request.resource_type or "IAMRole",
+        }
+        history_data = get_historical_data_for_finding(finding_context)
+        print(f"[Phase 2] Historical data: {history_data.get('total')} past remediations, {history_data.get('success_rate', 0):.1%} success rate")
+    else:
+        # Fallback to neutral defaults when historical DB not available
+        history_data = {
+            "total": 0,
+            "successes": 0,
+            "rollbacks": 0,
+            "similar_resource_type_success_rate": 0.0,
+            "last_failure_days_ago": None
+        }
+        print("[Phase 2] WARNING: Using fallback historical data - DB not connected")
 
     env_data = {
         "tier": 2,  # development
