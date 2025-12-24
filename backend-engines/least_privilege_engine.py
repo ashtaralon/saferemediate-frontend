@@ -356,7 +356,8 @@ class LeastPrivilegeEngine:
                         return PermissionStatus.INACTIVE_NEEDED.value
                     else:
                         return PermissionStatus.INACTIVE_SAFE.value
-            except:
+            except (ValueError, AttributeError, TypeError) as e:
+                # Handle date parsing errors gracefully
                 pass
         
         # Default to caution
@@ -948,7 +949,22 @@ def analyze_least_privilege(
     # Convert system context
     sys_ctx = None
     if system_context:
-        sys_ctx = SystemContext(**system_context)
+        try:
+            sys_ctx = SystemContext(
+                system_name=system_context.get('system_name', ''),
+                system_id=system_context.get('system_id', ''),
+                tier=system_context.get('tier', 'DEVELOPMENT'),
+                revenue_generating=system_context.get('revenue_generating', False),
+                compliance_frameworks=system_context.get('compliance_frameworks', []),
+                identities=system_context.get('identities', []),
+                resources=system_context.get('resources', []),
+                services=system_context.get('services', []),
+                depends_on=system_context.get('depends_on', []),
+                depended_by=system_context.get('depended_by', [])
+            )
+        except (TypeError, KeyError) as e:
+            # If system context is invalid, continue without it
+            sys_ctx = None
     
     # Convert evidence sources
     ev_sources = []

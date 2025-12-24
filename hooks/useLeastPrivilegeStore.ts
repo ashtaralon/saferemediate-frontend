@@ -103,7 +103,8 @@ const api = {
     })
     
     if (!response.ok) {
-      throw new Error(`Simulation failed: ${response.statusText}`)
+      const errorBody = await response.text()
+      throw new Error(`Simulation failed (${response.status}): ${errorBody || response.statusText}`)
     }
     
     return response.json()
@@ -124,7 +125,8 @@ const api = {
     })
     
     if (!response.ok) {
-      throw new Error(`Enforcement failed: ${response.statusText}`)
+      const errorBody = await response.text()
+      throw new Error(`Enforcement failed (${response.status}): ${errorBody || response.statusText}`)
     }
     
     return response.json()

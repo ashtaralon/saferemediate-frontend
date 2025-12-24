@@ -6,6 +6,28 @@
  */
 
 // ============================================================================
+// IAM POLICY TYPES
+// ============================================================================
+
+export interface IAMPolicyStatement {
+  Sid?: string
+  Effect: "Allow" | "Deny"
+  Principal?: string | string[] | { Service: string | string[] } | { AWS: string | string[] }
+  NotPrincipal?: string | string[]
+  Action?: string | string[]
+  NotAction?: string | string[]
+  Resource?: string | string[]
+  NotResource?: string | string[]
+  Condition?: Record<string, Record<string, string | string[]>>
+}
+
+export interface IAMPolicyDocument {
+  Version: "2012-10-17" | "2008-10-17"
+  Id?: string
+  Statement: IAMPolicyStatement[]
+}
+
+// ============================================================================
 // IDENTITY TYPES
 // ============================================================================
 
@@ -225,8 +247,8 @@ export interface PermissionRecommendation {
 export interface SimulationRequest {
   identityId: string
   identityArn: string
-  currentPolicy: any       // IAM policy document
-  proposedPolicy: any      // Proposed IAM policy document
+  currentPolicy: IAMPolicyDocument       // IAM policy document
+  proposedPolicy: IAMPolicyDocument      // Proposed IAM policy document
   
   // Change context
   changeType: "REMOVE_PERMISSIONS" | "NARROW_RESOURCES" | "ADD_CONDITIONS" | "FULL_REPLACE"
@@ -324,8 +346,8 @@ export interface EnforcementRequest {
   changeType: "REMOVE_PERMISSIONS" | "NARROW_RESOURCES" | "ADD_CONDITIONS" | "FULL_REPLACE"
   
   // Policy changes
-  currentPolicy: any
-  proposedPolicy: any
+  currentPolicy: IAMPolicyDocument
+  proposedPolicy: IAMPolicyDocument
   
   // Safety requirements
   requireSnapshot: boolean
@@ -403,11 +425,11 @@ export interface LeastPrivilegeSnapshot {
   accountId: string
   
   // Snapshot content
-  iamPolicies: any[]           // Full policy documents
-  inlinePolicies: any[]
-  attachedPolicies: string[]   // Policy ARNs
-  trustPolicy: any
-  permissionsBoundary?: any
+  iamPolicies: IAMPolicyDocument[]     // Full policy documents
+  inlinePolicies: IAMPolicyDocument[]
+  attachedPolicies: string[]           // Policy ARNs
+  trustPolicy: IAMPolicyDocument
+  permissionsBoundary?: IAMPolicyDocument
   
   // Metadata
   tags: Record<string, string>
@@ -487,9 +509,13 @@ export interface DriftDetection {
   driftType: "NEW_PERMISSIONS" | "REMOVED_PERMISSIONS" | "POLICY_CHANGE" | "TRUST_CHANGE"
   
   // Details
-  baseline: any            // Expected state
-  current: any             // Current state
-  diff: any                // Structured diff
+  baseline: IAMPolicyDocument       // Expected state
+  current: IAMPolicyDocument        // Current state
+  diff: {                          // Structured diff
+    added?: string[]
+    removed?: string[]
+    modified?: string[]
+  }
   
   // When
   detectedAt: string
