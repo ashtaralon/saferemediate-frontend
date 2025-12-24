@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Activity,
   RefreshCw,
+  RotateCcw,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
@@ -66,6 +67,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   })
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(30)
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
+  const [isReingesting, setIsReingesting] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -392,6 +394,56 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
   }
 
+  const handleReingest = async (scope: "all" | "system" = "all", target?: string | null) => {
+    setIsReingesting(true)
+    try {
+      const requestBody: { scope: string; target?: string | null } = { scope }
+      if (scope === "system" && target) {
+        requestBody.target = target
+      }
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000) // 60s timeout for re-ingestion
+
+      const response = await fetch("/api/proxy/admin/reingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: response.statusText }))
+        throw new Error(errorData.error || `Re-ingestion failed: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+
+      toast({
+        title: "Re-ingestion Started",
+        description: scope === "all" 
+          ? "All systems are being re-ingested. This may take a few minutes."
+          : `System '${target}' is being re-ingested. Resources with matching tags will be discovered.`,
+      })
+
+      // Refresh systems data after a short delay
+      setTimeout(() => {
+        fetchSystemsData()
+      }, 2000)
+    } catch (error: any) {
+      console.error("[systems-view] Re-ingestion error:", error)
+      toast({
+        title: "Re-ingestion Failed",
+        description: error.message || "Failed to trigger re-ingestion. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsReingesting(false)
+    }
+  }
+
   const filteredSystems = localSystems.filter((system) => system.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   const totalSystems = localSystems.length
@@ -529,6 +581,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           >
             <RefreshCw className={`w-4 h-4 ${isScanning ? "animate-spin" : ""}`} />
             Refresh
+          </button>
+
+          <button
+            onClick={() => handleReingest("all")}
+            disabled={isReingesting || isScanning}
+            className="inline-flex items-center gap-2 border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            title="Trigger manual resource discovery from AWS. Systems will emerge from tags."
+          >
+            <RotateCcw className={`w-4 h-4 ${isReingesting ? "animate-spin" : ""}`} />
+            {isReingesting ? "Re-ingesting..." : "Re-ingest Now"}
           </button>
 
           <div className="relative" ref={dropdownRef}>
@@ -686,12 +748,22 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                     <span className="text-sm text-gray-900">{system.owner}</span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <button
-                      onClick={() => handleViewDashboard(system.name)}
-                      className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                    >
-                      View Dashboard
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => handleViewDashboard(system.name)}
+                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        View Dashboard
+                      </button>
+                      <button
+                        onClick={() => handleReingest("system", system.name)}
+                        disabled={isReingesting}
+                        className="inline-flex items-center gap-1 border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        title={`Re-ingest resources for ${system.name}. Resources with SystemName=${system.name} tag will be discovered.`}
+                      >
+                        <RotateCcw className={`w-3 h-3 ${isReingesting ? "animate-spin" : ""}`} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
