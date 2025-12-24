@@ -396,11 +396,15 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
   const handleReingest = async (scope: "all" | "system" = "all", target?: string | null) => {
     setIsReingesting(true)
+    const startTime = Date.now()
+
     try {
       const requestBody: { scope: string; target?: string | null } = { scope }
       if (scope === "system" && target) {
         requestBody.target = target
       }
+
+      console.log("[systems-view] Starting re-ingestion:", { scope, target })
 
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 60000) // 60s timeout for re-ingestion
@@ -413,19 +417,57 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       })
 
       clearTimeout(timeoutId)
+      const responseTime = Date.now() - startTime
+
+      console.log("[systems-view] Re-ingest response:", {
+        status: response.status,
+        ok: response.ok,
+        responseTimeMs: responseTime,
+      })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: response.statusText }))
-        throw new Error(errorData.error || `Re-ingestion failed: ${response.statusText}`)
+        const errorData = await response.json().catch(() => ({
+          error: response.statusText || `HTTP ${response.status}`,
+        }))
+
+        console.error("[systems-view] Re-ingestion failed:", {
+          status: response.status,
+          errorData,
+          responseTimeMs: responseTime,
+        })
+
+        // Provide user-friendly error messages
+        let errorMessage = errorData.error || `Re-ingestion failed (${response.status})`
+
+        if (response.status === 404) {
+          errorMessage = "Backend endpoint not found. The re-ingest feature may not be deployed yet."
+        } else if (response.status === 503) {
+          errorMessage = "Backend service unavailable. Collectors or Neo4j may not be configured."
+        } else if (response.status === 504) {
+          errorMessage = "Request timeout. Re-ingestion may still be running - check backend logs."
+        }
+
+        throw new Error(errorMessage)
       }
 
       const result = await response.json()
+      const totalTime = Date.now() - startTime
+
+      console.log("[systems-view] Re-ingestion success:", {
+        result,
+        totalTimeMs: totalTime,
+        collectorsRun: result.collectors_run?.length || 0,
+      })
+
+      const collectorsRun = result.collectors_run?.length || 0
+      const errors = result.errors?.length || 0
 
       toast({
         title: "Re-ingestion Started",
-        description: scope === "all" 
-          ? "All systems are being re-ingested. This may take a few minutes."
-          : `System '${target}' is being re-ingested. Resources with matching tags will be discovered.`,
+        description:
+          scope === "all"
+            ? `All systems are being re-ingested. ${collectorsRun} collectors started${errors > 0 ? ` (${errors} errors)` : ""}.`
+            : `System '${target}' is being re-ingested. ${collectorsRun} collectors started.`,
       })
 
       // Refresh systems data after a short delay
@@ -433,7 +475,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         fetchSystemsData()
       }, 2000)
     } catch (error: any) {
-      console.error("[systems-view] Re-ingestion error:", error)
+      const totalTime = Date.now() - startTime
+      console.error("[systems-view] Re-ingestion error:", {
+        error: error.message,
+        name: error.name,
+        totalTimeMs: totalTime,
+      })
+
       toast({
         title: "Re-ingestion Failed",
         description: error.message || "Failed to trigger re-ingestion. Please try again.",
