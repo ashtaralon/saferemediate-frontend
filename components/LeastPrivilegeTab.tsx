@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2 } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 
 // Types
@@ -70,6 +70,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [error, setError] = useState<string | null>(null)
   const [selectedResource, setSelectedResource] = useState<GapResource | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [simulating, setSimulating] = useState(false)
+  const [simulationResult, setSimulationResult] = useState<any>(null)
+  const [simulationModalOpen, setSimulationModalOpen] = useState(false)
 
   useEffect(() => {
     fetchGaps()
