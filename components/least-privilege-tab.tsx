@@ -143,16 +143,17 @@ export function LeastPrivilegeTab({ systemName, onSimulate, onRemediate }: Least
     }
   }))
 
-  // Calculate summary stats
+  // Calculate summary stats (use metrics if available, otherwise calculate from resources)
   const summary = {
-    totalResources: gapResources.length,
-    totalExcessPermissions: gapResources.reduce((sum, r) => sum + r.gapCount, 0),
+    totalResources: metrics?.totalRoles || gapResources.length,
+    totalExcessPermissions: metrics?.totalUnusedPermissions || gapResources.reduce((sum, r) => sum + r.gapCount, 0),
     unusedNetworkRules: gapResources.filter(r => r.resourceType === 'SecurityGroup').reduce((sum, r) => sum + r.gapCount, 0),
     dataAccessIssues: gapResources.filter(r => r.resourceType === 'S3Bucket').length,
-    avgConfidence: gapResources.length > 0 
+    avgConfidence: metrics?.averageBloatPercentage || (gapResources.length > 0 
       ? Math.round(gapResources.reduce((sum, r) => sum + r.confidence, 0) / gapResources.length)
-      : 0,
-    autoRemediatable: gapResources.filter(r => r.confidence >= 85 && r.severity !== 'critical').length
+      : 0),
+    autoRemediatable: gapResources.filter(r => r.confidence >= 85 && r.severity !== 'critical').length,
+    rolesWithBloat: metrics?.rolesWithBloat || gapResources.filter(r => r.gapPercent > 0).length
   }
 
   const handleSimulate = (finding: SecurityFinding) => {
