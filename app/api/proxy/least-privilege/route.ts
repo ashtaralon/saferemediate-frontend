@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
 
     const res = await fetch(
-      `${BACKEND_URL}/api/least-privilege?systemName=${encodeURIComponent(systemName)}`,
+      `${BACKEND_URL}/api/least-privilege/roles?systemName=${encodeURIComponent(systemName)}`,
       {
         cache: "no-store",
         signal: controller.signal,
