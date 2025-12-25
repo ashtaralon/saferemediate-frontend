@@ -5,9 +5,9 @@ export async function GET() {
   process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend-f.onrender.com"
 
   try {
-    console.log("[API Proxy] Fetching systems from:", `${backendUrl}/api/graph/nodes`)
+    console.log("[API Proxy] Fetching systems from:", `${backendUrl}/api/systems`)
 
-    const response = await fetch(`${backendUrl}/api/graph/nodes`, {
+    const response = await fetch(`${backendUrl}/api/systems`, {
       headers: {
         "Content-Type": "application/json",
       },
@@ -25,8 +25,8 @@ export async function GET() {
         return Response.json(
           {
             success: false,
-            error: "Nodes endpoint not found",
-            hint: "Make sure your backend has the /api/graph/nodes endpoint implemented.",
+            error: "Systems endpoint not found",
+            hint: "Make sure your backend has the /api/systems endpoint implemented.",
             offline: false,
             systems: [],
             total: 0,
@@ -65,36 +65,17 @@ export async function GET() {
 
     console.log("[API Proxy] Backend response:", JSON.stringify(data).substring(0, 500))
 
-    // Transform nodes response to systems format
-    const nodes = data.nodes || data || []
+    // Use systems directly from backend response
+    // Backend returns: { systems: [...], total: number, timestamp: string }
+    const systems = data.systems || []
 
-    // Group nodes by systemName to create systems
-    const systemsMap = new Map<string, any>()
-
-    for (const node of nodes) {
-      const systemName = node.systemName || node.system_name || "default"
-      if (!systemsMap.has(systemName)) {
-        systemsMap.set(systemName, {
-          systemName,
-          resourceCount: 0,
-          seedCount: 0,
-          discoveredCount: 0,
-          resources: [],
-        })
-      }
-      const system = systemsMap.get(systemName)!
-      system.resourceCount++
-      system.resources.push(node)
-    }
-
-    const systems = Array.from(systemsMap.values())
-
-    console.log("[API Proxy] Found", systems.length, "systems with", nodes.length, "total nodes")
+    console.log("[API Proxy] Found", systems.length, "systems from backend")
 
     return Response.json({
       success: true,
       systems,
-      total: systems.length,
+      total: data.total || systems.length,
+      timestamp: data.timestamp,
     })
   } catch (error: any) {
     console.error("[API Proxy] Fetch failed:", error.name, error.message)
