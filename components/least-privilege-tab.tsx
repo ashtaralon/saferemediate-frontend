@@ -55,18 +55,65 @@ export function LeastPrivilegeTab({ systemName, onSimulate, onRemediate }: Least
   const [simulateModalOpen, setSimulateModalOpen] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<SecurityFinding | null>(null)
   const [timeRange, setTimeRange] = useState<number>(30)
+  const [metrics, setMetrics] = useState<any>(null)
 
   useEffect(() => {
-    loadFindings()
+    loadLeastPrivilegeData()
   }, [systemName])
 
-  const loadFindings = async () => {
+  const loadLeastPrivilegeData = async () => {
     setLoading(true)
     try {
-      const data = await fetchSecurityFindings()
-      setFindings(data)
+      // Load roles from LP API
+      const rolesUrl = `/api/proxy/least-privilege/roles${systemName ? `?systemName=${encodeURIComponent(systemName)}` : ''}`
+      const rolesResponse = await fetch(rolesUrl)
+      
+      if (rolesResponse.ok) {
+        const rolesData = await rolesResponse.json()
+        console.log(`[LeastPrivilegeTab] Loaded ${rolesData.length || 0} roles`)
+        
+        // Convert LP roles to findings format
+        const convertedFindings = (rolesData || []).map((role: any) => ({
+          id: role.roleArn || role.roleName,
+          finding_id: role.roleArn || role.roleName,
+          resourceType: 'IAMRole',
+          resource: role.roleName,
+          resourceId: role.roleArn,
+          resourceArn: role.roleArn,
+          role_name: role.roleName,
+          allowed_actions_count: role.permissionsCount || 0,
+          used_actions_count: (role.permissionsCount || 0) - (role.unusedPermissionsCount || 0),
+          unused_actions_count: role.unusedPermissionsCount || 0,
+          gapPercent: role.bloatPercentage || 0,
+          confidence: role.bloatPercentage > 0 ? 85 : 50,
+          severity: role.bloatPercentage > 50 ? 'high' : role.bloatPercentage > 25 ? 'medium' : 'low',
+          title: `Least Privilege: ${role.roleName}`,
+          description: role.description || `IAM role with ${role.permissionsCount || 0} permissions`,
+        }))
+        
+        setFindings(convertedFindings)
+      } else {
+        console.error(`[LeastPrivilegeTab] Failed to load roles: ${rolesResponse.status}`)
+        // Fallback to old method
+        const data = await fetchSecurityFindings()
+        setFindings(data)
+      }
+
+      // Load metrics
+      const metricsResponse = await fetch('/api/proxy/least-privilege/metrics')
+      if (metricsResponse.ok) {
+        const metricsData = await metricsResponse.json()
+        setMetrics(metricsData)
+      }
     } catch (error) {
-      console.error("[LeastPrivilegeTab] Error loading findings:", error)
+      console.error("[LeastPrivilegeTab] Error loading LP data:", error)
+      // Fallback to old method
+      try {
+        const data = await fetchSecurityFindings()
+        setFindings(data)
+      } catch (fallbackError) {
+        console.error("[LeastPrivilegeTab] Fallback also failed:", fallbackError)
+      }
     } finally {
       setLoading(false)
     }
