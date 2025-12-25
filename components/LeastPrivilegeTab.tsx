@@ -765,19 +765,36 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
       <div className="rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">Evidence Sources</h3>
         <div className="space-y-3">
-          {resource.evidence.dataSources.map((source, idx) => (
-            <div key={idx} className="flex items-center gap-3">
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
-              <div>
-                <div className="font-medium text-gray-900">{source}</div>
-                <div className="text-sm text-gray-600">
-                  {source === 'CloudTrail' && `${resource.evidence.observationDays} days of API call history`}
-                  {source === 'VPC Flow Logs' && `${resource.evidence.observationDays} days of network traffic`}
-                  {source === 'Graph' && 'Dependency relationships'}
+          {resource.evidence.dataSources.map((source, idx) => {
+            const getSourceDescription = (src: string) => {
+              switch (src) {
+                case 'CloudTrail':
+                  return `${resource.evidence.observationDays} days of API call history`;
+                case 'IAM Access Advisor':
+                  return 'Service-level last accessed information (up to 400 days)';
+                case 'VPC Flow Logs':
+                  return `${resource.evidence.flowlogs?.lookback_days || 30} days of network traffic analysis`;
+                case 'Resource Policies':
+                  return 'Cross-account access patterns (S3, KMS, Lambda)';
+                case 'IAM API':
+                  return 'Real-time permission extraction from policies';
+                default:
+                  return 'Evidence source';
+              }
+            };
+            
+            return (
+              <div key={idx} className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <div>
+                  <div className="font-medium text-gray-900">{source}</div>
+                  <div className="text-sm text-gray-600">
+                    {getSourceDescription(source)}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -793,6 +810,54 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
           </div>
         </div>
       </div>
+
+      {/* Confidence Scoring Breakdown */}
+      {resource.evidence.confidence_breakdown && (
+        <div className="rounded-lg border border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence Score Breakdown</h3>
+          <div className="space-y-4">
+            {Object.entries(resource.evidence.confidence_breakdown).map(([source, data]: [string, any]) => (
+              <div key={source} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900 capitalize">
+                      {source.replace(/_/g, ' ')}
+                    </span>
+                    {data.available === false && (
+                      <span className="text-xs text-gray-500">(Not available)</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {data.contribution.toFixed(1)} / {data.max.toFixed(1)}
+                    </span>
+                    <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600 transition-all"
+                        style={{ width: `${(data.contribution / data.max) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-600 ml-7">
+                  {data.description}
+                  {data.events !== undefined && ` • ${data.events} events`}
+                  {data.flows !== undefined && ` • ${data.flows} flows`}
+                  {data.resources_checked !== undefined && ` • ${data.resources_checked} resources checked`}
+                </div>
+              </div>
+            ))}
+            <div className="pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-900">Total Confidence</span>
+                <span className="text-lg font-bold text-blue-600">
+                  {resource.confidence.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence</h3>
