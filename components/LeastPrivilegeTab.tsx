@@ -33,6 +33,33 @@ interface GapResource {
       regions: string[]
       complete: boolean
     }
+    flowlogs?: {
+      total_flows?: number
+      matched_flows?: number
+      enis_checked?: number
+      log_groups_checked?: number
+      lookback_days?: number
+    } | null
+    resourcePolicies?: {
+      total_resources_checked?: number
+      matching_policies?: Array<{
+        resource_type: string
+        resource_name?: string
+        resource_arn?: string
+      }>
+      s3_buckets_checked?: number
+      kms_keys_checked?: number
+      lambda_functions_checked?: number
+    } | null
+    confidence_breakdown?: Record<string, {
+      contribution: number
+      max: number
+      available: boolean
+      description: string
+      events?: number
+      flows?: number
+      resources_checked?: number
+    }> | null
   }
   severity: 'critical' | 'high' | 'medium' | 'low'
   confidence: number
@@ -137,7 +164,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             coverage: {
               regions: ['us-east-1'],
               complete: true
-            }
+            },
+            flowlogs: r.evidence?.flowlogs || null,
+            resourcePolicies: r.evidence?.resourcePolicies || null,
+            confidence_breakdown: r.evidence?.confidence_breakdown || null
           },
           severity: r.severity || 'medium',
           confidence: r.confidence || 0,
@@ -856,6 +886,108 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* VPC Flow Logs Details */}
+      {resource.evidence.flowlogs && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Network className="w-5 h-5 text-blue-600" />
+            VPC Flow Logs Analysis
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm text-gray-600">Total Flows Analyzed</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {resource.evidence.flowlogs.total_flows || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Matched Flows</div>
+              <div className="text-2xl font-bold text-blue-600">
+                {resource.evidence.flowlogs.matched_flows || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">ENIs Checked</div>
+              <div className="text-lg font-semibold text-gray-700">
+                {resource.evidence.flowlogs.enis_checked || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Log Groups Checked</div>
+              <div className="text-lg font-semibold text-gray-700">
+                {resource.evidence.flowlogs.log_groups_checked || 0}
+              </div>
+            </div>
+          </div>
+          {resource.evidence.flowlogs.total_flows > 0 && (
+            <div className="mt-4 pt-4 border-t border-blue-200">
+              <div className="text-sm text-gray-600">
+                Network traffic analysis validates that permissions are actively used at the network level.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resource Policies Details */}
+      {resource.evidence.resourcePolicies && (
+        <div className="rounded-lg border border-purple-200 bg-purple-50 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-purple-600" />
+            Resource Policies Analysis
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm text-gray-600">Total Resources Checked</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {resource.evidence.resourcePolicies.total_resources_checked || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Matching Policies</div>
+              <div className="text-2xl font-bold text-purple-600">
+                {resource.evidence.resourcePolicies.matching_policies?.length || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">S3 Buckets</div>
+              <div className="text-lg font-semibold text-gray-700">
+                {resource.evidence.resourcePolicies.s3_buckets_checked || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">KMS Keys</div>
+              <div className="text-lg font-semibold text-gray-700">
+                {resource.evidence.resourcePolicies.kms_keys_checked || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Lambda Functions</div>
+              <div className="text-lg font-semibold text-gray-700">
+                {resource.evidence.resourcePolicies.lambda_functions_checked || 0}
+              </div>
+            </div>
+          </div>
+          {resource.evidence.resourcePolicies.matching_policies && resource.evidence.resourcePolicies.matching_policies.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-purple-200">
+              <div className="text-sm font-medium text-gray-700 mb-2">Resources with Access:</div>
+              <div className="space-y-1">
+                {resource.evidence.resourcePolicies.matching_policies.slice(0, 5).map((policy: any, idx: number) => (
+                  <div key={idx} className="text-xs text-gray-600 bg-white px-2 py-1 rounded">
+                    {policy.resource_type}: {policy.resource_name || policy.resource_arn}
+                  </div>
+                ))}
+                {resource.evidence.resourcePolicies.matching_policies.length > 5 && (
+                  <div className="text-xs text-gray-500">
+                    +{resource.evidence.resourcePolicies.matching_policies.length - 5} more resources
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
