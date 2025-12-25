@@ -32,7 +32,7 @@ import {
   Wrench,
 } from "lucide-react"
 import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for the graph tab
-import { LeastPrivilegeTab } from "./least-privilege-tab" // Import LeastPrivilegeTab
+import LeastPrivilegeTab from "./LeastPrivilegeTab" // Import comprehensive LeastPrivilegeTab
 import DependencyMapView from "./DependencyMap" // Import new DependencyMapView with ReactFlow
 import { AllServicesTab } from "./all-services-tab"
 import SimulationResultsModal from "@/components/SimulationResultsModal"

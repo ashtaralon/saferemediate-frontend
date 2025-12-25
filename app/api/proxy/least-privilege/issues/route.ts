@@ -10,14 +10,14 @@ const BACKEND_URL =
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName")
-  const observationDays = url.searchParams.get("observationDays") || "365"
+  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const observationDays = url.searchParams.get("observationDays") ?? "365"
 
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
 
-    // Build backend URL with parameters
+    // Build backend URL with parameters - use the new /api/least-privilege/issues endpoint
     let backendUrl = `${BACKEND_URL}/api/least-privilege/issues?observationDays=${observationDays}`
     if (systemName) {
       backendUrl += `&systemName=${encodeURIComponent(systemName)}`
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
         },
         resources: [],
         timestamp: new Date().toISOString()
-      })
+      }, { status: 200 }) // Return 200 to prevent UI errors
     }
 
     const data = await res.json()
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
         },
         resources: [],
         timestamp: new Date().toISOString()
-      })
+      }, { status: 200 }) // Return 200 to prevent UI errors
     }
 
     // Return empty structure on any error
@@ -107,7 +107,6 @@ export async function GET(req: NextRequest) {
       },
       resources: [],
       timestamp: new Date().toISOString()
-    })
+    }, { status: 200 }) // Return 200 to prevent UI errors
   }
 }
-
