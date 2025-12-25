@@ -648,7 +648,7 @@ export default function SimulationResultsModal({
               {/* Evidence Tab */}
               {activeTab === 'evidence' && (
                 <div className="space-y-4">
-                  {result.evidence ? (
+                  {result.evidence && (
                     <>
                       {result.evidence.cloudtrail && (
                         <div className="border border-gray-200 rounded-lg p-4">
@@ -692,6 +692,9 @@ export default function SimulationResultsModal({
                         </div>
                       )}
                     </>
+                  )}
+                  {!result.evidence && (
+                    <div className="text-sm text-gray-500 text-center py-4">No evidence data available</div>
                   )}
                   {result.human_readable_evidence && result.human_readable_evidence.length > 0 && (
                     <div className="border border-gray-200 rounded-lg p-4">
