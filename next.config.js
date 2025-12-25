@@ -10,10 +10,8 @@ const nextConfig = {
     unoptimized: true,
   },
 
-  // ⛔ מכבה Turbopack + ⛔ מכריח Webpack
+  // Experimental features for Next.js 16
   experimental: {
-    turbo: false,
-    webpackBuild: true,
     serverActions: {
       allowedOrigins: ['*'],
     },
@@ -21,8 +19,6 @@ const nextConfig = {
 
   // מאפשר source maps בפרודקשן
   productionBrowserSourceMaps: true,
-
-  swcMinify: true,
   generateEtags: false,
   poweredByHeader: false,
   compress: false,
