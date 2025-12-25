@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2 } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 
 // Types
@@ -100,20 +100,36 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
   const [simulationModalOpen, setSimulationModalOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
     fetchGaps()
   }, [systemName])
 
-  const fetchGaps = async () => {
+  const fetchGaps = async (showRefreshing = false) => {
     try {
-      setLoading(true)
+      if (showRefreshing) {
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
       setError(null)
       
       const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365`)
       if (!response.ok) throw new Error(`Failed: ${response.status}`)
       
       const result = await response.json()
+      
+      // Log what we received for debugging
+      console.log('[LeastPrivilegeTab] Received resources:', {
+        total: result.resources?.length || 0,
+        byType: {
+          IAMRole: result.resources?.filter((r: any) => r.resourceType === 'IAMRole').length || 0,
+          SecurityGroup: result.resources?.filter((r: any) => r.resourceType === 'SecurityGroup').length || 0,
+          S3Bucket: result.resources?.filter((r: any) => r.resourceType === 'S3Bucket').length || 0
+        },
+        summary: result.summary
+      })
       
       // Transform to new format
       const transformed: LeastPrivilegeResponse = {
@@ -181,11 +197,26 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       }
       
       setData(transformed)
+      
+      // Log transformed data
+      console.log('[LeastPrivilegeTab] Transformed resources:', {
+        total: transformed.resources.length,
+        byType: {
+          IAMRole: transformed.resources.filter(r => r.resourceType === 'IAMRole').length,
+          SecurityGroup: transformed.resources.filter(r => r.resourceType === 'SecurityGroup').length,
+          S3Bucket: transformed.resources.filter(r => r.resourceType === 'S3Bucket').length
+        }
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
+  }
+  
+  const handleRefresh = async () => {
+    await fetchGaps(true)
   }
 
   if (loading) {
@@ -233,10 +264,21 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           <h1 className="text-3xl font-bold text-gray-900">Least Privilege Analysis</h1>
           <p className="text-gray-600 mt-1">GAP between ALLOWED and ACTUAL permissions</p>
         </div>
-        <div className="text-right">
-          <div className="text-sm text-gray-600">System LP Score</div>
-          <div className="text-4xl font-bold" style={{ color: summary.avgLPScore < 50 ? '#dc2626' : summary.avgLPScore < 75 ? '#ea580c' : '#10b981' }}>
-            {summary.avgLPScore.toFixed(0)}%
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
+            title="Refresh data from backend"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+          <div className="text-right">
+            <div className="text-sm text-gray-600">System LP Score</div>
+            <div className="text-4xl font-bold" style={{ color: summary.avgLPScore < 50 ? '#dc2626' : summary.avgLPScore < 75 ? '#ea580c' : '#10b981' }}>
+              {summary.avgLPScore.toFixed(0)}%
+            </div>
           </div>
         </div>
       </div>
@@ -269,18 +311,47 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         />
       </div>
 
+      {/* Resource Type Filter & Stats */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-600">
+            Showing <strong>{resources.length}</strong> resources:
+            <span className="ml-2">
+              {resources.filter(r => r.resourceType === 'IAMRole').length} IAM Roles,
+              {' '}
+              {resources.filter(r => r.resourceType === 'SecurityGroup').length} Security Groups,
+              {' '}
+              {resources.filter(r => r.resourceType === 'S3Bucket').length} S3 Buckets
+            </span>
+          </div>
+        </div>
+        {data.timestamp && (
+          <div className="text-xs text-gray-500">
+            Last updated: {new Date(data.timestamp).toLocaleString()}
+          </div>
+        )}
+      </div>
+
       {/* Resources List */}
       <div className="space-y-4">
-        {resources.map((resource) => (
-          <GapResourceCard
-            key={resource.id}
-            resource={resource}
-            onClick={() => {
-              setSelectedResource(resource)
-              setDrawerOpen(true)
-            }}
-          />
-        ))}
+        {resources.length === 0 ? (
+          <div className="text-center py-12 border border-gray-200 rounded-lg bg-gray-50">
+            <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">No resources found</p>
+            <p className="text-sm text-gray-500 mt-2">Try clicking "Refresh Data" to reload from backend</p>
+          </div>
+        ) : (
+          resources.map((resource) => (
+            <GapResourceCard
+              key={resource.id}
+              resource={resource}
+              onClick={() => {
+                setSelectedResource(resource)
+                setDrawerOpen(true)
+              }}
+            />
+          ))
+        )}
       </div>
 
       {/* Remediation Drawer */}
