@@ -159,7 +159,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           evidence: {
             dataSources: r.evidence?.dataSources || ['CloudTrail'],
             observationDays: r.observationDays || 365,
-            confidence: r.confidence >= 90 ? 'HIGH' as const : r.confidence >= 70 ? 'MEDIUM' as const : 'LOW' as const,
+            // Confidence levels: HIGH (85%+), MEDIUM (60-84%), LOW (<60%)
+            confidence: r.confidence >= 85 ? 'HIGH' as const : r.confidence >= 60 ? 'MEDIUM' as const : 'LOW' as const,
             lastUsed: r.lastUsed,
             coverage: {
               regions: ['us-east-1'],
