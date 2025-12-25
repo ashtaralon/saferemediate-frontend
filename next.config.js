@@ -23,6 +23,9 @@ const nextConfig = {
   poweredByHeader: false,
   compress: false,
 
+  // Turbopack config (Next.js 16 uses Turbopack by default)
+  turbopack: {},
+
   webpack: (config) => {
     config.devtool = "source-map";
     return config;
