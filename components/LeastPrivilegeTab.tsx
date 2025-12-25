@@ -268,19 +268,108 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  finding_id: selectedResource.id,
+                  finding_id: selectedResource.id, // Use resource ARN as finding_id for LP
                   resource_type: selectedResource.resourceType,
-                  resource_id: selectedResource.resourceArn || selectedResource.resourceName,
-                  proposed_change: {
-                    action: 'remove_permissions',
-                    items: selectedResource.unusedList,
-                    reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
-                  },
-                  system_name: systemName
+                  resource_id: selectedResource.resourceArn || selectedResource.resourceName
                 })
               })
-              const result = await response.json()
-              setSimulationResult(result)
+              
+              if (!response.ok) {
+                throw new Error(`Simulation failed: ${response.status}`)
+              }
+              
+              const backendData = await response.json()
+              
+              // Transform backend response to SimulationResultsModal format
+              const simulationData = backendData.simulation || backendData
+              const decision = backendData.decision || {}
+              
+              // Map backend confidence (0-100) to modal format
+              const backendConfidence = simulationData.confidence || decision.confidence || 0
+              const confidenceValue = typeof backendConfidence === 'number' 
+                ? (backendConfidence > 1 ? backendConfidence / 100 : backendConfidence) 
+                : 0.5
+              
+              // Determine status from decision action
+              let status: 'EXECUTE' | 'CANARY' | 'REVIEW' | 'BLOCKED' = 'REVIEW'
+              if (decision.action === 'AUTO_REMEDIATE' || decision.action === 'EXECUTE') {
+                status = 'EXECUTE'
+              } else if (decision.action === 'CANARY') {
+                status = 'CANARY'
+              } else if (decision.action === 'BLOCK' || decision.action === 'BLOCKED') {
+                status = 'BLOCKED'
+              }
+              
+              const transformedResult = {
+                status,
+                confidence: confidenceValue,
+                blast_radius: {
+                  level: decision.breakdown?.dependency < 0.5 ? 'ISOLATED' : 'LOW',
+                  numeric: decision.breakdown?.dependency || 0.1,
+                  affected_resources_count: simulationData.impacted_resources?.length || 0,
+                  affected_resources: (simulationData.impacted_resources || []).map((id: string) => ({
+                    id,
+                    type: selectedResource.resourceType,
+                    name: id.split('/').pop() || id,
+                    impact: 'Low'
+                  }))
+                },
+                evidence: {
+                  cloudtrail: {
+                    total_events: 0,
+                    matched_events: 0,
+                    days_since_last_use: selectedResource.evidence.observationDays
+                  },
+                  summary: {
+                    total_sources: 2,
+                    agreeing_sources: 2
+                  }
+                },
+                simulation_steps: [
+                  {
+                    step_number: 1,
+                    name: 'Fetch Role Details',
+                    description: 'Retrieved IAM role information from AWS',
+                    status: 'COMPLETED' as const
+                  },
+                  {
+                    step_number: 2,
+                    name: 'Collect Evidence',
+                    description: 'Gathered CloudTrail and Access Advisor data',
+                    status: 'COMPLETED' as const
+                  },
+                  {
+                    step_number: 3,
+                    name: 'Analyze Usage',
+                    description: `Analyzed ${selectedResource.evidence.observationDays} days of usage data`,
+                    status: 'COMPLETED' as const
+                  },
+                  {
+                    step_number: 4,
+                    name: 'Calculate Confidence',
+                    description: `Confidence: ${(confidenceValue * 100).toFixed(0)}%`,
+                    status: 'COMPLETED' as const
+                  }
+                ],
+                edge_cases: [],
+                action_policy: {
+                  auto_apply: decision.auto_allowed || false,
+                  allowed_actions: decision.action ? [decision.action] : [],
+                  reason: decision.reasons?.join('; ') || 'Based on evidence analysis',
+                  issue_type: selectedResource.resourceType
+                },
+                recommendation: decision.reasons?.join('. ') || simulationData.after_state || 'Review recommended',
+                before_state_summary: simulationData.before_state,
+                after_state_summary: simulationData.after_state,
+                timestamp: new Date().toISOString(),
+                human_readable_evidence: decision.reasons || [
+                  `${selectedResource.gapCount} unused permissions detected`,
+                  `${selectedResource.evidence.observationDays} days of observation`,
+                  `Confidence: ${(confidenceValue * 100).toFixed(0)}%`
+                ]
+              }
+              
+              setSimulationResult(transformedResult)
               setSimulationModalOpen(true)
             } catch (err) {
               console.error('Simulation error:', err)

@@ -213,7 +213,13 @@ export default function SimulationResultsModal({
     }
     
     // Convert numeric to categorical
-    const numeric = typeof result.confidence === 'number' ? result.confidence : 0.5
+    // Handle both 0-1 scale and 0-100 scale
+    let numeric = typeof result.confidence === 'number' ? result.confidence : 0.5
+    if (numeric > 1) {
+      // Already in 0-100 scale, convert to 0-1
+      numeric = numeric / 100
+    }
+    
     if (numeric >= 0.9) {
       return {
         level: 'HIGH',
@@ -462,7 +468,9 @@ export default function SimulationResultsModal({
                       <div className="text-3xl font-bold">{confidence.level}</div>
                       {confidence.numeric !== undefined && (
                         <div className="text-xs mt-1 opacity-80">
-                          {(confidence.numeric * 100).toFixed(0)}% numeric
+                          {confidence.numeric > 1 
+                            ? `${confidence.numeric.toFixed(0)}% numeric` 
+                            : `${(confidence.numeric * 100).toFixed(0)}% numeric`}
                         </div>
                       )}
                       <div className="text-xs mt-1 opacity-80">
@@ -584,9 +592,10 @@ export default function SimulationResultsModal({
               )}
 
               {/* Simulation Steps Tab */}
-              {activeTab === 'steps' && result.simulation_steps && (
+              {activeTab === 'steps' && (
                 <div className="space-y-4">
-                  {result.simulation_steps.map((step, idx) => (
+                  {result.simulation_steps && result.simulation_steps.length > 0 ? (
+                    result.simulation_steps.map((step, idx) => (
                     <div key={idx} className="border border-gray-200 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
@@ -625,14 +634,21 @@ export default function SimulationResultsModal({
                         </div>
                       )}
                     </div>
-                  ))}
+                  ))
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                      <p>No simulation steps available</p>
+                      <p className="text-xs mt-1">Simulation steps will appear here once the analysis is complete</p>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Evidence Tab */}
               {activeTab === 'evidence' && (
                 <div className="space-y-4">
-                  {result.evidence && (
+                  {result.evidence ? (
                     <>
                       {result.evidence.cloudtrail && (
                         <div className="border border-gray-200 rounded-lg p-4">
