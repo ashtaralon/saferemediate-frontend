@@ -292,8 +292,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           </button>
           <div className="text-right">
             <div className="text-sm text-gray-600">System LP Score</div>
-            <div className="text-4xl font-bold" style={{ color: summary.avgLPScore < 50 ? '#dc2626' : summary.avgLPScore < 75 ? '#ea580c' : '#10b981' }}>
-              {summary.avgLPScore.toFixed(0)}%
+            <div className="text-4xl font-bold" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#dc2626' : (summary.avgLPScore ?? 0) < 75 ? '#ea580c' : '#10b981' }}>
+              {(summary.avgLPScore ?? 0).toFixed(0)}%
             </div>
           </div>
         </div>
@@ -465,7 +465,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                   {
                     step_number: 4,
                     name: 'Calculate Confidence',
-                    description: `Confidence: ${(confidenceValue * 100).toFixed(0)}%`,
+                    description: `Confidence: ${((confidenceValue ?? 0) * 100).toFixed(0)}%`,
                     status: 'COMPLETED' as const
                   }
                 ],
@@ -481,9 +481,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 after_state_summary: simulationData.after_state,
                 timestamp: new Date().toISOString(),
                 human_readable_evidence: decision.reasons || [
-                  `${selectedResource.gapCount} unused permissions detected`,
-                  `${selectedResource.evidence.observationDays} days of observation`,
-                  `Confidence: ${(confidenceValue * 100).toFixed(0)}%`
+                  `${selectedResource.gapCount ?? 0} unused permissions detected`,
+                  `${selectedResource.evidence.observationDays ?? 0} days of observation`,
+                  `Confidence: ${((confidenceValue ?? 0) * 100).toFixed(0)}%`
                 ]
               }
               
@@ -580,8 +580,8 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
               </div>
               <p className="text-sm text-gray-500">{resource.systemName || 'Unknown System'}</p>
             </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
-              LP Score: {resource.lpScore.toFixed(0)}%
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore ?? 0)}`}>
+              LP Score: {(resource.lpScore ?? 0).toFixed(0)}%
             </span>
             <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
               {resource.resourceType}
@@ -593,7 +593,7 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">Permission Usage</span>
               <span className="text-sm text-gray-600">
-                {resource.usedCount} used • {resource.gapCount} unused ({resource.gapPercent.toFixed(0)}%)
+                {resource.usedCount ?? 0} used • {resource.gapCount ?? 0} unused ({(resource.gapPercent ?? 0).toFixed(0)}%)
               </span>
             </div>
             <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
@@ -780,13 +780,13 @@ function SummaryTab({ resource }: { resource: GapResource }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="rounded-lg border border-gray-200 p-4">
           <div className="text-sm text-gray-600 mb-1">LP Score</div>
-          <div className="text-3xl font-bold text-gray-900">{resource.lpScore.toFixed(0)}%</div>
-          <div className="text-xs text-gray-500 mt-1">{100 - resource.lpScore.toFixed(0)}% unused</div>
+          <div className="text-3xl font-bold text-gray-900">{(resource.lpScore ?? 0).toFixed(0)}%</div>
+          <div className="text-xs text-gray-500 mt-1">{100 - (resource.lpScore ?? 0)}% unused</div>
         </div>
         <div className="rounded-lg border border-gray-200 p-4">
           <div className="text-sm text-gray-600 mb-1">Attack Surface Reduction</div>
-          <div className="text-3xl font-bold text-red-600">{resource.gapPercent.toFixed(0)}%</div>
-          <div className="text-xs text-gray-500 mt-1">{resource.gapCount} permissions</div>
+          <div className="text-3xl font-bold text-red-600">{(resource.gapPercent ?? 0).toFixed(0)}%</div>
+          <div className="text-xs text-gray-500 mt-1">{resource.gapCount ?? 0} permissions</div>
         </div>
       </div>
 
@@ -809,7 +809,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         <p className="text-sm text-gray-700">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
           In <strong>{resource.evidence.observationDays} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
-          The other <strong>{resource.gapCount} ({resource.gapPercent.toFixed(0)}%)</strong> are your attack surface.
+          The other <strong>{resource.gapCount ?? 0} ({(resource.gapPercent ?? 0).toFixed(0)}%)</strong> are your attack surface.
         </p>
       </div>
 
@@ -1042,7 +1042,7 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-gray-900">
-                      {data.contribution.toFixed(1)} / {data.max.toFixed(1)}
+                      {(data.contribution ?? 0).toFixed(1)} / {(data.max ?? 0).toFixed(1)}
                     </span>
                     <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
                       <div
@@ -1064,7 +1064,7 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
               <div className="flex items-center justify-between">
                 <span className="font-bold text-gray-900">Total Confidence</span>
                 <span className="text-lg font-bold text-blue-600">
-                  {resource.confidence.toFixed(1)}%
+                  {(resource.confidence ?? 0).toFixed(1)}%
                 </span>
               </div>
             </div>
@@ -1202,7 +1202,7 @@ function ImpactTab({ resource }: { resource: GapResource }) {
           {[
             'No service disruption expected',
             'All active workflows will continue',
-            `Reduces attack surface by ${resource.gapPercent.toFixed(0)}%`,
+            `Reduces attack surface by ${(resource.gapPercent ?? 0).toFixed(0)}%`,
             'Achieves least privilege compliance'
           ].map((impact, idx) => (
             <div key={idx} className="flex items-center gap-2">
