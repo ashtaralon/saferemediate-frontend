@@ -33,6 +33,19 @@ interface GapResource {
       regions: string[]
       complete: boolean
     }
+    rule_states?: Array<{
+      port: number | string
+      protocol?: string
+      cidr?: string
+      exposed: boolean
+      observed_usage?: boolean
+      recommendation?: string
+      note?: string
+      data_source?: string
+      confidence?: number
+      connections?: number
+      last_seen?: string
+    }>
     flowlogs?: {
       total_flows?: number
       matched_flows?: number
@@ -67,6 +80,7 @@ interface GapResource {
   title: string
   description: string
   remediation: string
+  region?: string  // For Security Groups
 }
 
 interface LeastPrivilegeSummary {
@@ -184,14 +198,16 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             },
             flowlogs: r.evidence?.flowlogs || null,
             resourcePolicies: r.evidence?.resourcePolicies || null,
-            confidence_breakdown: r.evidence?.confidence_breakdown || null
+            confidence_breakdown: r.evidence?.confidence_breakdown || null,
+            rule_states: r.evidence?.rule_states || null  // Security Group rule states
           },
           severity: r.severity || 'medium',
           confidence: r.confidence || 0,
           observationDays: r.observationDays || 365,
           title: r.title || `${r.resourceName} has ${r.gapCount} unused permissions`,
           description: r.description || '',
-          remediation: r.remediation || ''
+          remediation: r.remediation || '',
+          region: r.evidence?.coverage?.regions?.[0] || r.region || null  // Extract region
         })),
         timestamp: result.timestamp || new Date().toISOString()
       }
@@ -554,7 +570,14 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
           <div className="flex items-center gap-3 mb-4">
             {getResourceIcon()}
             <div>
-              <h3 className="text-lg font-bold text-gray-900">{resource.resourceName}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-bold text-gray-900">{resource.resourceName}</h3>
+                {resource.region && (
+                  <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium flex items-center gap-1">
+                    🌍 {resource.region}
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-gray-500">{resource.systemName || 'Unknown System'}</p>
             </div>
             <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
@@ -655,7 +678,14 @@ function RemediationDrawer({
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{resource.resourceName}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-gray-900">{resource.resourceName}</h2>
+              {resource.region && (
+                <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium flex items-center gap-1">
+                  🌍 {resource.region}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-600">{resource.resourceType} • {resource.systemName}</p>
           </div>
           <button
@@ -862,8 +892,89 @@ function BeforeAfterTab({ resource }: { resource: GapResource }) {
 }
 
 function EvidenceTab({ resource }: { resource: GapResource }) {
+  // Check if this is a Security Group with rule_states
+  const hasRuleStates = resource.resourceType === 'SecurityGroup' && resource.evidence.rule_states && resource.evidence.rule_states.length > 0
+  
   return (
     <div className="space-y-6">
+      {/* Rule States for Security Groups */}
+      {hasRuleStates && (
+        <div className="rounded-lg border border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Security Group Rules ({resource.evidence.rule_states?.length || 0})</h3>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {resource.evidence.rule_states?.map((rule, idx) => {
+              const port = typeof rule.port === 'number' ? rule.port : rule.port
+              const isAllTraffic = rule.protocol === '-1' || port === -1 || port === 'ALL'
+              const isIPv6 = rule.cidr?.includes('::/0') || false
+              const isRisky = rule.cidr?.includes('0.0.0.0/0') || isIPv6
+              
+              return (
+                <div 
+                  key={idx} 
+                  className={`rounded-lg border p-4 ${
+                    isRisky ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`px-3 py-1 rounded font-mono text-sm font-bold ${
+                        isAllTraffic 
+                          ? 'bg-orange-100 text-orange-700' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {isAllTraffic ? 'All Traffic' : `Port ${port}`}
+                      </div>
+                      {rule.protocol && rule.protocol !== '-1' && (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                          {rule.protocol.toUpperCase()}
+                        </span>
+                      )}
+                      {isIPv6 && (
+                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
+                          IPv6
+                        </span>
+                      )}
+                      {rule.cidr && rule.cidr !== 'N/A' && (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-mono">
+                          {rule.cidr}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {rule.observed_usage ? (
+                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Used
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                          Not Used
+                        </span>
+                      )}
+                      {rule.recommendation && (
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          rule.recommendation === 'REVIEW_OR_DELETE' || rule.recommendation === 'DELETE'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {rule.recommendation === 'REVIEW_OR_DELETE' ? '⚠️ Delete' : rule.recommendation}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {rule.note && (
+                    <p className="text-xs text-gray-600 mt-2">{rule.note}</p>
+                  )}
+                  {rule.last_seen && (
+                    <p className="text-xs text-gray-500 mt-1">Last seen: {new Date(rule.last_seen).toLocaleDateString()}</p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      
       <div className="rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">Evidence Sources</h3>
         <div className="space-y-3">
