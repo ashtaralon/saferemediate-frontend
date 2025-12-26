@@ -11,11 +11,25 @@ interface GapResource {
   resourceName: string
   resourceArn: string
   systemName?: string
-  lpScore: number
+  lpScore: number | null  // null for Security Groups (use networkExposure instead)
   allowedCount: number
-  usedCount: number
-  gapCount: number
-  gapPercent: number
+  usedCount: number | null  // null for Security Groups
+  gapCount: number | null  // null for Security Groups
+  gapPercent: number | null  // null for Security Groups
+  networkExposure?: {
+    score: number
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    totalRules: number
+    internetExposedRules: number
+    highRiskPorts: number[]
+    details: {
+      totalIngressRules: number
+      totalEgressRules: number
+      findingsCount: number
+      criticalFindings: number
+      highFindings: number
+    }
+  }
   allowedList: string[]
   usedList: string[]
   unusedList: string[]
@@ -166,49 +180,72 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             ? result.resources.reduce((acc: number, r: any) => acc + r.gapPercent, 0) / result.resources.length
             : 0
         },
-        resources: (result.resources || []).map((r: any) => ({
-          id: r.id,
-          resourceType: r.resourceType,
-          resourceName: r.resourceName,
-          resourceArn: r.resourceArn,
-          systemName: r.systemName,
-          lpScore: 100 - r.gapPercent,
-          allowedCount: r.allowedCount,
-          usedCount: r.usedCount,
-          gapCount: r.gapCount,
-          gapPercent: r.gapPercent,
-          allowedList: r.allowedList || [],
-          usedList: r.usedList || [],
-          unusedList: r.unusedList || [],
-          highRiskUnused: (r.unusedList || []).slice(0, 5).map((perm: string) => ({
-            permission: perm,
-            riskLevel: perm.includes('PassRole') || perm.includes('Delete') || perm.includes('Admin') ? 'CRITICAL' as const : 'HIGH' as const,
-            reason: perm.includes('PassRole') ? 'Privilege escalation risk' : 
-                   perm.includes('Delete') ? 'Destructive action' : 'High-risk permission'
-          })),
-          evidence: {
-            dataSources: r.evidence?.dataSources || ['CloudTrail'],
-            observationDays: r.observationDays || 365,
-            // Confidence levels: HIGH (85%+), MEDIUM (60-84%), LOW (<60%)
-            confidence: r.confidence >= 85 ? 'HIGH' as const : r.confidence >= 60 ? 'MEDIUM' as const : 'LOW' as const,
-            lastUsed: r.lastUsed,
-            coverage: {
-              regions: ['us-east-1'],
-              complete: true
+        resources: (result.resources || []).map((r: any) => {
+          // For Security Groups, use networkExposure instead of lpScore
+          const isSecurityGroup = r.resourceType === 'SecurityGroup'
+          const networkExposure = r.networkExposure || null
+          
+          return {
+            id: r.id,
+            resourceType: r.resourceType,
+            resourceName: r.resourceName,
+            resourceArn: r.resourceArn,
+            systemName: r.systemName,
+            // For Security Groups: lpScore is null, use networkExposure instead
+            lpScore: isSecurityGroup ? null : (r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : 100)),
+            allowedCount: r.allowedCount || 0,
+            usedCount: isSecurityGroup ? null : (r.usedCount ?? 0),
+            gapCount: isSecurityGroup ? null : (r.gapCount ?? 0),
+            gapPercent: isSecurityGroup ? null : (r.gapPercent ?? 0),
+            networkExposure: networkExposure ? {
+              score: networkExposure.score || 0,
+              severity: networkExposure.severity || 'MEDIUM',
+              totalRules: networkExposure.totalRules || 0,
+              internetExposedRules: networkExposure.internetExposedRules || 0,
+              highRiskPorts: networkExposure.highRiskPorts || [],
+              details: networkExposure.details || {
+                totalIngressRules: networkExposure.totalRules || 0,
+                totalEgressRules: 0,
+                findingsCount: 0,
+                criticalFindings: 0,
+                highFindings: 0
+              }
+            } : undefined,
+            allowedList: r.allowedList || [],
+            usedList: r.usedList || [],
+            unusedList: r.unusedList || [],
+            highRiskUnused: (r.unusedList || []).slice(0, 5).map((perm: string) => ({
+              permission: perm,
+              riskLevel: perm.includes('PassRole') || perm.includes('Delete') || perm.includes('Admin') ? 'CRITICAL' as const : 'HIGH' as const,
+              reason: perm.includes('PassRole') ? 'Privilege escalation risk' : 
+                     perm.includes('Delete') ? 'Destructive action' : 'High-risk permission'
+            })),
+            evidence: {
+              dataSources: r.evidence?.dataSources || ['CloudTrail'],
+              observationDays: r.observationDays || r.evidence?.observationDays || 365,
+              // Confidence levels: HIGH (85%+), MEDIUM (60-84%), LOW (<60%)
+              confidence: r.confidence >= 85 ? 'HIGH' as const : r.confidence >= 60 ? 'MEDIUM' as const : 'LOW' as const,
+              lastUsed: r.lastUsed,
+              coverage: {
+                regions: r.evidence?.coverage?.regions || ['us-east-1'],
+                complete: r.evidence?.coverage?.complete !== false
+              },
+              flowlogs: r.evidence?.flowlogs || null,
+              resourcePolicies: r.evidence?.resourcePolicies || null,
+              confidence_breakdown: r.evidence?.confidence_breakdown || null,
+              rule_states: r.evidence?.rule_states || null  // Security Group rule states
             },
-            flowlogs: r.evidence?.flowlogs || null,
-            resourcePolicies: r.evidence?.resourcePolicies || null,
-            confidence_breakdown: r.evidence?.confidence_breakdown || null,
-            rule_states: r.evidence?.rule_states || null  // Security Group rule states
-          },
-          severity: r.severity || 'medium',
-          confidence: r.confidence || 0,
-          observationDays: r.observationDays || 365,
-          title: r.title || `${r.resourceName} has ${r.gapCount} unused permissions`,
-          description: r.description || '',
-          remediation: r.remediation || '',
-          region: r.evidence?.coverage?.regions?.[0] || r.region || null  // Extract region
-        })),
+            severity: r.severity || 'medium',
+            confidence: r.confidence || 0,
+            observationDays: r.observationDays || 365,
+            title: r.title || (isSecurityGroup 
+              ? `${r.resourceName} has network exposure risk`
+              : `${r.resourceName} has ${r.gapCount || 0} unused permissions`),
+            description: r.description || '',
+            remediation: r.remediation || '',
+            region: r.evidence?.coverage?.regions?.[0] || r.region || null  // Extract region
+          }
+        }),
         timestamp: result.timestamp || new Date().toISOString()
       }
       
@@ -553,9 +590,18 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
     return <AlertTriangle className="w-5 h-5 text-gray-600" />
   }
 
-  const getLPScoreColor = (score: number) => {
+  const getLPScoreColor = (score: number | null) => {
+    if (score === null) return 'text-gray-600 bg-gray-50 border-gray-200'
     if (score < 50) return 'text-red-600 bg-red-50 border-red-200'
     if (score < 75) return 'text-orange-600 bg-orange-50 border-orange-200'
+    return 'text-green-600 bg-green-50 border-green-200'
+  }
+
+  const getNetworkExposureColor = (score: number) => {
+    // For network exposure, higher score = more exposed = worse
+    if (score >= 70) return 'text-red-600 bg-red-50 border-red-200'
+    if (score >= 50) return 'text-orange-600 bg-orange-50 border-orange-200'
+    if (score >= 30) return 'text-yellow-600 bg-yellow-50 border-yellow-200'
     return 'text-green-600 bg-green-50 border-green-200'
   }
 
@@ -580,37 +626,73 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
               </div>
               <p className="text-sm text-gray-500">{resource.systemName || 'Unknown System'}</p>
             </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore ?? 0)}`}>
-              LP Score: {(resource.lpScore ?? 0).toFixed(0)}%
-            </span>
+            {resource.resourceType === 'SecurityGroup' && resource.networkExposure ? (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${getNetworkExposureColor(resource.networkExposure.score)}`}>
+                Exposure: {resource.networkExposure.score}/100
+              </span>
+            ) : (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
+                LP Score: {resource.lpScore !== null ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
+              </span>
+            )}
             <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
               {resource.resourceType}
             </span>
           </div>
 
-          {/* Gap Bar */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">Permission Usage</span>
-              <span className="text-sm text-gray-600">
-                {resource.usedCount ?? 0} used • {resource.gapCount ?? 0} unused ({(resource.gapPercent ?? 0).toFixed(0)}%)
-              </span>
-            </div>
-            <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
-              <div
-                className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                style={{ width: `${(resource.usedCount / resource.allowedCount) * 100}%` }}
-              >
-                {resource.usedCount > 0 && resource.usedCount}
+          {/* Gap Bar / Network Exposure Info */}
+          {resource.resourceType === 'SecurityGroup' && resource.networkExposure ? (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">Network Exposure</span>
+                <span className="text-sm text-gray-600">
+                  {resource.networkExposure.internetExposedRules} internet-exposed rules • {resource.networkExposure.totalRules} total rules
+                </span>
               </div>
-              <div
-                className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                style={{ width: `${(resource.gapCount / resource.allowedCount) * 100}%` }}
-              >
-                {resource.gapCount > 0 && resource.gapCount}
+              <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
+                <div
+                  className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+                  style={{ width: `${(resource.networkExposure.internetExposedRules / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
+                >
+                  {resource.networkExposure.internetExposedRules > 0 && `${resource.networkExposure.internetExposedRules} exposed`}
+                </div>
+                <div
+                  className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+                  style={{ width: `${((resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules) / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
+                >
+                  {resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules > 0 && `${resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules} secure`}
+                </div>
+              </div>
+              {resource.networkExposure.highRiskPorts.length > 0 && (
+                <div className="mt-2 text-xs text-red-600">
+                  ⚠️ High-risk ports: {resource.networkExposure.highRiskPorts.join(', ')}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">Permission Usage</span>
+                <span className="text-sm text-gray-600">
+                  {resource.usedCount ?? 0} used • {resource.gapCount ?? 0} unused ({resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : 'N/A'})
+                </span>
+              </div>
+              <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
+                <div
+                  className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+                  style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
+                >
+                  {(resource.usedCount ?? 0) > 0 && resource.usedCount}
+                </div>
+                <div
+                  className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+                  style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
+                >
+                  {(resource.gapCount ?? 0) > 0 && resource.gapCount}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* High-Risk Unused */}
           {resource.highRiskUnused.length > 0 && (
@@ -775,37 +857,90 @@ function RemediationDrawer({
 
 // Tab Components
 function SummaryTab({ resource }: { resource: GapResource }) {
+  // For Security Groups, show Network Exposure instead of LP Score
+  const isSecurityGroup = resource.resourceType === 'SecurityGroup'
+  
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-gray-200 p-4">
-          <div className="text-sm text-gray-600 mb-1">LP Score</div>
-          <div className="text-3xl font-bold text-gray-900">{(resource.lpScore ?? 0).toFixed(0)}%</div>
-          <div className="text-xs text-gray-500 mt-1">{100 - (resource.lpScore ?? 0)}% unused</div>
-        </div>
-        <div className="rounded-lg border border-gray-200 p-4">
-          <div className="text-sm text-gray-600 mb-1">Attack Surface Reduction</div>
-          <div className="text-3xl font-bold text-red-600">{(resource.gapPercent ?? 0).toFixed(0)}%</div>
-          <div className="text-xs text-gray-500 mt-1">{resource.gapCount ?? 0} permissions</div>
-        </div>
+        {isSecurityGroup && resource.networkExposure ? (
+          <>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="text-sm text-gray-600 mb-1">Network Exposure Score</div>
+              <div className="text-3xl font-bold text-gray-900">{resource.networkExposure.score}/100</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {resource.networkExposure.internetExposedRules} internet-exposed rules
+              </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="text-sm text-gray-600 mb-1">Total Rules</div>
+              <div className="text-3xl font-bold text-blue-600">{resource.networkExposure.totalRules}</div>
+              <div className="text-xs text-gray-500 mt-1">
+                {resource.networkExposure.highRiskPorts.length > 0 
+                  ? `${resource.networkExposure.highRiskPorts.length} high-risk ports`
+                  : 'No high-risk ports'}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="text-sm text-gray-600 mb-1">LP Score</div>
+              <div className="text-3xl font-bold text-gray-900">
+                {resource.lpScore !== null ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {resource.lpScore !== null ? `${100 - resource.lpScore}% unused` : 'Not applicable'}
+              </div>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="text-sm text-gray-600 mb-1">Attack Surface Reduction</div>
+              <div className="text-3xl font-bold text-red-600">
+                {resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : 'N/A'}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {resource.gapCount ?? 0} permissions
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="rounded-lg border-2 border-gray-300 bg-white p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Gap Visualization</h3>
-        <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
-          <div
-            className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
-            style={{ width: `${(resource.usedCount / resource.allowedCount) * 100}%` }}
-          >
-            Used ({resource.usedCount})
+        <h3 className="text-lg font-bold text-gray-900 mb-4">
+          {isSecurityGroup ? 'Network Exposure Visualization' : 'Gap Visualization'}
+        </h3>
+        {isSecurityGroup && resource.networkExposure ? (
+          <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
+            <div
+              className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              style={{ width: `${(resource.networkExposure.internetExposedRules / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
+            >
+              Internet Exposed ({resource.networkExposure.internetExposedRules})
+            </div>
+            <div
+              className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              style={{ width: `${((resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules) / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
+            >
+              Secure ({resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules})
+            </div>
           </div>
-          <div
-            className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
-            style={{ width: `${(resource.gapCount / resource.allowedCount) * 100}%` }}
-          >
-            Unused ({resource.gapCount})
+        ) : (
+          <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
+            <div
+              className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
+            >
+              Used ({(resource.usedCount ?? 0)})
+            </div>
+            <div
+              className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
+            >
+              Unused ({(resource.gapCount ?? 0)})
+            </div>
           </div>
-        </div>
+        )}
         <p className="text-sm text-gray-700">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
           In <strong>{resource.evidence.observationDays} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
