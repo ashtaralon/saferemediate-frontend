@@ -311,9 +311,13 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
       const result = await response.json()
       
+      const collectorsInfo = result.collectors_triggered 
+        ? ` ${Object.keys(result.collectors_triggered).length} data collectors triggered.`
+        : ''
+      
       toast({
         title: 'Analysis completed',
-        description: 'Security Group analysis finished successfully. New issues may be available.',
+        description: `Full system analysis finished successfully.${collectorsInfo} New issues may be available.`,
       })
 
       // Refresh issues list after analysis
@@ -375,9 +379,20 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       <Dialog open={confirmationModalOpen} onOpenChange={setConfirmationModalOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Analyze Security Groups</DialogTitle>
+            <DialogTitle>Run Full System Analysis</DialogTitle>
             <DialogDescription className="pt-2">
-              This will analyze current Security Group configuration and recent network activity to identify least-privilege violations.
+              This will trigger comprehensive data collection from all sources:
+              <br />
+              <br />
+              • Security Groups: Network configuration and traffic analysis
+              <br />
+              • CloudTrail: IAM permission usage tracking
+              <br />
+              • AWS Config: Resource configuration and compliance
+              <br />
+              • X-Ray: Service dependency mapping
+              <br />
+              • VPC Flow Logs: Network traffic patterns
               <br />
               <br />
               <strong>No changes will be applied automatically.</strong>
@@ -424,10 +439,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             onClick={() => setConfirmationModalOpen(true)}
             disabled={analyzing || loading}
             className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Analyze Security Groups configuration and traffic"
+            title="Run comprehensive system analysis including Security Groups, CloudTrail, AWS Config, and X-Ray"
           >
             <Search className={`w-4 h-4 ${analyzing ? 'animate-pulse' : ''}`} />
-            {analyzing ? 'Analyzing…' : 'Analyze Security Groups'}
+            {analyzing ? 'Analyzing…' : 'Run Full System Analysis'}
           </button>
           <button
             onClick={handleRefresh}
