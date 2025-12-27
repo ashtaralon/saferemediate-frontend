@@ -367,9 +367,52 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   }
 
   const { summary, resources } = data
+  const defaultRegion = getDefaultRegion()
 
   return (
     <div className="space-y-6">
+      {/* Confirmation Modal */}
+      <Dialog open={confirmationModalOpen} onOpenChange={setConfirmationModalOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Analyze Security Groups</DialogTitle>
+            <DialogDescription className="pt-2">
+              This will analyze current Security Group configuration and recent network activity to identify least-privilege violations.
+              <br />
+              <br />
+              <strong>No changes will be applied automatically.</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <div className="flex items-center justify-between py-2 border-b">
+              <span className="text-sm font-medium text-gray-600">System:</span>
+              <span className="text-sm text-gray-900">{systemName}</span>
+            </div>
+            <div className="flex items-center justify-between py-2 border-b">
+              <span className="text-sm font-medium text-gray-600">Region:</span>
+              <span className="text-sm text-gray-900">{defaultRegion}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setConfirmationModalOpen(false)}
+              disabled={analyzing}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAnalyzeSecurityGroups}
+              disabled={analyzing}
+              className="px-4 py-2 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+            >
+              {analyzing && <Loader2 className="w-4 h-4 animate-spin" />}
+              Start Analysis
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header with LP Score */}
       <div className="flex items-center justify-between">
         <div>
