@@ -1,8 +1,10 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw, Search } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useToast } from '@/hooks/use-toast'
 
 // Types
 interface GapResource {
@@ -129,6 +131,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [simulationResult, setSimulationResult] = useState<any>(null)
   const [simulationModalOpen, setSimulationModalOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [confirmationModalOpen, setConfirmationModalOpen] = useState(false)
+  const { toast } = useToast()
 
   useEffect(() => {
     fetchGaps()
@@ -272,6 +277,60 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     await fetchGaps(true)
   }
 
+  // Get default region from resources or use default
+  const getDefaultRegion = (): string => {
+    if (data?.resources && data.resources.length > 0) {
+      const firstRegion = data.resources.find(r => r.region)?.region
+      if (firstRegion) return firstRegion
+    }
+    return 'eu-west-1' // Default region
+  }
+
+  const handleAnalyzeSecurityGroups = async () => {
+    const region = getDefaultRegion()
+    
+    try {
+      setAnalyzing(true)
+      
+      // Use proxy route for better error handling and timeout management
+      const response = await fetch('/api/proxy/security-groups/scan-v2', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          system_name: systemName,
+          region: region,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.message || `Analysis failed: ${response.status}`)
+      }
+
+      const result = await response.json()
+      
+      toast({
+        title: 'Analysis completed',
+        description: 'Security Group analysis finished successfully. New issues may be available.',
+      })
+
+      // Refresh issues list after analysis
+      await fetchGaps(true)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Analysis failed'
+      toast({
+        title: 'Analysis failed',
+        description: errorMessage,
+        variant: 'destructive',
+      })
+    } finally {
+      setAnalyzing(false)
+      setConfirmationModalOpen(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -318,6 +377,15 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           <p className="text-gray-600 mt-1">GAP between ALLOWED and ACTUAL permissions</p>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setConfirmationModalOpen(true)}
+            disabled={analyzing || loading}
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
+            title="Analyze Security Groups configuration and traffic"
+          >
+            <Search className={`w-4 h-4 ${analyzing ? 'animate-pulse' : ''}`} />
+            {analyzing ? 'Analyzing…' : 'Analyze Security Groups'}
+          </button>
           <button
             onClick={handleRefresh}
             disabled={refreshing || loading}
