@@ -441,7 +441,11 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           <div className="text-right">
             <div className="text-sm text-gray-600">System LP Score</div>
             <div className="text-4xl font-bold" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#dc2626' : (summary.avgLPScore ?? 0) < 75 ? '#ea580c' : '#10b981' }}>
-              {(summary.avgLPScore ?? 0).toFixed(0)}%
+              {isNaN(summary.avgLPScore) || summary.avgLPScore === null ? (
+                <span className="text-gray-500" title="LP Score not applicable for all resource types">—</span>
+              ) : (
+                <span>{summary.avgLPScore.toFixed(0)}%</span>
+              )}
             </div>
           </div>
         </div>
