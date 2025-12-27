@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     if (!res.ok) {
       const errorText = await res.text()
       console.error(`[proxy] security-groups/scan-v2 backend returned ${res.status}: ${errorText}`)
-      
+
       let errorData: any = { detail: `Backend returned ${res.status}` }
       try {
         errorData = JSON.parse(errorText)
@@ -45,8 +45,14 @@ export async function POST(req: NextRequest) {
         errorData = { detail: errorText || `Backend returned ${res.status}` }
       }
 
+      // Provide clearer error messages for specific status codes
+      let errorMessage = errorData.detail || errorData.message || `Analysis failed: ${res.status}`
+      if (res.status === 404) {
+        errorMessage = "Security Group scan endpoint is not available on the backend. This feature may not be implemented yet."
+      }
+
       return NextResponse.json(
-        { error: errorData.detail || errorData.message || `Analysis failed: ${res.status}` },
+        { error: errorMessage },
         { status: res.status }
       )
     }
