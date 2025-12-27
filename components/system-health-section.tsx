@@ -2,18 +2,16 @@
 
 import { useState } from "react"
 import { TrendingDown } from "lucide-react"
-import { CriticalFindingsModal } from "./critical-findings-modal"
+import { CriticalFindingsModal } from "./issues/critical-findings-modal"
 import { SimulateFixModal } from "./SimulateFixModal"
 
 export function SystemHealthSection() {
   const [showCriticalModal, setShowCriticalModal] = useState(false)
   const [showSimulateModal, setShowSimulateModal] = useState(false)
   const [selectedFinding, setSelectedFinding] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
 
   const handleSimulateFix = (finding: any) => {
-<<<<<<< HEAD:components/system-health-section.tsx
-    setSelectedFinding(finding)
-=======
     // Ensure finding has required properties including id
     const safeFinding = {
       id: finding?.id || finding?.findingId || `finding-${Date.now()}`,
@@ -21,13 +19,10 @@ export function SystemHealthSection() {
       icon: finding?.icon || "⚠️"
     }
     setSelectedFinding(safeFinding)
->>>>>>> e1c24ef (Wire SIMULATE FIX and AUTO-FIX buttons to backend API):components/dashboard/system-health-section.tsx
     setShowCriticalModal(false)
     setShowSimulateModal(true)
   }
 
-<<<<<<< HEAD:components/system-health-section.tsx
-=======
   const handleAutoFix = async (finding: any) => {
     const issueId = finding?.id || finding?.findingId
     if (!issueId) {
@@ -68,10 +63,6 @@ export function SystemHealthSection() {
     }
   }
 
-  const healthScore = healthData?.healthScore || 72
-  const criticalCount = healthData?.criticalCount || 0
-
->>>>>>> e1c24ef (Wire SIMULATE FIX and AUTO-FIX buttons to backend API):components/dashboard/system-health-section.tsx
   return (
     <>
       <div className="space-y-6">
@@ -138,9 +129,10 @@ export function SystemHealthSection() {
           <button
             className="w-[120px] h-[40px] rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 ml-6"
             style={{ background: "var(--action-primary)" }}
+            disabled={loading}
           >
             <span>▶</span>
-            <span>START FIXING</span>
+            <span>{loading ? 'FIXING...' : 'START FIXING'}</span>
           </button>
         </div>
 
@@ -178,11 +170,8 @@ export function SystemHealthSection() {
         isOpen={showCriticalModal}
         onClose={() => setShowCriticalModal(false)}
         onSimulateFix={handleSimulateFix}
-<<<<<<< HEAD:components/system-health-section.tsx
-=======
         onAutoFix={handleAutoFix}
-        findings={[]} // Pass empty array - real findings will come from API
->>>>>>> e1c24ef (Wire SIMULATE FIX and AUTO-FIX buttons to backend API):components/dashboard/system-health-section.tsx
+        findings={[]}
       />
 
       {selectedFinding && (
