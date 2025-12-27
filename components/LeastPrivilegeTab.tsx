@@ -745,9 +745,13 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
               <span className={`px-3 py-1 rounded-full text-xs font-bold ${getNetworkExposureColor(resource.networkExposure.score)}`}>
                 Exposure: {resource.networkExposure.score}/100
               </span>
+            ) : resource.resourceType === 'SecurityGroup' || resource.resourceType === 'S3Bucket' ? (
+              <span className="px-3 py-1 rounded-full text-xs font-bold text-gray-400" title="Requires traffic/access analysis">
+                LP Score: —
+              </span>
             ) : (
               <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
-                LP Score: {resource.lpScore !== null ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
+                LP Score: {resource.lpScore !== null && !isNaN(resource.lpScore) ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
               </span>
             )}
             <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
@@ -1002,10 +1006,24 @@ function SummaryTab({ resource }: { resource: GapResource }) {
             <div className="rounded-lg border border-gray-200 p-4">
               <div className="text-sm text-gray-600 mb-1">LP Score</div>
               <div className="text-3xl font-bold text-gray-900">
-                {resource.lpScore !== null ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
+                {resource.resourceType === 'SecurityGroup' || resource.resourceType === 'S3Bucket' ? (
+                  <span className="text-gray-400" title="Requires traffic/access analysis">
+                    —
+                  </span>
+                ) : resource.lpScore !== null && !isNaN(resource.lpScore) ? (
+                  `${resource.lpScore.toFixed(0)}%`
+                ) : (
+                  'N/A'
+                )}
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {resource.lpScore !== null ? `${100 - resource.lpScore}% unused` : 'Not applicable'}
+                {resource.resourceType === 'SecurityGroup' || resource.resourceType === 'S3Bucket' ? (
+                  'Requires traffic/access analysis'
+                ) : resource.lpScore !== null && !isNaN(resource.lpScore) ? (
+                  `${(100 - resource.lpScore).toFixed(0)}% unused`
+                ) : (
+                  'Not applicable'
+                )}
               </div>
             </div>
             <div className="rounded-lg border border-gray-200 p-4">
@@ -1126,8 +1144,8 @@ function BeforeAfterTab({ resource }: { resource: GapResource }) {
               <span className="font-mono text-gray-700">{perm}</span>
             </div>
           ))}
-          {resource.usedCount > 10 && (
-            <div className="text-sm text-gray-500 italic">...{resource.usedCount - 10} more</div>
+          {(resource.usedCount ?? 0) > 10 && (
+            <div className="text-sm text-gray-500 italic">...{(resource.usedCount ?? 0) - 10} more</div>
           )}
         </div>
         <div className="mt-4 pt-4 border-t border-green-300">
@@ -1333,7 +1351,7 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
             <div>
               <div className="text-sm text-gray-600">Total Flows Analyzed</div>
               <div className="text-2xl font-bold text-gray-900">
-                {resource.evidence.flowlogs.total_flows || 0}
+                {(resource.evidence.flowlogs?.total_flows ?? 0) || 0}
               </div>
             </div>
             <div>
@@ -1355,7 +1373,7 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
               </div>
             </div>
           </div>
-          {resource.evidence.flowlogs.total_flows > 0 && (
+          {((resource.evidence.flowlogs?.total_flows ?? 0) > 0) && (
             <div className="mt-4 pt-4 border-t border-blue-200">
               <div className="text-sm text-gray-600">
                 Network traffic analysis validates that permissions are actively used at the network level.
