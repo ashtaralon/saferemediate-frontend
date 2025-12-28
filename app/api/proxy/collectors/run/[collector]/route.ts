@@ -10,10 +10,10 @@ const BACKEND_URL =
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { collector: string } }
+  { params }: { params: Promise<{ collector: string }> }
 ) {
   try {
-    const { collector } = params
+    const { collector } = await params
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 120000) // 120 second timeout for collectors

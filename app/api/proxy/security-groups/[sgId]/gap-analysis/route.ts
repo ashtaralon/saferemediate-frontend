@@ -10,10 +10,10 @@ const BACKEND_URL =
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { sgId: string } }
+  { params }: { params: Promise<{ sgId: string }> }
 ) {
   try {
-    const { sgId } = params
+    const { sgId } = await params
     
     // Get query parameters
     const { searchParams } = new URL(req.url)

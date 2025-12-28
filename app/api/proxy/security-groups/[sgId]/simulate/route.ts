@@ -10,10 +10,10 @@ const BACKEND_URL =
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { sgId: string } }
+  { params }: { params: Promise<{ sgId: string }> }
 ) {
   try {
-    const { sgId } = params
+    const { sgId } = await params
     const body = await req.json()
 
     const controller = new AbortController()
