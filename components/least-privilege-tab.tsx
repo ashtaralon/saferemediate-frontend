@@ -115,6 +115,10 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
   const [activeSection, setActiveSection] = useState<'all' | 'iam' | 'sg'>('all');
   const [expandedSGs, setExpandedSGs] = useState<Set<string>>(new Set());
   
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  
   // ============================================================================
   // Data Fetching
   // ============================================================================
@@ -206,6 +210,57 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
     });
   };
   
+  // Refresh all data
+  const handleRefresh = async () => {
+    await Promise.all([fetchSecurityGroups(), fetchIAMRoles()]);
+  };
+  
+  // Sync from AWS - fetches latest data directly from AWS
+  const handleSyncFromAWS = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    
+    try {
+      // Step 1: Run IAM collector
+      console.log('Syncing IAM roles from AWS...');
+      const iamRes = await fetch('/api/proxy/collectors/run/iam', { method: 'POST' });
+      if (!iamRes.ok) {
+        console.warn('IAM collector failed:', iamRes.status);
+      }
+      
+      // Step 2: Run Security Groups collector
+      console.log('Syncing Security Groups from AWS...');
+      const sgRes = await fetch('/api/proxy/collectors/run/security_groups', { method: 'POST' });
+      if (!sgRes.ok) {
+        console.warn('SG collector failed:', sgRes.status);
+      }
+      
+      // Step 3: Run Flow Logs telemetry (last 1 hour)
+      console.log('Syncing VPC Flow Logs...');
+      const flowRes = await fetch('/api/proxy/telemetry/flowlogs?hours_back=1', { method: 'POST' });
+      if (!flowRes.ok) {
+        console.warn('Flow Logs sync failed:', flowRes.status);
+      }
+      
+      // Step 4: Refresh UI data
+      await handleRefresh();
+      
+      setSyncMessage({ type: 'success', text: 'Synced from AWS successfully' });
+      
+      // Auto-hide message after 5 seconds
+      setTimeout(() => setSyncMessage(null), 5000);
+      
+    } catch (error) {
+      console.error('Sync from AWS failed:', error);
+      setSyncMessage({ 
+        type: 'error', 
+        text: `Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+  
   // ============================================================================
   // Computed Values
   // ============================================================================
@@ -222,8 +277,36 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
   
   return (
     <div className="space-y-8">
+      {/* Sync Message Toast */}
+      {syncMessage && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 ${
+          syncMessage.type === 'success' 
+            ? 'bg-emerald-600 text-white' 
+            : 'bg-rose-600 text-white'
+        }`}>
+          {syncMessage.type === 'success' ? (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          )}
+          <span>{syncMessage.text}</span>
+          <button 
+            onClick={() => setSyncMessage(null)}
+            className="ml-2 hover:opacity-70"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+      
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Least Privilege Analysis</h1>
           <p className="text-slate-400 mt-1">
@@ -231,21 +314,64 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
           </p>
         </div>
         
-        {/* Section Filter */}
-        <div className="flex bg-slate-800/50 rounded-lg p-1">
-          {(['all', 'iam', 'sg'] as const).map((section) => (
+        <div className="flex items-center gap-3">
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            {/* Sync from AWS Button */}
             <button
-              key={section}
-              onClick={() => setActiveSection(section)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeSection === section
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-400 hover:text-white'
+              onClick={handleSyncFromAWS}
+              disabled={syncing}
+              title="Fetch latest data directly from AWS (takes 30-60 seconds)"
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                syncing
+                  ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white'
               }`}
             >
-              {section === 'all' ? 'All' : section === 'iam' ? 'IAM Roles' : 'Security Groups'}
+              {syncing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Syncing...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                  </svg>
+                  <span>Sync from AWS</span>
+                </>
+              )}
             </button>
-          ))}
+            
+            {/* Refresh Data Button */}
+            <button
+              onClick={handleRefresh}
+              disabled={sgLoading || iamLoading}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className={`w-4 h-4 ${(sgLoading || iamLoading) ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Refresh Data</span>
+            </button>
+          </div>
+          
+          {/* Section Filter */}
+          <div className="flex bg-slate-800/50 rounded-lg p-1">
+            {(['all', 'iam', 'sg'] as const).map((section) => (
+              <button
+                key={section}
+                onClick={() => setActiveSection(section)}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeSection === section
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {section === 'all' ? 'All' : section === 'iam' ? 'IAM Roles' : 'Security Groups'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       
