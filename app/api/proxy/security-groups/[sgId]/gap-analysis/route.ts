@@ -24,7 +24,7 @@ export async function GET(
 
     const backendUrl = `${BACKEND_URL}/api/security-groups/${sgId}/gap-analysis?days=${days}`
 
-    console.log(`[proxy] security-groups/${sgId}/gap-analysis -> ${backendUrl}`)
+    console.log("[proxy] security-groups/" + sgId + "/gap-analysis -> " + backendUrl)
 
     const res = await fetch(backendUrl, {
       method: "GET",
@@ -40,17 +40,17 @@ export async function GET(
 
     if (!res.ok) {
       const errorText = await res.text()
-      console.error(`[proxy] security-groups/${sgId}/gap-analysis backend returned ${res.status}: ${errorText}`)
+      console.error("[proxy] security-groups/" + sgId + "/gap-analysis backend returned " + res.status + ": " + errorText)
 
-      let errorData: any = { detail: `Backend returned ${res.status}` }
+      let errorData: any = { detail: "Backend returned " + res.status }
       try {
         errorData = JSON.parse(errorText)
       } catch {
-        errorData = { detail: errorText || `Backend returned ${res.status}` }
+        errorData = { detail: errorText || "Backend returned " + res.status }
       }
 
       return NextResponse.json(
-        { error: errorData.detail || errorData.message || `Analysis failed: ${res.status}` },
+        { error: errorData.detail || errorData.message || "Analysis failed: " + res.status },
         { status: res.status }
       )
     }
@@ -79,4 +79,3 @@ export async function GET(
     )
   }
 }
-
