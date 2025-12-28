@@ -759,7 +759,6 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
               <span className={`px-3 py-1 rounded-full text-xs font-bold ${getNetworkExposureColor(resource.networkExposure.score)}`}>
                 Exposure: {resource.networkExposure.score}/100
               </span>
-            ) : resource.resourceType === 'SecurityGroup' || resource.resourceType === 'S3Bucket' ? (
             ) : (
               <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
                 LP Score: {resource.lpScore !== null && !isNaN(resource.lpScore) ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
