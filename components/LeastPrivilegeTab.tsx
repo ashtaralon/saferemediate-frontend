@@ -288,10 +288,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
   const handleAnalyzeSecurityGroups = async () => {
     const region = getDefaultRegion()
-    
+
     try {
       setAnalyzing(true)
-      
+
       // Use proxy route for better error handling and timeout management
       const response = await fetch('/api/proxy/security-groups/scan-v2', {
         method: 'POST',
@@ -306,18 +306,26 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || errorData.message || `Analysis failed: ${response.status}`)
+
+        // Handle 404 - backend endpoint not yet implemented
+        if (response.status === 404) {
+          toast({
+            title: 'Feature not available',
+            description: 'Security Group deep analysis is not yet available on the backend. Refreshing current data instead.',
+          })
+          // Still refresh the existing data
+          await fetchGaps(true)
+          return
+        }
+
+        throw new Error(errorData.error || errorData.detail || errorData.message || `Analysis failed: ${response.status}`)
       }
 
       const result = await response.json()
-      
-      const collectorsInfo = result.collectors_triggered 
-        ? ` ${Object.keys(result.collectors_triggered).length} data collectors triggered.`
-        : ''
-      
+
       toast({
         title: 'Analysis completed',
-        description: `Full system analysis finished successfully.${collectorsInfo} New issues may be available.`,
+        description: 'Security Group analysis finished successfully. New issues may be available.',
       })
 
       // Refresh issues list after analysis
@@ -379,23 +387,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       <Dialog open={confirmationModalOpen} onOpenChange={setConfirmationModalOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Run Full System Analysis</DialogTitle>
+            <DialogTitle>Analyze Security Groups</DialogTitle>
             <DialogDescription className="pt-2">
-              This will trigger comprehensive data collection from all sources:
-              <br />
-              <br />
-              • Security Groups: Network configuration and traffic analysis
-              <br />
-              • CloudTrail: IAM permission usage tracking
-              <br />
-              • AWS Config: Resource configuration and compliance
-              <br />
-              • X-Ray: Service dependency mapping
-              <br />
-              • VPC Flow Logs: Network traffic patterns
+              This will analyze current Security Group configuration and recent network activity to identify least-privilege violations.
               <br />
               <br />
               <strong>No changes will be applied automatically.</strong>
+              <br />
+              <span className="text-xs text-gray-500">Note: If deep analysis is not available, existing data will be refreshed.</span>
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-3">
@@ -439,10 +438,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             onClick={() => setConfirmationModalOpen(true)}
             disabled={analyzing || loading}
             className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Run comprehensive system analysis including Security Groups, CloudTrail, AWS Config, and X-Ray"
+            title="Analyze Security Groups configuration and traffic"
           >
             <Search className={`w-4 h-4 ${analyzing ? 'animate-pulse' : ''}`} />
-            {analyzing ? 'Analyzing…' : 'Run Full System Analysis'}
+            {analyzing ? 'Analyzing…' : 'Analyze Security Groups'}
           </button>
           <button
             onClick={handleRefresh}
