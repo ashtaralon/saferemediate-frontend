@@ -287,21 +287,19 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   }
 
   const handleAnalyzeSecurityGroups = async () => {
-    const region = getDefaultRegion()
-
     try {
       setAnalyzing(true)
 
-      // Use proxy route for better error handling and timeout management
-      const response = await fetch('/api/proxy/security-groups/scan-v2', {
-        method: 'POST',
+      // Build query params for gap analysis endpoint
+      const params = new URLSearchParams({ days: '365' })
+      if (systemName) params.append('system_name', systemName)
+
+      // Use the new gap analysis endpoint
+      const response = await fetch(`/api/proxy/security-groups/gap-analysis?${params}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          system_name: systemName,
-          region: region,
-        }),
       })
 
       if (!response.ok) {
@@ -311,7 +309,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         if (response.status === 404) {
           toast({
             title: 'Feature not available',
-            description: 'Security Group deep analysis is not yet available on the backend. Refreshing current data instead.',
+            description: 'Security Group gap analysis is not yet available on the backend. Refreshing current data instead.',
           })
           // Still refresh the existing data
           await fetchGaps(true)
@@ -323,9 +321,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
       const result = await response.json()
 
+      // result has: { security_groups: [...], overall_summary: {...} }
+      const sgCount = result.security_groups?.length || 0
+      const unusedRules = result.overall_summary?.unused_rules || 0
+      const overlyBroad = result.overall_summary?.overly_broad_rules || 0
+
       toast({
         title: 'Analysis completed',
-        description: 'Security Group analysis finished successfully. New issues may be available.',
+        description: `Analyzed ${sgCount} Security Groups. Found ${unusedRules} unused rules and ${overlyBroad} overly broad rules.`,
       })
 
       // Refresh issues list after analysis
