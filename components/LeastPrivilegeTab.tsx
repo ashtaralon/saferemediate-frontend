@@ -199,9 +199,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             // For Security Groups: lpScore is null, use networkExposure instead
             lpScore: r.lpScore ?? (r.gapPercent !== undefined ? 100 - r.gapPercent : null),
             allowedCount: r.allowedCount || 0,
-            usedCount: isSecurityGroup ? null : (r.usedCount ?? 0),
-            gapCount: isSecurityGroup ? null : (r.gapCount ?? 0),
-            gapPercent: isSecurityGroup ? null : (r.gapPercent ?? 0),
+            usedCount: r.usedCount ?? 0,
+            gapCount: r.gapCount ?? 0,
+            gapPercent: r.gapPercent ?? 0,
             networkExposure: networkExposure ? {
               score: networkExposure.score || 0,
               severity: networkExposure.severity || 'MEDIUM',
