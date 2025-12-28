@@ -1119,6 +1119,244 @@ function SummaryTab({ resource }: { resource: GapResource }) {
 }
 
 function BeforeAfterTab({ resource }: { resource: GapResource }) {
+  const [rulesAnalysis, setRulesAnalysis] = useState<Array<{
+    rule_id: string
+    direction: string
+    protocol: string
+    port_range: string
+    source: string
+    source_type: string
+    is_public: boolean
+    status: 'USED' | 'UNUSED' | 'OVERLY_BROAD'
+    traffic: { connection_count: number; unique_sources: number }
+    recommendation: { action: string; reason: string; confidence: number; suggested_cidrs?: string[] }
+  }>>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch gap analysis for Security Groups
+  useEffect(() => {
+    if (resource.resourceType === 'SecurityGroup') {
+      const fetchGapAnalysis = async () => {
+        setLoading(true)
+        setError(null)
+        try {
+          const sgId = resource.id || resource.resourceName
+          const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?days=365`)
+          if (res.ok) {
+            const data = await res.json()
+            setRulesAnalysis(data.rules_analysis || [])
+          } else {
+            // If gap analysis API fails, fall back to rule_states
+            if (resource.evidence.rule_states) {
+              const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
+                rule_id: `rule_${idx}`,
+                direction: 'ingress',
+                protocol: rule.protocol || 'TCP',
+                port_range: String(rule.port),
+                source: rule.cidr || '0.0.0.0/0',
+                source_type: 'cidr',
+                is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || false,
+                status: (rule.observed_usage ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
+                traffic: { connection_count: rule.connections || 0, unique_sources: 0 },
+                recommendation: { 
+                  action: rule.observed_usage ? 'KEEP' : 'DELETE', 
+                  reason: rule.recommendation || (rule.observed_usage ? 'Traffic observed' : 'No traffic observed'),
+                  confidence: rule.confidence || 50
+                }
+              }))
+              setRulesAnalysis(fallbackRules)
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch gap analysis:', err)
+          setError('Failed to load detailed rules analysis')
+        } finally {
+          setLoading(false)
+        }
+      }
+      fetchGapAnalysis()
+    }
+  }, [resource])
+
+  // For Security Groups, show rules-based view
+  if (resource.resourceType === 'SecurityGroup') {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <span className="ml-2 text-gray-500">Loading rules analysis...</span>
+        </div>
+      )
+    }
+
+    const usedRules = rulesAnalysis.filter(r => r.recommendation.action === 'KEEP' || r.status === 'USED')
+    const deleteRules = rulesAnalysis.filter(r => r.recommendation.action === 'DELETE')
+    const tightenRules = rulesAnalysis.filter(r => r.recommendation.action === 'TIGHTEN')
+
+    return (
+      <div className="space-y-6">
+        {error && (
+          <div className="text-amber-600 text-sm bg-amber-50 p-3 rounded-lg">{error}</div>
+        )}
+
+        {/* BEFORE Section */}
+        <div>
+          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">
+            BEFORE (Current Rules - {rulesAnalysis.length})
+          </h4>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {rulesAnalysis.length === 0 ? (
+              <div className="text-gray-500 text-sm italic">No rules data available</div>
+            ) : (
+              rulesAnalysis.map((rule) => (
+                <div
+                  key={rule.rule_id}
+                  className={`p-3 rounded-lg flex justify-between items-center ${
+                    rule.status === 'USED' ? 'bg-green-50 border border-green-200' :
+                    rule.status === 'OVERLY_BROAD' ? 'bg-amber-50 border border-amber-200' :
+                    'bg-red-50 border border-red-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`text-lg ${
+                      rule.status === 'USED' ? 'text-green-600' : 
+                      rule.status === 'OVERLY_BROAD' ? 'text-amber-600' : 'text-red-600'
+                    }`}>
+                      {rule.status === 'USED' ? '✓' : rule.status === 'OVERLY_BROAD' ? '⚠' : '✗'}
+                    </span>
+                    <span className="font-mono text-sm text-gray-800">
+                      {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
+                    </span>
+                    <span className="text-gray-400">←</span>
+                    <span className={`font-mono text-sm ${rule.is_public ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                      {rule.source}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className={`text-xs px-2 py-1 rounded font-medium ${
+                      rule.status === 'USED' ? 'bg-green-100 text-green-700' :
+                      rule.status === 'OVERLY_BROAD' ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {rule.status}
+                    </span>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {rule.traffic?.connection_count > 0 
+                        ? `${rule.traffic.connection_count.toLocaleString()} connections`
+                        : 'No traffic observed'}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* AFTER Section */}
+        <div>
+          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">
+            AFTER (Recommended - {usedRules.length} rules)
+          </h4>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {usedRules.length === 0 ? (
+              <div className="text-gray-500 text-sm italic p-3 bg-gray-50 rounded-lg">
+                No rules to keep - all rules are unused or overly broad
+              </div>
+            ) : (
+              usedRules.map((rule) => (
+                <div
+                  key={rule.rule_id}
+                  className="p-3 rounded-lg bg-green-50 border border-green-200 flex justify-between items-center"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-green-600 text-lg">✓</span>
+                    <span className="font-mono text-sm text-gray-800">
+                      {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
+                    </span>
+                    <span className="text-gray-400">←</span>
+                    <span className="font-mono text-sm text-gray-600">{rule.source}</span>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700 font-medium">KEEP</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* TO BE REMOVED Section */}
+        {(deleteRules.length > 0 || tightenRules.length > 0) && (
+          <div>
+            <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">
+              TO BE REMOVED / TIGHTENED ({deleteRules.length + tightenRules.length})
+            </h4>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {/* DELETE rules */}
+              {deleteRules.map((rule) => (
+                <div
+                  key={rule.rule_id}
+                  className="p-3 rounded-lg bg-red-50 border border-red-200 flex justify-between items-center"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-red-600 text-lg">✗</span>
+                    <span className="font-mono text-sm text-gray-800">
+                      {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
+                    </span>
+                    <span className="text-gray-400">←</span>
+                    <span className="font-mono text-sm text-red-600">{rule.source}</span>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 font-medium">DELETE</span>
+                </div>
+              ))}
+              
+              {/* TIGHTEN rules */}
+              {tightenRules.map((rule) => (
+                <div key={rule.rule_id} className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <span className="text-amber-600 text-lg">⚠</span>
+                      <span className="font-mono text-sm text-gray-800">
+                        {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
+                      </span>
+                      <span className="text-gray-400">←</span>
+                      <span className="font-mono text-sm text-amber-600">{rule.source}</span>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium">TIGHTEN</span>
+                  </div>
+                  {rule.recommendation.suggested_cidrs && rule.recommendation.suggested_cidrs.length > 0 && (
+                    <div className="mt-2 text-xs text-gray-600 flex flex-wrap items-center gap-1">
+                      <span>Replace with:</span>
+                      {rule.recommendation.suggested_cidrs.map((cidr, idx) => (
+                        <span key={idx} className="px-1.5 py-0.5 bg-gray-100 rounded font-mono">{cidr}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Summary */}
+        <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-3 gap-4 text-center">
+          <div className="p-3 rounded-lg bg-green-50">
+            <div className="text-2xl font-bold text-green-700">{usedRules.length}</div>
+            <div className="text-xs text-green-600">KEEP</div>
+          </div>
+          <div className="p-3 rounded-lg bg-red-50">
+            <div className="text-2xl font-bold text-red-700">{deleteRules.length}</div>
+            <div className="text-xs text-red-600">DELETE</div>
+          </div>
+          <div className="p-3 rounded-lg bg-amber-50">
+            <div className="text-2xl font-bold text-amber-700">{tightenRules.length}</div>
+            <div className="text-xs text-amber-600">TIGHTEN</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // For IAM Roles and other resources, show the original permissions-based view
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* BEFORE */}
