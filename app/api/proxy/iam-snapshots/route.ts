@@ -6,7 +6,8 @@ export async function GET(req: NextRequest) {
   try {
     console.log(`[IAM-SNAPSHOTS] Fetching IAM snapshots`);
     
-    const response = await fetch(`${BACKEND_URL}/api/iam-snapshots`, {
+    // New endpoint: /api/iam-roles/snapshots
+    const response = await fetch(`${BACKEND_URL}/api/iam-roles/snapshots`, {
       cache: 'no-store'
     });
     
@@ -26,8 +27,10 @@ export async function GET(req: NextRequest) {
     }
     
     const data = await response.json();
-    console.log(`[IAM-SNAPSHOTS] Got ${Array.isArray(data) ? data.length : data.snapshots?.length || 0} snapshots`);
-    return NextResponse.json(data);
+    // New API returns { snapshots: [], count: N }
+    const snapshots = data.snapshots || (Array.isArray(data) ? data : []);
+    console.log(`[IAM-SNAPSHOTS] Got ${snapshots.length} snapshots`);
+    return NextResponse.json(snapshots);
     
   } catch (error: any) {
     console.error(`[IAM-SNAPSHOTS] Exception:`, error);

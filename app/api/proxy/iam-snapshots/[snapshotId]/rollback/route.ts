@@ -11,11 +11,14 @@ export async function POST(
     
     console.log(`[IAM-ROLLBACK] Rolling back IAM snapshot: ${snapshotId}`);
     
+    // New endpoint: /api/iam-roles/snapshots/{id}/rollback
+    // Requires body with region
     const response = await fetch(
-      `${BACKEND_URL}/api/iam-snapshots/${snapshotId}/rollback`,
+      `${BACKEND_URL}/api/iam-roles/snapshots/${snapshotId}/rollback`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ region: 'eu-west-1' })
       }
     );
     
