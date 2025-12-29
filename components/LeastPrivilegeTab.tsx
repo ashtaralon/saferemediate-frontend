@@ -5,6 +5,7 @@ import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, Trendi
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -145,6 +146,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [syncing, setSyncing] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [executionResult, setExecutionResult] = useState<any>(null)
+  const [iamModalOpen, setIamModalOpen] = useState(false)
+  const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
   const { toast } = useToast()
   
   // Cached fetch for SG gap analysis
@@ -640,8 +643,15 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               key={resource.id}
               resource={resource}
               onClick={() => {
-                setSelectedResource(resource)
-                setDrawerOpen(true)
+                // Use new IAM Permission Analysis modal for IAM Roles
+                if (resource.resourceType === 'IAMRole') {
+                  setSelectedIAMRole(resource.resourceName)
+                  setIamModalOpen(true)
+                } else {
+                  // Use drawer for Security Groups and other resources
+                  setSelectedResource(resource)
+                  setDrawerOpen(true)
+                }
               }}
             />
           ))
@@ -962,6 +972,26 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         />
         )
       )}
+
+      {/* IAM Permission Analysis Modal */}
+      <IAMPermissionAnalysisModal
+        isOpen={iamModalOpen}
+        onClose={() => {
+          setIamModalOpen(false)
+          setSelectedIAMRole(null)
+        }}
+        roleName={selectedIAMRole || ''}
+        systemName={systemName}
+        onApplyFix={(data) => {
+          console.log('[IAM] Apply fix requested:', data)
+          toast({
+            title: "Fix Applied",
+            description: `Successfully removed ${data.permissionsToRemove?.length || 0} unused permissions from ${data.roleName}`,
+          })
+          // Refresh data after fix
+          fetchGaps()
+        }}
+      />
     </div>
   )
 }
