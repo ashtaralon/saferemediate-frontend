@@ -1134,6 +1134,46 @@ function BeforeAfterTab({ resource }: { resource: GapResource }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Extract SG ID from various possible fields
+  const extractSgId = (res: GapResource): string | null => {
+    // Debug: log all available fields
+    console.log('BeforeAfterTab - Resource data:', {
+      id: res.id,
+      resourceName: res.resourceName,
+      resourceArn: res.resourceArn,
+      resourceType: res.resourceType
+    })
+    
+    // Try direct id field if it looks like an SG ID
+    if (res.id && res.id.startsWith('sg-')) {
+      return res.id
+    }
+    
+    // Try resourceName if it looks like an SG ID
+    if (res.resourceName && res.resourceName.startsWith('sg-')) {
+      return res.resourceName
+    }
+    
+    // Extract from ARN: arn:aws:ec2:region:account:security-group/sg-xxxxx
+    if (res.resourceArn && res.resourceArn.includes('security-group/')) {
+      const match = res.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
+      if (match) {
+        return match[1]
+      }
+    }
+    
+    // Last resort: check if id contains sg- anywhere
+    if (res.id && res.id.includes('sg-')) {
+      const match = res.id.match(/(sg-[a-z0-9]+)/)
+      if (match) {
+        return match[1]
+      }
+    }
+    
+    // Fallback to id or resourceName even if not sg- prefixed
+    return res.id || res.resourceName || null
+  }
+
   // Fetch gap analysis for Security Groups
   useEffect(() => {
     if (resource.resourceType === 'SecurityGroup') {
@@ -1141,16 +1181,17 @@ function BeforeAfterTab({ resource }: { resource: GapResource }) {
         setLoading(true)
         setError(null)
         try {
-          const sgId = resource.id || resource.resourceName
-          const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?days=365`)
-          if (res.ok) {
-            const data = await res.json()
-            setRulesAnalysis(data.rules_analysis || [])
-          } else {
-            // If gap analysis API fails, fall back to rule_states
-            if (resource.evidence.rule_states) {
+          const sgId = extractSgId(resource)
+          console.log('BeforeAfterTab - Extracted sgId:', sgId)
+          
+          if (!sgId) {
+            console.error('BeforeAfterTab - Could not extract SG ID from resource')
+            setError('Could not determine Security Group ID')
+            // Fall back to rule_states
+            if (resource.evidence.rule_states && resource.evidence.rule_states.length > 0) {
+              console.log('BeforeAfterTab - Using fallback rule_states:', resource.evidence.rule_states.length)
               const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
-                rule_id: `rule_${idx}`,
+                rule_id: "rule_" + idx,
                 direction: 'ingress',
                 protocol: rule.protocol || 'TCP',
                 port_range: String(rule.port),
@@ -1166,11 +1207,74 @@ function BeforeAfterTab({ resource }: { resource: GapResource }) {
                 }
               }))
               setRulesAnalysis(fallbackRules)
+              setError(null) // Clear error if we have fallback data
+            }
+            setLoading(false)
+            return
+          }
+          
+          const url = "/api/proxy/security-groups/" + sgId + "/gap-analysis?days=365"
+          console.log('BeforeAfterTab - Fetching:', url)
+          
+          const res = await fetch(url)
+          console.log('BeforeAfterTab - Response status:', res.status)
+          
+          if (res.ok) {
+            const data = await res.json()
+            console.log('BeforeAfterTab - API response:', data)
+            console.log('BeforeAfterTab - rules_analysis count:', data.rules_analysis?.length || 0)
+            setRulesAnalysis(data.rules_analysis || [])
+          } else {
+            const errorText = await res.text()
+            console.error('BeforeAfterTab - API error:', res.status, errorText)
+            // If gap analysis API fails, fall back to rule_states
+            if (resource.evidence.rule_states && resource.evidence.rule_states.length > 0) {
+              console.log('BeforeAfterTab - API failed, using fallback rule_states')
+              const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
+                rule_id: "rule_" + idx,
+                direction: 'ingress',
+                protocol: rule.protocol || 'TCP',
+                port_range: String(rule.port),
+                source: rule.cidr || '0.0.0.0/0',
+                source_type: 'cidr',
+                is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || false,
+                status: (rule.observed_usage ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
+                traffic: { connection_count: rule.connections || 0, unique_sources: 0 },
+                recommendation: { 
+                  action: rule.observed_usage ? 'KEEP' : 'DELETE', 
+                  reason: rule.recommendation || (rule.observed_usage ? 'Traffic observed' : 'No traffic observed'),
+                  confidence: rule.confidence || 50
+                }
+              }))
+              setRulesAnalysis(fallbackRules)
+            } else {
+              setError('Failed to fetch gap analysis and no fallback data available')
             }
           }
         } catch (err) {
-          console.error('Failed to fetch gap analysis:', err)
+          console.error('BeforeAfterTab - Failed to fetch gap analysis:', err)
           setError('Failed to load detailed rules analysis')
+          // Try fallback
+          if (resource.evidence.rule_states && resource.evidence.rule_states.length > 0) {
+            const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
+              rule_id: "rule_" + idx,
+              direction: 'ingress',
+              protocol: rule.protocol || 'TCP',
+              port_range: String(rule.port),
+              source: rule.cidr || '0.0.0.0/0',
+              source_type: 'cidr',
+              is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || false,
+              status: (rule.observed_usage ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
+              traffic: { connection_count: rule.connections || 0, unique_sources: 0 },
+              recommendation: { 
+                action: rule.observed_usage ? 'KEEP' : 'DELETE', 
+                reason: rule.recommendation || (rule.observed_usage ? 'Traffic observed' : 'No traffic observed'),
+                confidence: rule.confidence || 50
+              }
+            }))
+            setRulesAnalysis(fallbackRules)
+            setError(null)
+          }
         } finally {
           setLoading(false)
         }
