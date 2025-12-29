@@ -21,6 +21,10 @@ interface GapResource {
   resourceName: string
   resourceArn: string
   systemName?: string
+  // Remediable status for IAM Roles
+  isRemediable?: boolean
+  remediableReason?: string
+  isServiceLinkedRole?: boolean
   lpScore: number | null  // null for Security Groups (use networkExposure instead)
   allowedCount: number
   usedCount: number | null  // null for Security Groups
@@ -148,6 +152,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [executionResult, setExecutionResult] = useState<any>(null)
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
+  const [showRemediableOnly, setShowRemediableOnly] = useState(true) // Default to remediable only
   const { toast } = useToast()
   
   // Cached fetch for SG gap analysis
@@ -360,8 +365,18 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               : `${r.resourceName} has ${r.gapCount || 0} unused permissions`),
             description: r.description || '',
             remediation: r.remediation || '',
-            region: r.evidence?.coverage?.regions?.[0] || r.region || null  // Extract region
+            region: r.evidence?.coverage?.regions?.[0] || r.region || null,  // Extract region
+            // Remediable status (for IAM roles)
+            isRemediable: r.isRemediable ?? r.is_remediable ?? true,
+            remediableReason: r.remediableReason ?? r.remediable_reason ?? '',
+            isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false
           }
+        })
+        // Filter out service linked roles and optionally non-remediable roles
+        .filter((r: any) => {
+          // Always filter out service linked roles
+          if (r.isServiceLinkedRole) return false
+          return true
         }),
         timestamp: result.timestamp || new Date().toISOString()
       }
@@ -612,15 +627,29 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           <div className="text-sm text-gray-600">
-            Showing <strong>{resources.length}</strong> resources:
+            Showing <strong>{
+              showRemediableOnly 
+                ? resources.filter(r => r.resourceType !== 'IAMRole' || r.isRemediable !== false).length
+                : resources.length
+            }</strong> resources:
             <span className="ml-2">
-              {resources.filter(r => r.resourceType === 'IAMRole').length} IAM Roles,
+              {resources.filter(r => r.resourceType === 'IAMRole' && (showRemediableOnly ? r.isRemediable !== false : true)).length} IAM Roles,
               {' '}
               {resources.filter(r => r.resourceType === 'SecurityGroup').length} Security Groups,
               {' '}
               {resources.filter(r => r.resourceType === 'S3Bucket').length} S3 Buckets
             </span>
           </div>
+          {/* Remediable Filter Toggle */}
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showRemediableOnly}
+              onChange={(e) => setShowRemediableOnly(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-gray-600">Remediable only</span>
+          </label>
         </div>
         {data.timestamp && (
           <div className="text-xs text-gray-500">
@@ -638,7 +667,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             <p className="text-sm text-gray-500 mt-2">Try clicking "Refresh Data" to reload from backend</p>
           </div>
         ) : (
-          resources.map((resource) => (
+          resources
+            // Filter based on remediable toggle (only affects IAM Roles)
+            .filter(resource => {
+              if (resource.resourceType !== 'IAMRole') return true
+              if (!showRemediableOnly) return true
+              return resource.isRemediable !== false
+            })
+            .map((resource) => (
             <GapResourceCard
               key={resource.id}
               resource={resource}
@@ -1073,6 +1109,12 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
             <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
               {resource.resourceType}
             </span>
+            {/* Non-remediable badge for IAM roles */}
+            {resource.resourceType === 'IAMRole' && resource.isRemediable === false && (
+              <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
+                ⚠️ AWS Managed - Cannot Remediate
+              </span>
+            )}
           </div>
 
           {/* Gap Bar / Network Exposure Info */}
