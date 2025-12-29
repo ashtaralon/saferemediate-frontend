@@ -152,7 +152,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [executionResult, setExecutionResult] = useState<any>(null)
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
-  const [showRemediableOnly, setShowRemediableOnly] = useState(true) // Default to remediable only
+  const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const { toast } = useToast()
   
   // Cached fetch for SG gap analysis
@@ -372,20 +372,16 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false
           }
         })
-        // Filter out service linked roles and fully compliant resources
+        // Filter out service linked roles only
         .filter((r: any) => {
-          // Always filter out service linked roles
-          if (r.isServiceLinkedRole) return false
-          
-          // Filter out fully compliant IAM roles (0 unused permissions, LP score 100%)
-          if (r.resourceType === 'IAMRole') {
-            const hasUnused = (r.gapCount ?? 0) > 0 || (r.unusedList?.length ?? 0) > 0
-            if (!hasUnused) {
-              console.log('[Filter] Removing fully compliant IAM role:', r.resourceName)
-              return false
-            }
+          // Always filter out service linked roles (cannot be modified)
+          if (r.isServiceLinkedRole) {
+            console.log('[Filter] Removing service-linked role:', r.resourceName)
+            return false
           }
           
+          // Don't filter out IAM roles based on gapCount - show all of them
+          // The user can see which ones need remediation
           return true
         }),
         timestamp: result.timestamp || new Date().toISOString()
