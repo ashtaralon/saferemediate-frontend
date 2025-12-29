@@ -5,6 +5,7 @@ import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, Check, 
   CheckSquare, Loader2, RefreshCw, XCircle, Activity
 } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 
 interface PermissionAnalysis {
   permission: string
@@ -41,6 +42,7 @@ interface IAMPermissionAnalysisModalProps {
   roleName: string
   systemName: string
   onApplyFix?: (data: any) => void
+  onSuccess?: () => void
 }
 
 export function IAMPermissionAnalysisModal({
@@ -48,14 +50,17 @@ export function IAMPermissionAnalysisModal({
   onClose,
   roleName,
   systemName,
-  onApplyFix
+  onApplyFix,
+  onSuccess
 }: IAMPermissionAnalysisModalProps) {
+  const { toast } = useToast()
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSimulation, setShowSimulation] = useState(false)
   const [simulating, setSimulating] = useState(false)
-  const [createCheckpoint, setCreateCheckpoint] = useState(true)
+  const [applying, setApplying] = useState(false)
+  const [createSnapshot, setCreateSnapshot] = useState(true)
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -101,17 +106,64 @@ export function IAMPermissionAnalysisModal({
     setShowSimulation(true)
   }
 
-  const handleApplyFix = () => {
-    if (onApplyFix && gapData) {
-      onApplyFix({
-        roleName,
-        systemName,
-        permissionsToRemove: gapData.unused_permissions,
-        createCheckpoint,
-        confidence: calculateSafetyScore()
+  const handleApplyFix = async () => {
+    if (!gapData) return
+    
+    setApplying(true)
+    try {
+      // Call the remediation API
+      const response = await fetch('/api/proxy/iam-roles/remediate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role_name: roleName,
+          permissions_to_remove: unusedPermissions.map(p => p.permission),
+          create_snapshot: createSnapshot,
+          snapshot_reason: `Pre-remediation backup - removing ${unusedCount} permissions`
+        })
       })
+      
+      if (response.ok) {
+        const result = await response.json()
+        
+        // Show success toast
+        toast({
+          title: "✅ Remediation Applied Successfully",
+          description: `Removed ${unusedCount} unused permissions from ${roleName}`,
+          variant: "default"
+        })
+        
+        // Also call parent callback if provided
+        if (onApplyFix) {
+          onApplyFix({
+            roleName,
+            systemName,
+            permissionsToRemove: gapData.unused_permissions,
+            createSnapshot,
+            confidence: calculateSafetyScore(),
+            result
+          })
+        }
+        
+        // Refresh parent data
+        onSuccess?.()
+        
+        // Close modal
+        handleClose()
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.detail || 'Remediation failed')
+      }
+    } catch (err: any) {
+      console.error('[IAM-Modal] Apply fix error:', err)
+      toast({
+        title: "❌ Remediation Failed",
+        description: err.message || 'Failed to apply remediation',
+        variant: "destructive"
+      })
+    } finally {
+      setApplying(false)
     }
-    handleClose()
   }
 
   if (!isOpen) return null
@@ -302,21 +354,23 @@ export function IAMPermissionAnalysisModal({
             {/* Permissions to Keep */}
             <div>
               <h3 className="font-bold text-lg text-gray-900 mb-3">Permissions to Keep ({usedCount}):</h3>
-              <div className="p-4 bg-green-50 border border-green-200 rounded-xl max-h-32 overflow-y-auto">
-                {usedPermissions.length > 0 ? (
-                  <div className="space-y-1">
+              {usedPermissions.length > 0 ? (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-xl max-h-32 overflow-y-auto">
+                  <div className="space-y-2">
                     {usedPermissions.map((perm, i) => (
-                      <div key={i} className="flex items-center gap-2 text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-                        <span className="font-mono text-gray-700">{perm.permission}</span>
-                        <span className="text-gray-400">- {perm.usage_count || 0} uses</span>
+                      <div key={i} className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        <span className="font-mono text-sm text-gray-700">{perm.permission}</span>
+                        <span className="text-green-600 text-sm">{perm.usage_count || 0} uses/day</span>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="text-gray-500 text-sm italic">No permissions currently in use</p>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                  <p className="text-amber-700 italic">No permissions currently in use - this role may be safe to delete entirely</p>
+                </div>
+              )}
             </div>
 
             {/* Confidence Factors */}
@@ -345,7 +399,8 @@ export function IAMPermissionAnalysisModal({
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
             <button 
               onClick={() => setShowSimulation(false)}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium"
+              disabled={applying}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium disabled:opacity-50"
             >
               ← BACK
             </button>
@@ -353,17 +408,26 @@ export function IAMPermissionAnalysisModal({
               <label className="flex items-center gap-2 cursor-pointer">
                 <input 
                   type="checkbox" 
-                  checked={createCheckpoint}
-                  onChange={(e) => setCreateCheckpoint(e.target.checked)}
+                  checked={createSnapshot}
+                  onChange={(e) => setCreateSnapshot(e.target.checked)}
+                  disabled={applying}
                   className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                 />
                 <span className="text-sm text-gray-600">Create rollback checkpoint first</span>
               </label>
               <button 
                 onClick={handleApplyFix}
-                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg"
+                disabled={applying}
+                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                APPLY FIX NOW
+                {applying ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Applying...
+                  </>
+                ) : (
+                  'APPLY FIX NOW'
+                )}
               </button>
             </div>
           </div>

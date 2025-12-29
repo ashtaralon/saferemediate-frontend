@@ -1,19 +1,19 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server } from 'lucide-react'
+import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock } from 'lucide-react'
 
 interface Snapshot {
   snapshot_id: string
-  sg_id: string
-  sg_name: string
-  vpc_id: string
+  sg_id?: string
+  sg_name?: string
+  vpc_id?: string
   region: string
   timestamp: string
   reason: string
   triggered_by: string
   status: string
-  rules_count: {
+  rules_count?: {
     inbound: number
     outbound: number
   }
@@ -23,6 +23,12 @@ interface Snapshot {
   resource_type?: string
   created_at?: string
   current_state?: any
+  // IAM Role fields
+  type?: 'SecurityGroup' | 'IAMRole'
+  role_name?: string
+  role_arn?: string
+  permissions_count?: number
+  removed_permissions?: string[]
 }
 
 export default function RecoveryTab() {
@@ -41,21 +47,31 @@ export default function RecoveryTab() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch('/api/proxy/snapshots', {
-        cache: 'no-store',
-      })
+      // Fetch both SG and IAM snapshots in parallel
+      const [sgRes, iamRes] = await Promise.all([
+        fetch('/api/proxy/snapshots', { cache: 'no-store' }),
+        fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
+      ])
 
-      if (!res.ok) {
-        throw new Error(`Failed to load: ${res.status}`)
+      // Process SG snapshots
+      let sgSnapshots: Snapshot[] = []
+      if (sgRes.ok) {
+        const sgData = await sgRes.json()
+        const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
+        sgSnapshots = sgList.map((s: any) => ({ ...s, type: 'SecurityGroup' as const }))
       }
 
-      const data = await res.json()
+      // Process IAM snapshots
+      let iamSnapshots: Snapshot[] = []
+      if (iamRes && iamRes.ok) {
+        const iamData = await iamRes.json()
+        const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
+        iamSnapshots = iamList.map((s: any) => ({ ...s, type: 'IAMRole' as const }))
+      }
       
-      // Handle both array response and object with snapshots property
-      const snapshotList = Array.isArray(data) ? data : (data.snapshots || [])
-      
-      // Sort by timestamp (newest first)
-      const sorted = snapshotList.sort((a: Snapshot, b: Snapshot) => {
+      // Combine and sort by timestamp (newest first)
+      const allSnapshots = [...sgSnapshots, ...iamSnapshots]
+      const sorted = allSnapshots.sort((a: Snapshot, b: Snapshot) => {
         const dateA = new Date(a.timestamp || a.created_at || 0).getTime()
         const dateB = new Date(b.timestamp || b.created_at || 0).getTime()
         return dateB - dateA
@@ -106,9 +122,16 @@ export default function RecoveryTab() {
   }
 
   async function handleRestore(snapshot: Snapshot) {
-    const resourceName = snapshot.sg_name || snapshot.sg_id || 'Security Group'
+    const isIAMRole = snapshot.type === 'IAMRole'
+    const resourceName = isIAMRole 
+      ? (snapshot.role_name || 'IAM Role')
+      : (snapshot.sg_name || snapshot.sg_id || 'Security Group')
 
-    if (!confirm(`⚠️ Restore this snapshot?\n\nThis will:\n• Remove ALL current inbound rules from ${resourceName}\n• Restore ${snapshot.rules_count?.inbound || 'all'} inbound rules from this snapshot\n\nContinue?`)) {
+    const confirmMessage = isIAMRole
+      ? `⚠️ Restore IAM Role snapshot?\n\nThis will:\n• Restore ${snapshot.permissions_count || 'all'} permissions to ${resourceName}\n• Re-add any removed permissions\n\nContinue?`
+      : `⚠️ Restore Security Group snapshot?\n\nThis will:\n• Remove ALL current inbound rules from ${resourceName}\n• Restore ${snapshot.rules_count?.inbound || 'all'} inbound rules from this snapshot\n\nContinue?`
+
+    if (!confirm(confirmMessage)) {
       return
     }
 
@@ -116,13 +139,14 @@ export default function RecoveryTab() {
       setRestoring(snapshot.snapshot_id)
       setError(null)
 
-      const res = await fetch(
-        `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      const endpoint = isIAMRole
+        ? `/api/proxy/iam-snapshots/${snapshot.snapshot_id}/rollback`
+        : `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
@@ -132,7 +156,11 @@ export default function RecoveryTab() {
       const result = await res.json()
       
       if (result.success) {
-        alert(`✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id}\nRules restored: ${result.rules_restored}`)
+        if (isIAMRole) {
+          alert(`✅ Restored Successfully!\n\nIAM Role: ${result.role_name || resourceName}\nPermissions restored: ${result.permissions_restored || 'All'}`)
+        } else {
+          alert(`✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id}\nRules restored: ${result.rules_restored}`)
+        }
       } else {
         throw new Error(result.error || 'Rollback failed')
       }
@@ -217,7 +245,7 @@ export default function RecoveryTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Recovery & Rollback</h2>
-          <p className="text-gray-600 mt-1">Restore Security Groups to previous snapshots</p>
+          <p className="text-gray-600 mt-1">Restore Security Groups and IAM Roles to previous snapshots</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
@@ -257,7 +285,7 @@ export default function RecoveryTab() {
           <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900">No snapshots yet</h3>
           <p className="mt-2 text-gray-600">
-            Snapshots are automatically created when you execute Security Group remediations.
+            Snapshots are automatically created when you execute Security Group or IAM Role remediations.
           </p>
         </div>
       ) : (
@@ -293,32 +321,62 @@ function SnapshotCard({
   formatDate: (ts: string | undefined) => string
   getTimeAgo: (ts: string | undefined) => string
 }) {
+  const isIAMRole = snapshot.type === 'IAMRole'
   const timestamp = snapshot.timestamp || snapshot.created_at
-  const sgName = snapshot.sg_name || snapshot.current_state?.sg_name || 'Unknown Security Group'
-  const sgId = snapshot.sg_id || snapshot.current_state?.sg_id || snapshot.finding_id || 'N/A'
-  const vpcId = snapshot.vpc_id || snapshot.current_state?.vpc_id || 'N/A'
   const region = snapshot.region || 'eu-west-1'
   const triggeredBy = snapshot.triggered_by || 'system'
   const reason = snapshot.reason || snapshot.current_state?.reason || 'Remediation backup'
   const status = snapshot.status || 'available'
+  
+  // SG-specific fields
+  const sgName = snapshot.sg_name || snapshot.current_state?.sg_name || 'Unknown Security Group'
+  const sgId = snapshot.sg_id || snapshot.current_state?.sg_id || snapshot.finding_id || 'N/A'
+  const vpcId = snapshot.vpc_id || snapshot.current_state?.vpc_id || 'N/A'
   const inboundRules = snapshot.rules_count?.inbound ?? snapshot.current_state?.rules_count?.inbound ?? 0
   const outboundRules = snapshot.rules_count?.outbound ?? snapshot.current_state?.rules_count?.outbound ?? 0
+  
+  // IAM-specific fields
+  const roleName = snapshot.role_name || 'Unknown Role'
+  const roleArn = snapshot.role_arn || 'N/A'
+  const permissionsCount = snapshot.permissions_count || 0
+  const removedPermissions = snapshot.removed_permissions || []
+
+  // Common display values
+  const resourceName = isIAMRole ? roleName : sgName
+  const resourceId = isIAMRole ? roleArn : sgId
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+      <div className={`px-4 py-3 border-b border-gray-100 ${
+        isIAMRole 
+          ? 'bg-gradient-to-r from-purple-50 to-violet-50' 
+          : 'bg-gradient-to-r from-blue-50 to-indigo-50'
+      }`}>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Shield className="w-5 h-5 text-blue-600" />
+            <div className={`p-2 rounded-lg ${
+              isIAMRole ? 'bg-purple-100' : 'bg-blue-100'
+            }`}>
+              {isIAMRole ? (
+                <Key className="w-5 h-5 text-purple-600" />
+              ) : (
+                <Shield className="w-5 h-5 text-blue-600" />
+              )}
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{sgName}</h3>
-              <p className="text-xs text-gray-500 font-mono">{sgId}</p>
+              <h3 className="font-semibold text-gray-900">{resourceName}</h3>
+              <p className="text-xs text-gray-500 font-mono truncate max-w-[200px]">{resourceId}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+              isIAMRole 
+                ? 'bg-purple-100 text-purple-700'
+                : 'bg-blue-100 text-blue-700'
+            }`}>
+              {isIAMRole ? 'IAM Role' : 'Security Group'}
+            </span>
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
               status === 'available' 
                 ? 'bg-green-100 text-green-700' 
@@ -326,22 +384,31 @@ function SnapshotCard({
             }`}>
               {status === 'available' ? '● Available' : '↺ Restored'}
             </span>
-            <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full flex items-center gap-1">
-              <MapPin className="w-3 h-3" />
-              {region}
-            </span>
           </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="p-4 space-y-3">
-        {/* VPC Info */}
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <Server className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-500">VPC:</span>
-          <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">{vpcId}</span>
-        </div>
+        {/* Resource-specific Info */}
+        {isIAMRole ? (
+          /* IAM Role Details */
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Lock className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-500">Permissions:</span>
+            <span className="font-medium text-gray-900">{permissionsCount} total</span>
+            {removedPermissions.length > 0 && (
+              <span className="text-red-600">({removedPermissions.length} removed)</span>
+            )}
+          </div>
+        ) : (
+          /* Security Group Details */
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Server className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-500">VPC:</span>
+            <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">{vpcId}</span>
+          </div>
+        )}
 
         {/* Metadata Grid */}
         <div className="grid grid-cols-2 gap-3 text-sm">
@@ -360,17 +427,39 @@ function SnapshotCard({
           </div>
         </div>
 
-        {/* Rules Count */}
-        <div className="flex items-center gap-4 py-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg">
-            <ArrowDownToLine className="w-4 h-4 text-green-600" />
-            <span className="text-sm font-medium text-green-700">{inboundRules} inbound</span>
+        {/* Rules/Permissions Count */}
+        {isIAMRole ? (
+          /* IAM Removed Permissions Preview */
+          removedPermissions.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-red-600 font-medium mb-1">Removed Permissions:</p>
+              <div className="flex flex-wrap gap-1">
+                {removedPermissions.slice(0, 3).map((perm, i) => (
+                  <span key={i} className="text-xs font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                    {perm}
+                  </span>
+                ))}
+                {removedPermissions.length > 3 && (
+                  <span className="text-xs text-red-600">
+                    +{removedPermissions.length - 3} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        ) : (
+          /* SG Rules Count */
+          <div className="flex items-center gap-4 py-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg">
+              <ArrowDownToLine className="w-4 h-4 text-green-600" />
+              <span className="text-sm font-medium text-green-700">{inboundRules} inbound</span>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg">
+              <ArrowUpFromLine className="w-4 h-4 text-orange-600" />
+              <span className="text-sm font-medium text-orange-700">{outboundRules} outbound</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg">
-            <ArrowUpFromLine className="w-4 h-4 text-orange-600" />
-            <span className="text-sm font-medium text-orange-700">{outboundRules} outbound</span>
-          </div>
-        </div>
+        )}
 
         {/* Reason */}
         <div className="bg-gray-50 rounded-lg px-3 py-2">
@@ -397,7 +486,9 @@ function SnapshotCard({
           className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
             isRestoring 
               ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-              : 'bg-red-600 text-white hover:bg-red-700'
+              : isIAMRole
+                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                : 'bg-red-600 text-white hover:bg-red-700'
           }`}
         >
           {isRestoring ? (
