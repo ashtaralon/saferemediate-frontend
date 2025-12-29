@@ -1,7 +1,51 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { X, TrendingDown, AlertTriangle, CheckCircle2, Calendar, Shield, Activity } from "lucide-react"
+import { X, TrendingDown, AlertTriangle, CheckCircle2, Calendar, Shield, Activity, RefreshCw } from "lucide-react"
+
+interface PermissionAnalysis {
+  permission: string
+  service: string
+  action: string
+  status: "USED" | "UNUSED"
+  usage_count: number
+  last_used: string | null
+  first_used: string | null
+  is_high_risk: boolean
+  has_wildcard: boolean
+  risk_level: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  risk_score: number
+  recommendation: string
+  recommendation_text: string
+  confidence: number
+}
+
+interface GapAnalysisData {
+  role_name: string
+  role_arn: string
+  observation_days: number
+  summary: {
+    lp_score: number
+    total_permissions: number
+    used_count: number
+    unused_count: number
+    high_risk_unused_count: number
+    wildcard_unused_count: number
+    overall_risk: string
+    cloudtrail_events: number
+  }
+  permissions_analysis: PermissionAnalysis[]
+  used_permissions: string[]
+  unused_permissions: string[]
+  high_risk_unused: string[]
+  recommendations: {
+    safe_to_remove: string[]
+    remove_high_priority: string[]
+    review_and_remove: string[]
+    keep: string[]
+  }
+  confidence: string
+}
 
 interface IdentityPermissionAnalysisModalProps {
   isOpen: boolean
@@ -31,6 +75,40 @@ export function IdentityPermissionAnalysisModal({
   const [showSimulation, setShowSimulation] = useState(false)
   const [simulationStep, setSimulationStep] = useState(0)
   const [showResults, setShowResults] = useState(false)
+  const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch real gap analysis data when modal opens
+  useEffect(() => {
+    if (isOpen && identity.name) {
+      fetchGapAnalysis()
+    }
+  }, [isOpen, identity.name])
+
+  const fetchGapAnalysis = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const roleName = identity.name
+      console.log('[IAM-GAP] Fetching gap analysis for:', roleName)
+      
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      console.log('[IAM-GAP] Received data:', data)
+      setGapData(data)
+    } catch (err: any) {
+      console.error('[IAM-GAP] Error fetching:', err)
+      setError(err.message || 'Failed to fetch gap analysis')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (showSimulation && simulationStep < 5) {
@@ -48,6 +126,8 @@ export function IdentityPermissionAnalysisModal({
     setShowSimulation(false)
     setSimulationStep(0)
     setShowResults(false)
+    setGapData(null)
+    setError(null)
     onClose()
   }
 
@@ -72,49 +152,79 @@ export function IdentityPermissionAnalysisModal({
 
   if (!isOpen) return null
 
-  const totalPermissions = identity.permissions || 27
-  const usedCount = identity.usedPermissions || 9
-  const unusedCount = identity.unusedPermissions || 18
-  const recordingDays = identity.recordingDays || 90
+  // Use real API data if available, otherwise fall back to props
+  const totalPermissions = gapData?.summary?.total_permissions ?? identity.permissions ?? 0
+  const usedCount = gapData?.summary?.used_count ?? identity.usedPermissions ?? 0
+  const unusedCount = gapData?.summary?.unused_count ?? identity.unusedPermissions ?? 0
+  const recordingDays = gapData?.observation_days ?? identity.recordingDays ?? 90
   const gapPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
-  const confidence = identity.confidence || 97
+  const lpScore = gapData?.summary?.lp_score ?? 0
+  const confidence = lpScore > 0 ? Math.round(100 - lpScore) : 97 // Higher unused = higher confidence to remove
+  const overallRisk = gapData?.summary?.overall_risk ?? "UNKNOWN"
 
-  // Default permission lists if not provided
-  const defaultUsedList = [
-    "s3:GetObject",
-    "s3:PutObject",
-    "dynamodb:Query",
-    "dynamodb:PutItem",
-    "cloudwatch:PutMetricData",
-    "sns:Publish",
-    "sqs:SendMessage",
-    "kms:Decrypt",
-    "secretsmanager:GetSecretValue",
-  ]
+  // Use real permission lists from API
+  const usedList = gapData?.used_permissions ?? identity.usedList ?? []
+  const unusedList = gapData?.unused_permissions ?? identity.unusedList ?? []
+  const highRiskUnused = gapData?.high_risk_unused ?? []
+  const permissionsAnalysis = gapData?.permissions_analysis ?? []
 
-  const defaultUnusedList = [
-    "s3:DeleteBucket",
-    "s3:PutBucketPolicy",
-    "iam:CreateUser",
-    "iam:AttachUserPolicy",
-    "ec2:TerminateInstances",
-    "rds:DeleteDBInstance",
-    "dynamodb:DeleteTable",
-    "lambda:DeleteFunction",
-    "cloudwatch:DeleteAlarms",
-    "sns:DeleteTopic",
-    "sqs:DeleteQueue",
-    "kms:ScheduleKeyDeletion",
-    "secretsmanager:DeleteSecret",
-    "ec2:ModifyInstanceAttribute",
-    "elasticloadbalancing:DeleteLoadBalancer",
-    "autoscaling:DeleteAutoScalingGroup",
-    "cloudformation:DeleteStack",
-    "route53:DeleteHostedZone",
-  ]
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/85" onClick={onClose} />
+        <div
+          className="relative w-[500px] rounded-2xl p-8 shadow-2xl text-center"
+          style={{ background: "var(--bg-secondary, #1f2937)" }}
+        >
+          <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: "#8b5cf6" }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+            Analyzing Permissions
+          </h2>
+          <p className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            Fetching CloudTrail data for {identity.name}...
+          </p>
+        </div>
+      </div>
+    )
+  }
 
-  const usedList = identity.usedList && identity.usedList.length > 0 ? identity.usedList : defaultUsedList
-  const unusedList = identity.unusedList && identity.unusedList.length > 0 ? identity.unusedList : defaultUnusedList
+  // Show error state
+  if (error) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/85" onClick={onClose} />
+        <div
+          className="relative w-[500px] rounded-2xl p-8 shadow-2xl text-center"
+          style={{ background: "var(--bg-secondary, #1f2937)" }}
+        >
+          <AlertTriangle className="w-12 h-12 mx-auto mb-4" style={{ color: "#ef4444" }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+            Failed to Load Data
+          </h2>
+          <p className="text-sm mb-4" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            {error}
+          </p>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={fetchGapAnalysis}
+              className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+              style={{ background: "#8b5cf6" }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm font-semibold border"
+              style={{ color: "var(--text-secondary, #9ca3af)", borderColor: "var(--border, #374151)" }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Helper function to get usage frequency
   const getUsageFrequency = (perm: string): string => {
@@ -155,8 +265,23 @@ export function IdentityPermissionAnalysisModal({
     return "Active usage"
   }
 
-  // Helper function to get risk level
+  // Helper function to get risk level - uses API data if available
   const getRiskLevel = (perm: string): "Critical" | "High" | "Medium" | "Low" => {
+    // First check if we have real data from the API
+    const permAnalysis = permissionsAnalysis.find(p => p.permission === perm)
+    if (permAnalysis) {
+      const riskMap: Record<string, "Critical" | "High" | "Medium" | "Low"> = {
+        "CRITICAL": "Critical",
+        "HIGH": "High",
+        "MEDIUM": "Medium",
+        "LOW": "Low"
+      }
+      return riskMap[permAnalysis.risk_level] || "Medium"
+    }
+
+    // Fallback to static analysis
+    if (highRiskUnused.includes(perm)) return "Critical"
+    
     const criticalPerms = ["iam:CreateUser", "iam:AttachUserPolicy", "ec2:TerminateInstances", "kms:ScheduleKeyDeletion", "route53:DeleteHostedZone", "rds:DeleteDBInstance"]
     const highPerms = ["s3:DeleteBucket", "s3:PutBucketPolicy", "dynamodb:DeleteTable", "lambda:DeleteFunction", "elasticloadbalancing:DeleteLoadBalancer", "autoscaling:DeleteAutoScalingGroup", "cloudformation:DeleteStack", "secretsmanager:DeleteSecret"]
 
@@ -165,6 +290,15 @@ export function IdentityPermissionAnalysisModal({
     if (perm.includes("Delete") || perm.includes("Create") || perm.includes("Admin") || perm.includes("*")) return "Critical"
     if (perm.includes("Modify") || perm.includes("Attach") || perm.includes("Put")) return "High"
     return "Medium"
+  }
+
+  // Helper function to get recommendation from API
+  const getRecommendation = (perm: string): string => {
+    const permAnalysis = permissionsAnalysis.find(p => p.permission === perm)
+    if (permAnalysis) {
+      return permAnalysis.recommendation_text || permAnalysis.recommendation
+    }
+    return "Review before removing"
   }
 
   // Helper function to get last used date
@@ -502,7 +636,18 @@ export function IdentityPermissionAnalysisModal({
         </div>
 
         {/* Stats grid */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div
+            className="rounded-lg p-4 border"
+            style={{ background: "var(--bg-primary, #111827)", borderColor: lpScore < 50 ? "#ef4444" : lpScore < 80 ? "#f97316" : "#10B981" }}
+          >
+            <div className="text-2xl font-bold mb-1" style={{ color: lpScore < 50 ? "#ef4444" : lpScore < 80 ? "#f97316" : "#10B981" }}>
+              {lpScore}%
+            </div>
+            <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+              LP Score
+            </div>
+          </div>
           <div
             className="rounded-lg p-4 border"
             style={{ background: "var(--bg-primary, #111827)", borderColor: "var(--border-subtle, #374151)" }}
@@ -519,7 +664,7 @@ export function IdentityPermissionAnalysisModal({
               {usedCount}
             </div>
             <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
-              Actually Used ({totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0}%)
+              Actually Used
             </div>
           </div>
           <div className="rounded-lg p-4 border" style={{ background: "var(--bg-primary, #111827)", borderColor: "#ef4444" }}>
@@ -531,6 +676,32 @@ export function IdentityPermissionAnalysisModal({
             </div>
           </div>
         </div>
+
+        {/* Risk badge from API */}
+        {gapData && (
+          <div className="mb-4 flex items-center gap-3">
+            <span
+              className="px-3 py-1 rounded-full text-sm font-semibold"
+              style={{
+                background: overallRisk === "CRITICAL" ? "#ef444420" : overallRisk === "HIGH" ? "#f9731620" : overallRisk === "MEDIUM" ? "#eab30820" : "#10B98120",
+                color: overallRisk === "CRITICAL" ? "#ef4444" : overallRisk === "HIGH" ? "#f97316" : overallRisk === "MEDIUM" ? "#eab308" : "#10B981"
+              }}
+            >
+              {overallRisk} Risk
+            </span>
+            <span className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+              {gapData.summary?.cloudtrail_events || 0} CloudTrail events analyzed
+            </span>
+            {gapData.summary?.high_risk_unused_count > 0 && (
+              <span
+                className="px-2 py-0.5 rounded text-xs font-medium"
+                style={{ background: "#ef444420", color: "#ef4444" }}
+              >
+                {gapData.summary.high_risk_unused_count} high-risk unused
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Least privilege violation */}
         <div className="rounded-xl p-6 mb-6 border-2" style={{ background: "#ef444415", borderColor: "#ef4444" }}>
