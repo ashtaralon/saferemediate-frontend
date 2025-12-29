@@ -949,7 +949,7 @@ function RemediationDrawer({
   onSimulate?: () => void
   simulating?: boolean
 }) {
-  const [activeTab, setActiveTab] = useState<'summary' | 'before-after' | 'evidence' | 'impact'>('summary')
+  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact'>('summary')
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center sm:justify-center">
@@ -979,20 +979,21 @@ function RemediationDrawer({
         <div className="border-b border-gray-200 px-6">
           <div className="flex gap-4">
             {[
-              { id: 'summary', label: 'Summary' },
-              { id: 'before-after', label: 'Before/After' },
-              { id: 'evidence', label: 'Evidence' },
-              { id: 'impact', label: 'Impact' }
+              { id: 'summary', label: 'Summary', icon: '📊' },
+              { id: 'rules', label: 'Rules', icon: '📋' },
+              { id: 'evidence', label: 'Evidence', icon: '🔍' },
+              { id: 'impact', label: 'Impact', icon: '📈' }
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-2 border-b-2 font-medium text-sm ${
+                className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-1.5 ${
                   activeTab === tab.id
                     ? 'border-indigo-600 text-indigo-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
+                <span>{tab.icon}</span>
                 {tab.label}
               </button>
             ))}
@@ -1000,9 +1001,9 @@ function RemediationDrawer({
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
           {activeTab === 'summary' && <SummaryTab resource={resource} />}
-          {activeTab === 'before-after' && <BeforeAfterTab resource={resource} cachedFetch={fetchSGGapAnalysis} cache={sgGapAnalysisCache} />}
+          {activeTab === 'rules' && <RulesTab resource={resource} cachedFetch={fetchSGGapAnalysis} cache={sgGapAnalysisCache} />}
           {activeTab === 'evidence' && <EvidenceTab resource={resource} />}
           {activeTab === 'impact' && <ImpactTab resource={resource} />}
         </div>
@@ -1183,7 +1184,23 @@ function SummaryTab({ resource }: { resource: GapResource }) {
   )
 }
 
-function BeforeAfterTab({ 
+// ============================================================================
+// RulesTab - Unified rules table view with filtering and sorting
+// ============================================================================
+type RuleAnalysis = {
+  rule_id: string
+  direction: string
+  protocol: string
+  port_range: string
+  source: string
+  source_type: string
+  is_public: boolean
+  status: 'USED' | 'UNUSED' | 'OVERLY_BROAD'
+  traffic: { connection_count: number; unique_sources: number }
+  recommendation: { action: string; reason: string; confidence: number; suggested_cidrs?: string[] }
+}
+
+function RulesTab({ 
   resource, 
   cachedFetch, 
   cache 
@@ -1192,58 +1209,24 @@ function BeforeAfterTab({
   cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
   cache?: Record<string, any>
 }) {
-  const [rulesAnalysis, setRulesAnalysis] = useState<Array<{
-    rule_id: string
-    direction: string
-    protocol: string
-    port_range: string
-    source: string
-    source_type: string
-    is_public: boolean
-    status: 'USED' | 'UNUSED' | 'OVERLY_BROAD'
-    traffic: { connection_count: number; unique_sources: number }
-    recommendation: { action: string; reason: string; confidence: number; suggested_cidrs?: string[] }
-  }>>([])
+  const [rulesAnalysis, setRulesAnalysis] = useState<RuleAnalysis[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'used' | 'unused' | 'public'>('all')
+  const [sortBy, setSortBy] = useState<'status' | 'port' | 'traffic'>('status')
 
   // Extract SG ID from various possible fields
   const extractSgId = (res: GapResource): string | null => {
-    // Debug: log all available fields
-    console.log('BeforeAfterTab - Resource data:', {
-      id: res.id,
-      resourceName: res.resourceName,
-      resourceArn: res.resourceArn,
-      resourceType: res.resourceType
-    })
-    
-    // Try direct id field if it looks like an SG ID
-    if (res.id && res.id.startsWith('sg-')) {
-      return res.id
-    }
-    
-    // Try resourceName if it looks like an SG ID
-    if (res.resourceName && res.resourceName.startsWith('sg-')) {
-      return res.resourceName
-    }
-    
-    // Extract from ARN: arn:aws:ec2:region:account:security-group/sg-xxxxx
-    if (res.resourceArn && res.resourceArn.includes('security-group/')) {
+    if (res.id?.startsWith('sg-')) return res.id
+    if (res.resourceName?.startsWith('sg-')) return res.resourceName
+    if (res.resourceArn?.includes('security-group/')) {
       const match = res.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
-      if (match) {
-        return match[1]
-      }
+      if (match) return match[1]
     }
-    
-    // Last resort: check if id contains sg- anywhere
-    if (res.id && res.id.includes('sg-')) {
+    if (res.id?.includes('sg-')) {
       const match = res.id.match(/(sg-[a-z0-9]+)/)
-      if (match) {
-        return match[1]
-      }
+      if (match) return match[1]
     }
-    
-    // Fallback to id or resourceName even if not sg- prefixed
     return res.id || res.resourceName || null
   }
 
@@ -1255,14 +1238,10 @@ function BeforeAfterTab({
         setError(null)
         try {
           const sgId = extractSgId(resource)
-          console.log('BeforeAfterTab - Extracted sgId:', sgId)
           
           if (!sgId) {
-            console.error('BeforeAfterTab - Could not extract SG ID from resource')
-            setError('Could not determine Security Group ID')
             // Fall back to rule_states
-            if (resource.evidence.rule_states && resource.evidence.rule_states.length > 0) {
-              console.log('BeforeAfterTab - Using fallback rule_states:', resource.evidence.rule_states.length)
+            if (resource.evidence.rule_states?.length) {
               const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
                 rule_id: "rule_" + idx,
                 direction: 'ingress',
@@ -1275,99 +1254,42 @@ function BeforeAfterTab({
                 traffic: { connection_count: rule.connections || 0, unique_sources: 0 },
                 recommendation: { 
                   action: rule.observed_usage ? 'KEEP' : 'DELETE', 
-                  reason: rule.recommendation || (rule.observed_usage ? 'Traffic observed' : 'No traffic observed'),
+                  reason: rule.recommendation || '',
                   confidence: rule.confidence || 50
                 }
               }))
               setRulesAnalysis(fallbackRules)
-              setError(null) // Clear error if we have fallback data
             }
             setLoading(false)
             return
           }
           
-          // Check if we have cached data
-          if (cache && cache[sgId]) {
-            console.log('BeforeAfterTab - Using cached data for:', sgId)
-            setRulesAnalysis(cache[sgId].rules_analysis || [])
+          // Check cache first
+          if (cache?.[sgId]?.rules_analysis) {
+            setRulesAnalysis(cache[sgId].rules_analysis)
             setLoading(false)
             return
           }
           
-          // Use cached fetch if available, otherwise direct fetch
+          // Use cached fetch if available
           if (cachedFetch) {
-            console.log('BeforeAfterTab - Using cached fetch for:', sgId)
             const data = await cachedFetch(sgId)
-            if (data && data.rules_analysis) {
+            if (data?.rules_analysis) {
               setRulesAnalysis(data.rules_analysis)
               setLoading(false)
               return
             }
           }
           
-          // Direct fetch fallback
-          const url = "/api/proxy/security-groups/" + sgId + "/gap-analysis?days=365"
-          console.log('BeforeAfterTab - Fetching:', url)
-          
-          const res = await fetch(url)
-          console.log('BeforeAfterTab - Response status:', res.status)
-          
+          // Direct fetch
+          const res = await fetch("/api/proxy/security-groups/" + sgId + "/gap-analysis?days=365")
           if (res.ok) {
             const data = await res.json()
-            console.log('BeforeAfterTab - API response:', data)
-            console.log('BeforeAfterTab - rules_analysis count:', data.rules_analysis?.length || 0)
             setRulesAnalysis(data.rules_analysis || [])
-          } else {
-            const errorText = await res.text()
-            console.error('BeforeAfterTab - API error:', res.status, errorText)
-            // If gap analysis API fails, fall back to rule_states
-            if (resource.evidence.rule_states && resource.evidence.rule_states.length > 0) {
-              console.log('BeforeAfterTab - API failed, using fallback rule_states')
-              const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
-                rule_id: "rule_" + idx,
-                direction: 'ingress',
-                protocol: rule.protocol || 'TCP',
-                port_range: String(rule.port),
-                source: rule.cidr || '0.0.0.0/0',
-                source_type: 'cidr',
-                is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || false,
-                status: (rule.observed_usage ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
-                traffic: { connection_count: rule.connections || 0, unique_sources: 0 },
-                recommendation: { 
-                  action: rule.observed_usage ? 'KEEP' : 'DELETE', 
-                  reason: rule.recommendation || (rule.observed_usage ? 'Traffic observed' : 'No traffic observed'),
-                  confidence: rule.confidence || 50
-                }
-              }))
-              setRulesAnalysis(fallbackRules)
-            } else {
-              setError('Failed to fetch gap analysis and no fallback data available')
-            }
           }
         } catch (err) {
-          console.error('BeforeAfterTab - Failed to fetch gap analysis:', err)
-          setError('Failed to load detailed rules analysis')
-          // Try fallback
-          if (resource.evidence.rule_states && resource.evidence.rule_states.length > 0) {
-            const fallbackRules = resource.evidence.rule_states.map((rule, idx) => ({
-              rule_id: "rule_" + idx,
-              direction: 'ingress',
-              protocol: rule.protocol || 'TCP',
-              port_range: String(rule.port),
-              source: rule.cidr || '0.0.0.0/0',
-              source_type: 'cidr',
-              is_public: rule.cidr?.includes('0.0.0.0/0') || rule.cidr?.includes('::/0') || false,
-              status: (rule.observed_usage ? 'USED' : 'UNUSED') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
-              traffic: { connection_count: rule.connections || 0, unique_sources: 0 },
-              recommendation: { 
-                action: rule.observed_usage ? 'KEEP' : 'DELETE', 
-                reason: rule.recommendation || (rule.observed_usage ? 'Traffic observed' : 'No traffic observed'),
-                confidence: rule.confidence || 50
-              }
-            }))
-            setRulesAnalysis(fallbackRules)
-            setError(null)
-          }
+          console.error('RulesTab - Failed to fetch:', err)
+          setError('Failed to load rules')
         } finally {
           setLoading(false)
         }
@@ -1376,232 +1298,259 @@ function BeforeAfterTab({
     }
   }, [resource])
 
-  // For Security Groups, show rules-based view
+  // Filter rules
+  const filteredRules = rulesAnalysis.filter(rule => {
+    switch (filter) {
+      case 'used': return rule.status === 'USED'
+      case 'unused': return rule.status === 'UNUSED'
+      case 'public': return rule.is_public
+      default: return true
+    }
+  })
+
+  // Sort rules
+  const sortedRules = [...filteredRules].sort((a, b) => {
+    switch (sortBy) {
+      case 'port':
+        return (parseInt(a.port_range) || 0) - (parseInt(b.port_range) || 0)
+      case 'traffic':
+        return (b.traffic?.connection_count || 0) - (a.traffic?.connection_count || 0)
+      case 'status':
+      default:
+        const order = { 'UNUSED': 0, 'OVERLY_BROAD': 1, 'USED': 2 }
+        return (order[a.status] || 0) - (order[b.status] || 0)
+    }
+  })
+
+  const counts = {
+    total: rulesAnalysis.length,
+    used: rulesAnalysis.filter(r => r.status === 'USED').length,
+    unused: rulesAnalysis.filter(r => r.status === 'UNUSED').length,
+    broad: rulesAnalysis.filter(r => r.status === 'OVERLY_BROAD').length,
+    public: rulesAnalysis.filter(r => r.is_public).length
+  }
+
+  // For Security Groups
   if (resource.resourceType === 'SecurityGroup') {
     if (loading) {
       return (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-          <span className="ml-2 text-gray-500">Loading rules analysis...</span>
+          <span className="ml-2 text-gray-500">Loading rules...</span>
         </div>
       )
     }
 
-    const usedRules = rulesAnalysis.filter(r => r.recommendation.action === 'KEEP' || r.status === 'USED')
-    const deleteRules = rulesAnalysis.filter(r => r.recommendation.action === 'DELETE')
-    const tightenRules = rulesAnalysis.filter(r => r.recommendation.action === 'TIGHTEN')
-
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         {error && (
           <div className="text-amber-600 text-sm bg-amber-50 p-3 rounded-lg">{error}</div>
         )}
 
-        {/* BEFORE Section */}
-        <div>
-          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">
-            BEFORE (Current Rules - {rulesAnalysis.length})
-          </h4>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {rulesAnalysis.length === 0 ? (
-              <div className="text-gray-500 text-sm italic">No rules data available</div>
-            ) : (
-              rulesAnalysis.map((rule) => (
-                <div
-                  key={rule.rule_id}
-                  className={`p-3 rounded-lg flex justify-between items-center ${
-                    rule.status === 'USED' ? 'bg-green-50 border border-green-200' :
-                    rule.status === 'OVERLY_BROAD' ? 'bg-amber-50 border border-amber-200' :
-                    'bg-red-50 border border-red-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={`text-lg ${
-                      rule.status === 'USED' ? 'text-green-600' : 
-                      rule.status === 'OVERLY_BROAD' ? 'text-amber-600' : 'text-red-600'
-                    }`}>
-                      {rule.status === 'USED' ? '✓' : rule.status === 'OVERLY_BROAD' ? '⚠' : '✗'}
-                    </span>
-                    <span className="font-mono text-sm text-gray-800">
-                      {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
-                    </span>
-                    <span className="text-gray-400">←</span>
-                    <span className={`font-mono text-sm ${rule.is_public ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
-                      {rule.source}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className={`text-xs px-2 py-1 rounded font-medium ${
-                      rule.status === 'USED' ? 'bg-green-100 text-green-700' :
-                      rule.status === 'OVERLY_BROAD' ? 'bg-amber-100 text-amber-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {rule.status}
-                    </span>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {rule.traffic?.connection_count > 0 
-                        ? `${rule.traffic.connection_count.toLocaleString()} connections`
-                        : 'No traffic observed'}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+        {/* Summary Stats */}
+        <div className="grid grid-cols-4 gap-3">
+          <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
+            <div className="text-2xl font-bold text-gray-700">{counts.total}</div>
+            <div className="text-xs text-gray-500">Total Rules</div>
+          </div>
+          <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
+            <div className="text-2xl font-bold text-green-700">{counts.used}</div>
+            <div className="text-xs text-green-600">Used (KEEP)</div>
+          </div>
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-center">
+            <div className="text-2xl font-bold text-red-700">{counts.unused}</div>
+            <div className="text-xs text-red-600">Unused (DELETE)</div>
+          </div>
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-center">
+            <div className="text-2xl font-bold text-amber-700">{counts.broad}</div>
+            <div className="text-xs text-amber-600">Overly Broad</div>
           </div>
         </div>
 
-        {/* AFTER Section */}
-        <div>
-          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">
-            AFTER (Recommended - {usedRules.length} rules)
-          </h4>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {usedRules.length === 0 ? (
-              <div className="text-gray-500 text-sm italic p-3 bg-gray-50 rounded-lg">
-                No rules to keep - all rules are unused or overly broad
-              </div>
-            ) : (
-              usedRules.map((rule) => (
-                <div
-                  key={rule.rule_id}
-                  className="p-3 rounded-lg bg-green-50 border border-green-200 flex justify-between items-center"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-green-600 text-lg">✓</span>
-                    <span className="font-mono text-sm text-gray-800">
-                      {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
-                    </span>
-                    <span className="text-gray-400">←</span>
-                    <span className="font-mono text-sm text-gray-600">{rule.source}</span>
-                  </div>
-                  <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700 font-medium">KEEP</span>
-                </div>
-              ))
-            )}
+        {/* Filters & Sort */}
+        <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+          <div className="flex gap-2">
+            {(['all', 'used', 'unused', 'public'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                  filter === f 
+                    ? 'bg-indigo-600 text-white' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {f === 'all' ? 'All' : f === 'used' ? 'Used' : f === 'unused' ? 'Unused' : 'Public'}
+                {f !== 'all' && (
+                  <span className="ml-1 opacity-75">
+                    ({f === 'used' ? counts.used : f === 'unused' ? counts.unused : counts.public})
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as any)}
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+          >
+            <option value="status">Sort by Status</option>
+            <option value="port">Sort by Port</option>
+            <option value="traffic">Sort by Traffic</option>
+          </select>
         </div>
 
-        {/* TO BE REMOVED Section */}
-        {(deleteRules.length > 0 || tightenRules.length > 0) && (
-          <div>
-            <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">
-              TO BE REMOVED / TIGHTENED ({deleteRules.length + tightenRules.length})
-            </h4>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {/* DELETE rules */}
-              {deleteRules.map((rule) => (
-                <div
-                  key={rule.rule_id}
-                  className="p-3 rounded-lg bg-red-50 border border-red-200 flex justify-between items-center"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-red-600 text-lg">✗</span>
-                    <span className="font-mono text-sm text-gray-800">
-                      {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
-                    </span>
-                    <span className="text-gray-400">←</span>
-                    <span className="font-mono text-sm text-red-600">{rule.source}</span>
-                  </div>
-                  <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 font-medium">DELETE</span>
-                </div>
-              ))}
-              
-              {/* TIGHTEN rules */}
-              {tightenRules.map((rule) => (
-                <div key={rule.rule_id} className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <span className="text-amber-600 text-lg">⚠</span>
-                      <span className="font-mono text-sm text-gray-800">
-                        {rule.protocol?.toUpperCase() || 'TCP'} {rule.port_range}
+        {/* Rules Table */}
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Port</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Protocol</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Traffic</th>
+                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {sortedRules.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    {filter === 'all' ? 'No rules found' : `No ${filter} rules`}
+                  </td>
+                </tr>
+              ) : (
+                sortedRules.map((rule) => (
+                  <tr 
+                    key={rule.rule_id} 
+                    className={`hover:bg-gray-50 ${
+                      rule.status === 'UNUSED' ? 'bg-red-50/30' :
+                      rule.status === 'OVERLY_BROAD' ? 'bg-amber-50/30' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-mono text-gray-900">{rule.port_range}</td>
+                    <td className="px-4 py-3 text-gray-600 uppercase">{rule.protocol}</td>
+                    <td className="px-4 py-3">
+                      <span className={`font-mono text-sm ${rule.is_public ? 'text-red-600 font-medium' : 'text-gray-700'}`}>
+                        {rule.source}
                       </span>
-                      <span className="text-gray-400">←</span>
-                      <span className="font-mono text-sm text-amber-600">{rule.source}</span>
-                    </div>
-                    <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 font-medium">TIGHTEN</span>
+                      {rule.is_public && (
+                        <span className="ml-2 px-1.5 py-0.5 text-xs bg-red-100 text-red-700 rounded">PUBLIC</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                        rule.status === 'USED' ? 'bg-green-100 text-green-700' :
+                        rule.status === 'OVERLY_BROAD' ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {rule.status === 'USED' ? '✓' : rule.status === 'OVERLY_BROAD' ? '⚠' : '✗'}
+                        {rule.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-600">
+                      {rule.traffic?.connection_count > 0 
+                        ? rule.traffic.connection_count.toLocaleString()
+                        : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        rule.recommendation.action === 'KEEP' ? 'bg-green-100 text-green-700' :
+                        rule.recommendation.action === 'TIGHTEN' ? 'bg-amber-100 text-amber-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {rule.recommendation.action}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Tighten Suggestions */}
+        {rulesAnalysis.some(r => r.recommendation.action === 'TIGHTEN' && r.recommendation.suggested_cidrs?.length) && (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <h4 className="text-sm font-medium text-amber-800 mb-2">💡 Tighten Suggestions</h4>
+            <div className="space-y-2">
+              {rulesAnalysis
+                .filter(r => r.recommendation.action === 'TIGHTEN' && r.recommendation.suggested_cidrs?.length)
+                .map(rule => (
+                  <div key={rule.rule_id} className="text-sm text-amber-700">
+                    <span className="font-mono">{rule.port_range}</span>: Replace {rule.source} with{' '}
+                    {rule.recommendation.suggested_cidrs?.map((cidr, i) => (
+                      <span key={i} className="font-mono bg-white px-1 rounded mx-0.5">{cidr}</span>
+                    ))}
                   </div>
-                  {rule.recommendation.suggested_cidrs && rule.recommendation.suggested_cidrs.length > 0 && (
-                    <div className="mt-2 text-xs text-gray-600 flex flex-wrap items-center gap-1">
-                      <span>Replace with:</span>
-                      {rule.recommendation.suggested_cidrs.map((cidr, idx) => (
-                        <span key={idx} className="px-1.5 py-0.5 bg-gray-100 rounded font-mono">{cidr}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                ))}
             </div>
           </div>
         )}
-
-        {/* Summary */}
-        <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-3 gap-4 text-center">
-          <div className="p-3 rounded-lg bg-green-50">
-            <div className="text-2xl font-bold text-green-700">{usedRules.length}</div>
-            <div className="text-xs text-green-600">KEEP</div>
-          </div>
-          <div className="p-3 rounded-lg bg-red-50">
-            <div className="text-2xl font-bold text-red-700">{deleteRules.length}</div>
-            <div className="text-xs text-red-600">DELETE</div>
-          </div>
-          <div className="p-3 rounded-lg bg-amber-50">
-            <div className="text-2xl font-bold text-amber-700">{tightenRules.length}</div>
-            <div className="text-xs text-amber-600">TIGHTEN</div>
-          </div>
-        </div>
       </div>
     )
   }
 
-  // For IAM Roles and other resources, show the original permissions-based view
+  // For IAM Roles and other resources - permissions list view
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      {/* BEFORE */}
-      <div className="border-2 border-red-200 rounded-lg p-6 bg-red-50">
-        <div className="flex items-center gap-2 mb-4">
-          <AlertTriangle className="w-5 h-5 text-red-600" />
-          <h4 className="text-lg font-bold text-gray-900">BEFORE (Current)</h4>
+    <div className="space-y-4">
+      {/* Summary Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
+          <div className="text-2xl font-bold text-gray-700">{resource.allowedCount}</div>
+          <div className="text-xs text-gray-500">Allowed</div>
         </div>
-        <div className="text-3xl font-bold text-gray-900 mb-4">{resource.allowedCount} permissions</div>
-        <div className="space-y-2 max-h-64 overflow-y-auto">
-          {resource.allowedList.slice(0, 10).map((perm, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm">
-              <div className={`w-2 h-2 rounded-full ${
-                resource.usedList.includes(perm) ? 'bg-green-500' : 'bg-red-500'
-              }`}></div>
-              <span className="font-mono text-gray-700">{perm}</span>
-            </div>
-          ))}
-          {resource.allowedCount > 10 && (
-            <div className="text-sm text-gray-500 italic">...{resource.allowedCount - 10} more</div>
-          )}
+        <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
+          <div className="text-2xl font-bold text-green-700">{resource.usedCount}</div>
+          <div className="text-xs text-green-600">Used (KEEP)</div>
+        </div>
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-center">
+          <div className="text-2xl font-bold text-red-700">{resource.gapCount}</div>
+          <div className="text-xs text-red-600">Unused (REMOVE)</div>
         </div>
       </div>
 
-      {/* AFTER */}
-      <div className="border-2 border-green-200 rounded-lg p-6 bg-green-50">
-        <div className="flex items-center gap-2 mb-4">
-          <CheckCircle2 className="w-5 h-5 text-green-600" />
-          <h4 className="text-lg font-bold text-gray-900">AFTER (Recommended)</h4>
-        </div>
-        <div className="text-3xl font-bold text-gray-900 mb-4">{resource.usedCount} permissions</div>
-        <div className="space-y-2 max-h-64 overflow-y-auto">
-          {resource.usedList.slice(0, 10).map((perm, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="font-mono text-gray-700">{perm}</span>
-            </div>
-          ))}
-          {(resource.usedCount ?? 0) > 10 && (
-            <div className="text-sm text-gray-500 italic">...{(resource.usedCount ?? 0) - 10} more</div>
-          )}
-        </div>
-        <div className="mt-4 pt-4 border-t border-green-300">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Removed:</span>
-            <span className="text-lg font-bold text-red-600">{resource.gapCount} permissions</span>
+      {/* Permissions Table */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Permission</th>
+              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {safeArray(resource.allowedList).slice(0, 20).map((perm, idx) => {
+              const isUsed = safeArray(resource.usedList).includes(String(perm))
+              return (
+                <tr key={idx} className={isUsed ? '' : 'bg-red-50/30'}>
+                  <td className="px-4 py-2 font-mono text-gray-900 text-xs">{String(perm)}</td>
+                  <td className="px-4 py-2 text-center">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {isUsed ? 'USED' : 'UNUSED'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {isUsed ? 'KEEP' : 'REMOVE'}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {resource.allowedCount > 20 && (
+          <div className="px-4 py-2 bg-gray-50 text-center text-sm text-gray-500 border-t border-gray-200">
+            Showing 20 of {resource.allowedCount} permissions
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
