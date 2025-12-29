@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw, Search } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw, Search, Globe } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
@@ -1098,158 +1098,220 @@ function SummaryCard({ icon, label, value, color }: { icon: React.ReactNode, lab
   )
 }
 
-// Gap Resource Card Component
+// Unified Gap Resource Card Component - Same design for all resource types
 function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick: () => void }) {
+  // Get icon based on resource type
   const getResourceIcon = () => {
-    if (resource.resourceType === 'IAMRole') return <Shield className="w-5 h-5 text-blue-600" />
-    if (resource.resourceType === 'SecurityGroup') return <Network className="w-5 h-5 text-orange-600" />
+    if (resource.resourceType === 'IAMRole') return <Shield className="w-5 h-5 text-purple-600" />
+    if (resource.resourceType === 'SecurityGroup') return <Network className="w-5 h-5 text-blue-600" />
     if (resource.resourceType === 'S3Bucket') return <Database className="w-5 h-5 text-green-600" />
     return <AlertTriangle className="w-5 h-5 text-gray-600" />
   }
 
-  const getLPScoreColor = (score: number | null) => {
-    if (score === null) return 'text-gray-600 bg-gray-50 border-gray-200'
-    if (score < 50) return 'text-red-600 bg-red-50 border-red-200'
-    if (score < 75) return 'text-orange-600 bg-orange-50 border-orange-200'
-    return 'text-green-600 bg-green-50 border-green-200'
+  // Get type-specific colors
+  const getTypeColor = () => {
+    if (resource.resourceType === 'IAMRole') return 'bg-purple-100 text-purple-700'
+    if (resource.resourceType === 'SecurityGroup') return 'bg-blue-100 text-blue-700'
+    if (resource.resourceType === 'S3Bucket') return 'bg-green-100 text-green-700'
+    return 'bg-gray-100 text-gray-700'
   }
 
-  const getNetworkExposureColor = (score: number) => {
-    // For network exposure, higher score = more exposed = worse
-    if (score >= 70) return 'text-red-600 bg-red-50 border-red-200'
-    if (score >= 50) return 'text-orange-600 bg-orange-50 border-orange-200'
-    if (score >= 30) return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-    return 'text-green-600 bg-green-50 border-green-200'
+  // Calculate unified usage metrics
+  const getUsageMetrics = () => {
+    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
+      // For Security Groups: used = secure rules, unused = exposed rules
+      const totalRules = resource.networkExposure.totalRules || 0
+      const exposedRules = resource.networkExposure.internetExposedRules || 0
+      const secureRules = totalRules - exposedRules
+      const usedPercent = totalRules > 0 ? Math.round((secureRules / totalRules) * 100) : 100
+      const unusedPercent = 100 - usedPercent
+      // For SG, LP Score = percentage of secure (non-exposed) rules
+      const lpScore = usedPercent
+      return {
+        label: 'Rule Security',
+        usedLabel: 'secure',
+        unusedLabel: 'exposed',
+        usedCount: secureRules,
+        unusedCount: exposedRules,
+        total: totalRules,
+        usedPercent,
+        unusedPercent,
+        lpScore
+      }
+    } else if (resource.resourceType === 'S3Bucket') {
+      // For S3 Buckets: use policy/permission counts if available
+      const used = resource.usedCount ?? 0
+      const unused = resource.gapCount ?? 0
+      const total = used + unused || 1
+      const usedPercent = Math.round((used / total) * 100)
+      const unusedPercent = 100 - usedPercent
+      return {
+        label: 'Policy Usage',
+        usedLabel: 'active',
+        unusedLabel: 'unused',
+        usedCount: used,
+        unusedCount: unused,
+        total,
+        usedPercent,
+        unusedPercent,
+        lpScore: resource.lpScore ?? usedPercent
+      }
+    } else {
+      // For IAM Roles: permission usage
+      const used = resource.usedCount ?? 0
+      const unused = resource.gapCount ?? 0
+      const total = resource.allowedCount || (used + unused) || 1
+      const usedPercent = Math.round((used / total) * 100)
+      const unusedPercent = 100 - usedPercent
+      return {
+        label: 'Permission Usage',
+        usedLabel: 'used',
+        unusedLabel: 'unused',
+        usedCount: used,
+        unusedCount: unused,
+        total,
+        usedPercent,
+        unusedPercent,
+        lpScore: resource.lpScore ?? usedPercent
+      }
+    }
+  }
+
+  const metrics = getUsageMetrics()
+
+  // Get LP Score badge color
+  const getLPScoreColor = (score: number | null) => {
+    if (score === null) return 'bg-gray-100 text-gray-600'
+    if (score >= 80) return 'bg-green-100 text-green-700'
+    if (score >= 50) return 'bg-yellow-100 text-yellow-700'
+    return 'bg-red-100 text-red-700'
   }
 
   return (
     <div
-      className="rounded-lg border border-gray-200 bg-white p-6 hover:shadow-md transition-shadow cursor-pointer"
+      className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
       onClick={onClick}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${getTypeColor().replace('text-', 'bg-').replace('-700', '-100')}`}>
             {getResourceIcon()}
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-gray-900">{resource.resourceName}</h3>
-                {resource.region && (
-                  <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium flex items-center gap-1">
-                    🌍 {resource.region}
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-gray-500">{resource.systemName || 'Unknown System'}</p>
-            </div>
-            {resource.resourceType === 'SecurityGroup' && resource.networkExposure ? (
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${getNetworkExposureColor(resource.networkExposure.score)}`}>
-                Exposure: {resource.networkExposure.score}/100
-              </span>
-            ) : (
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${getLPScoreColor(resource.lpScore)}`}>
-                LP Score: {resource.lpScore !== null && !isNaN(resource.lpScore) ? `${resource.lpScore.toFixed(0)}%` : 'N/A'}
-              </span>
-            )}
-            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
-              {resource.resourceType}
-            </span>
-            {/* Non-remediable badge for IAM roles */}
-            {resource.resourceType === 'IAMRole' && resource.isRemediable === false && (
-              <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
-                ⚠️ AWS Managed - Cannot Remediate
-              </span>
-            )}
           </div>
-
-          {/* Gap Bar / Network Exposure Info */}
-          {resource.resourceType === 'SecurityGroup' && resource.networkExposure ? (
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Network Exposure</span>
-                <span className="text-sm text-gray-600">
-                  {resource.networkExposure.internetExposedRules} internet-exposed rules • {resource.networkExposure.totalRules} total rules
+          <div>
+            <h3 className="font-semibold text-lg text-gray-900">{resource.resourceName}</h3>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              {resource.region && (
+                <span className="flex items-center gap-1">
+                  <Globe className="w-4 h-4" />
+                  {resource.region}
                 </span>
-              </div>
-              <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
-                <div
-                  className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                  style={{ width: `${(resource.networkExposure.internetExposedRules / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
-                >
-                  {resource.networkExposure.internetExposedRules > 0 && `${resource.networkExposure.internetExposedRules} exposed`}
-                </div>
-                <div
-                  className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                  style={{ width: `${((resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules) / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
-                >
-                  {resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules > 0 && `${resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules} secure`}
-                </div>
-              </div>
-              {resource.networkExposure.highRiskPorts.length > 0 && (
-                <div className="mt-2 text-xs text-red-600">
-                  ⚠️ High-risk ports: {resource.networkExposure.highRiskPorts.join(', ')}
-                </div>
               )}
+              <span>•</span>
+              <span>{resource.systemName || 'Unknown System'}</span>
             </div>
-          ) : (
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Permission Usage</span>
-                <span className="text-sm text-gray-600">
-                  {resource.usedCount ?? 0} used • {resource.gapCount ?? 0} unused ({resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : 'N/A'})
-                </span>
-              </div>
-              <div className="w-full h-8 bg-gray-200 rounded-lg overflow-hidden flex">
-                <div
-                  className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                  style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
-                >
-                  {(resource.usedCount ?? 0) > 0 && resource.usedCount}
-                </div>
-                <div
-                  className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
-                  style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
-                >
-                  {(resource.gapCount ?? 0) > 0 && resource.gapCount}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* High-Risk Unused */}
-          {resource.highRiskUnused.length > 0 && (
-            <div className="mb-4">
-              <div className="text-sm font-medium text-gray-700 mb-2">High-Risk Unused Permissions:</div>
-              <div className="flex flex-wrap gap-2">
-                {resource.highRiskUnused.slice(0, 3).map((perm, idx) => (
-                  <span
-                    key={idx}
-                    className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium"
-                  >
-                    ⚠️ {perm.permission} ({perm.riskLevel})
-                  </span>
-                ))}
-                {resource.highRiskUnused.length > 3 && (
-                  <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
-                    +{resource.highRiskUnused.length - 3} more
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Evidence Badge */}
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Clock className="w-4 h-4" />
-            <span>
-              {resource.evidence.observationDays} days of {resource.evidence.dataSources.join(', ')}, {resource.evidence.confidence} confidence
-            </span>
           </div>
         </div>
+        <div className="flex items-center gap-3">
+          {/* LP Score Badge */}
+          <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${getLPScoreColor(metrics.lpScore)}`}>
+            LP Score: {metrics.lpScore !== null && !isNaN(metrics.lpScore) ? `${Math.round(metrics.lpScore)}%` : 'N/A'}
+          </span>
+          {/* Resource Type Badge */}
+          <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${getTypeColor()}`}>
+            {resource.resourceType === 'IAMRole' ? 'IAM Role' : 
+             resource.resourceType === 'SecurityGroup' ? 'Security Group' :
+             resource.resourceType === 'S3Bucket' ? 'S3 Bucket' : resource.resourceType}
+          </span>
+          {/* Non-remediable badge for IAM roles */}
+          {resource.resourceType === 'IAMRole' && resource.isRemediable === false && (
+            <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
+              ⚠️ AWS Managed
+            </span>
+          )}
+        </div>
+      </div>
 
+      {/* Usage Bar - Unified for all types */}
+      <div className="mb-4">
+        <div className="flex justify-between text-sm mb-2">
+          <span className="text-gray-600 font-medium">{metrics.label}</span>
+          <span>
+            <span className="text-green-600 font-medium">{metrics.usedCount} {metrics.usedLabel}</span>
+            <span className="text-gray-400"> • </span>
+            <span className="text-red-600 font-medium">{metrics.unusedCount} {metrics.unusedLabel}</span>
+            <span className="text-gray-400 ml-1">({metrics.unusedPercent}%)</span>
+          </span>
+        </div>
+        
+        {/* Progress bar */}
+        <div className="h-8 bg-gray-100 rounded-lg overflow-hidden flex">
+          {metrics.usedPercent > 0 && (
+            <div 
+              className="bg-green-500 flex items-center justify-center text-white text-sm font-medium transition-all"
+              style={{ width: `${metrics.usedPercent}%` }}
+            >
+              {metrics.usedCount > 0 && metrics.usedPercent >= 15 && metrics.usedCount}
+            </div>
+          )}
+          {metrics.unusedPercent > 0 && (
+            <div 
+              className="bg-red-500 flex items-center justify-center text-white text-sm font-medium transition-all"
+              style={{ width: `${metrics.unusedPercent}%` }}
+            >
+              {metrics.unusedCount > 0 && metrics.unusedPercent >= 15 && metrics.unusedCount}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* High-Risk Info - Contextual per type */}
+      {resource.resourceType === 'SecurityGroup' && resource.networkExposure?.highRiskPorts?.length > 0 && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="text-sm font-medium text-red-700">⚠️ High-Risk Ports Exposed:</div>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {resource.networkExposure.highRiskPorts.slice(0, 5).map((port, idx) => (
+              <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-mono">
+                {port}
+              </span>
+            ))}
+            {resource.networkExposure.highRiskPorts.length > 5 && (
+              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                +{resource.networkExposure.highRiskPorts.length - 5} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {resource.highRiskUnused.length > 0 && resource.resourceType !== 'SecurityGroup' && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="text-sm font-medium text-red-700">⚠️ High-Risk Unused Permissions:</div>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {resource.highRiskUnused.slice(0, 3).map((perm, idx) => (
+              <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-mono">
+                {perm.permission}
+              </span>
+            ))}
+            {resource.highRiskUnused.length > 3 && (
+              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                +{resource.highRiskUnused.length - 3} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Clock className="w-4 h-4" />
+          <span>
+            {resource.evidence.observationDays} days of {resource.evidence.dataSources.join(', ')}, {resource.evidence.confidence} confidence
+          </span>
+        </div>
         <button
-          className="ml-4 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2 transition-colors"
           onClick={(e) => {
             e.stopPropagation()
             onClick()
