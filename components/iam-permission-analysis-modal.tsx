@@ -43,6 +43,7 @@ interface IAMPermissionAnalysisModalProps {
   systemName: string
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
+  onRemediationSuccess?: (roleName: string) => void
 }
 
 export function IAMPermissionAnalysisModal({
@@ -51,7 +52,8 @@ export function IAMPermissionAnalysisModal({
   roleName,
   systemName,
   onApplyFix,
-  onSuccess
+  onSuccess,
+  onRemediationSuccess
 }: IAMPermissionAnalysisModalProps) {
   const { toast } = useToast()
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
@@ -123,13 +125,13 @@ export function IAMPermissionAnalysisModal({
         })
       })
       
-      if (response.ok) {
-        const result = await response.json()
-        
+      const result = await response.json()
+      
+      if (result.success && result.permissions_removed > 0) {
         // Show success toast
         toast({
           title: "✅ Remediation Applied Successfully",
-          description: `Removed ${unusedCount} unused permissions from ${roleName}`,
+          description: `Removed ${result.permissions_removed} permissions from ${roleName}`,
           variant: "default"
         })
         
@@ -145,14 +147,25 @@ export function IAMPermissionAnalysisModal({
           })
         }
         
+        // Remove this resource from the list
+        if (onRemediationSuccess) {
+          onRemediationSuccess(roleName)
+        }
+        
         // Refresh parent data
         onSuccess?.()
         
         // Close modal
         handleClose()
-      } else {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || errorData.detail || 'Remediation failed')
+      } else if (result.permissions_removed === 0) {
+        toast({
+          title: "⚠️ No Permissions Removed",
+          description: "Role may only have AWS managed policies that require manual handling",
+          variant: "default"
+        })
+      } else if (!result.success) {
+        const errorMsg = result.errors?.[0]?.error || 'Unknown error'
+        throw new Error(`Remediation failed: ${errorMsg}`)
       }
     } catch (err: any) {
       console.error('[IAM-Modal] Apply fix error:', err)

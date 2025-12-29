@@ -372,10 +372,20 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false
           }
         })
-        // Filter out service linked roles and optionally non-remediable roles
+        // Filter out service linked roles and fully compliant resources
         .filter((r: any) => {
           // Always filter out service linked roles
           if (r.isServiceLinkedRole) return false
+          
+          // Filter out fully compliant IAM roles (0 unused permissions, LP score 100%)
+          if (r.resourceType === 'IAMRole') {
+            const hasUnused = (r.gapCount ?? 0) > 0 || (r.unusedList?.length ?? 0) > 0
+            if (!hasUnused) {
+              console.log('[Filter] Removing fully compliant IAM role:', r.resourceName)
+              return false
+            }
+          }
+          
           return true
         }),
         timestamp: result.timestamp || new Date().toISOString()
@@ -402,6 +412,44 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   
   const handleRefresh = async () => {
     await fetchGaps(true)
+  }
+
+  // Handle successful IAM remediation - remove resource from list
+  const handleRemediationSuccess = (roleName: string) => {
+    console.log('[LeastPrivilegeTab] Remediation successful for:', roleName)
+    
+    // Remove the remediated resource from the displayed list
+    setData(prev => {
+      if (!prev) return prev
+      
+      const filteredResources = prev.resources.filter(r => r.resourceName !== roleName)
+      const removedResource = prev.resources.find(r => r.resourceName === roleName)
+      
+      // Update summary counts
+      const newSummary = {
+        ...prev.summary,
+        totalResources: filteredResources.length,
+        iamIssuesCount: Math.max(0, prev.summary.iamIssuesCount - 1)
+      }
+      
+      console.log('[LeastPrivilegeTab] Updated resources:', {
+        before: prev.resources.length,
+        after: filteredResources.length,
+        removed: removedResource?.resourceName
+      })
+      
+      return {
+        ...prev,
+        resources: filteredResources,
+        summary: newSummary
+      }
+    })
+    
+    // Also clear the cache for this role
+    setIamGapAnalysisCache(prev => {
+      const { [roleName]: _, ...rest } = prev
+      return rest
+    })
   }
 
   // Get default region from resources or use default
@@ -1027,13 +1075,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         systemName={systemName}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
-          toast({
-            title: "Fix Applied",
-            description: `Successfully removed ${data.permissionsToRemove?.length || 0} unused permissions from ${data.roleName}`,
-          })
-          // Refresh data after fix
-          fetchGaps()
         }}
+        onRemediationSuccess={handleRemediationSuccess}
       />
     </div>
   )
