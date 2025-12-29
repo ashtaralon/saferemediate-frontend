@@ -1,17 +1,29 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server } from 'lucide-react'
 
 interface Snapshot {
   snapshot_id: string
-  finding_id: string
-  resource_type: string
-  created_at: string
-  current_state: any
+  sg_id: string
+  sg_name: string
+  vpc_id: string
+  region: string
+  timestamp: string
+  reason: string
+  triggered_by: string
+  status: string
+  rules_count: {
+    inbound: number
+    outbound: number
+  }
+  restored_at?: string
+  // Legacy fields for backward compatibility
+  finding_id?: string
+  resource_type?: string
+  created_at?: string
+  current_state?: any
 }
-
-// ✅ CORRECT BACKEND URL
-const BACKEND_URL = 'https://saferemediate-backend-f.onrender.com'
 
 export default function RecoveryTab() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
@@ -29,7 +41,6 @@ export default function RecoveryTab() {
       setLoading(true)
       setError(null)
       
-      // Use proxy route to avoid CORS and ensure proper routing
       const res = await fetch('/api/proxy/snapshots', {
         cache: 'no-store',
       })
@@ -43,10 +54,12 @@ export default function RecoveryTab() {
       // Handle both array response and object with snapshots property
       const snapshotList = Array.isArray(data) ? data : (data.snapshots || [])
       
-      // Sort by created_at (newest first)
-      const sorted = snapshotList.sort((a: Snapshot, b: Snapshot) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )
+      // Sort by timestamp (newest first)
+      const sorted = snapshotList.sort((a: Snapshot, b: Snapshot) => {
+        const dateA = new Date(a.timestamp || a.created_at || 0).getTime()
+        const dateB = new Date(b.timestamp || b.created_at || 0).getTime()
+        return dateB - dateA
+      })
       
       setSnapshots(sorted)
     } catch (err) {
@@ -66,21 +79,20 @@ export default function RecoveryTab() {
       setDeletingAll(true)
       setError(null)
 
-      const res = await fetch('/api/proxy/snapshots/delete-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.detail || `Failed: ${res.status}`)
+      // Delete each snapshot individually
+      let deleted = 0
+      for (const snapshot of snapshots) {
+        try {
+          const res = await fetch(`/api/proxy/snapshots/${snapshot.snapshot_id}`, {
+            method: 'DELETE',
+          })
+          if (res.ok) deleted++
+        } catch {
+          // Continue with next
+        }
       }
 
-      const result = await res.json()
-      
-      alert(`✅ Deleted ${result.deleted_count} of ${result.total_count} snapshots`)
-      
-      // Reload snapshots list
+      alert(`✅ Deleted ${deleted} of ${snapshots.length} snapshots`)
       await loadSnapshots()
       
     } catch (err) {
@@ -94,11 +106,9 @@ export default function RecoveryTab() {
   }
 
   async function handleRestore(snapshot: Snapshot) {
-    const resourceName = snapshot.current_state?.role_name || 
-                        snapshot.current_state?.resource_name ||
-                        snapshot.finding_id
+    const resourceName = snapshot.sg_name || snapshot.sg_id || 'Security Group'
 
-    if (!confirm(`Restore this snapshot?\n\nResource: ${resourceName}\nType: ${snapshot.resource_type}`)) {
+    if (!confirm(`⚠️ Restore this snapshot?\n\nThis will:\n• Remove ALL current inbound rules from ${resourceName}\n• Restore ${snapshot.rules_count?.inbound || 'all'} inbound rules from this snapshot\n\nContinue?`)) {
       return
     }
 
@@ -116,12 +126,16 @@ export default function RecoveryTab() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
-        throw new Error(errorData.detail || `Failed: ${res.status}`)
+        throw new Error(errorData.error || errorData.detail || `Failed: ${res.status}`)
       }
 
       const result = await res.json()
       
-      alert(`✅ Restored!\n\nResource: ${resourceName}\nType: ${snapshot.resource_type}`)
+      if (result.success) {
+        alert(`✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id}\nRules restored: ${result.rules_restored}`)
+      } else {
+        throw new Error(result.error || 'Rollback failed')
+      }
       
       await loadSnapshots()
       
@@ -135,23 +149,38 @@ export default function RecoveryTab() {
     }
   }
 
-  function getTimeAgo(dateStr: string | undefined | null): string {
-    if (!dateStr) return 'Unknown'
+  function formatDate(timestamp: string | undefined): string {
+    if (!timestamp) return 'Unknown'
+    try {
+      return new Date(timestamp).toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch {
+      return 'Invalid date'
+    }
+  }
+
+  function getTimeAgo(dateStr: string | undefined): string {
+    if (!dateStr) return ''
     
     try {
       const date = new Date(dateStr)
-      if (isNaN(date.getTime())) return 'Invalid date'
+      if (isNaN(date.getTime())) return ''
       
       const now = new Date()
       const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
       
-      if (seconds < 0) return 'Just now'
+      if (seconds < 0) return 'just now'
       if (seconds < 60) return `${seconds}s ago`
       if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
       if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
       return `${Math.floor(seconds / 86400)}d ago`
     } catch {
-      return 'Invalid date'
+      return ''
     }
   }
 
@@ -159,7 +188,7 @@ export default function RecoveryTab() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <RefreshCw className="w-12 h-12 text-blue-600 animate-spin mx-auto" />
           <p className="mt-4 text-gray-600">Loading snapshots...</p>
         </div>
       </div>
@@ -173,8 +202,9 @@ export default function RecoveryTab() {
         <p className="text-red-600">{error}</p>
         <button
           onClick={loadSnapshots}
-          className="mt-4 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+          className="mt-4 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 flex items-center gap-2"
         >
+          <RefreshCw className="w-4 h-4" />
           Retry
         </button>
       </div>
@@ -187,118 +217,202 @@ export default function RecoveryTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Recovery & Rollback</h2>
-          <p className="text-gray-600 mt-1">Restore infrastructure to previous snapshots</p>
+          <p className="text-gray-600 mt-1">Restore Security Groups to previous snapshots</p>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-500">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
             {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
           </span>
           <button
             onClick={loadSnapshots}
             disabled={loading || deletingAll}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
           >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           {snapshots.length > 0 && (
             <button
               onClick={handleDeleteAll}
               disabled={deletingAll || loading}
-              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
             >
+              <Trash2 className="w-4 h-4" />
               {deletingAll ? 'Deleting...' : 'Delete All'}
             </button>
           )}
         </div>
       </div>
 
-      {/* Error */}
+      {/* Error Banner */}
       {error && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <p className="text-yellow-800">{error}</p>
         </div>
       )}
 
-      {/* List */}
+      {/* Empty State */}
       {snapshots.length === 0 ? (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
+          <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900">No snapshots yet</h3>
           <p className="mt-2 text-gray-600">
-            Snapshots appear after you execute remediations
+            Snapshots are automatically created when you execute Security Group remediations.
           </p>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Resource
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Created
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {snapshots.map((snapshot) => {
-                const resourceName = snapshot.current_state?.role_name || 
-                                   snapshot.current_state?.resource_name ||
-                                   snapshot.finding_id?.replace('REAL-IAM-', '').replace('-unused-permissions', '') ||
-                                   'Unknown Resource'
-                const findingId = snapshot.finding_id || 'N/A'
-                const reason = snapshot.reason || snapshot.current_state?.reason || 'Remediation snapshot'
-                
-                return (
-                  <tr key={snapshot.snapshot_id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">
-                        {resourceName}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        <div>Finding: {findingId}</div>
-                        <div className="mt-1">ID: {snapshot.snapshot_id.substring(0, 24)}...</div>
-                        {reason && (
-                          <div className="mt-1 text-blue-600">📋 {reason}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
-                        {snapshot.resource_type || 'IAMRole'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      <div>{getTimeAgo(snapshot.created_at)}</div>
-                      {snapshot.created_at && !isNaN(new Date(snapshot.created_at).getTime()) && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          {new Date(snapshot.created_at).toLocaleString()}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <button
-                        onClick={() => handleRestore(snapshot)}
-                        disabled={restoring === snapshot.snapshot_id}
-                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
-                        title={`Restore ${resourceName} to state before remediation`}
-                      >
-                        {restoring === snapshot.snapshot_id ? 'Restoring...' : 'Restore'}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        /* Snapshot Cards Grid */
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          {snapshots.map((snapshot) => (
+            <SnapshotCard
+              key={snapshot.snapshot_id}
+              snapshot={snapshot}
+              onRestore={() => handleRestore(snapshot)}
+              isRestoring={restoring === snapshot.snapshot_id}
+              formatDate={formatDate}
+              getTimeAgo={getTimeAgo}
+            />
+          ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Snapshot Card Component
+function SnapshotCard({ 
+  snapshot, 
+  onRestore, 
+  isRestoring,
+  formatDate,
+  getTimeAgo
+}: { 
+  snapshot: Snapshot
+  onRestore: () => void
+  isRestoring: boolean
+  formatDate: (ts: string | undefined) => string
+  getTimeAgo: (ts: string | undefined) => string
+}) {
+  const timestamp = snapshot.timestamp || snapshot.created_at
+  const sgName = snapshot.sg_name || snapshot.current_state?.sg_name || 'Unknown Security Group'
+  const sgId = snapshot.sg_id || snapshot.current_state?.sg_id || snapshot.finding_id || 'N/A'
+  const vpcId = snapshot.vpc_id || snapshot.current_state?.vpc_id || 'N/A'
+  const region = snapshot.region || 'eu-west-1'
+  const triggeredBy = snapshot.triggered_by || 'system'
+  const reason = snapshot.reason || snapshot.current_state?.reason || 'Remediation backup'
+  const status = snapshot.status || 'available'
+  const inboundRules = snapshot.rules_count?.inbound ?? snapshot.current_state?.rules_count?.inbound ?? 0
+  const outboundRules = snapshot.rules_count?.outbound ?? snapshot.current_state?.rules_count?.outbound ?? 0
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-100">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Shield className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">{sgName}</h3>
+              <p className="text-xs text-gray-500 font-mono">{sgId}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+              status === 'available' 
+                ? 'bg-green-100 text-green-700' 
+                : 'bg-blue-100 text-blue-700'
+            }`}>
+              {status === 'available' ? '● Available' : '↺ Restored'}
+            </span>
+            <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full flex items-center gap-1">
+              <MapPin className="w-3 h-3" />
+              {region}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-4 space-y-3">
+        {/* VPC Info */}
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <Server className="w-4 h-4 text-gray-400" />
+          <span className="text-gray-500">VPC:</span>
+          <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">{vpcId}</span>
+        </div>
+
+        {/* Metadata Grid */}
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="flex items-center gap-2 text-gray-600">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <div>
+              <span className="text-gray-900">{formatDate(timestamp)}</span>
+              {getTimeAgo(timestamp) && (
+                <span className="text-gray-400 ml-1">({getTimeAgo(timestamp)})</span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-gray-600">
+            <User className="w-4 h-4 text-gray-400" />
+            <span>by <span className="text-gray-900">{triggeredBy}</span></span>
+          </div>
+        </div>
+
+        {/* Rules Count */}
+        <div className="flex items-center gap-4 py-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg">
+            <ArrowDownToLine className="w-4 h-4 text-green-600" />
+            <span className="text-sm font-medium text-green-700">{inboundRules} inbound</span>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg">
+            <ArrowUpFromLine className="w-4 h-4 text-orange-600" />
+            <span className="text-sm font-medium text-orange-700">{outboundRules} outbound</span>
+          </div>
+        </div>
+
+        {/* Reason */}
+        <div className="bg-gray-50 rounded-lg px-3 py-2">
+          <p className="text-sm text-gray-600">
+            <span className="text-gray-400">Reason:</span>{' '}
+            <span className="text-gray-700">{reason}</span>
+          </p>
+        </div>
+
+        {/* Restored At (if applicable) */}
+        {snapshot.restored_at && (
+          <div className="text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg">
+            ↺ Restored on {formatDate(snapshot.restored_at)}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+        <span className="text-xs font-mono text-gray-400">{snapshot.snapshot_id}</span>
+        <button
+          onClick={onRestore}
+          disabled={isRestoring}
+          className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+            isRestoring 
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+              : 'bg-red-600 text-white hover:bg-red-700'
+          }`}
+        >
+          {isRestoring ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Restoring...
+            </>
+          ) : (
+            <>
+              <RotateCcw className="w-4 h-4" />
+              Restore
+            </>
+          )}
+        </button>
+      </div>
     </div>
   )
 }
