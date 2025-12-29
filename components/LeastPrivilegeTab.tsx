@@ -133,11 +133,76 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [refreshing, setRefreshing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [confirmationModalOpen, setConfirmationModalOpen] = useState(false)
+  const [sgGapAnalysisCache, setSgGapAnalysisCache] = useState<Record<string, any>>({})
+  const [syncing, setSyncing] = useState(false)
   const { toast } = useToast()
+  
+  // Cached fetch for SG gap analysis
+  const fetchSGGapAnalysis = async (sgId: string, forceRefresh = false) => {
+    // Return cached data if available and not forcing refresh
+    if (!forceRefresh && sgGapAnalysisCache[sgId]) {
+      console.log('Using cached SG gap analysis for:', sgId)
+      return sgGapAnalysisCache[sgId]
+    }
+    
+    try {
+      console.log('Fetching fresh SG gap analysis for:', sgId)
+      const response = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?days=365`)
+      if (!response.ok) {
+        console.error('SG gap analysis fetch failed:', response.status)
+        return null
+      }
+      const data = await response.json()
+      
+      // Cache the result
+      setSgGapAnalysisCache(prev => ({ ...prev, [sgId]: data }))
+      
+      return data
+    } catch (error) {
+      console.error('Failed to fetch SG gap analysis:', error)
+      return null
+    }
+  }
 
   useEffect(() => {
     fetchGaps()
   }, [systemName])
+  
+  // Pre-fetch gap analysis for Security Groups in the background
+  useEffect(() => {
+    const prefetchSGData = async () => {
+      if (!data?.resources) return
+      
+      const securityGroups = data.resources.filter(r => r.resourceType === 'SecurityGroup')
+      console.log('[Pre-fetch] Found', securityGroups.length, 'Security Groups to pre-fetch')
+      
+      // Pre-fetch first 5 SGs in the background (stagger requests)
+      for (const sg of securityGroups.slice(0, 5)) {
+        // Extract SG ID from various possible fields
+        let sgId = sg.id
+        if (!sgId?.startsWith('sg-')) {
+          if (sg.resourceName?.startsWith('sg-')) {
+            sgId = sg.resourceName
+          } else if (sg.resourceArn?.includes('security-group/')) {
+            const match = sg.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
+            if (match) sgId = match[1]
+          }
+        }
+        
+        if (sgId && !sgGapAnalysisCache[sgId]) {
+          console.log('[Pre-fetch] Pre-fetching gap analysis for:', sgId)
+          await fetchSGGapAnalysis(sgId)
+          // Small delay to avoid overwhelming the backend
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+    }
+    
+    // Run pre-fetch after initial data is loaded
+    if (data && !loading) {
+      prefetchSGData()
+    }
+  }, [data, loading])
 
   const fetchGaps = async (showRefreshing = false) => {
     try {
@@ -937,7 +1002,7 @@ function RemediationDrawer({
         {/* Content */}
         <div className="p-6">
           {activeTab === 'summary' && <SummaryTab resource={resource} />}
-          {activeTab === 'before-after' && <BeforeAfterTab resource={resource} />}
+          {activeTab === 'before-after' && <BeforeAfterTab resource={resource} cachedFetch={fetchSGGapAnalysis} cache={sgGapAnalysisCache} />}
           {activeTab === 'evidence' && <EvidenceTab resource={resource} />}
           {activeTab === 'impact' && <ImpactTab resource={resource} />}
         </div>
@@ -1118,7 +1183,15 @@ function SummaryTab({ resource }: { resource: GapResource }) {
   )
 }
 
-function BeforeAfterTab({ resource }: { resource: GapResource }) {
+function BeforeAfterTab({ 
+  resource, 
+  cachedFetch, 
+  cache 
+}: { 
+  resource: GapResource
+  cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
+  cache?: Record<string, any>
+}) {
   const [rulesAnalysis, setRulesAnalysis] = useState<Array<{
     rule_id: string
     direction: string
@@ -1213,6 +1286,26 @@ function BeforeAfterTab({ resource }: { resource: GapResource }) {
             return
           }
           
+          // Check if we have cached data
+          if (cache && cache[sgId]) {
+            console.log('BeforeAfterTab - Using cached data for:', sgId)
+            setRulesAnalysis(cache[sgId].rules_analysis || [])
+            setLoading(false)
+            return
+          }
+          
+          // Use cached fetch if available, otherwise direct fetch
+          if (cachedFetch) {
+            console.log('BeforeAfterTab - Using cached fetch for:', sgId)
+            const data = await cachedFetch(sgId)
+            if (data && data.rules_analysis) {
+              setRulesAnalysis(data.rules_analysis)
+              setLoading(false)
+              return
+            }
+          }
+          
+          // Direct fetch fallback
           const url = "/api/proxy/security-groups/" + sgId + "/gap-analysis?days=365"
           console.log('BeforeAfterTab - Fetching:', url)
           

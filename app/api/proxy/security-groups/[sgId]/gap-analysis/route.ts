@@ -61,6 +61,7 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "application/json",
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600", // Cache for 5 min, stale for 10 min
       },
     })
   } catch (error: any) {
