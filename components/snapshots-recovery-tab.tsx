@@ -107,7 +107,7 @@ export default function RecoveryTab() {
       setError(null)
 
       const res = await fetch(
-        `/api/proxy/snapshots/${snapshot.snapshot_id}/rollback`,
+        `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

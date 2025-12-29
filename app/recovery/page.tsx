@@ -72,12 +72,11 @@ export default function RecoveryTab() {
       setRestoring(snapshotId);
       
       // Use proxy route to avoid CORS and ensure proper routing
-      const response = await fetch(`/api/proxy/snapshots/${snapshotId}/rollback`, {
+      const response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({}),
       });
 
       if (!response.ok) {
