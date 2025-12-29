@@ -6,6 +6,13 @@ import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 
+// ---------- Safe helpers ----------
+const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
+const safeNumber = (v: unknown, fallback = 0): number => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
 // Types
 interface GapResource {
   id: string
@@ -817,23 +824,23 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             }}
           />
         ) : (
-          <SimulationResultsModal
-            isOpen={simulationModalOpen}
-            onClose={() => {
-              setSimulationModalOpen(false)
-              setSimulationResult(null)
-            }}
-            resourceType={selectedResource.resourceType}
-            resourceId={selectedResource.resourceArn || selectedResource.resourceName}
-            resourceName={selectedResource.resourceName}
-            proposedChange={{
-              action: 'remove_permissions',
-              items: selectedResource.unusedList,
-              reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
-            }}
-            systemName={systemName}
-            result={simulationResult}
-          />
+        <SimulationResultsModal
+          isOpen={simulationModalOpen}
+          onClose={() => {
+            setSimulationModalOpen(false)
+            setSimulationResult(null)
+          }}
+          resourceType={selectedResource.resourceType}
+          resourceId={selectedResource.resourceArn || selectedResource.resourceName}
+          resourceName={selectedResource.resourceName}
+          proposedChange={{
+            action: 'remove_permissions',
+            items: selectedResource.unusedList,
+            reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
+          }}
+          systemName={systemName}
+          result={simulationResult}
+        />
         )
       )}
     </div>
@@ -2037,7 +2044,7 @@ function SGSimulationResultsModal({
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-gray-900">Simulation Results</h2>
-              <p className="text-sm text-gray-500">{result.sg_name} ({result.sg_id})</p>
+              <p className="text-sm text-gray-500">{result?.sg_name || 'Unknown'} ({result?.sg_id || 'N/A'})</p>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
               <XCircle className="w-6 h-6" />
@@ -2050,22 +2057,22 @@ function SGSimulationResultsModal({
           {/* Risk Score */}
           <div className="flex items-center gap-6">
             <div className="text-center">
-              <div className={`text-5xl font-bold ${getRiskColor(result.risk_score)}`}>
-                {result.risk_score}
+              <div className={`text-5xl font-bold ${getRiskColor(result?.risk_score ?? 0)}`}>
+                {result?.risk_score ?? 0}
               </div>
               <div className="text-sm text-gray-500">Risk Score</div>
             </div>
-            <div className={`px-4 py-2 rounded-full text-sm font-semibold border ${getRiskBgColor(result.risk_level)}`}>
-              {result.risk_level} RISK
+            <div className={`px-4 py-2 rounded-full text-sm font-semibold border ${getRiskBgColor(result?.risk_level ?? 'LOW')}`}>
+              {result?.risk_level ?? 'UNKNOWN'} RISK
             </div>
             <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
               <div 
                 className={`h-full transition-all ${
-                  result.risk_score >= 80 ? 'bg-red-500' :
-                  result.risk_score >= 60 ? 'bg-orange-500' :
-                  result.risk_score >= 30 ? 'bg-yellow-500' : 'bg-green-500'
+                  (result?.risk_score ?? 0) >= 80 ? 'bg-red-500' :
+                  (result?.risk_score ?? 0) >= 60 ? 'bg-orange-500' :
+                  (result?.risk_score ?? 0) >= 30 ? 'bg-yellow-500' : 'bg-green-500'
                 }`}
-                style={{ width: `${result.risk_score}%` }}
+                style={{ width: `${result?.risk_score ?? 0}%` }}
               />
             </div>
           </div>
@@ -2097,40 +2104,40 @@ function SGSimulationResultsModal({
           <div>
             <h3 className="font-semibold text-gray-900 mb-3">Changes Preview</h3>
             <div className="space-y-2 max-h-48 overflow-y-auto">
-              {safeArray(result.changes_preview).map((change: any, i: number) => (
+              {safeArray(result?.changes_preview).map((change: any, i: number) => (
                 <div 
                   key={i} 
                   className={`p-3 rounded-lg border ${
-                    change.action === 'DELETE' 
+                    change?.action === 'DELETE' 
                       ? 'bg-red-50 border-red-200' 
                       : 'bg-orange-50 border-orange-200'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                      change.action === 'DELETE' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                      change?.action === 'DELETE' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
                     }`}>
-                      {change.action}
+                      {change?.action || 'UNKNOWN'}
                     </span>
-                    <span className="text-sm text-gray-700">{change.description}</span>
+                    <span className="text-sm text-gray-700">{change?.description || 'No description'}</span>
                   </div>
                 </div>
               ))}
-              {(!result.changes_preview || result.changes_preview.length === 0) && (
+              {safeArray(result?.changes_preview).length === 0 && (
                 <div className="text-gray-500 text-sm italic">No changes to preview</div>
               )}
             </div>
           </div>
 
           {/* Warnings */}
-          {result.warnings && result.warnings.length > 0 && (
+          {safeArray(result?.warnings).length > 0 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" />
                 Warnings
               </h3>
               <ul className="space-y-1">
-                {result.warnings.map((warning: string, i: number) => (
+                {safeArray(result?.warnings).map((warning: string, i: number) => (
                   <li key={i} className="text-sm text-yellow-700">• {warning}</li>
                 ))}
               </ul>
@@ -2138,17 +2145,17 @@ function SGSimulationResultsModal({
           )}
 
           {/* CLI Commands */}
-          {result.cli_commands && result.cli_commands.length > 0 && (
+          {safeArray(result?.cli_commands).length > 0 && (
             <div>
               <h3 className="font-semibold text-gray-900 mb-3">AWS CLI Commands</h3>
               <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
                 <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
-                  {result.cli_commands.join('\n\n')}
+                  {safeArray(result?.cli_commands).join('\n\n')}
                 </pre>
               </div>
               <button 
                 onClick={() => {
-                  navigator.clipboard.writeText(result.cli_commands.join('\n\n'))
+                  navigator.clipboard.writeText(safeArray(result?.cli_commands).join('\n\n'))
                 }}
                 className="mt-2 text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
               >
@@ -2162,7 +2169,7 @@ function SGSimulationResultsModal({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            Confidence: {result.confidence || 75}%
+            Confidence: {result?.confidence ?? 75}%
           </div>
           <div className="flex gap-3">
             <button 
@@ -2171,7 +2178,7 @@ function SGSimulationResultsModal({
             >
               Cancel
             </button>
-            {result.can_proceed && (
+            {result?.can_proceed && (
               <button 
                 onClick={onProceed}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2"
@@ -2180,7 +2187,7 @@ function SGSimulationResultsModal({
                 Create Snapshot & Proceed
               </button>
             )}
-            {!result.can_proceed && (
+            {result?.can_proceed === false && (
               <div className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium">
                 ⚠️ Risk too high to proceed automatically
               </div>
