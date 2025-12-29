@@ -618,11 +618,65 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           onSimulate={async () => {
             setSimulating(true)
             try {
+              // Different simulation flow for Security Groups vs IAM Roles
+              if (selectedResource.resourceType === 'SecurityGroup') {
+                // Get SG ID from various possible fields
+                let sgId = selectedResource.id
+                if (!sgId?.startsWith('sg-')) {
+                  if (selectedResource.resourceName?.startsWith('sg-')) {
+                    sgId = selectedResource.resourceName
+                  } else if (selectedResource.resourceArn?.includes('security-group/')) {
+                    const match = selectedResource.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
+                    if (match) sgId = match[1]
+                  }
+                }
+                
+                // Get gap analysis to find rules to delete/tighten
+                const gapData = sgGapAnalysisCache[sgId || ''] || await fetchSGGapAnalysis(sgId || '')
+                
+                const rulesToDelete = gapData?.rules_analysis
+                  ?.filter((r: any) => r.recommendation?.action === 'DELETE')
+                  ?.map((r: any) => r.rule_id) || []
+                
+                const rulesToTighten = gapData?.rules_analysis
+                  ?.filter((r: any) => r.recommendation?.action === 'TIGHTEN')
+                  ?.map((r: any) => ({
+                    rule_id: r.rule_id,
+                    new_cidrs: r.recommendation?.suggested_cidrs || []
+                  })) || []
+                
+                const response = await fetch('/api/proxy/remediation/simulate', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sg_id: sgId,
+                    rules_to_delete: rulesToDelete,
+                    rules_to_tighten: rulesToTighten,
+                    region: selectedResource.region || 'eu-west-1'
+                  })
+                })
+                
+                if (!response.ok) {
+                  const errorData = await response.json().catch(() => ({}))
+                  throw new Error(errorData.error || `Simulation failed: ${response.status}`)
+                }
+                
+                const sgSimResult = await response.json()
+                
+                // Store the SG-specific simulation result
+                setSimulationResult({
+                  type: 'security_group',
+                  ...sgSimResult
+                })
+                setSimulationModalOpen(true)
+                
+              } else {
+                // IAM Role simulation (existing flow)
               const response = await fetch('/api/proxy/simulate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  finding_id: selectedResource.id, // Use resource ARN as finding_id for LP
+                    finding_id: selectedResource.id,
                   resource_type: selectedResource.resourceType,
                   resource_id: selectedResource.resourceArn || selectedResource.resourceName
                 })
@@ -655,6 +709,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               }
               
               const transformedResult = {
+                  type: 'iam_role',
                 status,
                 confidence: confidenceValue,
                 blast_radius: {
@@ -725,9 +780,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               
               setSimulationResult(transformedResult)
               setSimulationModalOpen(true)
+              }
             } catch (err) {
               console.error('Simulation error:', err)
-              alert('Failed to run simulation. Check console for details.')
+              toast({
+                title: 'Simulation Failed',
+                description: err instanceof Error ? err.message : 'Check console for details',
+                variant: 'destructive'
+              })
             } finally {
               setSimulating(false)
             }
@@ -736,25 +796,45 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         />
       )}
 
-      {/* Simulation Results Modal */}
+      {/* Simulation Results Modal - Different for SG vs IAM */}
       {simulationModalOpen && simulationResult && selectedResource && (
-        <SimulationResultsModal
-          isOpen={simulationModalOpen}
-          onClose={() => {
-            setSimulationModalOpen(false)
-            setSimulationResult(null)
-          }}
-          resourceType={selectedResource.resourceType}
-          resourceId={selectedResource.resourceArn || selectedResource.resourceName}
-          resourceName={selectedResource.resourceName}
-          proposedChange={{
-            action: 'remove_permissions',
-            items: selectedResource.unusedList,
-            reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
-          }}
-          systemName={systemName}
-          result={simulationResult}
-        />
+        simulationResult.type === 'security_group' ? (
+          <SGSimulationResultsModal
+            isOpen={simulationModalOpen}
+            onClose={() => {
+              setSimulationModalOpen(false)
+              setSimulationResult(null)
+            }}
+            result={simulationResult}
+            onProceed={async () => {
+              // Create snapshot and proceed
+              toast({
+                title: 'Creating Snapshot',
+                description: 'Saving current configuration for rollback...'
+              })
+              setSimulationModalOpen(false)
+              // TODO: Implement actual remediation
+            }}
+          />
+        ) : (
+          <SimulationResultsModal
+            isOpen={simulationModalOpen}
+            onClose={() => {
+              setSimulationModalOpen(false)
+              setSimulationResult(null)
+            }}
+            resourceType={selectedResource.resourceType}
+            resourceId={selectedResource.resourceArn || selectedResource.resourceName}
+            resourceName={selectedResource.resourceName}
+            proposedChange={{
+              action: 'remove_permissions',
+              items: selectedResource.unusedList,
+              reason: `Unused permissions detected: ${selectedResource.gapCount} permissions unused for ${selectedResource.evidence.observationDays} days`
+            }}
+            systemName={systemName}
+            result={simulationResult}
+          />
+        )
       )}
     </div>
   )
@@ -1339,7 +1419,7 @@ function RulesTab({
   // For Security Groups
   if (resource.resourceType === 'SecurityGroup') {
     if (loading) {
-      return (
+  return (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
           <span className="ml-2 text-gray-500">Loading rules...</span>
@@ -1358,7 +1438,7 @@ function RulesTab({
           <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
             <div className="text-2xl font-bold text-gray-700">{counts.total}</div>
             <div className="text-xs text-gray-500">Total Rules</div>
-          </div>
+            </div>
           <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
             <div className="text-2xl font-bold text-green-700">{counts.used}</div>
             <div className="text-xs text-green-600">Used (KEEP)</div>
@@ -1394,7 +1474,7 @@ function RulesTab({
                 )}
               </button>
             ))}
-          </div>
+        </div>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
@@ -1404,7 +1484,7 @@ function RulesTab({
             <option value="port">Sort by Port</option>
             <option value="traffic">Sort by Traffic</option>
           </select>
-        </div>
+      </div>
 
         {/* Rules Table */}
         <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -1489,12 +1569,12 @@ function RulesTab({
                     {rule.recommendation.suggested_cidrs?.map((cidr, i) => (
                       <span key={i} className="font-mono bg-white px-1 rounded mx-0.5">{cidr}</span>
                     ))}
-                  </div>
-                ))}
+            </div>
+          ))}
             </div>
           </div>
-        )}
-      </div>
+          )}
+        </div>
     )
   }
 
@@ -1506,7 +1586,7 @@ function RulesTab({
         <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
           <div className="text-2xl font-bold text-gray-700">{resource.allowedCount}</div>
           <div className="text-xs text-gray-500">Allowed</div>
-        </div>
+          </div>
         <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
           <div className="text-2xl font-bold text-green-700">{resource.usedCount}</div>
           <div className="text-xs text-green-600">Used (KEEP)</div>
@@ -1911,6 +1991,201 @@ function ImpactTab({ resource }: { resource: GapResource }) {
           {resource.unusedList.length > 5 && (
             <div className="text-sm text-gray-500">...and {resource.unusedList.length - 5} more unused permissions</div>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// SG Simulation Results Modal
+// ============================================================================
+function SGSimulationResultsModal({ 
+  isOpen, 
+  onClose, 
+  result, 
+  onProceed 
+}: { 
+  isOpen: boolean
+  onClose: () => void
+  result: any
+  onProceed: () => void
+}) {
+  if (!isOpen || !result) return null
+
+  const getRiskColor = (score: number) => {
+    if (score >= 80) return 'text-red-500'
+    if (score >= 60) return 'text-orange-500'
+    if (score >= 30) return 'text-yellow-500'
+    return 'text-green-500'
+  }
+
+  const getRiskBgColor = (level: string) => {
+    switch (level) {
+      case 'CRITICAL': return 'bg-red-500/20 text-red-400 border-red-500/30'
+      case 'HIGH': return 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+      case 'MEDIUM': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+      default: return 'bg-green-500/20 text-green-400 border-green-500/30'
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Simulation Results</h2>
+              <p className="text-sm text-gray-500">{result.sg_name} ({result.sg_id})</p>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <XCircle className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Risk Score */}
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <div className={`text-5xl font-bold ${getRiskColor(result.risk_score)}`}>
+                {result.risk_score}
+              </div>
+              <div className="text-sm text-gray-500">Risk Score</div>
+            </div>
+            <div className={`px-4 py-2 rounded-full text-sm font-semibold border ${getRiskBgColor(result.risk_level)}`}>
+              {result.risk_level} RISK
+            </div>
+            <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+              <div 
+                className={`h-full transition-all ${
+                  result.risk_score >= 80 ? 'bg-red-500' :
+                  result.risk_score >= 60 ? 'bg-orange-500' :
+                  result.risk_score >= 30 ? 'bg-yellow-500' : 'bg-green-500'
+                }`}
+                style={{ width: `${result.risk_score}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Impact Summary */}
+          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <h3 className="font-semibold text-gray-900 mb-3">Impact Summary</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Rules to remove:</span>
+                <span className="font-bold text-red-600">{result.impact_summary?.rules_removed || 0}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Rules to tighten:</span>
+                <span className="font-bold text-orange-600">{result.impact_summary?.rules_tightened || 0}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Attack surface reduction:</span>
+                <span className="font-bold text-green-600">{result.impact_summary?.attack_surface_reduction || '0%'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">ENIs affected:</span>
+                <span className="font-bold text-gray-900">{result.impact_summary?.enis_affected || 0}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Changes Preview */}
+          <div>
+            <h3 className="font-semibold text-gray-900 mb-3">Changes Preview</h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {safeArray(result.changes_preview).map((change: any, i: number) => (
+                <div 
+                  key={i} 
+                  className={`p-3 rounded-lg border ${
+                    change.action === 'DELETE' 
+                      ? 'bg-red-50 border-red-200' 
+                      : 'bg-orange-50 border-orange-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                      change.action === 'DELETE' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {change.action}
+                    </span>
+                    <span className="text-sm text-gray-700">{change.description}</span>
+                  </div>
+                </div>
+              ))}
+              {(!result.changes_preview || result.changes_preview.length === 0) && (
+                <div className="text-gray-500 text-sm italic">No changes to preview</div>
+              )}
+            </div>
+          </div>
+
+          {/* Warnings */}
+          {result.warnings && result.warnings.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                Warnings
+              </h3>
+              <ul className="space-y-1">
+                {result.warnings.map((warning: string, i: number) => (
+                  <li key={i} className="text-sm text-yellow-700">• {warning}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* CLI Commands */}
+          {result.cli_commands && result.cli_commands.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-3">AWS CLI Commands</h3>
+              <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+                <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
+                  {result.cli_commands.join('\n\n')}
+                </pre>
+              </div>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(result.cli_commands.join('\n\n'))
+                }}
+                className="mt-2 text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+              >
+                <FileDown className="w-4 h-4" />
+                Copy Commands
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            Confidence: {result.confidence || 75}%
+          </div>
+          <div className="flex gap-3">
+            <button 
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 text-sm font-medium"
+            >
+              Cancel
+            </button>
+            {result.can_proceed && (
+              <button 
+                onClick={onProceed}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Create Snapshot & Proceed
+              </button>
+            )}
+            {!result.can_proceed && (
+              <div className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium">
+                ⚠️ Risk too high to proceed automatically
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
