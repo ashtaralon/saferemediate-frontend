@@ -37,6 +37,8 @@ export default function RecoveryTab() {
   const [restoring, setRestoring] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
+  const [selectedSnapshots, setSelectedSnapshots] = useState<Set<string>>(new Set())
+  const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null)
 
   useEffect(() => {
     loadSnapshots()
@@ -86,6 +88,94 @@ export default function RecoveryTab() {
     }
   }
 
+  // Get correct delete endpoint based on snapshot type
+  function getDeleteEndpoint(snapshot: Snapshot): string {
+    if (snapshot.type === 'IAMRole') {
+      return `/api/proxy/iam-roles/snapshots/${snapshot.snapshot_id}`
+    }
+    return `/api/proxy/snapshots/${snapshot.snapshot_id}`
+  }
+
+  // Delete a single snapshot
+  async function handleDeleteSnapshot(snapshot: Snapshot) {
+    if (!confirm(`⚠️ Delete this snapshot?\n\nResource: ${snapshot.type === 'IAMRole' ? snapshot.role_name : snapshot.sg_name}\nSnapshot ID: ${snapshot.snapshot_id}\n\nThis action cannot be undone!`)) {
+      return
+    }
+
+    try {
+      setDeletingSnapshot(snapshot.snapshot_id)
+      setError(null)
+
+      const res = await fetch(getDeleteEndpoint(snapshot), {
+        method: 'DELETE',
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.detail || `Delete failed: ${res.status}`)
+      }
+
+      // Remove from local state
+      setSnapshots(prev => prev.filter(s => s.snapshot_id !== snapshot.snapshot_id))
+      setSelectedSnapshots(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(snapshot.snapshot_id)
+        return newSet
+      })
+
+    } catch (err) {
+      console.error('Delete snapshot error:', err)
+      const message = err instanceof Error ? err.message : 'Delete failed'
+      setError(message)
+      alert(`❌ Failed: ${message}`)
+    } finally {
+      setDeletingSnapshot(null)
+    }
+  }
+
+  // Delete selected snapshots
+  async function handleDeleteSelected() {
+    if (selectedSnapshots.size === 0) {
+      alert('No snapshots selected')
+      return
+    }
+
+    if (!confirm(`⚠️ Delete ${selectedSnapshots.size} selected snapshot(s)?\n\nThis action cannot be undone!`)) {
+      return
+    }
+
+    try {
+      setDeletingAll(true)
+      setError(null)
+
+      let deleted = 0
+      const selectedList = snapshots.filter(s => selectedSnapshots.has(s.snapshot_id))
+      
+      for (const snapshot of selectedList) {
+        try {
+          const res = await fetch(getDeleteEndpoint(snapshot), {
+            method: 'DELETE',
+          })
+          if (res.ok) deleted++
+        } catch {
+          // Continue with next
+        }
+      }
+
+      alert(`✅ Deleted ${deleted} of ${selectedSnapshots.size} snapshots`)
+      setSelectedSnapshots(new Set())
+      await loadSnapshots()
+      
+    } catch (err) {
+      console.error('Delete selected error:', err)
+      const message = err instanceof Error ? err.message : 'Delete failed'
+      setError(message)
+      alert(`❌ Failed: ${message}`)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   async function handleDeleteAll() {
     if (!confirm(`⚠️ Delete ALL ${snapshots.length} snapshots?\n\nThis action cannot be undone!`)) {
       return
@@ -95,11 +185,11 @@ export default function RecoveryTab() {
       setDeletingAll(true)
       setError(null)
 
-      // Delete each snapshot individually
+      // Delete each snapshot individually with correct endpoint
       let deleted = 0
       for (const snapshot of snapshots) {
         try {
-          const res = await fetch(`/api/proxy/snapshots/${snapshot.snapshot_id}`, {
+          const res = await fetch(getDeleteEndpoint(snapshot), {
             method: 'DELETE',
           })
           if (res.ok) deleted++
@@ -109,6 +199,7 @@ export default function RecoveryTab() {
       }
 
       alert(`✅ Deleted ${deleted} of ${snapshots.length} snapshots`)
+      setSelectedSnapshots(new Set())
       await loadSnapshots()
       
     } catch (err) {
@@ -118,6 +209,28 @@ export default function RecoveryTab() {
       alert(`❌ Failed: ${message}`)
     } finally {
       setDeletingAll(false)
+    }
+  }
+
+  // Toggle snapshot selection
+  function toggleSelection(snapshotId: string) {
+    setSelectedSnapshots(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(snapshotId)) {
+        newSet.delete(snapshotId)
+      } else {
+        newSet.add(snapshotId)
+      }
+      return newSet
+    })
+  }
+
+  // Toggle all selection
+  function toggleSelectAll() {
+    if (selectedSnapshots.size === snapshots.length) {
+      setSelectedSnapshots(new Set())
+    } else {
+      setSelectedSnapshots(new Set(snapshots.map(s => s.snapshot_id)))
     }
   }
 
@@ -259,6 +372,16 @@ export default function RecoveryTab() {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
+          {snapshots.length > 0 && selectedSnapshots.size > 0 && (
+            <button
+              onClick={handleDeleteSelected}
+              disabled={deletingAll || loading}
+              className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              {deletingAll ? 'Deleting...' : `Delete Selected (${selectedSnapshots.size})`}
+            </button>
+          )}
           {snapshots.length > 0 && (
             <button
               onClick={handleDeleteAll}
@@ -271,6 +394,23 @@ export default function RecoveryTab() {
           )}
         </div>
       </div>
+
+      {/* Select All Checkbox */}
+      {snapshots.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 rounded-lg">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selectedSnapshots.size === snapshots.length && snapshots.length > 0}
+              onChange={toggleSelectAll}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">
+              Select All ({selectedSnapshots.size} of {snapshots.length} selected)
+            </span>
+          </label>
+        </div>
+      )}
 
       {/* Error Banner */}
       {error && (
@@ -296,7 +436,11 @@ export default function RecoveryTab() {
               key={snapshot.snapshot_id}
               snapshot={snapshot}
               onRestore={() => handleRestore(snapshot)}
+              onDelete={() => handleDeleteSnapshot(snapshot)}
+              onToggleSelect={() => toggleSelection(snapshot.snapshot_id)}
+              isSelected={selectedSnapshots.has(snapshot.snapshot_id)}
               isRestoring={restoring === snapshot.snapshot_id}
+              isDeleting={deletingSnapshot === snapshot.snapshot_id}
               formatDate={formatDate}
               getTimeAgo={getTimeAgo}
             />
@@ -310,14 +454,22 @@ export default function RecoveryTab() {
 // Snapshot Card Component
 function SnapshotCard({ 
   snapshot, 
-  onRestore, 
+  onRestore,
+  onDelete,
+  onToggleSelect,
+  isSelected,
   isRestoring,
+  isDeleting,
   formatDate,
   getTimeAgo
 }: { 
   snapshot: Snapshot
   onRestore: () => void
+  onDelete: () => void
+  onToggleSelect: () => void
+  isSelected: boolean
   isRestoring: boolean
+  isDeleting: boolean
   formatDate: (ts: string | undefined) => string
   getTimeAgo: (ts: string | undefined) => string
 }) {
@@ -346,7 +498,9 @@ function SnapshotCard({
   const resourceId = isIAMRole ? roleArn : sgId
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+    <div className={`bg-white border-2 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden ${
+      isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'
+    }`}>
       {/* Header */}
       <div className={`px-4 py-3 border-b border-gray-100 ${
         isIAMRole 
@@ -354,7 +508,14 @@ function SnapshotCard({
           : 'bg-gradient-to-r from-blue-50 to-indigo-50'
       }`}>
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* Checkbox */}
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
             <div className={`p-2 rounded-lg ${
               isIAMRole ? 'bg-purple-100' : 'bg-blue-100'
             }`}>
@@ -480,29 +641,49 @@ function SnapshotCard({
       {/* Footer */}
       <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
         <span className="text-xs font-mono text-gray-400">{snapshot.snapshot_id}</span>
-        <button
-          onClick={onRestore}
-          disabled={isRestoring}
-          className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
-            isRestoring 
-              ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-              : isIAMRole
-                ? 'bg-purple-600 text-white hover:bg-purple-700'
-                : 'bg-red-600 text-white hover:bg-red-700'
-          }`}
-        >
-          {isRestoring ? (
-            <>
+        <div className="flex items-center gap-2">
+          {/* Delete Button */}
+          <button
+            onClick={onDelete}
+            disabled={isDeleting || isRestoring}
+            className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              isDeleting
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-gray-200 text-gray-700 hover:bg-red-100 hover:text-red-700'
+            }`}
+            title="Delete snapshot"
+          >
+            {isDeleting ? (
               <RefreshCw className="w-4 h-4 animate-spin" />
-              Restoring...
-            </>
-          ) : (
-            <>
-              <RotateCcw className="w-4 h-4" />
-              Restore
-            </>
-          )}
-        </button>
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+          </button>
+          {/* Restore Button */}
+          <button
+            onClick={onRestore}
+            disabled={isRestoring || isDeleting}
+            className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              isRestoring 
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                : isIAMRole
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+          >
+            {isRestoring ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Restoring...
+              </>
+            ) : (
+              <>
+                <RotateCcw className="w-4 h-4" />
+                Restore
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )
