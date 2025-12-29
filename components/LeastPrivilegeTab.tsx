@@ -142,6 +142,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [confirmationModalOpen, setConfirmationModalOpen] = useState(false)
   const [sgGapAnalysisCache, setSgGapAnalysisCache] = useState<Record<string, any>>({})
   const [syncing, setSyncing] = useState(false)
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [executionResult, setExecutionResult] = useState<any>(null)
   const { toast } = useToast()
   
   // Cached fetch for SG gap analysis
@@ -813,14 +815,94 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               setSimulationResult(null)
             }}
             result={simulationResult}
-            onProceed={async () => {
-              // Create snapshot and proceed
-              toast({
-                title: 'Creating Snapshot',
-                description: 'Saving current configuration for rollback...'
-              })
-              setSimulationModalOpen(false)
-              // TODO: Implement actual remediation
+            isExecuting={isExecuting}
+            onExecute={async () => {
+              // Execute remediation with snapshot
+              setIsExecuting(true)
+              
+              try {
+                // Get the SG ID
+                let sgId = simulationResult.sg_id
+                if (!sgId) {
+                  sgId = selectedResource.id
+                  if (!sgId?.startsWith('sg-')) {
+                    if (selectedResource.resourceName?.startsWith('sg-')) {
+                      sgId = selectedResource.resourceName
+                    }
+                  }
+                }
+                
+                // Get gap analysis to find rules to delete/tighten
+                const gapData = sgGapAnalysisCache[sgId] || await fetchSGGapAnalysis(sgId)
+                
+                const rulesToDelete = gapData?.rules_analysis
+                  ?.filter((r: any) => r.recommendation?.action === 'DELETE')
+                  ?.map((r: any) => r.rule_id) || []
+                
+                const rulesToTighten = gapData?.rules_analysis
+                  ?.filter((r: any) => r.recommendation?.action === 'TIGHTEN')
+                  ?.map((r: any) => ({
+                    rule_id: r.rule_id,
+                    new_cidrs: r.recommendation?.suggested_cidrs || []
+                  })) || []
+                
+                const response = await fetch('/api/proxy/remediation/execute', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sg_id: sgId,
+                    rules_to_delete: rulesToDelete,
+                    rules_to_tighten: rulesToTighten,
+                    region: selectedResource.region || 'eu-west-1',
+                    triggered_by: 'user',
+                    create_snapshot: true
+                  })
+                })
+                
+                const result = await response.json()
+                setExecutionResult(result)
+                
+                if (result.success) {
+                  toast({
+                    title: '✅ Remediation Complete',
+                    description: `Snapshot: ${result.snapshot?.snapshot_id || 'Created'}. ${result.summary?.successful || 0} changes applied.`
+                  })
+                  setSimulationModalOpen(false)
+                  setSimulationResult(null)
+                  
+                  // Clear cache for this SG and refresh data
+                  setSgGapAnalysisCache(prev => {
+                    const newCache = { ...prev }
+                    delete newCache[sgId]
+                    return newCache
+                  })
+                  
+                  // Refresh the main data
+                  setRefreshing(true)
+                  try {
+                    await fetchGaps()
+                  } finally {
+                    setRefreshing(false)
+                  }
+                } else {
+                  toast({
+                    title: '❌ Remediation Had Errors',
+                    description: `${result.errors?.length || 0} errors occurred. Check console for details.`,
+                    variant: 'destructive'
+                  })
+                  console.error('Execution errors:', result.errors)
+                }
+                
+              } catch (error) {
+                console.error('Execution failed:', error)
+                toast({
+                  title: 'Execution Failed',
+                  description: error instanceof Error ? error.message : 'Check console for details',
+                  variant: 'destructive'
+                })
+              } finally {
+                setIsExecuting(false)
+              }
             }}
           />
         ) : (
@@ -2011,12 +2093,14 @@ function SGSimulationResultsModal({
   isOpen, 
   onClose, 
   result, 
-  onProceed 
+  onExecute,
+  isExecuting = false
 }: { 
   isOpen: boolean
   onClose: () => void
   result: any
-  onProceed: () => void
+  onExecute: () => void
+  isExecuting?: boolean
 }) {
   if (!isOpen || !result) return null
 
@@ -2174,23 +2258,51 @@ function SGSimulationResultsModal({
           <div className="flex gap-3">
             <button 
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 text-sm font-medium"
+              disabled={isExecuting}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 text-sm font-medium disabled:opacity-50"
             >
               Cancel
             </button>
-            {result?.can_proceed && (
+            {result?.can_proceed ? (
               <button 
-                onClick={onProceed}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2"
+                onClick={onExecute}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                Create Snapshot & Proceed
+                {isExecuting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Executing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Create Snapshot & Execute
+                  </>
+                )}
               </button>
-            )}
-            {result?.can_proceed === false && (
-              <div className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium">
-                ⚠️ Risk too high to proceed automatically
-              </div>
+            ) : (
+              <button 
+                onClick={() => {
+                  if (confirm('⚠️ Risk is HIGH. Are you absolutely sure you want to proceed? This will modify your Security Group.')) {
+                    onExecute()
+                  }
+                }}
+                disabled={isExecuting}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+              >
+                {isExecuting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Executing...
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4" />
+                    Override & Execute Anyway
+                  </>
+                )}
+              </button>
             )}
           </div>
         </div>
