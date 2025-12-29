@@ -141,6 +141,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [analyzing, setAnalyzing] = useState(false)
   const [confirmationModalOpen, setConfirmationModalOpen] = useState(false)
   const [sgGapAnalysisCache, setSgGapAnalysisCache] = useState<Record<string, any>>({})
+  const [iamGapAnalysisCache, setIamGapAnalysisCache] = useState<Record<string, any>>({})
   const [syncing, setSyncing] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
   const [executionResult, setExecutionResult] = useState<any>(null)
@@ -169,6 +170,40 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       return data
     } catch (error) {
       console.error('Failed to fetch SG gap analysis:', error)
+      return null
+    }
+  }
+
+  // Cached fetch for IAM Role gap analysis
+  const fetchIAMGapAnalysis = async (roleName: string, forceRefresh = false) => {
+    // Return cached data if available and not forcing refresh
+    if (!forceRefresh && iamGapAnalysisCache[roleName]) {
+      console.log('[IAM] Using cached gap analysis for:', roleName)
+      return iamGapAnalysisCache[roleName]
+    }
+    
+    try {
+      console.log('[IAM] Fetching gap analysis for:', roleName)
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+      if (!response.ok) {
+        console.error('[IAM] Gap analysis fetch failed:', response.status)
+        return null
+      }
+      const data = await response.json()
+      console.log('[IAM] Got gap analysis:', {
+        role: roleName,
+        total: data.summary?.total_permissions,
+        used: data.summary?.used_count,
+        unused: data.summary?.unused_count,
+        lpScore: data.summary?.lp_score
+      })
+      
+      // Cache the result
+      setIamGapAnalysisCache(prev => ({ ...prev, [roleName]: data }))
+      
+      return data
+    } catch (error) {
+      console.error('[IAM] Failed to fetch gap analysis:', error)
       return null
     }
   }
@@ -619,6 +654,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           resource={selectedResource}
           cachedFetch={fetchSGGapAnalysis}
           cache={sgGapAnalysisCache}
+          iamCachedFetch={fetchIAMGapAnalysis}
+          iamCache={iamGapAnalysisCache}
           onClose={() => {
             setDrawerOpen(false)
             setSelectedResource(null)
@@ -1113,6 +1150,8 @@ function RemediationDrawer({
   resource, 
   cachedFetch,
   cache,
+  iamCachedFetch,
+  iamCache,
   onClose, 
   onSimulate,
   simulating = false
@@ -1120,6 +1159,8 @@ function RemediationDrawer({
   resource: GapResource
   cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
   cache?: Record<string, any>
+  iamCachedFetch?: (roleName: string, forceRefresh?: boolean) => Promise<any>
+  iamCache?: Record<string, any>
   onClose: () => void
   onSimulate?: () => void
   simulating?: boolean
@@ -1178,7 +1219,7 @@ function RemediationDrawer({
         {/* Content */}
         <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
           {activeTab === 'summary' && <SummaryTab resource={resource} />}
-          {activeTab === 'rules' && <RulesTab resource={resource} cachedFetch={cachedFetch} cache={cache} />}
+          {activeTab === 'rules' && <RulesTab resource={resource} cachedFetch={cachedFetch} cache={cache} iamCachedFetch={iamCachedFetch} iamCache={iamCache} />}
           {activeTab === 'evidence' && <EvidenceTab resource={resource} />}
           {activeTab === 'impact' && <ImpactTab resource={resource} />}
         </div>
@@ -1378,13 +1419,18 @@ type RuleAnalysis = {
 function RulesTab({ 
   resource, 
   cachedFetch, 
-  cache 
+  cache,
+  iamCachedFetch,
+  iamCache
 }: { 
   resource: GapResource
   cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
   cache?: Record<string, any>
+  iamCachedFetch?: (roleName: string, forceRefresh?: boolean) => Promise<any>
+  iamCache?: Record<string, any>
 }) {
   const [rulesAnalysis, setRulesAnalysis] = useState<RuleAnalysis[]>([])
+  const [iamGapData, setIamGapData] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'used' | 'unused' | 'public'>('all')
@@ -1472,6 +1518,60 @@ function RulesTab({
       fetchGapAnalysis()
     }
   }, [resource])
+
+  // Fetch gap analysis for IAM Roles
+  useEffect(() => {
+    if (resource.resourceType === 'IAMRole') {
+      const fetchIAMData = async () => {
+        setLoading(true)
+        setError(null)
+        try {
+          const roleName = resource.resourceName || resource.id
+          console.log('[RulesTab] Fetching IAM gap analysis for:', roleName)
+          
+          // Check cache first
+          if (iamCache?.[roleName]) {
+            console.log('[RulesTab] Using cached IAM data for:', roleName)
+            setIamGapData(iamCache[roleName])
+            setLoading(false)
+            return
+          }
+          
+          // Use cached fetch if available
+          if (iamCachedFetch) {
+            const data = await iamCachedFetch(roleName)
+            if (data) {
+              setIamGapData(data)
+              setLoading(false)
+              return
+            }
+          }
+          
+          // Direct fetch
+          const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+          if (res.ok) {
+            const data = await res.json()
+            console.log('[RulesTab] Got IAM data:', {
+              role: roleName,
+              total: data.summary?.total_permissions,
+              used: data.summary?.used_count,
+              unused: data.summary?.unused_count
+            })
+            setIamGapData(data)
+          } else {
+            console.error('[RulesTab] IAM fetch failed:', res.status)
+            setError(`Failed to load IAM data: ${res.status}`)
+          }
+        } catch (err) {
+          console.error('[RulesTab] Failed to fetch IAM data:', err)
+          setError('Failed to load IAM permissions')
+        } finally {
+          setLoading(false)
+        }
+      }
+      fetchIAMData()
+    }
+  }, [resource, iamCachedFetch, iamCache])
 
   // Filter rules
   const filteredRules = rulesAnalysis.filter(rule => {
@@ -1668,62 +1768,148 @@ function RulesTab({
   }
 
   // For IAM Roles and other resources - permissions list view
+  // Use real API data if available, otherwise fall back to resource data
+  const totalPermissions = iamGapData?.summary?.total_permissions ?? resource.allowedCount ?? 0
+  const usedCount = iamGapData?.summary?.used_count ?? resource.usedCount ?? 0
+  const unusedCount = iamGapData?.summary?.unused_count ?? resource.gapCount ?? 0
+  const lpScore = iamGapData?.summary?.lp_score ?? 0
+  const permissionsAnalysis = iamGapData?.permissions_analysis ?? []
+  const usedPermissions = iamGapData?.used_permissions ?? resource.usedList ?? []
+  const unusedPermissions = iamGapData?.unused_permissions ?? resource.unusedList ?? []
+  const allPermissions = [...safeArray(usedPermissions), ...safeArray(unusedPermissions)]
+
+  // Show loading state for IAM Roles
+  if (loading && resource.resourceType === 'IAMRole') {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <span className="ml-2 text-gray-500">Loading IAM permissions from CloudTrail...</span>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="text-amber-600 text-sm bg-amber-50 p-3 rounded-lg">{error}</div>
+      )}
+
+      {/* LP Score Badge - only show if we have real data */}
+      {iamGapData && (
+        <div className={`p-3 rounded-lg border ${
+          lpScore >= 80 ? 'bg-green-50 border-green-200' :
+          lpScore >= 50 ? 'bg-yellow-50 border-yellow-200' :
+          'bg-red-50 border-red-200'
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">
+              LP Score: <span className={`text-lg font-bold ${
+                lpScore >= 80 ? 'text-green-700' :
+                lpScore >= 50 ? 'text-yellow-700' :
+                'text-red-700'
+              }`}>{lpScore}%</span>
+            </span>
+            <span className="text-xs text-gray-500">
+              Based on {iamGapData.summary?.cloudtrail_events || 0} CloudTrail events
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Summary Stats */}
       <div className="grid grid-cols-3 gap-3">
         <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
-          <div className="text-2xl font-bold text-gray-700">{resource.allowedCount}</div>
-          <div className="text-xs text-gray-500">Allowed</div>
-          </div>
+          <div className="text-2xl font-bold text-gray-700">{totalPermissions}</div>
+          <div className="text-xs text-gray-500">Total Allowed</div>
+        </div>
         <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
-          <div className="text-2xl font-bold text-green-700">{resource.usedCount}</div>
+          <div className="text-2xl font-bold text-green-700">{usedCount}</div>
           <div className="text-xs text-green-600">Used (KEEP)</div>
         </div>
         <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-center">
-          <div className="text-2xl font-bold text-red-700">{resource.gapCount}</div>
+          <div className="text-2xl font-bold text-red-700">{unusedCount}</div>
           <div className="text-xs text-red-600">Unused (REMOVE)</div>
         </div>
       </div>
 
-      {/* Permissions Table */}
+      {/* Permissions Table - Use API data if available */}
       <div className="border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Permission</th>
               <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Risk</th>
               <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {safeArray(resource.allowedList).slice(0, 20).map((perm, idx) => {
-              const isUsed = safeArray(resource.usedList).includes(String(perm))
-              return (
-                <tr key={idx} className={isUsed ? '' : 'bg-red-50/30'}>
-                  <td className="px-4 py-2 font-mono text-gray-900 text-xs">{String(perm)}</td>
+            {permissionsAnalysis.length > 0 ? (
+              // Use detailed API data
+              permissionsAnalysis.slice(0, 30).map((perm: any, idx: number) => (
+                <tr key={idx} className={perm.status === 'UNUSED' ? 'bg-red-50/30' : ''}>
+                  <td className="px-4 py-2 font-mono text-gray-900 text-xs">{perm.permission}</td>
                   <td className="px-4 py-2 text-center">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      perm.status === 'USED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                     }`}>
-                      {isUsed ? 'USED' : 'UNUSED'}
+                      {perm.status}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-center">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      perm.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-700' :
+                      perm.risk_level === 'HIGH' ? 'bg-orange-100 text-orange-700' :
+                      perm.risk_level === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-gray-100 text-gray-700'
                     }`}>
-                      {isUsed ? 'KEEP' : 'REMOVE'}
+                      {perm.risk_level}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      perm.recommendation?.includes('REMOVE') || perm.recommendation?.includes('SAFE_TO_REMOVE') 
+                        ? 'bg-red-100 text-red-700' 
+                        : 'bg-green-100 text-green-700'
+                    }`}>
+                      {perm.recommendation?.replace('_', ' ') || (perm.status === 'USED' ? 'KEEP' : 'REMOVE')}
                     </span>
                   </td>
                 </tr>
-              )
-            })}
+              ))
+            ) : (
+              // Fall back to simple list from resource
+              allPermissions.slice(0, 20).map((perm, idx) => {
+                const isUsed = safeArray(usedPermissions).includes(String(perm))
+                return (
+                  <tr key={idx} className={isUsed ? '' : 'bg-red-50/30'}>
+                    <td className="px-4 py-2 font-mono text-gray-900 text-xs">{String(perm)}</td>
+                    <td className="px-4 py-2 text-center">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {isUsed ? 'USED' : 'UNUSED'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">-</span>
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {isUsed ? 'KEEP' : 'REMOVE'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })
+            )}
           </tbody>
         </table>
-        {resource.allowedCount > 20 && (
+        {(permissionsAnalysis.length > 30 || allPermissions.length > 20) && (
           <div className="px-4 py-2 bg-gray-50 text-center text-sm text-gray-500 border-t border-gray-200">
-            Showing 20 of {resource.allowedCount} permissions
+            Showing {permissionsAnalysis.length > 0 ? Math.min(30, permissionsAnalysis.length) : Math.min(20, allPermissions.length)} of {totalPermissions} permissions
           </div>
         )}
       </div>
