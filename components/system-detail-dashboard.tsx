@@ -187,25 +187,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
-      // Use the provided backend URL
-      // Update backend URL and fetch logic
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-      const response = await fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+      // Use proxy endpoint for IAM gap analysis
+      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
 
       const data = await response.json()
-      // </CHANGE> Removed debug console.log
+      console.log("[v0] IAM gap analysis response:", data.role_name || data.systemName)
 
-      const allowed = Number(data.allowed_actions) || 0
-      const actual = Number(data.used_actions) || 0
-      const gap = Number(data.unused_actions) || 0
-      const confidence =
-        typeof data.statistics?.remediation_potential === "string"
-          ? Number.parseInt(data.statistics.remediation_potential.replace("%", ""))
-          : data.statistics?.confidence || 99
+      // Handle new /api/iam-roles/{role}/gap-analysis format
+      const allowed = Number(data.summary?.total_permissions || data.allowed_actions || data.allowed_count) || 0
+      const actual = Number(data.summary?.used_count || data.used_actions || data.used_count) || 0
+      const gap = Number(data.summary?.unused_count || data.unused_actions || data.unused_count) || 0
+      const confidence = Number(data.summary?.lp_score || data.confidence || data.statistics?.confidence) || 75
 
       setGapAnalysis({
         allowed,
@@ -215,9 +211,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         confidence,
       })
 
-      const unusedActions = data.unused_actions_list || data.unused_actions || []
-      setUnusedActionsList(unusedActions)
-      console.log("[v0] Gap analysis - unused_actions_list:", unusedActions.length, "items")
+      // Handle new format: unused_permissions array instead of unused_actions_list
+      const unusedActions = data.unused_permissions || data.unused_actions_list || data.unused_actions || []
+      setUnusedActionsList(Array.isArray(unusedActions) ? unusedActions : [])
+      console.log("[v0] Gap analysis - unused permissions:", unusedActions.length, "items")
 
       // Update severity counts - each unused action = 1 HIGH finding
       setSeverityCounts((prev) => ({
