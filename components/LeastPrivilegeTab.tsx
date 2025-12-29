@@ -608,6 +608,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       {drawerOpen && selectedResource && (
         <RemediationDrawer
           resource={selectedResource}
+          cachedFetch={fetchSGGapAnalysis}
+          cache={sgGapAnalysisCache}
           onClose={() => {
             setDrawerOpen(false)
             setSelectedResource(null)
@@ -940,11 +942,15 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
 // Remediation Drawer Component
 function RemediationDrawer({ 
   resource, 
+  cachedFetch,
+  cache,
   onClose, 
   onSimulate,
   simulating = false
 }: { 
   resource: GapResource
+  cachedFetch?: (sgId: string, forceRefresh?: boolean) => Promise<any>
+  cache?: Record<string, any>
   onClose: () => void
   onSimulate?: () => void
   simulating?: boolean
@@ -1003,7 +1009,7 @@ function RemediationDrawer({
         {/* Content */}
         <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
           {activeTab === 'summary' && <SummaryTab resource={resource} />}
-          {activeTab === 'rules' && <RulesTab resource={resource} cachedFetch={fetchSGGapAnalysis} cache={sgGapAnalysisCache} />}
+          {activeTab === 'rules' && <RulesTab resource={resource} cachedFetch={cachedFetch} cache={cache} />}
           {activeTab === 'evidence' && <EvidenceTab resource={resource} />}
           {activeTab === 'impact' && <ImpactTab resource={resource} />}
         </div>
