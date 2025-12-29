@@ -413,57 +413,64 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     return 'eu-west-1' // Default region
   }
 
-  const handleAnalyzeSecurityGroups = async () => {
+  const handleRefreshAll = async () => {
     try {
       setAnalyzing(true)
 
-      // Build query params for gap analysis endpoint
-      const params = new URLSearchParams({ days: '365' })
-      if (systemName) params.append('system_name', systemName)
-
-      // Use the new gap analysis endpoint
-      const response = await fetch(`/api/proxy/security-groups/gap-analysis?${params}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-
-        // Handle 404 - backend endpoint not yet implemented
-        if (response.status === 404) {
-          toast({
-            title: 'Feature not available',
-            description: 'Security Group gap analysis is not yet available on the backend. Refreshing current data instead.',
+      // 1. Refresh Security Groups gap analysis
+      const sgParams = new URLSearchParams({ days: '365' })
+      if (systemName) sgParams.append('system_name', systemName)
+      
+      // 2. Get all IAM roles from current data
+      const iamRoles = data?.resources?.filter(r => r.resourceType === 'IAMRole') || []
+      
+      console.log('[RefreshAll] Starting refresh for:')
+      console.log(`  - Security Groups gap analysis`)
+      console.log(`  - Least privilege issues`)
+      console.log(`  - ${Math.min(iamRoles.length, 10)} IAM roles`)
+      
+      // 3. Refresh in parallel
+      const refreshPromises = [
+        // Refresh SG analysis
+        fetch(`/api/proxy/security-groups/gap-analysis?${sgParams}`).catch(e => {
+          console.warn('[RefreshAll] SG gap analysis failed:', e)
+          return null
+        }),
+        // Refresh least privilege issues (forces backend re-scan)
+        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&refresh=true`).catch(e => {
+          console.warn('[RefreshAll] LP issues refresh failed:', e)
+          return null
+        }),
+        // Refresh each IAM role gap analysis (limit to first 10 to avoid overwhelming)
+        ...iamRoles.slice(0, 10).map(role => 
+          fetch(`/api/proxy/iam-roles/${encodeURIComponent(role.resourceName)}/gap-analysis?days=90`).catch(e => {
+            console.warn(`[RefreshAll] IAM role ${role.resourceName} refresh failed:`, e)
+            return null
           })
-          // Still refresh the existing data
-          await fetchGaps(true)
-          return
-        }
-
-        throw new Error(errorData.error || errorData.detail || errorData.message || `Analysis failed: ${response.status}`)
-      }
-
-      const result = await response.json()
-
-      // result has: { security_groups: [...], overall_summary: {...} }
-      const sgCount = result.security_groups?.length || 0
-      const unusedRules = result.overall_summary?.unused_rules || 0
-      const overlyBroad = result.overall_summary?.overly_broad_rules || 0
-
-      toast({
-        title: 'Analysis completed',
-        description: `Analyzed ${sgCount} Security Groups. Found ${unusedRules} unused rules and ${overlyBroad} overly broad rules.`,
-      })
-
-      // Refresh issues list after analysis
+        )
+      ]
+      
+      const results = await Promise.all(refreshPromises)
+      const successCount = results.filter(r => r && r.ok).length
+      
+      console.log(`[RefreshAll] Completed: ${successCount}/${results.length} successful`)
+      
+      // 4. Reload the main data
       await fetchGaps(true)
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Analysis failed'
+      
+      // Clear caches to ensure fresh data on next access
+      setSgGapAnalysisCache({})
+      setIamGapAnalysisCache({})
+      
       toast({
-        title: 'Analysis failed',
+        title: '✅ All resources refreshed',
+        description: `Refreshed Security Groups, IAM roles, and least privilege analysis from AWS.`,
+      })
+    } catch (err) {
+      console.error('[RefreshAll] Error:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Refresh failed'
+      toast({
+        title: 'Refresh failed',
         description: errorMessage,
         variant: 'destructive',
       })
@@ -517,9 +524,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       <Dialog open={confirmationModalOpen} onOpenChange={setConfirmationModalOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Analyze Security Groups</DialogTitle>
+            <DialogTitle>Refresh All Resources</DialogTitle>
             <DialogDescription className="pt-2">
-              This will analyze current Security Group configuration and recent network activity to identify least-privilege violations.
+              This will refresh all resources from AWS including Security Groups, IAM Roles, and Least Privilege analysis.
               <br />
               <br />
               <strong>No changes will be applied automatically.</strong>
@@ -546,9 +553,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               Cancel
             </button>
             <button
-              onClick={handleAnalyzeSecurityGroups}
+              onClick={handleRefreshAll}
               disabled={analyzing}
-              className="px-4 py-2 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
             >
               {analyzing && <Loader2 className="w-4 h-4 animate-spin" />}
               Start Analysis
@@ -565,13 +572,13 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         </div>
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setConfirmationModalOpen(true)}
-            disabled={analyzing || loading}
-            className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Analyze Security Groups configuration and traffic"
+            onClick={handleRefreshAll}
+            disabled={analyzing || refreshing || loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
+            title="Refresh all resources from AWS"
           >
-            <Search className={`w-4 h-4 ${analyzing ? 'animate-pulse' : ''}`} />
-            {analyzing ? 'Analyzing…' : 'Analyze Security Groups'}
+            <RefreshCw className={`w-4 h-4 ${analyzing ? 'animate-spin' : ''}`} />
+            {analyzing ? 'Refreshing AWS...' : 'Refresh All'}
           </button>
           <button
             onClick={handleRefresh}
