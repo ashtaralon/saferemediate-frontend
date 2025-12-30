@@ -41,6 +41,10 @@ interface ServiceNode {
   permissionCount?: number
   // Compute specific
   instanceState?: string
+  // AWS Tags
+  tags?: Record<string, string>
+  isTagged?: boolean
+  vpcId?: string
 }
 
 interface AllServicesTabProps {
@@ -191,20 +195,29 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       }
 
       // Map LP resources
-      const lpMapped: ServiceNode[] = resources.map((r: any) => ({
-        id: r.resourceArn || r.resourceName || Math.random().toString(),
-        name: r.resourceName || "Unknown",
-        type: r.resourceType || "Unknown",
-        systemName: r.systemName || systemName || "Ungrouped",
-        environment: r.environment || "Production",
-        region: r.evidence?.coverage?.regions?.[0] || "eu-west-1",
-        status: "Active",
-        lastSeen: new Date().toISOString(),
-        properties: r.evidence || {},
-        attachedPolicies: r.resourceType === 'IAMRole' ? (r.allowedCount || 0) : 0,
-        permissionCount: r.allowedCount || 0,
-        instanceState: "running",
-      }))
+      const lpMapped: ServiceNode[] = resources.map((r: any) => {
+        const tags = r.tags || r.evidence?.tags || {}
+        const actualSystemName = r.systemName || tags.SystemName || tags.systemName
+        const isTagged = !!actualSystemName
+        
+        return {
+          id: r.resourceArn || r.resourceName || Math.random().toString(),
+          name: r.resourceName || "Unknown",
+          type: r.resourceType || "Unknown",
+          systemName: actualSystemName || systemName || "Ungrouped",
+          environment: r.environment || tags.Environment || "Production",
+          region: r.evidence?.coverage?.regions?.[0] || "eu-west-1",
+          status: "Active",
+          lastSeen: new Date().toISOString(),
+          properties: r.evidence || {},
+          attachedPolicies: r.resourceType === 'IAMRole' ? (r.allowedCount || 0) : 0,
+          permissionCount: r.allowedCount || 0,
+          instanceState: "running",
+          tags: tags,
+          isTagged: isTagged,
+          vpcId: r.vpcId || r.evidence?.vpc_id,
+        }
+      })
       
       // Map extended resources with proper type detection
       const extMapped: ServiceNode[] = extendedResources.map((r: any) => {
@@ -225,12 +238,17 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         else if (r._sourceType === 'cloudfront_distributions') detectedType = 'CloudFront'
         else if (r._sourceType === 'acm_certificates') detectedType = 'ACM'
         
+        // Get actual SystemName tag from AWS
+        const tags = r.tags || {}
+        const actualSystemName = r.systemName || tags.SystemName || tags.systemName || tags.System
+        const isTagged = !!actualSystemName
+        
         return {
           id: r.arn || r.id || r.name || Math.random().toString(),
           name: r.name || r.id || "Unknown",
           type: detectedType,
-          systemName: systemName || "Ungrouped",
-          environment: "Production",
+          systemName: actualSystemName || "Untagged",
+          environment: tags.Environment || tags.environment || "Production",
           region: r._region || r.region || "eu-west-1",
           status: r.status || r.state || r.key_state || "Active",
           lastSeen: r.last_modified || r.creation_date || new Date().toISOString(),
@@ -238,6 +256,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           attachedPolicies: 0,
           permissionCount: 0,
           instanceState: r.status || r.state || "running",
+          tags: tags,
+          isTagged: isTagged,
+          vpcId: r.vpc_id || r.vpcId || r.properties?.vpc_id,
         }
       })
       
@@ -436,6 +457,23 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             </div>
           </CardContent>
         </Card>
+
+        <Card className="border-l-4 border-l-purple-500">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Shield className="w-4 h-4" />
+              Tag Coverage
+            </div>
+            <div className="text-3xl font-bold text-purple-600">
+              {services.length > 0 
+                ? Math.round((services.filter(s => s.systemName !== 'Untagged').length / services.length) * 100) 
+                : 0}%
+            </div>
+            <div className="text-xs text-gray-400 mt-1">
+              {services.filter(s => s.systemName !== 'Untagged').length} tagged • {services.filter(s => s.systemName === 'Untagged').length} untagged
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Search */}
@@ -529,9 +567,20 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
-                            {service.systemName}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              service.systemName !== 'Untagged' 
+                                ? 'bg-blue-100 text-blue-700' 
+                                : 'bg-orange-100 text-orange-700'
+                            }`}>
+                              {service.systemName === 'Untagged' ? '⚠️ Untagged' : service.systemName}
+                            </span>
+                            {service.vpcId && (
+                              <span className="text-xs text-gray-400 font-mono truncate max-w-[120px]" title={service.vpcId}>
+                                VPC: {service.vpcId.slice(0, 12)}...
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">
@@ -632,9 +681,20 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
-                            {service.systemName}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              service.systemName !== 'Untagged' 
+                                ? 'bg-blue-100 text-blue-700' 
+                                : 'bg-orange-100 text-orange-700'
+                            }`}>
+                              {service.systemName === 'Untagged' ? '⚠️ Untagged' : service.systemName}
+                            </span>
+                            {service.vpcId && (
+                              <span className="text-xs text-gray-400 font-mono truncate max-w-[120px]" title={service.vpcId}>
+                                VPC: {service.vpcId.slice(0, 12)}...
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">
