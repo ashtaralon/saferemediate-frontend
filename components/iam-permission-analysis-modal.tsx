@@ -82,9 +82,58 @@ export function IAMPermissionAnalysisModal({
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
       
-      const data = await response.json()
-      console.log('[IAM-Modal] Got data:', data)
-      setGapData(data)
+      const rawData = await response.json()
+      console.log('[IAM-Modal] Raw API data:', rawData)
+      
+      // Map API response (snake_case, flat) to expected format (nested summary)
+      // API returns: allowed_count, used_count, unused_count, used_permissions[], unused_permissions[]
+      // Modal expects: summary.total_permissions, summary.used_count, permissions_analysis[]
+      
+      const mappedData: GapAnalysisData = {
+        role_name: rawData.role_name || roleName,
+        role_arn: rawData.role_arn,
+        observation_days: rawData.observation_days || 90,
+        summary: {
+          // Support both nested summary and flat structure
+          total_permissions: rawData.summary?.total_permissions ?? rawData.allowed_count ?? 0,
+          used_count: rawData.summary?.used_count ?? rawData.used_count ?? 0,
+          unused_count: rawData.summary?.unused_count ?? rawData.unused_count ?? 0,
+          lp_score: rawData.summary?.lp_score ?? rawData.lp_score ?? 0,
+          overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
+          cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
+          high_risk_unused_count: rawData.summary?.high_risk_unused_count ?? rawData.high_risk_unused?.length ?? 0
+        },
+        // Build permissions_analysis from used_permissions and unused_permissions arrays
+        permissions_analysis: [
+          ...(rawData.used_permissions || rawData.summary?.used_permissions || []).map((p: string) => ({
+            permission: p,
+            status: 'USED' as const,
+            risk_level: 'LOW' as const,
+            recommendation: 'Keep this permission',
+            usage_count: 1
+          })),
+          ...(rawData.unused_permissions || rawData.summary?.unused_permissions || []).map((p: string) => ({
+            permission: p,
+            status: 'UNUSED' as const,
+            risk_level: (rawData.high_risk_unused || []).includes(p) ? 'HIGH' as const : 'MEDIUM' as const,
+            recommendation: 'Remove this permission',
+            usage_count: 0
+          }))
+        ],
+        used_permissions: rawData.used_permissions || rawData.summary?.used_permissions || [],
+        unused_permissions: rawData.unused_permissions || rawData.summary?.unused_permissions || [],
+        high_risk_unused: rawData.high_risk_unused || [],
+        confidence: rawData.confidence?.level || rawData.confidence || 'HIGH'
+      }
+      
+      console.log('[IAM-Modal] Mapped data:', {
+        total: mappedData.summary.total_permissions,
+        used: mappedData.summary.used_count,
+        unused: mappedData.summary.unused_count,
+        permissions_analysis_count: mappedData.permissions_analysis.length
+      })
+      
+      setGapData(mappedData)
     } catch (err: any) {
       console.error('[IAM-Modal] Error:', err)
       setError(err.message || 'Failed to fetch gap analysis')
