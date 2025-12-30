@@ -309,12 +309,16 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             allowedList: r.allowedList || [],
             usedList: r.usedList || [],
             unusedList: r.unusedList || [],
-            highRiskUnused: (r.unusedList || []).slice(0, 5).map((perm: string) => ({
-              permission: perm,
-              riskLevel: perm.includes('PassRole') || perm.includes('Delete') || perm.includes('Admin') ? 'CRITICAL' as const : 'HIGH' as const,
-              reason: perm.includes('PassRole') ? 'Privilege escalation risk' : 
-                     perm.includes('Delete') ? 'Destructive action' : 'High-risk permission'
-            })),
+            highRiskUnused: (r.unusedList || []).slice(0, 5).map((perm: any) => {
+              // Handle both string permissions (IAM) and object permissions (SG rules)
+              const permStr = typeof perm === 'string' ? perm : (perm?.permission || perm?.port || String(perm))
+              return {
+                permission: permStr,
+                riskLevel: (permStr?.includes?.('PassRole') || permStr?.includes?.('Delete') || permStr?.includes?.('Admin')) ? 'CRITICAL' as const : 'HIGH' as const,
+                reason: permStr?.includes?.('PassRole') ? 'Privilege escalation risk' : 
+                       permStr?.includes?.('Delete') ? 'Destructive action' : 'High-risk permission'
+              }
+            }),
             evidence: {
               dataSources: r.evidence?.dataSources || ['CloudTrail'],
               observationDays: r.observationDays || r.evidence?.observationDays || 365,
@@ -1294,7 +1298,7 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <Clock className="w-4 h-4" />
           <span>
-            {resource.evidence.observationDays} days of {resource.evidence.dataSources.join(', ')}, {resource.evidence.confidence} confidence
+            {resource.evidence?.observationDays || 0} days of {(resource.evidence?.dataSources || []).join(', ')}, {resource.evidence?.confidence || 'UNKNOWN'} confidence
           </span>
         </div>
         <button
@@ -1424,7 +1428,7 @@ function RemediationDrawer({
             <Send className="w-4 h-4" />
             Request Approval
           </button>
-          {resource.evidence.confidence === 'HIGH' && (
+          {resource.evidence?.confidence === 'HIGH' && (
             <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2">
               <Zap className="w-4 h-4" />
               Auto-Apply
@@ -1538,7 +1542,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         )}
         <p className="text-sm text-gray-700">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
-          In <strong>{resource.evidence.observationDays} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
+          In <strong>{resource.evidence?.observationDays || 0} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
           The other <strong>{resource.gapCount ?? 0} ({(resource.gapPercent ?? 0).toFixed(0)}%)</strong> are your attack surface.
         </p>
       </div>
@@ -2230,11 +2234,11 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
       <div className="rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">Evidence Sources</h3>
         <div className="space-y-3">
-          {resource.evidence.dataSources.map((source, idx) => {
+          {(resource.evidence?.dataSources || []).map((source, idx) => {
             const getSourceDescription = (src: string) => {
               switch (src) {
                 case 'CloudTrail':
-                  return `${resource.evidence.observationDays} days of API call history`;
+                  return `${resource.evidence?.observationDays || 0} days of API call history`;
                 case 'IAM Access Advisor':
                   return 'Service-level last accessed information (up to 400 days)';
                 case 'VPC Flow Logs':
@@ -2268,20 +2272,20 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
         <div className="flex items-center gap-4">
           <Clock className="w-6 h-6 text-gray-600" />
           <div>
-            <div className="font-medium text-gray-900">{resource.evidence.observationDays} days</div>
+            <div className="font-medium text-gray-900">{resource.evidence?.observationDays || 0} days</div>
             <div className="text-sm text-gray-600">
-              From {new Date(Date.now() - resource.evidence.observationDays * 24 * 60 * 60 * 1000).toLocaleDateString()} to {new Date().toLocaleDateString()}
+              From {new Date(Date.now() - (resource.evidence?.observationDays || 0) * 24 * 60 * 60 * 1000).toLocaleDateString()} to {new Date().toLocaleDateString()}
             </div>
           </div>
         </div>
       </div>
 
       {/* Confidence Scoring Breakdown */}
-      {resource.evidence.confidence_breakdown && (
+      {resource.evidence?.confidence_breakdown && (
         <div className="rounded-lg border border-gray-200 p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence Score Breakdown</h3>
           <div className="space-y-4">
-            {Object.entries(resource.evidence.confidence_breakdown).map(([source, data]: [string, any]) => (
+            {Object.entries(resource.evidence?.confidence_breakdown || {}).map(([source, data]: [string, any]) => (
               <div key={source} className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -2430,14 +2434,14 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
         <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence</h3>
         <div className="flex items-center gap-4">
           <div className={`px-4 py-2 rounded-lg font-bold ${
-            resource.evidence.confidence === 'HIGH' ? 'bg-green-100 text-green-800' :
-            resource.evidence.confidence === 'MEDIUM' ? 'bg-orange-100 text-orange-800' :
+            resource.evidence?.confidence === 'HIGH' ? 'bg-green-100 text-green-800' :
+            resource.evidence?.confidence === 'MEDIUM' ? 'bg-orange-100 text-orange-800' :
             'bg-yellow-100 text-yellow-800'
           }`}>
-            {resource.evidence.confidence}
+            {resource.evidence?.confidence || 'UNKNOWN'}
           </div>
           <div className="text-sm text-gray-600">
-            Based on {resource.evidence.dataSources.length} data source(s) and {resource.evidence.observationDays} days of observation
+            Based on {(resource.evidence?.dataSources || []).length} data source(s) and {resource.evidence?.observationDays || 0} days of observation
           </div>
         </div>
       </div>
