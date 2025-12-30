@@ -1622,8 +1622,47 @@ function RulesTab({
   useEffect(() => {
     if (resource.resourceType === 'SecurityGroup') {
       console.log('[RulesTab] Security Group resource data:', resource)
+      console.log('[RulesTab] allowedList:', resource.allowedList)
       
-      // First try to use rule_states from evidence
+      // FIRST: Check if we have actual rules in allowedList from the backend
+      if (resource.allowedList && Array.isArray(resource.allowedList) && resource.allowedList.length > 0) {
+        console.log('[RulesTab] Using allowedList from backend:', resource.allowedList.length, 'rules')
+        
+        // Transform the backend format to the frontend RuleAnalysis format
+        const backendRules = resource.allowedList.map((rule: any, idx: number) => {
+          // Get the first source for display (rules can have multiple sources)
+          const sources = rule.sources || []
+          const firstSource = sources[0] || {}
+          const sourceDisplay = firstSource.cidr || firstSource.sgId || firstSource.prefixListId || 'Unknown'
+          
+          return {
+            rule_id: `rule_${idx}`,
+            direction: 'ingress' as const,
+            protocol: rule.protocol || 'TCP',
+            port_range: String(rule.port || 'All'),
+            source: sourceDisplay,
+            source_type: (firstSource.cidr ? 'cidr' : firstSource.sgId ? 'security_group' : 'prefix_list') as 'cidr' | 'security_group' | 'prefix_list',
+            is_public: rule.isPublic || false,
+            status: (rule.status === 'USED' ? 'USED' : rule.status === 'UNUSED' ? 'UNUSED' : 'OVERLY_BROAD') as 'USED' | 'UNUSED' | 'OVERLY_BROAD',
+            traffic: rule.traffic || { connection_count: 0, unique_sources: sources.length },
+            recommendation: { 
+              action: rule.status === 'USED' ? 'KEEP' : rule.isPublic ? 'RESTRICT' : 'DELETE', 
+              reason: rule.isPublic 
+                ? (rule.status === 'USED' ? 'Public access with active traffic' : 'Public internet access - restrict to specific CIDRs')
+                : (rule.status === 'USED' ? 'Active traffic observed' : 'No traffic observed'),
+              confidence: rule.status === 'USED' ? 95 : 80
+            },
+            // Store the full sources array for detailed display
+            all_sources: sources
+          }
+        })
+        
+        console.log('[RulesTab] Transformed', backendRules.length, 'rules from allowedList')
+        setRulesAnalysis(backendRules)
+        return
+      }
+      
+      // SECOND: Try to use rule_states from evidence (legacy format)
       if (resource.evidence?.rule_states?.length) {
         console.log('[RulesTab] Using rule_states from evidence:', resource.evidence.rule_states.length)
         const fallbackRules = resource.evidence.rule_states.map((rule: any, idx: number) => ({
@@ -1646,9 +1685,9 @@ function RulesTab({
         return
       }
       
-      // If no rule_states but we have networkExposure data, generate synthetic rules
+      // THIRD: Generate synthetic rules from networkExposure (fallback)
       if (resource.networkExposure) {
-        console.log('[RulesTab] Generating rules from networkExposure:', resource.networkExposure)
+        console.log('[RulesTab] Generating synthetic rules from networkExposure:', resource.networkExposure)
         const syntheticRules: RuleAnalysis[] = []
         const totalRules = resource.networkExposure.totalRules || 0
         const exposedRules = resource.networkExposure.internetExposedRules || 0
