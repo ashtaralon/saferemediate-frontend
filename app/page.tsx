@@ -71,39 +71,33 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   const fetchGapAnalysis = useCallback(() => {
-    // Fetch all findings and sum up IAM unused permissions
-    fetchWithTimeout("/api/proxy/findings", {}, 30000)
+    // Fetch from gap-analysis proxy which has real CloudTrail data
+    fetchWithTimeout("/api/proxy/gap-analysis?systemName=alon-prod", {}, 30000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
       })
-      .then((findingsJson) => {
-        const findings = findingsJson.findings || []
+      .then((gapJson) => {
+        // The proxy already transforms field names
+        const allowed = gapJson.allowed_actions || gapJson.allowed_count || 0
+        const used = gapJson.used_actions || gapJson.used_count || 0
+        const unused = gapJson.unused_actions || gapJson.unused_count || (allowed - used)
         
-        // Filter IAM unused permissions findings
-        const iamFindings = findings.filter((f: any) => f.type === "iam_unused_permissions")
+        // Get confidence from response or calculate
+        const confidence = gapJson.confidence?.score || gapJson.statistics?.confidence || 
+          (allowed > 0 ? Math.min(99, Math.max(70, 100 - (unused / allowed) * 20)) : 0)
         
-        // Sum up all unused permissions across all IAM roles
-        let totalAllowed = 0
-        let totalUnused = 0
-        let totalUsed = 0
+        // Get role name from response
+        const roleName = gapJson.role_name || gapJson.roleName || "SafeRemediate-Lambda-Remediation-Role"
         
-        iamFindings.forEach((finding: any) => {
-          totalAllowed += finding.allowed_actions?.length || 0
-          totalUnused += finding.unused_count || 0
-          totalUsed += finding.observed_actions?.length || 0
-        })
-        
-        // Calculate confidence based on data quality
-        // Higher confidence when we have more observation data
-        const confidence = totalAllowed > 0 ? Math.min(95, Math.max(70, 100 - (totalUnused / totalAllowed) * 20)) : 0
+        console.log(`[Home] Gap Analysis: allowed=${allowed}, used=${used}, unused=${unused}, confidence=${confidence}`)
         
         setGapData({
-          allowed: totalAllowed,
-          used: totalUsed,
-          unused: totalUnused,
-          confidence: confidence,
-          roleName: `${iamFindings.length} IAM Role${iamFindings.length !== 1 ? 's' : ''}`,
+          allowed: allowed,
+          used: used,
+          unused: unused,
+          confidence: Math.round(confidence),
+          roleName: roleName,
         })
         setLastRefresh(new Date())
       })
