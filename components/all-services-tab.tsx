@@ -138,46 +138,71 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const fetchServices = async () => {
     setLoading(true)
     try {
-      // Use proxy route to avoid CORS issues
-      const response = await fetch("/api/proxy/graph-data")
+      // Fetch from least-privilege issues endpoint (has all resources)
+      const lpResponse = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
+      
+      if (!lpResponse.ok) throw new Error("Failed to fetch services")
+      
+      const lpData = await lpResponse.json()
+      const resources = lpData.resources || []
+      
+      // Also try to fetch extended resources
+      let extendedResources: any[] = []
+      try {
+        const extResponse = await fetch('/api/proxy/resources/all?regions=eu-west-1')
+        if (extResponse.ok) {
+          const extData = await extResponse.json()
+          // Flatten all resource types
+          const resourceTypes = ['lambda_functions', 'rds_instances', 'dynamodb_tables', 'ecs_clusters', 'ecs_services']
+          resourceTypes.forEach(type => {
+            if (extData.resources?.[type]) {
+              extendedResources = [...extendedResources, ...extData.resources[type]]
+            }
+          })
+        }
+      } catch (e) {
+        console.warn('Extended resources fetch failed:', e)
+      }
 
-      if (!response.ok) throw new Error("Failed to fetch services")
+      // Map LP resources
+      const lpMapped: ServiceNode[] = resources.map((r: any) => ({
+        id: r.resourceArn || r.resourceName || Math.random().toString(),
+        name: r.resourceName || "Unknown",
+        type: r.resourceType || "Unknown",
+        systemName: r.systemName || systemName || "Ungrouped",
+        environment: r.environment || "Production",
+        region: r.evidence?.coverage?.regions?.[0] || "eu-west-1",
+        status: "Active",
+        lastSeen: new Date().toISOString(),
+        properties: r.evidence || {},
+        attachedPolicies: r.resourceType === 'IAMRole' ? (r.allowedCount || 0) : 0,
+        permissionCount: r.allowedCount || 0,
+        instanceState: "running",
+      }))
+      
+      // Map extended resources
+      const extMapped: ServiceNode[] = extendedResources.map((r: any) => ({
+        id: r.arn || r.id || r.name || Math.random().toString(),
+        name: r.name || r.id || "Unknown",
+        type: r.type || (r.runtime ? 'Lambda' : r.engine ? 'RDS' : 'Unknown'),
+        systemName: systemName || "Ungrouped",
+        environment: "Production",
+        region: r.region || "eu-west-1",
+        status: r.status || r.state || "Active",
+        lastSeen: r.last_modified || new Date().toISOString(),
+        properties: r,
+        attachedPolicies: 0,
+        permissionCount: 0,
+        instanceState: r.status || r.state || "running",
+      }))
+      
+      // Combine and dedupe by id
+      const allServices = [...lpMapped, ...extMapped]
+      const uniqueServices = allServices.filter((service, index, self) =>
+        index === self.findIndex(s => s.id === service.id)
+      )
 
-      const data = await response.json()
-      const nodes = data.nodes || data || []
-
-      const mapped: ServiceNode[] = nodes
-        .map((node: any) => ({
-          id: node.id || node.properties?.id || Math.random().toString(),
-          name: node.name || node.properties?.name || node.properties?.arn?.split("/").pop() || "Unknown",
-          type: node.type || node.label || "Unknown",
-          systemName:
-            node.systemName ||
-            node.properties?.SystemName ||
-            node.properties?.systemName ||
-            node.tags?.SystemName ||
-            "Ungrouped",
-          environment: node.properties?.Environment || node.tags?.Environment || "Production",
-          region: node.properties?.region || node.properties?.Region || "eu-west-1",
-          status: node.properties?.status || node.properties?.State || "Active",
-          lastSeen: node.properties?.updated_at || node.properties?.lastSeen || new Date().toISOString(),
-          properties: node.properties || {},
-          // IAM specific
-          attachedPolicies: node.properties?.attachedPoliciesCount || node.properties?.attached_policies_count || node.properties?.PolicyCount || 0,
-          permissionCount: node.properties?.action_count || node.properties?.permission_count || 0,
-          // Compute specific
-          instanceState: node.properties?.State || node.properties?.state || "running",
-        }))
-        // Filter by systemName - only show services for the current system
-        .filter((service) => {
-          if (!systemName) return true
-          return (
-            service.systemName?.toLowerCase() === systemName.toLowerCase() ||
-            service.systemName === "Ungrouped"
-          )
-        })
-
-      setServices(mapped)
+      setServices(uniqueServices)
     } catch (error) {
       console.error("Failed to fetch services:", error)
       setServices([])
@@ -188,11 +213,28 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
   const fetchGapData = async () => {
     try {
-      // Use proxy endpoint for IAM gap analysis
-      const response = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`)
+      // Calculate gap data from LP issues
+      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
       if (response.ok) {
         const data = await response.json()
-        setGapData(data)
+        const resources = data.resources || []
+        
+        // Calculate totals from all resources
+        let allowed = 0
+        let used = 0
+        let unused = 0
+        
+        resources.forEach((r: any) => {
+          allowed += r.allowedCount || 0
+          used += r.usedCount || 0
+          unused += r.gapCount || 0
+        })
+        
+        setGapData({
+          allowed_actions: allowed,
+          used_actions: used,
+          unused_actions: unused
+        })
       }
     } catch (error) {
       console.error("Failed to fetch gap data:", error)
