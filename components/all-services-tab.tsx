@@ -272,8 +272,16 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         resources.forEach((r: any) => {
           allowed += r.allowedCount || 0
           used += r.usedCount || 0
-          unused += r.gapCount || 0
+          // Check multiple field names for unused count
+          unused += r.gapCount || r.unusedCount || r.unused_count || 0
         })
+        
+        // If unused is still 0 but we have allowed and used, calculate it
+        if (unused === 0 && allowed > 0 && used >= 0) {
+          unused = allowed - used
+        }
+        
+        console.log(`[GapData] allowed=${allowed}, used=${used}, unused=${unused}`)
         
         setGapData({
           allowed_actions: allowed,
