@@ -22,6 +22,13 @@ export async function GET(
   
   const cacheKey = `${roleName}-${days}`
   const now = Date.now()
+  
+  // If force refresh, delete the cached entry first
+  if (forceRefresh) {
+    console.log(`[IAM Proxy] Force refresh - clearing cache for ${roleName}`)
+    iamCache.delete(cacheKey)
+  }
+  
   const cached = iamCache.get(cacheKey)
   
   // Return cached if valid and not forcing refresh
