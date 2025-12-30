@@ -55,7 +55,24 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json()
-    return NextResponse.json(data)
+    
+    // Transform field names: backend uses snake_case, frontend expects different names
+    // Backend: allowed_count, used_count, unused_count
+    // Frontend: allowed_actions, used_actions, unused_actions
+    const transformed = {
+      ...data,
+      // Map the field names
+      allowed_actions: data.allowed_count ?? data.summary?.allowed_count ?? data.allowedCount ?? 0,
+      used_actions: data.used_count ?? data.summary?.used_count ?? data.usedCount ?? 0,
+      unused_actions: data.unused_count ?? data.summary?.unused_count ?? data.unusedCount ?? 
+        ((data.allowed_count ?? data.summary?.allowed_count ?? 0) - (data.used_count ?? data.summary?.used_count ?? 0)),
+      // Also keep original fields for backwards compatibility
+      allowed_count: data.allowed_count ?? data.summary?.allowed_count ?? 0,
+      used_count: data.used_count ?? data.summary?.used_count ?? 0,
+      unused_count: data.unused_count ?? data.summary?.unused_count ?? 0,
+    }
+    
+    return NextResponse.json(transformed)
   } catch (error: any) {
     clearTimeout(timeoutId)
 
