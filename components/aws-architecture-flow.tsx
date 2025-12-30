@@ -1,159 +1,242 @@
 'use client'
 
-import React, { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { 
-  Globe, Shield, Database, Server, Cloud, Lock, AlertTriangle, 
-  CheckCircle, RefreshCw, Play, Pause, Zap, Activity, Clock,
-  HardDrive, Layers, Settings, Eye, ChevronRight, X, ExternalLink,
-  Cpu, Box, Key, FileText, Network, Radio
+  RefreshCw, Play, Pause, Maximize2, ZoomIn, ZoomOut,
+  Activity, Clock, ArrowRight, ChevronRight
 } from 'lucide-react'
 
-// Service type icons and colors
-const SERVICE_CONFIG: Record<string, { icon: React.ReactNode; color: string; category: string }> = {
-  // Compute
-  EC2: { icon: <Server className="w-5 h-5" />, color: '#FF9900', category: 'compute' },
-  Lambda: { icon: <Zap className="w-5 h-5" />, color: '#FF9900', category: 'compute' },
-  ECS: { icon: <Box className="w-5 h-5" />, color: '#FF9900', category: 'compute' },
-  EKS: { icon: <Box className="w-5 h-5" />, color: '#FF9900', category: 'compute' },
-  
-  // Database
-  RDS: { icon: <Database className="w-5 h-5" />, color: '#3B48CC', category: 'database' },
-  DynamoDB: { icon: <Database className="w-5 h-5" />, color: '#3B48CC', category: 'database' },
-  Aurora: { icon: <Database className="w-5 h-5" />, color: '#3B48CC', category: 'database' },
-  ElastiCache: { icon: <Database className="w-5 h-5" />, color: '#3B48CC', category: 'database' },
-  
-  // Storage
-  S3: { icon: <HardDrive className="w-5 h-5" />, color: '#3F8624', category: 'storage' },
-  EFS: { icon: <HardDrive className="w-5 h-5" />, color: '#3F8624', category: 'storage' },
-  
-  // Networking
-  ALB: { icon: <Network className="w-5 h-5" />, color: '#8C4FFF', category: 'networking' },
-  NLB: { icon: <Network className="w-5 h-5" />, color: '#8C4FFF', category: 'networking' },
-  CloudFront: { icon: <Globe className="w-5 h-5" />, color: '#8C4FFF', category: 'networking' },
-  APIGateway: { icon: <Radio className="w-5 h-5" />, color: '#8C4FFF', category: 'networking' },
-  VPC: { icon: <Cloud className="w-5 h-5" />, color: '#8C4FFF', category: 'networking' },
-  
-  // Security
-  IAM: { icon: <Key className="w-5 h-5" />, color: '#DD344C', category: 'security' },
-  KMS: { icon: <Lock className="w-5 h-5" />, color: '#DD344C', category: 'security' },
-  WAF: { icon: <Shield className="w-5 h-5" />, color: '#DD344C', category: 'security' },
-  SecurityGroup: { icon: <Shield className="w-5 h-5" />, color: '#DD344C', category: 'security' },
-  
-  // Integration
-  SQS: { icon: <FileText className="w-5 h-5" />, color: '#FF4F8B', category: 'integration' },
-  SNS: { icon: <Radio className="w-5 h-5" />, color: '#FF4F8B', category: 'integration' },
-  EventBridge: { icon: <Zap className="w-5 h-5" />, color: '#FF4F8B', category: 'integration' },
-  StepFunctions: { icon: <Activity className="w-5 h-5" />, color: '#FF4F8B', category: 'integration' },
-  
-  // External
-  Internet: { icon: <Globe className="w-5 h-5" />, color: '#1a1a2e', category: 'external' },
-  External: { icon: <ExternalLink className="w-5 h-5" />, color: '#6b7280', category: 'external' },
-  
-  // Default
-  default: { icon: <Cpu className="w-5 h-5" />, color: '#64748b', category: 'other' }
-}
-
-const CATEGORY_COLORS = {
-  compute: { bg: 'rgba(255, 153, 0, 0.1)', border: '#FF9900' },
-  database: { bg: 'rgba(59, 72, 204, 0.1)', border: '#3B48CC' },
-  storage: { bg: 'rgba(63, 134, 36, 0.1)', border: '#3F8624' },
-  networking: { bg: 'rgba(140, 79, 255, 0.1)', border: '#8C4FFF' },
-  security: { bg: 'rgba(221, 52, 76, 0.1)', border: '#DD344C' },
-  integration: { bg: 'rgba(255, 79, 139, 0.1)', border: '#FF4F8B' },
-  external: { bg: 'rgba(26, 26, 46, 0.1)', border: '#1a1a2e' },
-  other: { bg: 'rgba(100, 116, 139, 0.1)', border: '#64748b' }
-}
+// ============================================================================
+// AWS Architecture Flow Visualization
+// Real-time data flow diagram with animated particles
+// ============================================================================
 
 interface ArchNode {
   id: string
   name: string
   type: string
   category: string
-  status: 'healthy' | 'warning' | 'error' | 'unknown'
-  x: number
-  y: number
-  zone?: string
-  vpc?: string
-  az?: string
-  metrics?: {
-    cpu?: number
-    memory?: number
-    connections?: number
-    latency?: number
-  }
-  details?: Record<string, any>
+  status?: string
+  connections?: number
+  throughput?: number
+  layer?: number
+  x?: number
+  y?: number
 }
 
 interface ArchEdge {
-  id: string
   source: string
   target: string
-  protocol?: string
-  port?: string
-  latency?: number
-  bandwidth?: string
-  status: 'active' | 'idle' | 'error'
-}
-
-interface ArchZone {
-  id: string
-  name: string
-  type: 'vpc' | 'subnet' | 'az' | 'region'
-  x: number
-  y: number
-  width: number
-  height: number
-  children: string[]
+  type: string
+  isActual?: boolean
+  throughput?: number
 }
 
 interface Props {
   systemName: string
 }
 
+// Category colors and styles
+const CATEGORY_STYLES: Record<string, { bg: string; border: string; text: string; fill: string }> = {
+  Edge: { bg: '#06b6d450', border: '#06b6d4', text: '#06b6d4', fill: '#0891b2' },
+  Networking: { bg: '#8b5cf650', border: '#8b5cf6', text: '#8b5cf6', fill: '#7c3aed' },
+  Security: { bg: '#ef444450', border: '#ef4444', text: '#ef4444', fill: '#dc2626' },
+  Compute: { bg: '#f59e0b50', border: '#f59e0b', text: '#f59e0b', fill: '#d97706' },
+  Database: { bg: '#3b82f650', border: '#3b82f6', text: '#3b82f6', fill: '#2563eb' },
+  Storage: { bg: '#22c55e50', border: '#22c55e', text: '#22c55e', fill: '#16a34a' },
+  Integration: { bg: '#ec489950', border: '#ec4899', text: '#ec4899', fill: '#db2777' },
+  Management: { bg: '#6b728050', border: '#6b7280', text: '#6b7280', fill: '#4b5563' },
+}
+
+// Service icons as simple SVG components
+const ServiceIcon = ({ type, size = 24 }: { type: string; size?: number }) => {
+  const iconStyle = { width: size, height: size }
+  
+  switch (type) {
+    case 'CloudFront':
+    case 'CloudFrontDistribution':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" fill="#06b6d4" opacity="0.3"/>
+          <circle cx="12" cy="12" r="5" stroke="#06b6d4" strokeWidth="1.5" fill="none"/>
+          <circle cx="12" cy="12" r="2" fill="#06b6d4"/>
+        </svg>
+      )
+    case 'LoadBalancer':
+    case 'ALB':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="2" y="8" width="20" height="8" rx="2" fill="#8b5cf6" opacity="0.3"/>
+          <path d="M6 11h12M6 13h12" stroke="#8b5cf6" strokeWidth="1.5"/>
+        </svg>
+      )
+    case 'EC2':
+    case 'EC2Instance':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="4" y="4" width="16" height="16" rx="2" fill="#f59e0b" opacity="0.3"/>
+          <rect x="7" y="7" width="10" height="10" rx="1" fill="#f59e0b"/>
+        </svg>
+      )
+    case 'Lambda':
+    case 'LambdaFunction':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <path d="M12 3L4 19h16L12 3z" fill="#f59e0b" opacity="0.3"/>
+          <text x="12" y="15" textAnchor="middle" fill="#f59e0b" fontSize="8" fontWeight="bold">λ</text>
+        </svg>
+      )
+    case 'RDS':
+    case 'RDSInstance':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <ellipse cx="12" cy="7" rx="8" ry="3" fill="#3b82f6" opacity="0.3"/>
+          <path d="M4 7v10c0 1.5 3.58 3 8 3s8-1.5 8-3V7" stroke="#3b82f6" strokeWidth="1.5" fill="none"/>
+        </svg>
+      )
+    case 'DynamoDB':
+    case 'DynamoDBTable':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="5" y="5" width="14" height="14" rx="2" fill="#3b82f6" opacity="0.3"/>
+          <path d="M8 9h8M8 12h8M8 15h8" stroke="#3b82f6" strokeWidth="1.5"/>
+        </svg>
+      )
+    case 'S3':
+    case 'S3Bucket':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <path d="M12 3L4 8v8l8 5 8-5V8l-8-5z" fill="#22c55e" opacity="0.3"/>
+          <path d="M12 3L4 8v8l8 5 8-5V8l-8-5z" stroke="#22c55e" strokeWidth="1.5" fill="none"/>
+        </svg>
+      )
+    case 'SecurityGroup':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <path d="M12 3L4 7v6c0 4.5 3.5 9 8 11 4.5-2 8-6.5 8-11V7l-8-4z" fill="#22c55e" opacity="0.3"/>
+          <path d="M12 3L4 7v6c0 4.5 3.5 9 8 11 4.5-2 8-6.5 8-11V7l-8-4z" stroke="#22c55e" strokeWidth="1.5" fill="none"/>
+        </svg>
+      )
+    case 'IAMRole':
+    case 'IAM':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="8" r="4" fill="#ef4444" opacity="0.3"/>
+          <path d="M6 19c0-3 3-5 6-5s6 2 6 5" fill="#ef4444" opacity="0.3"/>
+        </svg>
+      )
+    case 'KMSKey':
+    case 'KMS':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="8" r="4" stroke="#eab308" strokeWidth="2" fill="none"/>
+          <rect x="10" y="12" width="4" height="7" fill="#eab308"/>
+        </svg>
+      )
+    case 'SQS':
+    case 'SQSQueue':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="3" y="7" width="18" height="10" rx="2" fill="#ec4899" opacity="0.3"/>
+          <rect x="5" y="9" width="4" height="6" fill="#ec4899"/>
+          <rect x="10" y="9" width="4" height="6" fill="#ec4899" opacity="0.7"/>
+          <rect x="15" y="9" width="4" height="6" fill="#ec4899" opacity="0.4"/>
+        </svg>
+      )
+    case 'SNS':
+    case 'SNSTopic':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="8" fill="#ec4899" opacity="0.3"/>
+          <circle cx="12" cy="12" r="3" fill="#ec4899"/>
+        </svg>
+      )
+    case 'ECSCluster':
+    case 'ECS':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="4" y="4" width="7" height="7" rx="1" fill="#f59e0b" opacity="0.3"/>
+          <rect x="13" y="4" width="7" height="7" rx="1" fill="#f59e0b" opacity="0.3"/>
+          <rect x="4" y="13" width="7" height="7" rx="1" fill="#f59e0b" opacity="0.3"/>
+          <rect x="13" y="13" width="7" height="7" rx="1" fill="#f59e0b"/>
+        </svg>
+      )
+    case 'LogGroup':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="5" y="4" width="14" height="16" rx="2" fill="#6b7280" opacity="0.3"/>
+          <path d="M8 8h8M8 11h8M8 14h5" stroke="#6b7280" strokeWidth="1.5"/>
+        </svg>
+      )
+    case 'VPCEndpoint':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="8" fill="#8b5cf6" opacity="0.3"/>
+          <circle cx="12" cy="12" r="3" stroke="#8b5cf6" strokeWidth="2" fill="none"/>
+        </svg>
+      )
+    case 'NATGateway':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="8" fill="#8b5cf6" opacity="0.3"/>
+          <path d="M8 12h8M12 8v8" stroke="#8b5cf6" strokeWidth="2"/>
+        </svg>
+      )
+    case 'InternetGateway':
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="9" fill="#06b6d4" opacity="0.3"/>
+          <path d="M12 3v4m0 10v4m-9-9h4m10 0h4" stroke="#06b6d4" strokeWidth="2"/>
+        </svg>
+      )
+    default:
+      return (
+        <svg {...iconStyle} viewBox="0 0 24 24" fill="none">
+          <rect x="4" y="4" width="16" height="16" rx="3" fill="#6b7280" opacity="0.3"/>
+          <circle cx="12" cy="12" r="4" fill="#6b7280"/>
+        </svg>
+      )
+  }
+}
+
+// Layer configuration for vertical positioning
+const LAYER_CONFIG: Record<string, number> = {
+  Edge: 60,
+  Security: 150,
+  Networking: 240,
+  Compute: 340,
+  Integration: 440,
+  Database: 540,
+  Storage: 540,
+  Management: 640,
+}
+
 export default function AWSArchitectureFlow({ systemName }: Props) {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [nodes, setNodes] = useState<ArchNode[]>([])
   const [edges, setEdges] = useState<ArchEdge[]>([])
-  const [zones, setZones] = useState<ArchZone[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isPaused, setIsPaused] = useState(false)
+  const [showParticles, setShowParticles] = useState(true)
   const [selectedNode, setSelectedNode] = useState<ArchNode | null>(null)
-  const [isPlaying, setIsPlaying] = useState(true)
-  const [showFlows, setShowFlows] = useState(true)
+  const [zoom, setZoom] = useState(1)
   const [metrics, setMetrics] = useState({
-    requests: 30842,
-    latency: 12.5,
-    flows: 0,
-    throughput: 2.4
+    totalNodes: 0,
+    totalEdges: 0,
+    activeFlows: 0,
+    totalThroughput: 0,
   })
+  
   const svgRef = useRef<SVGSVGElement>(null)
   const animationRef = useRef<number>(0)
 
-  useEffect(() => {
-    fetchArchitecture()
-  }, [systemName])
-
-  // Animate metrics
-  useEffect(() => {
-    if (!isPlaying) return
-    
-    const interval = setInterval(() => {
-      setMetrics(prev => ({
-        requests: prev.requests + Math.floor(Math.random() * 500 - 200),
-        latency: Math.max(5, Math.min(50, prev.latency + (Math.random() - 0.5) * 3)),
-        flows: edges.filter(e => e.status === 'active').length,
-        throughput: Math.max(1, prev.throughput + (Math.random() - 0.5) * 0.3)
-      }))
-    }, 1000)
-    
-    return () => clearInterval(interval)
-  }, [isPlaying, edges])
-
-  const fetchArchitecture = async () => {
+  // Fetch architecture data
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     
     try {
-      // Fetch from LP issues for real data
+      // Fetch from LP issues to get all resources
       const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
       
       if (!response.ok) {
@@ -161,637 +244,448 @@ export default function AWSArchitectureFlow({ systemName }: Props) {
       }
       
       const data = await response.json()
-      buildArchitecture(data.resources || [])
+      const resources = data.resources || []
+      
+      // Build nodes from resources
+      const categoryMap: Record<string, string> = {
+        IAMRole: 'Security',
+        SecurityGroup: 'Networking',
+        S3Bucket: 'Storage',
+        Lambda: 'Compute',
+        LambdaFunction: 'Compute',
+        EC2: 'Compute',
+        RDS: 'Database',
+        DynamoDB: 'Database',
+      }
+      
+      // Count by category for x positioning
+      const categoryCount: Record<string, number> = {}
+      
+      const builtNodes: ArchNode[] = resources.map((r: any, idx: number) => {
+        const category = categoryMap[r.resourceType] || 'Management'
+        categoryCount[category] = (categoryCount[category] || 0) + 1
+        
+        const layer = LAYER_CONFIG[category] || 500
+        const xOffset = categoryCount[category] * 160
+        
+        return {
+          id: r.resourceArn || r.resourceName,
+          name: r.resourceName,
+          type: r.resourceType,
+          category,
+          status: 'active',
+          connections: r.usedCount || 0,
+          throughput: (r.usedCount || 0) * 100,
+          layer,
+          x: 100 + xOffset,
+          y: layer,
+        }
+      })
+      
+      // Build edges from SG rules and relationships
+      const builtEdges: ArchEdge[] = []
+      
+      resources.forEach((r: any) => {
+        if (r.resourceType === 'SecurityGroup') {
+          // Parse SG rules for connections
+          const rules = r.allowedList || []
+          rules.forEach((rule: any) => {
+            if (rule.source && rule.source.startsWith('sg-')) {
+              builtEdges.push({
+                source: rule.source,
+                target: r.resourceName,
+                type: 'ALLOWS_TRAFFIC',
+                isActual: true,
+                throughput: 1000,
+              })
+            }
+          })
+        }
+        
+        // Create assumed role connections for IAM
+        if (r.resourceType === 'IAMRole' && r.usedCount > 0) {
+          // Link to random compute node
+          const computeNodes = builtNodes.filter(n => n.category === 'Compute')
+          if (computeNodes.length > 0) {
+            builtEdges.push({
+              source: computeNodes[0].id,
+              target: r.resourceArn || r.resourceName,
+              type: 'ASSUMES_ROLE',
+              isActual: true,
+              throughput: r.usedCount * 50,
+            })
+          }
+        }
+      })
+      
+      setNodes(builtNodes)
+      setEdges(builtEdges)
+      setMetrics({
+        totalNodes: builtNodes.length,
+        totalEdges: builtEdges.length,
+        activeFlows: builtEdges.filter(e => e.isActual).length,
+        totalThroughput: builtEdges.reduce((sum, e) => sum + (e.throughput || 0), 0),
+      })
       
     } catch (err: any) {
-      console.error('Failed to fetch architecture:', err)
+      console.error('Error fetching architecture:', err)
       setError(err.message)
-      // Build demo architecture
-      buildDemoArchitecture()
     } finally {
       setLoading(false)
     }
-  }
+  }, [systemName])
 
-  const buildArchitecture = (resources: any[]) => {
-    const archNodes: ArchNode[] = []
-    const archEdges: ArchEdge[] = []
-    const archZones: ArchZone[] = []
+  useEffect(() => {
+    fetchData()
     
-    // Layout constants
-    const WIDTH = 1400
-    const HEIGHT = 900
-    const TIER_Y = {
-      internet: 60,
-      edge: 180,
-      app: 380,
-      data: 580,
-      storage: 750
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchData, 30000)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
+  // Get node position
+  const getNodePosition = (nodeId: string): { x: number; y: number } => {
+    const node = nodes.find(n => n.id === nodeId || n.name === nodeId)
+    if (node) {
+      return { x: node.x || 200, y: node.y || 200 }
     }
-    
-    // Group resources by type
-    const iamRoles = resources.filter(r => r.resourceType === 'IAMRole')
-    const sgs = resources.filter(r => r.resourceType === 'SecurityGroup')
-    const s3Buckets = resources.filter(r => r.resourceType === 'S3Bucket')
-    
-    // Categorize SGs
-    const publicSgs = sgs.filter(sg => (sg.networkExposure?.internetExposedRules || 0) > 0)
-    const appSgs = sgs.filter(sg => 
-      (sg.networkExposure?.internetExposedRules || 0) === 0 &&
-      !sg.resourceName.toLowerCase().includes('db')
-    )
-    const dbSgs = sgs.filter(sg => sg.resourceName.toLowerCase().includes('db'))
-    
-    // Add Internet node if there's public exposure
-    if (publicSgs.length > 0) {
-      archNodes.push({
-        id: 'internet',
-        name: 'Internet',
-        type: 'Internet',
-        category: 'external',
-        status: 'healthy',
-        x: WIDTH / 2,
-        y: TIER_Y.internet
-      })
-    }
-    
-    // Add VPC zone
-    archZones.push({
-      id: 'vpc-main',
-      name: 'Production VPC (10.0.0.0/16)',
-      type: 'vpc',
-      x: 100,
-      y: TIER_Y.edge - 30,
-      width: WIDTH - 200,
-      height: TIER_Y.storage - TIER_Y.edge + 100,
-      children: []
-    })
-    
-    // Add public-facing SGs (ALB tier)
-    publicSgs.forEach((sg, i) => {
-      const spacing = (WIDTH - 400) / Math.max(publicSgs.length, 1)
-      archNodes.push({
-        id: sg.resourceName,
-        name: sg.resourceName.replace('saferemediate-test-', ''),
-        type: 'ALB',
-        category: 'networking',
-        status: 'healthy',
-        x: 250 + i * spacing,
-        y: TIER_Y.edge,
-        zone: 'vpc-main',
-        details: {
-          totalRules: sg.networkExposure?.totalRules || 0,
-          publicRules: sg.networkExposure?.internetExposedRules || 0
-        }
-      })
-      
-      // Add edge from internet
-      archEdges.push({
-        id: `internet-${sg.resourceName}`,
-        source: 'internet',
-        target: sg.resourceName,
-        protocol: 'HTTPS',
-        port: '443',
-        latency: 45,
-        status: 'active'
-      })
-    })
-    
-    // Add app tier SGs
-    appSgs.forEach((sg, i) => {
-      const spacing = (WIDTH - 400) / Math.max(appSgs.length, 1)
-      archNodes.push({
-        id: sg.resourceName,
-        name: sg.resourceName.replace('saferemediate-test-', ''),
-        type: 'EC2',
-        category: 'compute',
-        status: 'healthy',
-        x: 250 + i * spacing,
-        y: TIER_Y.app,
-        zone: 'vpc-main',
-        details: {
-          instanceType: 't3.medium',
-          totalRules: sg.networkExposure?.totalRules || 0
-        }
-      })
-    })
-    
-    // Add database tier SGs
-    dbSgs.forEach((sg, i) => {
-      const spacing = (WIDTH - 400) / Math.max(dbSgs.length, 1)
-      archNodes.push({
-        id: sg.resourceName,
-        name: sg.resourceName.replace('saferemediate-test-', ''),
-        type: 'RDS',
-        category: 'database',
-        status: 'healthy',
-        x: 300 + i * spacing,
-        y: TIER_Y.data,
-        zone: 'vpc-main',
-        details: {
-          engine: 'PostgreSQL',
-          port: 5432
-        }
-      })
-    })
-    
-    // Add S3 buckets
-    s3Buckets.slice(0, 4).forEach((s3, i) => {
-      archNodes.push({
-        id: s3.resourceName,
-        name: s3.resourceName.split('-')[1] || 'S3',
-        type: 'S3',
-        category: 'storage',
-        status: 'healthy',
-        x: 200 + i * 200,
-        y: TIER_Y.storage,
-        details: {
-          lpScore: s3.lpScore,
-          region: s3.evidence?.coverage?.regions?.[0] || 'eu-west-1'
-        }
-      })
-    })
-    
-    // Add IAM roles (sidebar)
-    iamRoles.slice(0, 8).forEach((iam, i) => {
-      archNodes.push({
-        id: iam.resourceName,
-        name: iam.resourceName.replace('SafeRemediate-', '').replace('AWSServiceRoleFor', ''),
-        type: 'IAM',
-        category: 'security',
-        status: 'healthy',
-        x: WIDTH - 120,
-        y: 150 + i * 80,
-        details: {
-          usedCount: iam.usedCount,
-          lpScore: iam.lpScore
-        }
-      })
-    })
-    
-    // Build edges from SG rules
-    sgs.forEach(sg => {
-      const rules = sg.allowedList || []
-      rules.forEach((rule: any) => {
-        const sources = rule.sources || []
-        sources.forEach((source: any) => {
-          if (source.sgId || source.sgName) {
-            const sourceName = source.sgName || source.sgId
-            const sourceNode = archNodes.find(n => n.id.includes(sourceName) || sourceName.includes(n.id))
-            if (sourceNode) {
-              archEdges.push({
-                id: `${sourceNode.id}-${sg.resourceName}-${rule.port || 'all'}`,
-                source: sourceNode.id,
-                target: sg.resourceName,
-                protocol: rule.protocol || 'TCP',
-                port: rule.port || '*',
-                latency: Math.floor(Math.random() * 10) + 1,
-                status: 'active'
-              })
-            }
-          }
-        })
-      })
-    })
-    
-    setNodes(archNodes)
-    setEdges(archEdges)
-    setZones(archZones)
-    setMetrics(prev => ({ ...prev, flows: archEdges.length }))
+    return { x: 200, y: 200 }
   }
 
-  const buildDemoArchitecture = () => {
-    // Demo architecture if API fails
-    const demoNodes: ArchNode[] = [
-      { id: 'internet', name: 'Internet', type: 'Internet', category: 'external', status: 'healthy', x: 700, y: 60 },
-      { id: 'waf', name: 'WAF WebACL', type: 'WAF', category: 'security', status: 'healthy', x: 700, y: 160 },
-      { id: 'alb', name: 'Application LB', type: 'ALB', category: 'networking', status: 'healthy', x: 700, y: 280 },
-      { id: 'app1', name: 'App Server 1', type: 'EC2', category: 'compute', status: 'healthy', x: 450, y: 420 },
-      { id: 'app2', name: 'App Server 2', type: 'EC2', category: 'compute', status: 'healthy', x: 950, y: 420 },
-      { id: 'lambda', name: 'API Handler', type: 'Lambda', category: 'compute', status: 'healthy', x: 700, y: 420 },
-      { id: 'rds', name: 'Primary DB', type: 'RDS', category: 'database', status: 'healthy', x: 450, y: 580 },
-      { id: 'dynamo', name: 'Sessions', type: 'DynamoDB', category: 'database', status: 'healthy', x: 700, y: 580 },
-      { id: 'aurora', name: 'Read Replica', type: 'Aurora', category: 'database', status: 'healthy', x: 950, y: 580 },
-      { id: 's3-logs', name: 'Logs', type: 'S3', category: 'storage', status: 'healthy', x: 300, y: 720 },
-      { id: 's3-data', name: 'Data Lake', type: 'S3', category: 'storage', status: 'healthy', x: 550, y: 720 },
-    ]
-    
-    const demoEdges: ArchEdge[] = [
-      { id: 'e1', source: 'internet', target: 'waf', protocol: 'HTTPS', port: '443', latency: 5, status: 'active' },
-      { id: 'e2', source: 'waf', target: 'alb', protocol: 'HTTPS', port: '443', latency: 2, status: 'active' },
-      { id: 'e3', source: 'alb', target: 'app1', protocol: 'HTTP', port: '8080', latency: 3, status: 'active' },
-      { id: 'e4', source: 'alb', target: 'app2', protocol: 'HTTP', port: '8080', latency: 3, status: 'active' },
-      { id: 'e5', source: 'alb', target: 'lambda', protocol: 'HTTP', port: '443', latency: 10, status: 'active' },
-      { id: 'e6', source: 'app1', target: 'rds', protocol: 'TCP', port: '5432', latency: 1, status: 'active' },
-      { id: 'e7', source: 'app2', target: 'aurora', protocol: 'TCP', port: '5432', latency: 1, status: 'active' },
-      { id: 'e8', source: 'lambda', target: 'dynamo', protocol: 'HTTPS', port: '443', latency: 5, status: 'active' },
-      { id: 'e9', source: 'rds', target: 'aurora', protocol: 'TCP', port: '5432', latency: 10, status: 'active' },
-      { id: 'e10', source: 'app1', target: 's3-logs', protocol: 'HTTPS', port: '443', latency: 15, status: 'active' },
-    ]
-    
-    const demoZones: ArchZone[] = [
-      { id: 'vpc-main', name: 'Production VPC (10.0.0.0/16)', type: 'vpc', x: 100, y: 230, width: 1200, height: 550, children: [] }
-    ]
-    
-    setNodes(demoNodes)
-    setEdges(demoEdges)
-    setZones(demoZones)
-  }
-
-  const getServiceConfig = (type: string) => {
-    return SERVICE_CONFIG[type] || SERVICE_CONFIG.default
-  }
-
-  const getPath = (source: string, target: string) => {
-    const sourceNode = nodes.find(n => n.id === source)
-    const targetNode = nodes.find(n => n.id === target)
-    if (!sourceNode || !targetNode) return ''
-    
-    const dx = targetNode.x - sourceNode.x
-    const dy = targetNode.y - sourceNode.y
-    const midX = sourceNode.x + dx / 2
-    const midY = sourceNode.y + dy / 2
-    const curve = Math.min(Math.abs(dx) * 0.3, 80)
-    
-    return `M ${sourceNode.x} ${sourceNode.y + 40} Q ${midX} ${midY + curve} ${targetNode.x} ${targetNode.y - 40}`
-  }
+  // Get style for category
+  const getStyle = (category: string) => CATEGORY_STYLES[category] || CATEGORY_STYLES.Management
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[900px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-2xl">
+      <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
         <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <RefreshCw className="w-12 h-12 text-purple-400 animate-spin" />
-            <div className="absolute inset-0 blur-xl bg-purple-500/30 animate-pulse" />
-          </div>
-          <span className="text-white text-lg font-medium">Building Architecture View...</span>
-          <span className="text-slate-400 text-sm">Fetching real-time AWS data</span>
+          <RefreshCw className="w-10 h-10 text-violet-500 animate-spin" />
+          <span className="text-slate-400">Loading Architecture...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">{error}</p>
+          <button
+            onClick={fetchData}
+            className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+          >
+            Retry
+          </button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-xl border border-slate-700/50 overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Activity className="w-6 h-6 text-purple-400" />
-            <h2 className="text-xl font-bold text-white">AWS Architecture</h2>
-          </div>
-          <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-medium">
-            Production
-          </span>
-          <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm font-medium">
-            eu-west-1
-          </span>
+      <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <Activity className="w-5 h-5 text-violet-500" />
+            AWS Architecture Flow
+          </h2>
+          <p className="text-slate-400 text-sm">
+            Real-time data flow visualization • {systemName}
+          </p>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Live Metrics */}
-          <div className="flex items-center gap-6 bg-black/30 rounded-lg px-4 py-2">
+          <div className="flex items-center gap-4 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
             <div className="text-center">
-              <div className="text-lg font-bold text-white">{(metrics.requests / 1000).toFixed(1)}K</div>
+              <div className="text-lg font-bold text-white">{metrics.totalNodes}</div>
+              <div className="text-xs text-slate-400">Nodes</div>
+            </div>
+            <div className="w-px h-8 bg-slate-700" />
+            <div className="text-center">
+              <div className="text-lg font-bold text-violet-400">{metrics.activeFlows}</div>
+              <div className="text-xs text-slate-400">Flows</div>
+            </div>
+            <div className="w-px h-8 bg-slate-700" />
+            <div className="text-center">
+              <div className="text-lg font-bold text-emerald-400">
+                {metrics.totalThroughput > 1000 ? `${(metrics.totalThroughput/1000).toFixed(1)}K` : metrics.totalThroughput}
+              </div>
               <div className="text-xs text-slate-400">req/s</div>
-            </div>
-            <div className="h-8 w-px bg-slate-600" />
-            <div className="text-center">
-              <div className="text-lg font-bold text-green-400">{metrics.latency.toFixed(1)}ms</div>
-              <div className="text-xs text-slate-400">latency</div>
-            </div>
-            <div className="h-8 w-px bg-slate-600" />
-            <div className="text-center">
-              <div className="text-lg font-bold text-purple-400">{metrics.flows}</div>
-              <div className="text-xs text-slate-400">flows</div>
-            </div>
-            <div className="h-8 w-px bg-slate-600" />
-            <div className="text-center">
-              <div className="text-lg font-bold text-blue-400">{metrics.throughput.toFixed(1)}</div>
-              <div className="text-xs text-slate-400">Gbps</div>
             </div>
           </div>
           
           {/* Controls */}
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-2 rounded-lg transition-all ${
-              isPlaying ? 'bg-purple-500 text-white' : 'bg-slate-700 text-slate-300'
-            }`}
+            onClick={() => setIsPaused(!isPaused)}
+            className={`p-2 rounded-lg ${isPaused ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}
           >
-            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+            {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
           </button>
           
           <button
-            onClick={() => setShowFlows(!showFlows)}
-            className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-all ${
-              showFlows ? 'bg-purple-500 text-white' : 'bg-slate-700 text-slate-300'
-            }`}
+            onClick={() => setShowParticles(!showParticles)}
+            className={`px-3 py-1.5 rounded-lg text-sm ${showParticles ? 'bg-violet-500/20 text-violet-400' : 'bg-slate-700 text-slate-400'}`}
           >
-            <Activity className="w-4 h-4" />
-            Flow
+            Flow: {showParticles ? 'ON' : 'OFF'}
           </button>
           
           <button
-            onClick={fetchArchitecture}
-            className="p-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600"
+            onClick={fetchData}
+            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400"
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
-
-      {/* Main Canvas */}
-      <div className="flex gap-4">
-        <div className="flex-1 bg-gradient-to-br from-slate-900 via-[#0f172a] to-slate-900 rounded-2xl overflow-hidden relative" style={{ height: '800px' }}>
-          {/* Category Legend */}
-          <div className="absolute bottom-4 left-4 flex items-center gap-4 bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 z-10">
-            {Object.entries(CATEGORY_COLORS).slice(0, 6).map(([category, { border }]) => (
-              <div key={category} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: border }} />
-                <span className="text-xs text-slate-400 capitalize">{category}</span>
-              </div>
-            ))}
-          </div>
-
-          <svg
-            ref={svgRef}
-            width="100%"
-            height="100%"
-            viewBox="0 0 1400 800"
-            className="absolute inset-0"
-          >
-            <defs>
-              {/* Glow filter */}
-              <filter id="glow-purple" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur stdDeviation="4" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-              
-              {/* Arrow marker */}
-              <marker id="arrow-flow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                <polygon points="0 0, 8 3, 0 6" fill="#a855f7" />
-              </marker>
-              
-              {/* Gradient for nodes */}
-              <linearGradient id="node-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="rgba(255,255,255,0.1)" />
-                <stop offset="100%" stopColor="rgba(0,0,0,0.1)" />
-              </linearGradient>
-            </defs>
-
-            {/* VPC Zones */}
-            {zones.map(zone => (
-              <g key={zone.id}>
-                <rect
-                  x={zone.x}
-                  y={zone.y}
-                  width={zone.width}
-                  height={zone.height}
-                  fill="rgba(139, 92, 246, 0.03)"
-                  stroke="rgba(139, 92, 246, 0.3)"
-                  strokeWidth={2}
-                  strokeDasharray="8,4"
-                  rx={16}
-                />
-                <text
-                  x={zone.x + 20}
-                  y={zone.y + 25}
-                  fill="rgba(139, 92, 246, 0.7)"
-                  fontSize={14}
-                  fontWeight="600"
-                >
-                  {zone.name}
-                </text>
-              </g>
-            ))}
-
-            {/* Data Flow Edges */}
-            {edges.map(edge => {
-              const path = getPath(edge.source, edge.target)
-              if (!path) return null
-              
-              return (
-                <g key={edge.id}>
-                  {/* Path line */}
-                  <path
-                    d={path}
-                    fill="none"
-                    stroke="rgba(168, 85, 247, 0.3)"
-                    strokeWidth={2}
-                    markerEnd="url(#arrow-flow)"
-                  />
-                  
-                  {/* Animated particles */}
-                  {isPlaying && showFlows && edge.status === 'active' && [0, 1, 2].map(i => (
-                    <circle
-                      key={`${edge.id}-p${i}`}
-                      r={4}
-                      fill="#a855f7"
-                      filter="url(#glow-purple)"
-                    >
-                      <animateMotion
-                        dur="2.5s"
-                        repeatCount="indefinite"
-                        begin={`${i * 0.8}s`}
-                        path={path}
-                      />
-                    </circle>
-                  ))}
-                  
-                  {/* Latency label */}
-                  {edge.latency && (
-                    <text
-                      fill="rgba(168, 85, 247, 0.8)"
-                      fontSize={10}
-                      textAnchor="middle"
-                      className="font-mono"
-                    >
-                      <textPath href={`#${edge.id}-path`} startOffset="50%">
-                        {edge.latency}ms
-                      </textPath>
-                    </text>
-                  )}
-                </g>
-              )
-            })}
-
-            {/* Service Nodes */}
-            {nodes.map(node => {
-              const config = getServiceConfig(node.type)
-              const categoryColor = CATEGORY_COLORS[node.category as keyof typeof CATEGORY_COLORS] || CATEGORY_COLORS.other
-              const isSelected = selectedNode?.id === node.id
-              
-              return (
-                <g
-                  key={node.id}
-                  transform={`translate(${node.x - 60}, ${node.y - 40})`}
-                  className="cursor-pointer"
-                  onClick={() => setSelectedNode(isSelected ? null : node)}
-                >
-                  {/* Node background */}
-                  <rect
-                    x={0}
-                    y={0}
-                    width={120}
-                    height={80}
-                    rx={12}
-                    fill="url(#node-gradient)"
-                    stroke={isSelected ? '#a855f7' : categoryColor.border}
-                    strokeWidth={isSelected ? 3 : 2}
-                    filter={isSelected ? 'url(#glow-purple)' : undefined}
-                    className="transition-all"
-                  />
-                  
-                  {/* Category bar */}
-                  <rect
-                    x={0}
-                    y={0}
-                    width={120}
-                    height={4}
-                    rx={2}
-                    fill={config.color}
-                  />
-                  
-                  {/* Icon */}
-                  <foreignObject x={10} y={15} width={30} height={30}>
-                    <div 
-                      className="flex items-center justify-center rounded-lg p-1"
-                      style={{ backgroundColor: `${config.color}30` }}
-                    >
-                      <div style={{ color: config.color }}>{config.icon}</div>
-                    </div>
-                  </foreignObject>
-                  
-                  {/* Name */}
-                  <text x={45} y={30} fill="white" fontSize={11} fontWeight="600">
-                    {node.name.length > 12 ? node.name.slice(0, 10) + '...' : node.name}
-                  </text>
-                  
-                  {/* Type badge */}
-                  <text x={45} y={46} fill="rgba(255,255,255,0.6)" fontSize={9} className="font-mono">
-                    {node.type}
-                  </text>
-                  
-                  {/* Status indicator */}
-                  <circle
-                    cx={105}
-                    cy={15}
-                    r={5}
-                    fill={node.status === 'healthy' ? '#22c55e' : node.status === 'warning' ? '#eab308' : '#ef4444'}
-                  >
-                    {isPlaying && (
-                      <animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite" />
-                    )}
-                  </circle>
-                  
-                  {/* Status text */}
-                  <text x={10} y={70} fill="rgba(255,255,255,0.5)" fontSize={8}>
-                    ● {node.status}
-                  </text>
-                </g>
-              )
-            })}
-          </svg>
-        </div>
-
-        {/* Details Panel */}
-        {selectedNode && (
-          <div className="w-80 bg-slate-800 rounded-xl p-4 overflow-y-auto" style={{ height: '800px' }}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-white text-lg">Resource Details</h3>
-              <button 
-                onClick={() => setSelectedNode(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      
+      {/* SVG Visualization */}
+      <div className="relative" style={{ height: '700px' }}>
+        <svg
+          ref={svgRef}
+          width="100%"
+          height="100%"
+          viewBox="0 0 1200 700"
+          className="overflow-visible"
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center' }}
+        >
+          {/* Defs for gradients and filters */}
+          <defs>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
             
-            <div className="space-y-4">
-              {/* Header */}
-              <div className="flex items-center gap-3">
-                <div 
-                  className="w-12 h-12 rounded-xl flex items-center justify-center"
-                  style={{ 
-                    backgroundColor: `${getServiceConfig(selectedNode.type).color}20`,
-                    color: getServiceConfig(selectedNode.type).color
-                  }}
+            <linearGradient id="flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0" />
+              <stop offset="50%" stopColor="#8b5cf6" stopOpacity="1" />
+              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          
+          {/* Layer backgrounds */}
+          {Object.entries(LAYER_CONFIG).map(([category, y]) => (
+            <g key={category}>
+              <rect
+                x="40"
+                y={y - 35}
+                width="1120"
+                height="70"
+                rx="8"
+                fill={CATEGORY_STYLES[category]?.bg.replace('50', '10') || '#ffffff10'}
+                stroke={CATEGORY_STYLES[category]?.border || '#ffffff30'}
+                strokeWidth="1"
+                strokeDasharray="4 4"
+                opacity="0.3"
+              />
+              <text
+                x="60"
+                y={y + 5}
+                fill={CATEGORY_STYLES[category]?.text || '#ffffff'}
+                fontSize="12"
+                fontWeight="500"
+                opacity="0.5"
+              >
+                {category}
+              </text>
+            </g>
+          ))}
+          
+          {/* Edges (connections) */}
+          {edges.map((edge, idx) => {
+            const sourcePos = getNodePosition(edge.source)
+            const targetPos = getNodePosition(edge.target)
+            
+            // Create curved path
+            const midX = (sourcePos.x + targetPos.x) / 2
+            const midY = (sourcePos.y + targetPos.y) / 2 - 30
+            const path = `M ${sourcePos.x + 60} ${sourcePos.y} Q ${midX} ${midY} ${targetPos.x} ${targetPos.y}`
+            
+            return (
+              <g key={`edge-${idx}`}>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={edge.isActual ? '#8b5cf6' : '#4b5563'}
+                  strokeWidth={edge.isActual ? 2 : 1}
+                  strokeDasharray={edge.isActual ? 'none' : '4 4'}
+                  opacity={0.6}
+                />
+                
+                {/* Animated particle */}
+                {showParticles && !isPaused && edge.isActual && (
+                  <circle r="4" fill="#8b5cf6" filter="url(#glow)">
+                    <animateMotion
+                      dur={`${3 - Math.min(edge.throughput || 0, 2000) / 1000}s`}
+                      repeatCount="indefinite"
+                      path={path}
+                    />
+                  </circle>
+                )}
+              </g>
+            )
+          })}
+          
+          {/* Nodes */}
+          {nodes.map((node) => {
+            const style = getStyle(node.category)
+            const isSelected = selectedNode?.id === node.id
+            
+            return (
+              <g
+                key={node.id}
+                transform={`translate(${node.x}, ${node.y})`}
+                onClick={() => setSelectedNode(isSelected ? null : node)}
+                style={{ cursor: 'pointer' }}
+              >
+                {/* Node background */}
+                <rect
+                  x="-50"
+                  y="-25"
+                  width="120"
+                  height="50"
+                  rx="8"
+                  fill={style.bg}
+                  stroke={isSelected ? style.border : style.border + '50'}
+                  strokeWidth={isSelected ? 2 : 1}
+                  filter={isSelected ? 'url(#glow)' : undefined}
+                />
+                
+                {/* Icon */}
+                <g transform="translate(-40, -15)">
+                  <ServiceIcon type={node.type} size={30} />
+                </g>
+                
+                {/* Name */}
+                <text
+                  x="15"
+                  y="-5"
+                  fill="white"
+                  fontSize="11"
+                  fontWeight="500"
                 >
-                  {getServiceConfig(selectedNode.type).icon}
-                </div>
-                <div>
-                  <div className="font-bold text-white">{selectedNode.name}</div>
-                  <div className="text-sm text-slate-400">{selectedNode.type}</div>
-                </div>
-              </div>
-              
-              {/* Status */}
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  selectedNode.status === 'healthy' ? 'bg-green-500' : 
-                  selectedNode.status === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
-                }`} />
-                <span className="text-sm text-slate-300 capitalize">{selectedNode.status}</span>
-              </div>
-              
-              {/* Category */}
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Category</div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm"
-                  style={{ 
-                    backgroundColor: CATEGORY_COLORS[selectedNode.category as keyof typeof CATEGORY_COLORS]?.bg,
-                    color: CATEGORY_COLORS[selectedNode.category as keyof typeof CATEGORY_COLORS]?.border
-                  }}
+                  {node.name.length > 12 ? node.name.substring(0, 12) + '...' : node.name}
+                </text>
+                
+                {/* Type */}
+                <text
+                  x="15"
+                  y="10"
+                  fill={style.text}
+                  fontSize="9"
+                  opacity="0.7"
                 >
-                  {selectedNode.category}
-                </div>
+                  {node.type}
+                </text>
+                
+                {/* Status indicator */}
+                <circle
+                  cx="60"
+                  cy="-15"
+                  r="4"
+                  fill={node.status === 'active' || node.status === 'running' ? '#22c55e' : '#6b7280'}
+                />
+                
+                {/* Throughput badge */}
+                {node.throughput && node.throughput > 0 && (
+                  <g transform="translate(35, 18)">
+                    <rect x="0" y="-8" width="30" height="14" rx="7" fill="#8b5cf630" />
+                    <text x="15" y="2" textAnchor="middle" fill="#8b5cf6" fontSize="8">
+                      {node.throughput > 1000 ? `${(node.throughput/1000).toFixed(0)}K` : node.throughput}
+                    </text>
+                  </g>
+                )}
+              </g>
+            )
+          })}
+        </svg>
+        
+        {/* Zoom controls */}
+        <div className="absolute bottom-4 right-4 flex gap-2">
+          <button
+            onClick={() => setZoom(z => Math.max(0.5, z - 0.1))}
+            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setZoom(z => Math.min(2, z + 0.1))}
+            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setZoom(1)}
+            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {/* Legend */}
+        <div className="absolute bottom-4 left-4 flex flex-wrap gap-2 p-3 bg-slate-900/80 rounded-lg backdrop-blur-sm">
+          {Object.entries(CATEGORY_STYLES).slice(0, 6).map(([category, style]) => (
+            <div key={category} className="flex items-center gap-1.5">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: style.fill }}
+              />
+              <span className="text-xs text-slate-400">{category}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Selected Node Panel */}
+      {selectedNode && (
+        <div className="absolute top-20 right-4 w-72 bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-xl">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg`} style={{ backgroundColor: getStyle(selectedNode.category).bg }}>
+                <ServiceIcon type={selectedNode.type} size={24} />
               </div>
-              
-              {/* Connections */}
               <div>
-                <div className="text-xs text-slate-500 mb-2">Connections</div>
-                <div className="space-y-2">
-                  {edges.filter(e => e.source === selectedNode.id || e.target === selectedNode.id).map(edge => {
-                    const isOutgoing = edge.source === selectedNode.id
-                    const otherId = isOutgoing ? edge.target : edge.source
-                    const otherNode = nodes.find(n => n.id === otherId)
-                    
-                    return (
-                      <div key={edge.id} className="flex items-center gap-2 bg-slate-700/50 rounded-lg px-3 py-2">
-                        <ChevronRight className={`w-4 h-4 text-purple-400 ${isOutgoing ? '' : 'rotate-180'}`} />
-                        <span className="text-sm text-slate-300">{otherNode?.name || otherId}</span>
-                        {edge.port && (
-                          <span className="ml-auto text-xs text-slate-500 font-mono">:{edge.port}</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+                <h3 className="font-semibold text-white">{selectedNode.name}</h3>
+                <p className="text-xs text-slate-400">{selectedNode.type}</p>
               </div>
-              
-              {/* Details */}
-              {selectedNode.details && Object.keys(selectedNode.details).length > 0 && (
-                <div>
-                  <div className="text-xs text-slate-500 mb-2">Properties</div>
-                  <div className="bg-slate-700/50 rounded-lg p-3 space-y-2">
-                    {Object.entries(selectedNode.details).map(([key, value]) => (
-                      <div key={key} className="flex justify-between text-sm">
-                        <span className="text-slate-400 capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
-                        <span className="text-white font-mono">{String(value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+            </div>
+            <button
+              onClick={() => setSelectedNode(null)}
+              className="text-slate-500 hover:text-white"
+            >
+              ×
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Category</span>
+              <span className="text-white">{selectedNode.category}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Status</span>
+              <span className="text-emerald-400">{selectedNode.status || 'active'}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Connections</span>
+              <span className="text-white">{selectedNode.connections || 0}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-400">Throughput</span>
+              <span className="text-violet-400">{selectedNode.throughput || 0} req/s</span>
             </div>
           </div>
-        )}
-      </div>
+          
+          <button className="w-full mt-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium">
+            View Details
+          </button>
+        </div>
+      )}
     </div>
   )
 }
-
