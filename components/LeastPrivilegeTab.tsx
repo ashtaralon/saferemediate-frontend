@@ -6,6 +6,7 @@ import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
+import { S3PolicyAnalysisModal } from '@/components/s3-policy-analysis-modal'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -152,6 +153,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [executionResult, setExecutionResult] = useState<any>(null)
   const [iamModalOpen, setIamModalOpen] = useState(false)
   const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
+  const [s3ModalOpen, setS3ModalOpen] = useState(false)
+  const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
+  const [selectedS3Resource, setSelectedS3Resource] = useState<GapResource | null>(null)
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const { toast } = useToast()
   
@@ -744,6 +748,11 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 if (resource.resourceType === 'IAMRole') {
                   setSelectedIAMRole(resource.resourceName)
                   setIamModalOpen(true)
+                } else if (resource.resourceType === 'S3Bucket') {
+                  // Use new S3 Policy Analysis modal for S3 Buckets
+                  setSelectedS3Bucket(resource.resourceName)
+                  setSelectedS3Resource(resource)
+                  setS3ModalOpen(true)
                 } else {
                   // Use drawer for Security Groups and other resources
                   setSelectedResource(resource)
@@ -1081,6 +1090,23 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         systemName={systemName}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
+        }}
+        onRemediationSuccess={handleRemediationSuccess}
+      />
+
+      {/* S3 Policy Analysis Modal */}
+      <S3PolicyAnalysisModal
+        isOpen={s3ModalOpen}
+        onClose={() => {
+          setS3ModalOpen(false)
+          setSelectedS3Bucket(null)
+          setSelectedS3Resource(null)
+        }}
+        bucketName={selectedS3Bucket || ''}
+        systemName={systemName}
+        resourceData={selectedS3Resource}
+        onApplyFix={(data) => {
+          console.log('[S3] Apply fix requested:', data)
         }}
         onRemediationSuccess={handleRemediationSuccess}
       />
