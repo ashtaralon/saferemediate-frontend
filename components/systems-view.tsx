@@ -72,45 +72,36 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const emptyDropdownRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  // Fetch gap-analysis from findings endpoint (sum all IAM unused permissions)
+  // Fetch gap-analysis from real CloudTrail data
   const fetchGapAnalysisFromFindings = useCallback(async () => {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
       
-      const res = await fetch("/api/proxy/findings", {
+      // Use gap-analysis proxy which has real CloudTrail data
+      const res = await fetch("/api/proxy/gap-analysis?systemName=alon-prod", {
         signal: controller.signal,
       })
       
       clearTimeout(timeoutId)
       
       if (res.ok) {
-        const findingsJson = await res.json()
-        const findings = findingsJson.findings || []
+        const gapJson = await res.json()
         
-        // Filter IAM unused permissions findings
-        const iamFindings = findings.filter((f: any) => f.type === "iam_unused_permissions")
-        
-        // Sum up all unused permissions across all IAM roles
-        let totalAllowed = 0
-        let totalUnused = 0
-        let totalUsed = 0
-        
-        iamFindings.forEach((finding: any) => {
-          totalAllowed += finding.allowed_actions?.length || 0
-          totalUnused += finding.unused_count || 0
-          totalUsed += finding.observed_actions?.length || 0
-        })
+        // The proxy already transforms field names
+        const allowed = gapJson.allowed_actions || gapJson.allowed_count || 0
+        const used = gapJson.used_actions || gapJson.used_count || 0
+        const unused = gapJson.unused_actions || gapJson.unused_count || (allowed - used)
         
         setGapData({
-          allowed: totalAllowed,
-          used: totalUsed,
-          unused: totalUnused,
+          allowed: allowed,
+          used: used,
+          unused: unused,
         })
         
-        console.log("[systems-view] Gap Analysis:", { totalAllowed, totalUsed, totalUnused, iamRolesCount: iamFindings.length })
+        console.log("[systems-view] Gap Analysis:", { allowed, used, unused })
       } else {
-        console.warn(`[systems-view] Findings returned ${res.status}`)
+        console.warn(`[systems-view] Gap analysis returned ${res.status}`)
       }
     } catch (err: any) {
       console.warn("[systems-view] Gap analysis error:", err.message)
@@ -170,7 +161,21 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             }
           })
 
-          setLocalSystems(transformedSystems)
+          // Deduplicate systems by name - keep the one with most resources
+          const deduplicatedSystems = transformedSystems.reduce((acc: typeof transformedSystems, sys) => {
+            const existing = acc.find(s => s.name === sys.name)
+            if (existing) {
+              // Keep the one with more resources/data
+              if (sys.total > existing.total) {
+                return acc.map(s => s.name === sys.name ? sys : s)
+              }
+              return acc
+            }
+            return [...acc, sys]
+          }, [])
+
+          console.log(`[systems-view] Deduplicated ${transformedSystems.length} systems to ${deduplicatedSystems.length}`)
+          setLocalSystems(deduplicatedSystems)
           setBackendStatus("connected")
         } else {
           // No systems returned - use fallback
