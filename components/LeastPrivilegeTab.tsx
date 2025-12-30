@@ -680,28 +680,20 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           <div className="text-sm text-gray-600">
             {(() => {
               // Calculate filtered counts (same logic as display filter)
-              const actionableResources = resources.filter(r => {
-                // Filter out fully remediated
-                if (r.resourceType === 'SecurityGroup') {
-                  const exposed = r.networkExposure?.internetExposedRules ?? 0
-                  if (exposed === 0) return false
-                } else {
-                  const unused = r.gapCount ?? 0
-                  if (unused === 0) return false
-                }
+              const displayedResources = resources.filter(r => {
                 // Apply remediable filter for IAM
                 if (r.resourceType === 'IAMRole' && showRemediableOnly && r.isRemediable === false) {
                   return false
                 }
                 return true
               })
-              const iamCount = actionableResources.filter(r => r.resourceType === 'IAMRole').length
-              const sgCount = actionableResources.filter(r => r.resourceType === 'SecurityGroup').length
-              const s3Count = actionableResources.filter(r => r.resourceType === 'S3Bucket').length
+              const iamCount = displayedResources.filter(r => r.resourceType === 'IAMRole').length
+              const sgCount = displayedResources.filter(r => r.resourceType === 'SecurityGroup').length
+              const s3Count = displayedResources.filter(r => r.resourceType === 'S3Bucket').length
               
               return (
                 <>
-                  Showing <strong>{actionableResources.length}</strong> resources with issues:
+                  Showing <strong>{displayedResources.length}</strong> resources:
                   <span className="ml-2">
                     {iamCount} IAM Roles, {sgCount} Security Groups, {s3Count} S3 Buckets
                   </span>
@@ -737,23 +729,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           </div>
         ) : (
           resources
-            // Filter out fully remediated resources (0 unused = nothing to fix)
-            .filter(resource => {
-              // For Security Groups: check network exposure
-              if (resource.resourceType === 'SecurityGroup') {
-                const exposedRules = resource.networkExposure?.internetExposedRules ?? 0
-                return exposedRules > 0 // Keep if has exposed rules to fix
-              }
-              
-              // For IAM Roles and S3 Buckets: check unused permissions
-              const unusedCount = resource.gapCount ?? 0
-              if (unusedCount > 0) return true // Keep if has unused permissions
-              
-              // Remove resources with nothing to remediate
-              console.log('[Filter] Removing fully remediated resource:', resource.resourceName)
-              return false
-            })
-            // Filter based on remediable toggle (only affects IAM Roles)
+            // Only filter based on remediable toggle (only affects IAM Roles)
             .filter(resource => {
               if (resource.resourceType !== 'IAMRole') return true
               if (!showRemediableOnly) return true
