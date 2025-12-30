@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
-export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
+
+// Simple in-memory cache for IAM gap analysis
+const iamCache = new Map<string, { data: any; timestamp: number }>()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 export async function GET(
   req: NextRequest,
@@ -15,16 +18,36 @@ export async function GET(
   const { roleName } = await params
   const url = new URL(req.url)
   const days = url.searchParams.get("days") ?? "90"
+  const forceRefresh = url.searchParams.get("refresh") === "true"
+  
+  const cacheKey = `${roleName}-${days}`
+  const now = Date.now()
+  const cached = iamCache.get(cacheKey)
+  
+  // Return cached if valid and not forcing refresh
+  if (!forceRefresh && cached && (now - cached.timestamp) < CACHE_DURATION) {
+    console.log(`[IAM Proxy] Cache HIT for ${roleName}`)
+    const cacheAge = Math.round((now - cached.timestamp) / 1000)
+    return NextResponse.json({ 
+      ...cached.data, 
+      fromCache: true,
+      cacheAge
+    }, {
+      headers: {
+        'X-Cache': 'HIT',
+        'X-Cache-Age': String(cacheAge),
+      }
+    })
+  }
 
-  console.log(`[proxy] IAM role gap analysis for: ${roleName} (days=${days})`)
+  console.log(`[IAM Proxy] Fetching ${roleName} from backend... (refresh=${forceRefresh})`)
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 28000)
 
   try {
-    // Use the correct backend endpoint: /api/iam/gap-analysis/{role_name}
     const backendUrl = `${BACKEND_URL}/api/iam/gap-analysis/${encodeURIComponent(roleName)}?days=${days}`
-    console.log(`[proxy] Calling: ${backendUrl}`)
+    console.log(`[IAM Proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {
       signal: controller.signal,
@@ -35,7 +58,21 @@ export async function GET(
 
     if (!res.ok) {
       const errorText = await res.text()
-      console.error(`[proxy] Backend error ${res.status}: ${errorText}`)
+      console.error(`[IAM Proxy] Backend error ${res.status}: ${errorText}`)
+      
+      // Return stale cache if available
+      if (cached) {
+        console.log(`[IAM Proxy] Returning stale cache for ${roleName}`)
+        return NextResponse.json({ 
+          ...cached.data, 
+          fromCache: true, 
+          stale: true,
+          cacheAge: Math.round((now - cached.timestamp) / 1000)
+        }, {
+          headers: { 'X-Cache': 'STALE' }
+        })
+      }
+      
       return NextResponse.json(
         { error: `Backend error: ${res.status}`, detail: errorText },
         { status: res.status }
@@ -43,30 +80,54 @@ export async function GET(
     }
 
     const data = await res.json()
-    console.log(`[proxy] IAM gap analysis success: LP score ${data.summary?.lp_score}, used=${data.summary?.used_count}, unused=${data.summary?.unused_count}`)
+    console.log(`[IAM Proxy] Success: LP score ${data.summary?.lp_score}, used=${data.summary?.used_count}, unused=${data.summary?.unused_count}`)
 
-    return NextResponse.json(data, {
+    // Cache the result
+    iamCache.set(cacheKey, { data, timestamp: now })
+    
+    // Cleanup old cache entries (keep max 50)
+    if (iamCache.size > 50) {
+      const oldestKey = iamCache.keys().next().value
+      if (oldestKey) iamCache.delete(oldestKey)
+    }
+
+    return NextResponse.json({ 
+      ...data, 
+      fromCache: false 
+    }, {
       headers: {
+        'X-Cache': 'MISS',
         "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
       },
     })
   } catch (error: any) {
     clearTimeout(timeoutId)
 
+    console.error(`[IAM Proxy] Error for ${roleName}:`, error.message)
+    
+    // Return stale cache if available
+    if (cached) {
+      console.log(`[IAM Proxy] Returning stale cache for ${roleName} due to error`)
+      return NextResponse.json({ 
+        ...cached.data, 
+        fromCache: true, 
+        stale: true,
+        cacheAge: Math.round((now - cached.timestamp) / 1000)
+      }, {
+        headers: { 'X-Cache': 'STALE' }
+      })
+    }
+
     if (error.name === "AbortError") {
-      console.error("[proxy] Request timeout")
       return NextResponse.json(
         { error: "Request timeout", detail: "Backend did not respond in time" },
         { status: 504 }
       )
     }
 
-    console.error("[proxy] Error:", error.message)
     return NextResponse.json(
       { error: "Backend unavailable", detail: error.message },
       { status: 503 }
     )
   }
 }
-
-

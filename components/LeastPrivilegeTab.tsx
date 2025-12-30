@@ -260,7 +260,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     }
   }, [data, loading])
 
-  const fetchGaps = async (showRefreshing = false) => {
+  const fetchGaps = async (showRefreshing = false, forceRefresh = false) => {
     try {
       if (showRefreshing) {
         setRefreshing(true)
@@ -269,7 +269,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       }
       setError(null)
       
-      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365`)
+      const refreshParam = forceRefresh ? '&refresh=true' : ''
+      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365${refreshParam}`)
       if (!response.ok) throw new Error(`Failed: ${response.status}`)
       
       const result = await response.json()
@@ -411,7 +412,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   }
   
   const handleRefresh = async () => {
-    await fetchGaps(true)
+    await fetchGaps(true, true) // Force cache refresh
   }
 
   // Handle successful IAM remediation - remove resource from list
@@ -616,7 +617,16 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Least Privilege Analysis</h1>
-          <p className="text-gray-600 mt-1">GAP between ALLOWED and ACTUAL permissions</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-gray-600">GAP between ALLOWED and ACTUAL permissions</p>
+            {data?.fromCache && (
+              <span className="text-xs text-slate-400 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
+                <Clock className="w-3 h-3" />
+                Cached {data.cacheAge ? `${data.cacheAge}s ago` : ''}
+                {data.stale && <span className="text-orange-500">(stale)</span>}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <button
