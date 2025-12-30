@@ -75,9 +75,73 @@ export default function DependencyMapTab({ systemName }: Props) {
   }, [systemName, timeRange])
 
   const fetchDependencyData = async () => {
-      setLoading(true)
-        setError(null)
+    setLoading(true)
+    setError(null)
+    
     try {
+      console.log('[DependencyMap] Fetching dependency graph from backend...')
+      
+      // Try to use the new dependency-map/graph endpoint (V1)
+      const graphResponse = await fetch(
+        `/api/proxy/dependency-map/graph?systemName=${encodeURIComponent(systemName)}&includeInternet=true&includeIam=true`
+      )
+      
+      if (graphResponse.ok) {
+        const graphData = await graphResponse.json()
+        console.log('[DependencyMap] Got graph from V1 API:', graphData.summary)
+        
+        // Transform backend nodes to frontend format
+        const transformedNodes: DependencyNode[] = (graphData.nodes || []).map((node: any) => ({
+          id: node.id,
+          name: node.label || node.id,
+          type: node.type as DependencyNode['type'],
+          arn: node.arn,
+          lpScore: node.lpScore,
+          usedCount: node.usedCount || 0,
+          unusedCount: node.gapCount || 0,
+          region: node.region || 'unknown',
+          connections: 0 // Will be calculated below
+        }))
+        
+        // Transform backend edges to frontend format
+        const transformedEdges: DependencyEdge[] = (graphData.edges || []).map((edge: any) => ({
+          id: edge.id,
+          source: edge.source,
+          sourceType: edge.sourceType,
+          action: edge.port ? `${edge.protocol}:${edge.port}` : edge.edgeType,
+          target: edge.target,
+          targetType: edge.targetType,
+          service: edge.edgeType,
+          timestamp: graphData.timestamp || new Date().toISOString(),
+          count: 1
+        }))
+        
+        // Calculate connections per node
+        transformedEdges.forEach(edge => {
+          const sourceNode = transformedNodes.find(n => n.id === edge.source)
+          const targetNode = transformedNodes.find(n => n.id === edge.target)
+          if (sourceNode) sourceNode.connections++
+          if (targetNode) targetNode.connections++
+        })
+        
+        setNodes(transformedNodes)
+        setEdges(transformedEdges)
+        setSummary({
+          totalNodes: graphData.summary?.totalNodes || transformedNodes.length,
+          iamRoles: graphData.summary?.byType?.IAMRole || transformedNodes.filter(n => n.type === 'IAMRole').length,
+          securityGroups: graphData.summary?.byType?.SecurityGroup || transformedNodes.filter(n => n.type === 'SecurityGroup').length,
+          s3Buckets: graphData.summary?.byType?.S3Bucket || transformedNodes.filter(n => n.type === 'S3Bucket').length,
+          services: graphData.summary?.byType?.Service || transformedNodes.filter(n => n.type === 'Service').length,
+          users: (graphData.summary?.byType?.External || 0) + transformedNodes.filter(n => n.type === 'User' || n.type === 'Role').length,
+          connections: graphData.summary?.totalEdges || transformedEdges.length
+        })
+        
+        return // Success - exit early
+      }
+      
+      // Fallback: Use the old logic if V1 API fails
+      console.log('[DependencyMap] V1 API failed, falling back to old logic...')
+      
       // 1. Fetch ALL resources (nodes) from least-privilege
       const resourcesResponse = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}`)
       const resourcesData = await resourcesResponse.json()
@@ -179,7 +243,7 @@ export default function DependencyMapTab({ systemName }: Props) {
                     timestamp: event.event_time,
                     count: 1
                   })
-      } else {
+                } else {
                   edgeMap.get(resourceEdgeKey)!.count++
                 }
                 break
