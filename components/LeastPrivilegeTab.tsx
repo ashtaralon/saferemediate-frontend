@@ -224,41 +224,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     fetchGaps()
   }, [systemName])
   
-  // Pre-fetch gap analysis for Security Groups in the background
-  useEffect(() => {
-    const prefetchSGData = async () => {
-      if (!data?.resources) return
-      
-      const securityGroups = data.resources.filter(r => r.resourceType === 'SecurityGroup')
-      console.log('[Pre-fetch] Found', securityGroups.length, 'Security Groups to pre-fetch')
-      
-      // Pre-fetch first 5 SGs in the background (stagger requests)
-      for (const sg of securityGroups.slice(0, 5)) {
-        // Extract SG ID from various possible fields
-        let sgId = sg.id
-        if (!sgId?.startsWith('sg-')) {
-          if (sg.resourceName?.startsWith('sg-')) {
-            sgId = sg.resourceName
-          } else if (sg.resourceArn?.includes('security-group/')) {
-            const match = sg.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
-            if (match) sgId = match[1]
-          }
-        }
-        
-        if (sgId && !sgGapAnalysisCache[sgId]) {
-          console.log('[Pre-fetch] Pre-fetching gap analysis for:', sgId)
-          await fetchSGGapAnalysis(sgId)
-          // Small delay to avoid overwhelming the backend
-          await new Promise(resolve => setTimeout(resolve, 500))
-        }
-      }
-    }
-    
-    // Run pre-fetch after initial data is loaded
-    if (data && !loading) {
-      prefetchSGData()
-    }
-  }, [data, loading])
+  // NOTE: Pre-fetch removed to prevent timeout errors
+  // Gap analysis is now fetched ON-DEMAND when user opens a modal
+  // The /api/least-privilege/issues endpoint provides all needed data for the list view
 
   const fetchGaps = async (showRefreshing = false, forceRefresh = false) => {
     try {
@@ -466,54 +434,27 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     try {
       setAnalyzing(true)
 
-      // 1. Refresh Security Groups gap analysis
-      const sgParams = new URLSearchParams({ days: '365' })
-      if (systemName) sgParams.append('system_name', systemName)
+      console.log('[RefreshAll] Starting refresh - only fetching LP issues (no individual gap-analysis calls)')
       
-      // 2. Get all IAM roles from current data
-      const iamRoles = data?.resources?.filter(r => r.resourceType === 'IAMRole') || []
+      // Only refresh least privilege issues - this gets ALL data we need for the list view
+      // Individual gap-analysis calls are now made ON-DEMAND when user opens a modal
+      try {
+        await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&refresh=true`)
+        console.log('[RefreshAll] LP issues refreshed successfully')
+      } catch (e) {
+        console.warn('[RefreshAll] LP issues refresh failed:', e)
+      }
       
-      console.log('[RefreshAll] Starting refresh for:')
-      console.log(`  - Security Groups gap analysis`)
-      console.log(`  - Least privilege issues`)
-      console.log(`  - ${Math.min(iamRoles.length, 10)} IAM roles`)
+      // Reload the main data
+      await fetchGaps(true, true) // Force cache refresh
       
-      // 3. Refresh in parallel
-      const refreshPromises = [
-        // Refresh SG analysis
-        fetch(`/api/proxy/security-groups/gap-analysis?${sgParams}`).catch(e => {
-          console.warn('[RefreshAll] SG gap analysis failed:', e)
-          return null
-        }),
-        // Refresh least privilege issues (forces backend re-scan)
-        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&refresh=true`).catch(e => {
-          console.warn('[RefreshAll] LP issues refresh failed:', e)
-          return null
-        }),
-        // Refresh each IAM role gap analysis (limit to first 10 to avoid overwhelming)
-        ...iamRoles.slice(0, 10).map(role => 
-          fetch(`/api/proxy/iam-roles/${encodeURIComponent(role.resourceName)}/gap-analysis?days=90`).catch(e => {
-            console.warn(`[RefreshAll] IAM role ${role.resourceName} refresh failed:`, e)
-            return null
-          })
-        )
-      ]
-      
-      const results = await Promise.all(refreshPromises)
-      const successCount = results.filter(r => r && r.ok).length
-      
-      console.log(`[RefreshAll] Completed: ${successCount}/${results.length} successful`)
-      
-      // 4. Reload the main data
-      await fetchGaps(true)
-      
-      // Clear caches to ensure fresh data on next access
+      // Clear caches to ensure fresh data on next modal access
       setSgGapAnalysisCache({})
       setIamGapAnalysisCache({})
       
       toast({
         title: '✅ All resources refreshed',
-        description: `Refreshed Security Groups, IAM roles, and least privilege analysis from AWS.`,
+        description: `Refreshed all resources from AWS. Click on a resource for detailed analysis.`,
       })
     } catch (err) {
       console.error('[RefreshAll] Error:', err)
