@@ -34,9 +34,9 @@ export async function GET(req: NextRequest) {
   try {
     console.log(`[proxy] IAM gap analysis for role: ${roleName}`)
     
-    // Use the new /api/iam-roles/{role_name}/gap-analysis endpoint
-    let res = await fetch(
-      `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`,
+    // Use the correct endpoint: /api/iam/gap-analysis/{role_name}
+    const res = await fetch(
+      `${BACKEND_URL}/api/iam/gap-analysis/${encodeURIComponent(roleName)}?days=90`,
       {
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
@@ -44,36 +44,6 @@ export async function GET(req: NextRequest) {
     )
 
     clearTimeout(timeoutId)
-
-    // If 404 on new endpoint, try legacy /api/iam/gap-analysis/{role_name}
-    if (!res.ok && res.status === 404) {
-      console.log(`[proxy] Trying fallback endpoint for ${roleName}`)
-      const controller2 = new AbortController()
-      const timeoutId2 = setTimeout(() => controller2.abort(), 25000)
-      try {
-        res = await fetch(
-          `${BACKEND_URL}/api/iam/gap-analysis/${encodeURIComponent(roleName)}?days=90`,
-          {
-            signal: controller2.signal,
-            headers: { "Content-Type": "application/json" },
-          }
-        )
-        clearTimeout(timeoutId2)
-
-        if (res.ok) {
-          const data = await res.json()
-          console.log(`[proxy] Got IAM gap analysis from fallback endpoint`)
-          return NextResponse.json(data)
-        }
-      } catch (e: any) {
-        clearTimeout(timeoutId2)
-        console.error("[proxy] gap-analysis fallback error:", e.message)
-        return NextResponse.json(
-          { error: "Backend unavailable", detail: e.message },
-          { status: 503 }
-        )
-      }
-    }
 
     if (!res.ok) {
       const errorText = await res.text()

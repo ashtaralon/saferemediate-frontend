@@ -22,7 +22,8 @@ export async function GET(
   const timeoutId = setTimeout(() => controller.abort(), 28000)
 
   try {
-    const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}`
+    // Use the correct backend endpoint: /api/iam/gap-analysis/{role_name}
+    const backendUrl = `${BACKEND_URL}/api/iam/gap-analysis/${encodeURIComponent(roleName)}?days=${days}`
     console.log(`[proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {
