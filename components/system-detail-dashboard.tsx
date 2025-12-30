@@ -36,6 +36,7 @@ import LeastPrivilegeTab from "./LeastPrivilegeTab" // Import comprehensive Leas
 import DependencyMapTab from "./dependency-map-tab" // Import new DependencyMapTab with CloudTrail
 import SystemDependencyMap from "./system-dependency-map" // Import new system architecture visualization
 import DynamicAWSArchitecture from "./dynamic-aws-architecture" // Import animated architecture view
+import RealDataArchitectureMap from "./real-data-architecture-map" // Import real-data architecture
 import { AllServicesTab } from "./all-services-tab"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -1201,7 +1202,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DynamicAWSArchitecture systemName={systemName} />
+          <RealDataArchitectureMap systemName={systemName} />
         </div>
       )}
 
