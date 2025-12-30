@@ -184,8 +184,13 @@ const DatabaseNode = ({ data }: NodeProps) => (
 const nodeTypes = {
   internet: InternetNode,
   securityGroup: SecurityGroupNode,
+  SecurityGroup: SecurityGroupNode,
   storage: StorageNode,
+  S3Bucket: StorageNode,
   database: DatabaseNode,
+  IAMRole: SecurityGroupNode,
+  Service: SecurityGroupNode,
+  External: InternetNode,
 }
 
 export default function SystemDependencyMap({ systemName }: Props) {
@@ -328,12 +333,28 @@ export default function SystemDependencyMap({ systemName }: Props) {
       })
     })
     
+    // Add IAM Role nodes
+    iamNodes.forEach((iam: any, i: number) => {
+      flowNodes.push({
+        id: iam.id,
+        type: 'securityGroup',
+        position: { x: -200, y: 100 + i * 70 },
+        data: {
+          label: iam.label || iam.id,
+          riskLevel: iam.gapCount > 0 ? 'medium' : 'low',
+          iamRole: iam.id,
+          lpScore: iam.lpScore,
+          unusedCount: iam.gapCount
+        }
+      })
+    })
+    
     // Add Service nodes (for IAM relationships)
     serviceNodes.forEach((svc: any, i: number) => {
       flowNodes.push({
         id: svc.id,
         type: 'securityGroup',
-        position: { x: -100, y: TIER_Y.app + i * 100 },
+        position: { x: 900, y: 100 + i * 80 },
         data: {
           label: svc.label || svc.id,
           riskLevel: 'low',
