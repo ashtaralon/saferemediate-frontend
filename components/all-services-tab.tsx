@@ -129,6 +129,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["compute", "identity"]))
   const [gapData, setGapData] = useState<any>(null)
+  const [selectedService, setSelectedService] = useState<ServiceNode | null>(null)
 
   useEffect(() => {
     fetchServices()
@@ -455,7 +456,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   filteredCompute.map((service) => {
                     const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
                     return (
-                      <TableRow key={service.id} className="hover:bg-gray-50">
+                      <TableRow 
+                        key={service.id} 
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => setSelectedService(service)}
+                      >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <IconComponent className="w-4 h-4 text-gray-500" />
@@ -554,7 +559,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                     const IconComponent = SERVICE_ICONS[service.type] || SERVICE_ICONS.default
                     const isIAMRole = service.type.toLowerCase().includes("role")
                     return (
-                      <TableRow key={service.id} className="hover:bg-gray-50">
+                      <TableRow 
+                        key={service.id} 
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => setSelectedService(service)}
+                      >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             <IconComponent className="w-4 h-4 text-gray-500" />
@@ -642,6 +651,100 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Service Detail Panel */}
+      {selectedService && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedService(null)}>
+          <div 
+            className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-auto m-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {(() => {
+                  const IconComponent = SERVICE_ICONS[selectedService.type] || SERVICE_ICONS.default
+                  return <IconComponent className="w-6 h-6 text-gray-600" />
+                })()}
+                <div>
+                  <h2 className="text-xl font-bold">{selectedService.name}</h2>
+                  <span className={`text-xs px-2 py-1 rounded ${SERVICE_COLORS[selectedService.type] || SERVICE_COLORS.default}`}>
+                    {selectedService.type}
+                  </span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedService(null)}
+                className="p-2 hover:bg-gray-100 rounded-full"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-sm text-gray-500">System</div>
+                  <div className="font-medium">{selectedService.systemName}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500">Environment</div>
+                  <div className="font-medium">{selectedService.environment}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500">Region</div>
+                  <div className="font-medium">{selectedService.region}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500">Status</div>
+                  <div className={`inline-block px-2 py-1 rounded text-xs ${getStatusColor(selectedService.instanceState || selectedService.status)}`}>
+                    {selectedService.instanceState || selectedService.status}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500">Last Seen</div>
+                  <div className="font-medium">{formatDate(selectedService.lastSeen)}</div>
+                </div>
+                {selectedService.attachedPolicies !== undefined && (
+                  <div>
+                    <div className="text-sm text-gray-500">Attached Policies</div>
+                    <div className="font-medium">{selectedService.attachedPolicies}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Properties */}
+              {selectedService.properties && Object.keys(selectedService.properties).length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3">Properties</h3>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    {Object.entries(selectedService.properties).slice(0, 10).map(([key, value]) => (
+                      <div key={key} className="flex justify-between text-sm">
+                        <span className="text-gray-500">{key}</span>
+                        <span className="font-mono text-gray-700 truncate max-w-[300px]" title={String(value)}>
+                          {typeof value === 'object' ? JSON.stringify(value).slice(0, 50) : String(value).slice(0, 50)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setSelectedService(null)}>
+                  Close
+                </Button>
+                <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                  View in Console
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
