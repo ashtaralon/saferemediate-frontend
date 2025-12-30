@@ -33,7 +33,7 @@ import {
 } from "lucide-react"
 import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for the graph tab
 import LeastPrivilegeTab from "./LeastPrivilegeTab" // Import comprehensive LeastPrivilegeTab
-import DependencyMapView from "./DependencyMap" // Import new DependencyMapView with ReactFlow
+import DependencyMapTab from "./dependency-map-tab" // Import new DependencyMapTab with CloudTrail
 import { AllServicesTab } from "./all-services-tab"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -1199,7 +1199,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapView systemName={systemName} />
+          <DependencyMapTab systemName={systemName} />
         </div>
       )}
 
