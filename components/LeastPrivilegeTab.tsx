@@ -1271,18 +1271,18 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
         </div>
       )}
 
-      {resource.highRiskUnused.length > 0 && resource.resourceType !== 'SecurityGroup' && (
+      {(resource.highRiskUnused?.length || 0) > 0 && resource.resourceType !== 'SecurityGroup' && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
           <div className="text-sm font-medium text-red-700">⚠️ High-Risk Unused Permissions:</div>
           <div className="flex flex-wrap gap-2 mt-1">
-            {resource.highRiskUnused.slice(0, 3).map((perm, idx) => (
+            {(resource.highRiskUnused || []).slice(0, 3).map((perm, idx) => (
               <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-mono">
                 {perm.permission}
               </span>
             ))}
-            {resource.highRiskUnused.length > 3 && (
+            {(resource.highRiskUnused?.length || 0) > 3 && (
               <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
-                +{resource.highRiskUnused.length - 3} more
+                +{(resource.highRiskUnused?.length || 0) - 3} more
               </span>
             )}
           </div>
@@ -1543,11 +1543,11 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         </p>
       </div>
 
-      {resource.highRiskUnused.length > 0 && (
+      {(resource.highRiskUnused?.length || 0) > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4">
           <h3 className="text-lg font-bold text-red-900 mb-3">High-Risk Unused Permissions</h3>
           <div className="space-y-2">
-            {resource.highRiskUnused.map((perm, idx) => (
+            {(resource.highRiskUnused || []).map((perm, idx) => (
               <div key={idx} className="flex items-center justify-between bg-white rounded p-3">
                 <div>
                   <div className="font-mono text-sm font-medium text-gray-900">{perm.permission}</div>
@@ -2468,14 +2468,14 @@ function ImpactTab({ resource }: { resource: GapResource }) {
       <div className="rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">What Will Continue Working</h3>
         <div className="space-y-2">
-          {resource.usedList.slice(0, 5).map((perm, idx) => (
+          {(resource.usedList || []).slice(0, 5).map((perm, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               <span className="font-mono text-gray-700">{perm}</span>
             </div>
           ))}
-          {resource.usedList.length > 5 && (
-            <div className="text-sm text-gray-500">...and {resource.usedList.length - 5} more used permissions</div>
+          {(resource.usedList?.length || 0) > 5 && (
+            <div className="text-sm text-gray-500">...and {(resource.usedList?.length || 0) - 5} more used permissions</div>
           )}
         </div>
       </div>
@@ -2483,14 +2483,14 @@ function ImpactTab({ resource }: { resource: GapResource }) {
       <div className="rounded-lg border border-red-200 bg-red-50 p-6">
         <h3 className="text-lg font-bold text-gray-900 mb-4">What Will Be Removed</h3>
         <div className="space-y-2">
-          {resource.unusedList.slice(0, 5).map((perm, idx) => (
+          {(resource.unusedList || []).slice(0, 5).map((perm, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
               <XCircle className="w-4 h-4 text-red-600" />
               <span className="font-mono text-gray-700">{perm}</span>
             </div>
           ))}
-          {resource.unusedList.length > 5 && (
-            <div className="text-sm text-gray-500">...and {resource.unusedList.length - 5} more unused permissions</div>
+          {(resource.unusedList?.length || 0) > 5 && (
+            <div className="text-sm text-gray-500">...and {(resource.unusedList?.length || 0) - 5} more unused permissions</div>
           )}
         </div>
       </div>
