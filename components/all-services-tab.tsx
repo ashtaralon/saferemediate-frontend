@@ -147,19 +147,44 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       const lpData = await lpResponse.json()
       const resources = lpData.resources || []
       
-      // Also try to fetch extended resources
+      // Also try to fetch extended resources from BOTH regions
       let extendedResources: any[] = []
       try {
-        const extResponse = await fetch('/api/proxy/resources/all?regions=eu-west-1')
-        if (extResponse.ok) {
-          const extData = await extResponse.json()
-          // Flatten all resource types
-          const resourceTypes = ['lambda_functions', 'rds_instances', 'dynamodb_tables', 'ecs_clusters', 'ecs_services']
-          resourceTypes.forEach(type => {
-            if (extData.resources?.[type]) {
-              extendedResources = [...extendedResources, ...extData.resources[type]]
-            }
-          })
+        // Fetch from both eu-west-1 and us-east-1
+        const regions = ['eu-west-1', 'us-east-1']
+        for (const region of regions) {
+          const extResponse = await fetch(`/api/proxy/resources/all?regions=${region}`)
+          if (extResponse.ok) {
+            const extData = await extResponse.json()
+            // Flatten ALL resource types (not just 5)
+            const resourceTypes = [
+              'lambda_functions', 
+              'rds_instances', 
+              'dynamodb_tables', 
+              'ecs_clusters', 
+              'ecs_services',
+              'kms_keys',
+              'secrets',
+              'internet_gateways',
+              'nat_gateways',
+              'vpc_endpoints',
+              'log_groups',
+              'hosted_zones',
+              'cloudfront_distributions',
+              'acm_certificates'
+            ]
+            resourceTypes.forEach(type => {
+              if (extData.resources?.[type]) {
+                // Add region and type info to each resource
+                const resourcesWithMeta = extData.resources[type].map((r: any) => ({
+                  ...r,
+                  _sourceType: type,
+                  _region: region
+                }))
+                extendedResources = [...extendedResources, ...resourcesWithMeta]
+              }
+            })
+          }
         }
       } catch (e) {
         console.warn('Extended resources fetch failed:', e)
@@ -181,21 +206,40 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
         instanceState: "running",
       }))
       
-      // Map extended resources
-      const extMapped: ServiceNode[] = extendedResources.map((r: any) => ({
-        id: r.arn || r.id || r.name || Math.random().toString(),
-        name: r.name || r.id || "Unknown",
-        type: r.type || (r.runtime ? 'Lambda' : r.engine ? 'RDS' : 'Unknown'),
-        systemName: systemName || "Ungrouped",
-        environment: "Production",
-        region: r.region || "eu-west-1",
-        status: r.status || r.state || "Active",
-        lastSeen: r.last_modified || new Date().toISOString(),
-        properties: r,
-        attachedPolicies: 0,
-        permissionCount: 0,
-        instanceState: r.status || r.state || "running",
-      }))
+      // Map extended resources with proper type detection
+      const extMapped: ServiceNode[] = extendedResources.map((r: any) => {
+        // Detect type based on source type or resource properties
+        let detectedType = r.type || 'Unknown'
+        if (r._sourceType === 'lambda_functions' || r.runtime) detectedType = 'Lambda'
+        else if (r._sourceType === 'rds_instances' || r.engine) detectedType = 'RDS'
+        else if (r._sourceType === 'dynamodb_tables' || r.billing_mode) detectedType = 'DynamoDB'
+        else if (r._sourceType === 'kms_keys' || r.key_state) detectedType = 'KMS'
+        else if (r._sourceType === 'secrets') detectedType = 'Secret'
+        else if (r._sourceType === 'internet_gateways') detectedType = 'InternetGateway'
+        else if (r._sourceType === 'nat_gateways') detectedType = 'NATGateway'
+        else if (r._sourceType === 'vpc_endpoints') detectedType = 'VPCEndpoint'
+        else if (r._sourceType === 'log_groups') detectedType = 'LogGroup'
+        else if (r._sourceType === 'ecs_clusters') detectedType = 'ECSCluster'
+        else if (r._sourceType === 'ecs_services') detectedType = 'ECSService'
+        else if (r._sourceType === 'hosted_zones') detectedType = 'Route53'
+        else if (r._sourceType === 'cloudfront_distributions') detectedType = 'CloudFront'
+        else if (r._sourceType === 'acm_certificates') detectedType = 'ACM'
+        
+        return {
+          id: r.arn || r.id || r.name || Math.random().toString(),
+          name: r.name || r.id || "Unknown",
+          type: detectedType,
+          systemName: systemName || "Ungrouped",
+          environment: "Production",
+          region: r._region || r.region || "eu-west-1",
+          status: r.status || r.state || r.key_state || "Active",
+          lastSeen: r.last_modified || r.creation_date || new Date().toISOString(),
+          properties: r,
+          attachedPolicies: 0,
+          permissionCount: 0,
+          instanceState: r.status || r.state || "running",
+        }
+      })
       
       // Combine and dedupe by id
       const allServices = [...lpMapped, ...extMapped]
