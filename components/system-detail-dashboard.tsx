@@ -37,7 +37,7 @@ import DependencyMapTab from "./dependency-map-tab" // Import new DependencyMapT
 import SystemDependencyMap from "./system-dependency-map" // Import new system architecture visualization
 import DynamicAWSArchitecture from "./dynamic-aws-architecture" // Import animated architecture view
 import RealDataArchitectureMap from "./real-data-architecture-map" // Import real-data architecture
-import AWSArchitectureFlow from "./aws-architecture-flow" // Import AWS architecture flow visualization
+import AWSTopologyMapLive from "./aws-topology-map-live" // Import AWS architecture flow visualization
 import { AllServicesTab } from "./all-services-tab"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -1203,7 +1203,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <AWSArchitectureFlow systemName={systemName} />
+          <AWSTopologyMapLive systemName={systemName} />
         </div>
       )}
 
