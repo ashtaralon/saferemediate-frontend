@@ -143,6 +143,43 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const fetchServices = async () => {
     setLoading(true)
     try {
+      // FIRST: Try Neo4j endpoint (A7 Patent - system-only resources)
+      const neo4jResponse = await fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`)
+      
+      if (neo4jResponse.ok) {
+        const neo4jData = await neo4jResponse.json()
+        const neo4jResources = neo4jData.resources || []
+        
+        if (neo4jResources.length > 0) {
+          // Use Neo4j data (A7 Patent: only system resources)
+          console.log(`[AllServices] Using Neo4j data: ${neo4jResources.length} resources`)
+          
+          const mapped: ServiceNode[] = neo4jResources.map((r: any) => ({
+            id: r.id || r.name || Math.random().toString(),
+            name: r.name || "Unknown",
+            type: r.type || "Unknown",
+            systemName: r.systemName || systemName,
+            environment: r.environment || "Production",
+            region: "eu-west-1",
+            status: r.is_seed ? "Seed" : "Discovered",
+            lastSeen: new Date().toISOString(),
+            properties: {},
+            attachedPolicies: r.type === 'IAMRole' ? (r.connections || 0) : 0,
+            permissionCount: r.connections || 0,
+            instanceState: "active",
+            tags: {},
+            isTagged: true,  // All Neo4j resources are tagged
+            vpcId: undefined,
+          }))
+          
+          setServices(mapped)
+          return
+        }
+      }
+      
+      // FALLBACK: Use AWS APIs if Neo4j is empty
+      console.log('[AllServices] Neo4j empty, falling back to AWS APIs')
+      
       // Fetch from least-privilege issues endpoint (has all resources)
       const lpResponse = await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
       

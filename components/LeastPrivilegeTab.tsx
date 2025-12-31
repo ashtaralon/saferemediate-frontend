@@ -237,11 +237,29 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       }
       setError(null)
       
-      const refreshParam = forceRefresh ? '&refresh=true' : ''
-      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365${refreshParam}`)
-      if (!response.ok) throw new Error(`Failed: ${response.status}`)
+      // FIRST: Try Neo4j endpoint (A7 Patent - system-only LP issues)
+      let result: any = null
+      try {
+        const neo4jResponse = await fetch(`/api/proxy/system-least-privilege/${encodeURIComponent(systemName)}/issues`)
+        if (neo4jResponse.ok) {
+          const neo4jData = await neo4jResponse.json()
+          if (neo4jData.resources?.length > 0) {
+            console.log('[LeastPrivilegeTab] Using Neo4j data:', neo4jData.resources.length, 'resources')
+            result = neo4jData
+          }
+        }
+      } catch (e) {
+        console.warn('[LeastPrivilegeTab] Neo4j endpoint failed, falling back to AWS:', e)
+      }
       
-      const result = await response.json()
+      // FALLBACK: Use AWS-based endpoint if Neo4j is empty
+      if (!result || !result.resources?.length) {
+        console.log('[LeastPrivilegeTab] Using AWS fallback endpoint')
+        const refreshParam = forceRefresh ? '&refresh=true' : ''
+        const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365${refreshParam}`)
+        if (!response.ok) throw new Error(`Failed: ${response.status}`)
+        result = await response.json()
+      }
       
       // Log what we received for debugging
       console.log('[LeastPrivilegeTab] Received resources:', {
