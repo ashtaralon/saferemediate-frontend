@@ -203,6 +203,8 @@ export default function AWSTopologyMapLive({
   const [previousNodeIds, setPreviousNodeIds] = useState<Set<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<{ tagged: number; message: string } | null>(null);
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildResult, setBuildResult] = useState<{ created: number; message: string } | null>(null);
 
   // Time ago helper
   const getTimeAgo = useCallback((date: Date | null) => {
@@ -407,6 +409,55 @@ export default function AWSTopologyMapLive({
     }
   }, [fetchTopology]);
 
+  // Build Flows - infer relationships between nodes
+  const buildFlows = useCallback(async () => {
+    setIsBuilding(true);
+    setBuildResult(null);
+    
+    try {
+      const response = await fetch('/api/proxy/infer/relationships', {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Build failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        const created = data.total_created || 0;
+        setBuildResult({
+          created,
+          message: created > 0 
+            ? `🔗 Created ${created} relationship(s)!` 
+            : '✓ All relationships exist'
+        });
+        
+        if (created > 0) {
+          setNotification(`🔗 Built ${created} flow(s) between resources`);
+          setTimeout(() => setNotification(null), 5000);
+          // Refresh topology to show new edges
+          setTimeout(() => fetchTopology(false), 1000);
+        }
+      } else {
+        setBuildResult({
+          created: 0,
+          message: data.error || 'Build completed'
+        });
+      }
+    } catch (err) {
+      console.error('Build error:', err);
+      setBuildResult({
+        created: 0,
+        message: `❌ ${err instanceof Error ? err.message : 'Build failed'}`
+      });
+    } finally {
+      setIsBuilding(false);
+      setTimeout(() => setBuildResult(null), 5000);
+    }
+  }, [fetchTopology]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center bg-gray-50 rounded-lg" style={{ height }}>
@@ -488,12 +539,40 @@ export default function AWSTopologyMapLive({
           )}
         </button>
 
+        {/* Build Flows button */}
+        <button
+          onClick={buildFlows}
+          disabled={isBuilding}
+          className={`flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+            isBuilding
+              ? 'bg-purple-200 text-purple-700 cursor-wait'
+              : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+          }`}
+        >
+          {isBuilding ? (
+            <>
+              <span className="animate-spin">⏳</span> Building...
+            </>
+          ) : (
+            <>🔗 Build Flows</>
+          )}
+        </button>
+
         {/* Scan result indicator */}
         {scanResult && (
           <span className={`text-xs px-2 py-1 rounded-full ${
             scanResult.tagged > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
           }`}>
             {scanResult.message}
+          </span>
+        )}
+
+        {/* Build result indicator */}
+        {buildResult && (
+          <span className={`text-xs px-2 py-1 rounded-full ${
+            buildResult.created > 0 ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'
+          }`}>
+            {buildResult.message}
           </span>
         )}
 
