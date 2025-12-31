@@ -201,6 +201,8 @@ export default function AWSTopologyMapLive({
   const [isLive, setIsLive] = useState(autoRefreshInterval > 0);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [previousNodeIds, setPreviousNodeIds] = useState<Set<string>>(new Set());
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<{ tagged: number; message: string } | null>(null);
 
   // Time ago helper
   const getTimeAgo = useCallback((date: Date | null) => {
@@ -355,6 +357,56 @@ export default function AWSTopologyMapLive({
     }
   }, [onNodeClick]);
 
+  // Scan Now - trigger auto-tagger to discover new resources
+  const scanNow = useCallback(async () => {
+    setIsScanning(true);
+    setScanResult(null);
+    
+    try {
+      const response = await fetch('/api/proxy/auto-tagger/run-once', {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Scan failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        const tagged = data.tagged || 0;
+        setScanResult({
+          tagged,
+          message: tagged > 0 
+            ? `🎉 Found ${tagged} new resource(s)!` 
+            : '✓ No new resources found'
+        });
+        
+        if (tagged > 0) {
+          setNotification(`🔍 Scan complete: ${tagged} new resource(s) discovered`);
+          setTimeout(() => setNotification(null), 5000);
+          // Refresh topology to show new resources
+          setTimeout(() => fetchTopology(false), 1000);
+        }
+      } else {
+        setScanResult({
+          tagged: 0,
+          message: data.error || 'Scan completed with no results'
+        });
+      }
+    } catch (err) {
+      console.error('Scan error:', err);
+      setScanResult({
+        tagged: 0,
+        message: `❌ ${err instanceof Error ? err.message : 'Scan failed'}`
+      });
+    } finally {
+      setIsScanning(false);
+      // Clear result after 5 seconds
+      setTimeout(() => setScanResult(null), 5000);
+    }
+  }, [fetchTopology]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center bg-gray-50 rounded-lg" style={{ height }}>
@@ -416,6 +468,34 @@ export default function AWSTopologyMapLive({
         >
           🔄 Refresh
         </button>
+
+        {/* Scan Now button */}
+        <button
+          onClick={scanNow}
+          disabled={isScanning}
+          className={`flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium transition-all ${
+            isScanning
+              ? 'bg-orange-200 text-orange-700 cursor-wait'
+              : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+          }`}
+        >
+          {isScanning ? (
+            <>
+              <span className="animate-spin">⏳</span> Scanning...
+            </>
+          ) : (
+            <>🔍 Scan Now</>
+          )}
+        </button>
+
+        {/* Scan result indicator */}
+        {scanResult && (
+          <span className={`text-xs px-2 py-1 rounded-full ${
+            scanResult.tagged > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+          }`}>
+            {scanResult.message}
+          </span>
+        )}
 
         {/* Node count with new indicator */}
         <div className="flex items-center gap-2 text-sm">
