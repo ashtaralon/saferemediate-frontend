@@ -485,6 +485,69 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(80vh-60px)]">
+              {pathLoading ? (
+                <div className="flex items-center justify-center py-12"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /></div>
+              ) : securityPathData ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-50 rounded-xl">
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
+                      <span>{securityPathData.source?.label || securityPathData.edge?.source}</span>
+                      <ChevronRight className="w-4 h-4" />
+                      <span>{securityPathData.target?.label || securityPathData.edge?.target}</span>
+                    </div>
+                    <div className="text-xs text-slate-500">{securityPathData.edge?.protocol || 'TCP'}:{securityPathData.edge?.port || 'All'}</div>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-slate-600">Remediation Confidence</span>
+                      <span className={`text-xl font-bold ${securityPathData.confidence >= 80 ? 'text-green-600' : securityPathData.confidence >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{securityPathData.confidence}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full"><div className={`h-full rounded-full ${securityPathData.confidence >= 80 ? 'bg-green-500' : securityPathData.confidence >= 60 ? 'bg-amber-500' : 'bg-red-500'}`} style={{width: `${securityPathData.confidence}%`}} /></div>
+                  </div>
+                  {securityPathData.securityLayers?.map((layer: any, idx: number) => (
+                    <div key={idx} className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className={`px-4 py-2 flex items-center gap-2 ${layer.type === 'sg' ? 'bg-orange-50' : 'bg-purple-50'}`}>
+                        {layer.type === 'sg' ? <Shield className="w-4 h-4 text-orange-600" /> : <Key className="w-4 h-4 text-purple-600" />}
+                        <span className="font-medium text-sm">{layer.type === 'sg' ? 'Security Group' : 'IAM Role'}: {layer.name}</span>
+                      </div>
+                      <div className="p-4 bg-white text-sm">
+                        {layer.type === 'sg' && layer.rules?.map((r: any, i: number) => (
+                          <div key={i} className="flex justify-between py-1"><span className="font-mono">{r.direction} {r.protocol}:{r.port} from {r.source}</span><span className="text-green-600">{r.hits} hits</span></div>
+                        ))}
+                        {layer.type === 'iam' && <div><div>LP Score: <strong>{layer.lpScore}%</strong></div><div>Usage: <strong>{layer.usedCount}</strong></div></div>}
+                      </div>
+                    </div>
+                  ))}
+                  {securityPathData.gaps?.length > 0 ? (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <h3 className="font-semibold text-amber-700 mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Gaps ({securityPathData.gaps.length})</h3>
+                      {securityPathData.gaps.map((g: any, i: number) => (
+                        <div key={i} className="mb-2"><span className={`px-2 py-0.5 rounded text-xs ${g.severity === 'critical' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{g.severity}</span> <span className="font-mono">{g.rule}</span><p className="text-sm text-amber-700 mt-1">💡 {g.recommendation}</p></div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl"><CheckCircle className="w-4 h-4 text-green-600 inline mr-2" /><span className="text-green-700 font-medium">No security gaps detected</span></div>
+                  )}
+                </div>
+              ) : <div className="text-center py-12 text-slate-500">No data</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Security Path Modal */}
+      {showSecurityPath && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSecurityPath(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Shield className="w-5 h-5" /> Security Path Analysis
+              </h2>
+              <button onClick={() => setShowSecurityPath(false)} className="p-1 hover:bg-white/20 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             
             <div className="p-6 overflow-y-auto max-h-[calc(80vh-60px)]">
               {pathLoading ? (
