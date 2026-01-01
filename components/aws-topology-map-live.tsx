@@ -1,26 +1,38 @@
 'use client';
 
-import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 
 // ============================================================================
-// TYPES
+// TYPES - Based on /api/dependency-map/graph response
 // ============================================================================
 
-interface LPResource {
+interface GraphNode {
   id: string;
-  resourceName: string;
-  resourceType: string;
-  resourceArn: string;
-  systemName: string;
+  name: string;
+  type: string;
+  category: string;
+  layer?: number;
   lpScore?: number;
   gapCount?: number;
   severity?: string;
-  allowedList?: any[];
-  networkExposure?: {
-    score: number;
-    severity: string;
-    internetExposedRules: number;
-  };
+  isInternetExposed?: boolean;
+}
+
+interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  port?: string;
+  ports?: string[];
+  protocol?: string;
+  isActual?: boolean;
+}
+
+interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  error?: string;
 }
 
 interface AWSTopologyMapLiveProps {
@@ -28,38 +40,49 @@ interface AWSTopologyMapLiveProps {
   autoRefreshInterval?: number;
   height?: string;
   showLegend?: boolean;
-  onNodeClick?: (resource: LPResource) => void;
+  onNodeClick?: (node: GraphNode) => void;
 }
 
 // ============================================================================
 // STYLING
 // ============================================================================
 
-const CATEGORY_CONFIG: Record<string, { color: string; icon: string; bg: string; label: string }> = {
-  SecurityGroup: { color: '#7c3aed', icon: '🛡️', bg: 'bg-purple-50', label: 'Security Groups' },
-  IAMRole: { color: '#ea580c', icon: '👤', bg: 'bg-orange-50', label: 'IAM Roles' },
-  S3Bucket: { color: '#16a34a', icon: '📦', bg: 'bg-green-50', label: 'S3 Buckets' },
-  Lambda: { color: '#f59e0b', icon: '⚡', bg: 'bg-amber-50', label: 'Lambda Functions' },
-  DynamoDB: { color: '#2563eb', icon: '🗄️', bg: 'bg-blue-50', label: 'DynamoDB Tables' },
-  EC2: { color: '#f97316', icon: '🖥️', bg: 'bg-orange-50', label: 'EC2 Instances' },
+const CATEGORY_CONFIG: Record<string, { color: string; icon: string; bg: string }> = {
+  Edge: { color: '#06b6d4', icon: '🌐', bg: 'bg-cyan-50' },
+  Networking: { color: '#8b5cf6', icon: '🔀', bg: 'bg-violet-50' },
+  Security: { color: '#ef4444', icon: '🛡️', bg: 'bg-red-50' },
+  Compute: { color: '#f59e0b', icon: '⚡', bg: 'bg-amber-50' },
+  Database: { color: '#3b82f6', icon: '🗄️', bg: 'bg-blue-50' },
+  Storage: { color: '#22c55e', icon: '📦', bg: 'bg-green-50' },
+  Identity: { color: '#ea580c', icon: '👤', bg: 'bg-orange-50' },
+  Integration: { color: '#ec4899', icon: '🔗', bg: 'bg-pink-50' },
+  Internet: { color: '#dc2626', icon: '🌍', bg: 'bg-red-100' },
+};
+
+const EDGE_COLORS: Record<string, string> = {
+  internet: '#dc2626',
+  network: '#8b5cf6',
+  iam_trust: '#ea580c',
+  data: '#22c55e',
+  invokes: '#f59e0b',
+  default: '#6b7280',
 };
 
 // ============================================================================
-// RESOURCE CARD
+// NODE CARD COMPONENT
 // ============================================================================
 
-const ResourceCard = ({ 
-  resource, 
+const NodeCard = ({ 
+  node, 
   onClick,
-  isConnected,
+  isHighlighted,
 }: { 
-  resource: LPResource; 
+  node: GraphNode; 
   onClick?: () => void;
-  isConnected?: boolean;
+  isHighlighted?: boolean;
 }) => {
-  const config = CATEGORY_CONFIG[resource.resourceType] || { color: '#6b7280', icon: '📄', bg: 'bg-gray-50' };
-  const isHealthy = (resource.lpScore ?? 100) >= 80;
-  const hasInternet = resource.networkExposure?.internetExposedRules > 0;
+  const config = CATEGORY_CONFIG[node.category] || CATEGORY_CONFIG.Security;
+  const isHealthy = (node.lpScore ?? 100) >= 80;
 
   return (
     <div
@@ -67,45 +90,36 @@ const ResourceCard = ({
       className={`
         relative p-4 rounded-xl border-2 bg-white shadow-md cursor-pointer
         hover:shadow-xl hover:scale-[1.02] transition-all duration-200
-        ${isConnected ? 'ring-2 ring-indigo-400 ring-offset-2' : ''}
+        ${isHighlighted ? 'ring-2 ring-indigo-400 ring-offset-2' : ''}
       `}
-      style={{ borderColor: config.color, minWidth: '180px' }}
+      style={{ borderColor: config.color, minWidth: '180px', maxWidth: '220px' }}
     >
-      {/* Header */}
       <div className="flex items-center gap-3 mb-2">
         <span className="text-2xl">{config.icon}</span>
         <div className="flex-1 min-w-0">
-          <p 
-            className="font-bold text-gray-900 text-sm truncate" 
-            title={resource.resourceName}
-          >
-            {resource.resourceName.length > 20 
-              ? resource.resourceName.substring(0, 17) + '...' 
-              : resource.resourceName}
+          <p className="font-bold text-gray-900 text-sm truncate" title={node.name}>
+            {node.name.length > 18 ? node.name.substring(0, 15) + '...' : node.name}
           </p>
-          <p className="text-xs" style={{ color: config.color }}>{resource.resourceType}</p>
+          <p className="text-xs" style={{ color: config.color }}>{node.type}</p>
         </div>
-        {/* Status dot */}
         <div 
-          className={`w-3 h-3 rounded-full ${isHealthy ? 'bg-green-500' : 'bg-amber-500'} ${isHealthy ? '' : 'animate-pulse'}`}
+          className={`w-3 h-3 rounded-full ${isHealthy ? 'bg-green-500' : 'bg-amber-500 animate-pulse'}`}
         />
       </div>
 
-      {/* LP Score */}
-      {resource.lpScore !== undefined && (
+      {node.lpScore !== undefined && (
         <div className="flex justify-between items-center text-xs mt-2">
           <span className="text-gray-500">LP Score</span>
           <span 
             className="font-bold"
-            style={{ color: resource.lpScore >= 80 ? '#16a34a' : '#dc2626' }}
+            style={{ color: node.lpScore >= 80 ? '#16a34a' : '#dc2626' }}
           >
-            {resource.lpScore}%
+            {node.lpScore}%
           </span>
         </div>
       )}
 
-      {/* Internet exposed badge */}
-      {hasInternet && (
+      {node.isInternetExposed && (
         <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-bold animate-pulse">
           🌐 Public
         </div>
@@ -115,110 +129,52 @@ const ResourceCard = ({
 };
 
 // ============================================================================
-// ANIMATED FLOW LINE (CSS only)
+// ANIMATED CONNECTION LINE (SVG)
 // ============================================================================
 
-const FlowLine = ({ 
-  fromX, fromY, toX, toY, color, label 
+const ConnectionLine = ({ 
+  fromX, fromY, toX, toY, color, label, port 
 }: { 
-  fromX: number; fromY: number; toX: number; toY: number; color: string; label?: string;
+  fromX: number; fromY: number; toX: number; toY: number; 
+  color: string; label?: string; port?: string;
 }) => {
   const midX = (fromX + toX) / 2;
   const midY = (fromY + toY) / 2;
   
   return (
     <g>
-      {/* Glow effect */}
+      {/* Glow */}
       <line
         x1={fromX} y1={fromY} x2={toX} y2={toY}
-        stroke={color}
-        strokeWidth="6"
-        opacity="0.2"
-        strokeLinecap="round"
+        stroke={color} strokeWidth="6" opacity="0.15"
       />
       
       {/* Main line */}
       <line
         x1={fromX} y1={fromY} x2={toX} y2={toY}
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        markerEnd="url(#arrowhead)"
+        stroke={color} strokeWidth="2" markerEnd={`url(#arrow-${color.replace('#', '')})`}
       />
       
-      {/* Animated dot 1 */}
-      <circle r="4" fill={color}>
-        <animate 
-          attributeName="cx" 
-          values={`${fromX};${toX}`} 
-          dur="2s" 
-          repeatCount="indefinite"
-        />
-        <animate 
-          attributeName="cy" 
-          values={`${fromY};${toY}`} 
-          dur="2s" 
-          repeatCount="indefinite"
-        />
-        <animate 
-          attributeName="opacity" 
-          values="1;0.5;1" 
-          dur="2s" 
-          repeatCount="indefinite"
-        />
+      {/* Animated dots */}
+      <circle r="5" fill={color}>
+        <animate attributeName="cx" values={`${fromX};${toX}`} dur="2s" repeatCount="indefinite" />
+        <animate attributeName="cy" values={`${fromY};${toY}`} dur="2s" repeatCount="indefinite" />
       </circle>
-      
-      {/* Animated dot 2 (delayed) */}
-      <circle r="3" fill={color} opacity="0.7">
-        <animate 
-          attributeName="cx" 
-          values={`${fromX};${toX}`} 
-          dur="2s" 
-          repeatCount="indefinite"
-          begin="0.5s"
-        />
-        <animate 
-          attributeName="cy" 
-          values={`${fromY};${toY}`} 
-          dur="2s" 
-          repeatCount="indefinite"
-          begin="0.5s"
-        />
+      <circle r="4" fill={color} opacity="0.6">
+        <animate attributeName="cx" values={`${fromX};${toX}`} dur="2s" repeatCount="indefinite" begin="0.5s" />
+        <animate attributeName="cy" values={`${fromY};${toY}`} dur="2s" repeatCount="indefinite" begin="0.5s" />
       </circle>
-      
-      {/* Animated dot 3 (more delayed) */}
-      <circle r="2" fill={color} opacity="0.5">
-        <animate 
-          attributeName="cx" 
-          values={`${fromX};${toX}`} 
-          dur="2s" 
-          repeatCount="indefinite"
-          begin="1s"
-        />
-        <animate 
-          attributeName="cy" 
-          values={`${fromY};${toY}`} 
-          dur="2s" 
-          repeatCount="indefinite"
-          begin="1s"
-        />
+      <circle r="3" fill={color} opacity="0.3">
+        <animate attributeName="cx" values={`${fromX};${toX}`} dur="2s" repeatCount="indefinite" begin="1s" />
+        <animate attributeName="cy" values={`${fromY};${toY}`} dur="2s" repeatCount="indefinite" begin="1s" />
       </circle>
       
       {/* Label */}
-      {label && (
+      {(port || label) && (
         <g transform={`translate(${midX}, ${midY})`}>
-          <rect 
-            x="-30" y="-10" width="60" height="20" 
-            rx="4" fill="white" stroke={color} strokeWidth="1"
-          />
-          <text 
-            textAnchor="middle" 
-            dominantBaseline="middle" 
-            fontSize="10" 
-            fontWeight="600"
-            fill={color}
-          >
-            {label}
+          <rect x="-35" y="-10" width="70" height="20" rx="4" fill="white" stroke={color} strokeWidth="1" />
+          <text textAnchor="middle" dominantBaseline="middle" fontSize="10" fontWeight="600" fill={color}>
+            {port ? `Port ${port}` : label}
           </text>
         </g>
       )}
@@ -237,8 +193,7 @@ export default function AWSTopologyMapLive({
   showLegend = true,
   onNodeClick,
 }: AWSTopologyMapLiveProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [resources, setResources] = useState<LPResource[]>([]);
+  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -251,28 +206,32 @@ export default function AWSTopologyMapLive({
     return `${Math.floor(seconds / 60)}m ago`;
   }, [lastUpdated]);
 
-  // Group resources by type
-  const groupedResources = useMemo(() => {
-    const groups: Record<string, LPResource[]> = {};
-    resources.forEach(r => {
-      if (!groups[r.resourceType]) groups[r.resourceType] = [];
-      groups[r.resourceType].push(r);
+  // Group nodes by layer/category
+  const groupedNodes = useMemo(() => {
+    const groups: Record<string, GraphNode[]> = {};
+    graphData.nodes.forEach(node => {
+      const key = node.category || 'Other';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(node);
     });
     return groups;
-  }, [resources]);
+  }, [graphData.nodes]);
 
-  // Fetch data
+  // Fetch from Neo4j dependency-map endpoint
   const fetchData = useCallback(async (isInitial = false) => {
     try {
       if (isInitial) setLoading(true);
 
-      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}`);
+      const response = await fetch(`/api/proxy/dependency-map/graph?systemName=${systemName}`);
       if (!response.ok) throw new Error(`API error: ${response.status}`);
 
-      const data = await response.json();
-      const fetchedResources: LPResource[] = data.resources || [];
+      const data: GraphData = await response.json();
 
-      setResources(fetchedResources);
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setGraphData(data);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
@@ -290,15 +249,14 @@ export default function AWSTopologyMapLive({
     return () => clearInterval(interval);
   }, [isLive, autoRefreshInterval, fetchData]);
 
-  // Count connections (edges between rows)
-  const connectionCount = useMemo(() => {
-    const types = Object.keys(groupedResources);
-    let count = 0;
-    for (let i = 0; i < types.length - 1; i++) {
-      count += Math.min(groupedResources[types[i]].length, groupedResources[types[i + 1]].length);
-    }
-    return count;
-  }, [groupedResources]);
+  // Category stats
+  const categoryStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    graphData.nodes.forEach(n => {
+      stats[n.category] = (stats[n.category] || 0) + 1;
+    });
+    return stats;
+  }, [graphData.nodes]);
 
   if (loading) {
     return (
@@ -308,7 +266,8 @@ export default function AWSTopologyMapLive({
             <div className="absolute inset-0 rounded-full border-4 border-indigo-200" />
             <div className="absolute inset-0 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin" />
           </div>
-          <p className="text-xl font-bold text-slate-700">Loading {systemName}</p>
+          <p className="text-xl font-bold text-slate-700">Loading Neo4j Graph</p>
+          <p className="text-slate-500">{systemName}</p>
         </div>
       </div>
     );
@@ -319,7 +278,8 @@ export default function AWSTopologyMapLive({
       <div className="flex items-center justify-center bg-red-50 rounded-2xl" style={{ height }}>
         <div className="text-center">
           <p className="text-4xl mb-4">⚠️</p>
-          <p className="text-red-700 font-bold text-lg mb-4">{error}</p>
+          <p className="text-red-700 font-bold text-lg mb-2">Neo4j Error</p>
+          <p className="text-red-600 mb-4 max-w-md">{error}</p>
           <button 
             onClick={() => fetchData(true)}
             className="px-6 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-bold"
@@ -331,14 +291,28 @@ export default function AWSTopologyMapLive({
     );
   }
 
-  const types = Object.keys(groupedResources);
+  const categories = Object.keys(groupedNodes);
 
   return (
     <div 
-      ref={containerRef}
       className="relative rounded-2xl border-2 border-slate-200 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50 shadow-xl" 
       style={{ height }}
     >
+      {/* SVG Definitions for arrows */}
+      <svg className="absolute" style={{ width: 0, height: 0 }}>
+        <defs>
+          {Object.entries(EDGE_COLORS).map(([key, color]) => (
+            <marker
+              key={key}
+              id={`arrow-${color.replace('#', '')}`}
+              markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"
+            >
+              <polygon points="0 0, 10 3.5, 0 7" fill={color} />
+            </marker>
+          ))}
+        </defs>
+      </svg>
+
       {/* Controls */}
       <div className="absolute top-4 left-4 z-20 flex items-center gap-4 bg-white/95 backdrop-blur px-5 py-3 rounded-xl shadow-lg border border-slate-200">
         <button
@@ -360,102 +334,96 @@ export default function AWSTopologyMapLive({
 
         <div className="h-6 w-px bg-slate-200" />
 
-        <span className="text-lg font-black text-slate-800">{resources.length}</span>
-        <span className="text-slate-500 text-sm">resources</span>
+        <span className="text-lg font-black text-slate-800">{graphData.nodes.length}</span>
+        <span className="text-slate-500 text-sm">nodes</span>
         <span className="text-slate-300">|</span>
-        <span className="text-lg font-black text-indigo-600">{connectionCount}</span>
-        <span className="text-slate-500 text-sm">flows</span>
+        <span className="text-lg font-black text-indigo-600">{graphData.edges.length}</span>
+        <span className="text-slate-500 text-sm">connections</span>
         <span className="text-slate-300">|</span>
         <span className="text-slate-500 text-sm">{timeAgo}</span>
       </div>
 
-      {/* SVG for connection lines */}
+      {/* Legend */}
+      {showLegend && (
+        <div className="absolute top-4 right-4 z-20 bg-white/95 backdrop-blur px-4 py-3 rounded-xl shadow-lg border border-slate-200">
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(categoryStats).map(([cat, count]) => {
+              const config = CATEGORY_CONFIG[cat] || CATEGORY_CONFIG.Security;
+              return (
+                <span
+                  key={cat}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+                  style={{ backgroundColor: `${config.color}20`, color: config.color }}
+                >
+                  {config.icon} {cat} ({count})
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* SVG Canvas for connections */}
       <svg 
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
         style={{ overflow: 'visible' }}
       >
-        <defs>
-          <marker
-            id="arrowhead"
-            markerWidth="10"
-            markerHeight="7"
-            refX="9"
-            refY="3.5"
-            orient="auto"
-          >
-            <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1" />
-          </marker>
-        </defs>
-
-        {/* Draw connections between rows */}
-        {types.map((type, typeIndex) => {
-          if (typeIndex >= types.length - 1) return null;
+        {graphData.edges.slice(0, 50).map((edge, idx) => {
+          const color = EDGE_COLORS[edge.type] || EDGE_COLORS.default;
+          // Simple positioning based on index
+          const startY = 140 + (idx % 5) * 140;
+          const endY = startY + 100;
+          const startX = 200 + (idx % 3) * 250;
+          const endX = startX + 150;
           
-          const currentResources = groupedResources[type];
-          const nextResources = groupedResources[types[typeIndex + 1]];
-          const config = CATEGORY_CONFIG[type] || { color: '#6b7280' };
-          
-          // Connect first item of current row to first item of next row
-          const rowHeight = 160;
-          const startY = 120 + typeIndex * rowHeight + 50;
-          const endY = 120 + (typeIndex + 1) * rowHeight + 50;
-          
-          return currentResources.slice(0, 3).map((_, idx) => {
-            const startX = 100 + idx * 220 + 90;
-            const endX = 100 + Math.min(idx, nextResources.length - 1) * 220 + 90;
-            
-            return (
-              <FlowLine
-                key={`${type}-${idx}`}
-                fromX={startX}
-                fromY={startY}
-                toX={endX}
-                toY={endY}
-                color={config.color}
-              />
-            );
-          });
+          return (
+            <ConnectionLine
+              key={edge.id}
+              fromX={startX}
+              fromY={startY}
+              toX={endX}
+              toY={endY}
+              color={color}
+              port={edge.port || edge.ports?.[0]}
+            />
+          );
         })}
       </svg>
 
-      {/* Resource rows */}
-      <div className="pt-20 px-6 pb-6 space-y-4 overflow-auto" style={{ height: `calc(${height} - 20px)` }}>
-        {types.map((type, typeIndex) => {
-          const config = CATEGORY_CONFIG[type] || { color: '#6b7280', icon: '📄', bg: 'bg-gray-50', label: type };
-          const typeResources = groupedResources[type];
+      {/* Node rows by category */}
+      <div className="pt-20 px-6 pb-6 space-y-6 overflow-auto" style={{ height: `calc(${height} - 20px)` }}>
+        {categories.map((category) => {
+          const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.Security;
+          const nodes = groupedNodes[category];
 
           return (
-            <div key={type} className="relative">
-              {/* Row header */}
+            <div key={category} className="relative">
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-2xl">{config.icon}</span>
                 <h3 className="text-lg font-bold" style={{ color: config.color }}>
-                  {config.label}
+                  {category}
                 </h3>
                 <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-sm font-medium">
-                  {typeResources.length}
+                  {nodes.length}
                 </span>
                 
-                {/* Animated flow indicator */}
-                {typeIndex < types.length - 1 && (
-                  <div className="flex items-center gap-1 ml-auto">
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s' }} />
-                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.3s' }} />
-                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.6s' }} />
-                    </div>
-                    <span className="text-xs text-slate-400 ml-2">flowing to next layer</span>
+                {/* Flow indicator */}
+                <div className="flex items-center gap-1 ml-auto">
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s' }} />
+                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.3s' }} />
+                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.6s' }} />
                   </div>
-                )}
+                  <span className="text-xs text-slate-400 ml-2">data flowing</span>
+                </div>
               </div>
 
-              {/* Resource cards */}
               <div className="flex flex-wrap gap-4">
-                {typeResources.map((resource) => (
-                  <ResourceCard
-                    key={resource.id}
-                    resource={resource}
-                    onClick={() => onNodeClick?.(resource)}
+                {nodes.map((node) => (
+                  <NodeCard
+                    key={node.id}
+                    node={node}
+                    onClick={() => onNodeClick?.(node)}
                   />
                 ))}
               </div>
@@ -464,36 +432,9 @@ export default function AWSTopologyMapLive({
         })}
       </div>
 
-      {/* Legend */}
-      {showLegend && (
-        <div className="absolute bottom-4 right-4 bg-white/95 backdrop-blur px-4 py-3 rounded-xl shadow-lg border border-slate-200">
-          <div className="text-xs text-slate-500 mb-2 font-semibold">Connection Types</div>
-          <div className="flex gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-purple-500 relative">
-                <div className="absolute w-2 h-2 bg-purple-500 rounded-full -top-0.5 left-0 animate-ping" style={{ animationDuration: '1.5s' }} />
-              </div>
-              <span className="text-xs text-slate-600">Security</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-orange-500 relative">
-                <div className="absolute w-2 h-2 bg-orange-500 rounded-full -top-0.5 left-0 animate-ping" style={{ animationDuration: '1.5s' }} />
-              </div>
-              <span className="text-xs text-slate-600">IAM</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-green-500 relative">
-                <div className="absolute w-2 h-2 bg-green-500 rounded-full -top-0.5 left-0 animate-ping" style={{ animationDuration: '1.5s' }} />
-              </div>
-              <span className="text-xs text-slate-600">Storage</span>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Footer */}
       <div className="absolute bottom-4 left-4 bg-white/95 px-4 py-2 rounded-lg shadow-sm text-sm font-medium text-slate-600">
-        ✨ Real AWS data • {connectionCount} animated flows
+        📊 Neo4j: {graphData.nodes.length} nodes, {graphData.edges.length} real connections
       </div>
     </div>
   );
