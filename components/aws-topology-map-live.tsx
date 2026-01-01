@@ -18,12 +18,12 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
   const animationRef = useRef<number | null>(null)
   const particlesRef = useRef<Map<string, { element: HTMLDivElement; progress: number; speed: number }>>(new Map())
   
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [data, setData] = useState<any>(null)
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [selectedEdge, setSelectedEdge] = useState<any>(null)
-  const [isLive, setIsLive] = useState(true)
-  const [showDataFlow, setShowDataFlow] = useState(true)
+  const [isLive, setIsLive] = useState(false)
+  const [showDataFlow, setShowDataFlow] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   const fetchData = useCallback(async () => {
