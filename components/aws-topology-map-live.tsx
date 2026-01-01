@@ -83,6 +83,10 @@ const NodeCard = ({
 }) => {
   const config = CATEGORY_CONFIG[node.category] || CATEGORY_CONFIG.Security;
   const isHealthy = (node.lpScore ?? 100) >= 80;
+  
+  // FIXED: Add null safety for node.name
+  const displayName = node.name || node.id || 'Unknown';
+  const truncatedName = displayName.length > 18 ? displayName.substring(0, 15) + '...' : displayName;
 
   return (
     <div
@@ -97,10 +101,10 @@ const NodeCard = ({
       <div className="flex items-center gap-3 mb-2">
         <span className="text-2xl">{config.icon}</span>
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-gray-900 text-sm truncate" title={node.name}>
-            {node.name.length > 18 ? node.name.substring(0, 15) + '...' : node.name}
+          <p className="font-bold text-gray-900 text-sm truncate" title={displayName}>
+            {truncatedName}
           </p>
-          <p className="text-xs" style={{ color: config.color }}>{node.type}</p>
+          <p className="text-xs" style={{ color: config.color }}>{node.type || 'Unknown'}</p>
         </div>
         <div 
           className={`w-3 h-3 rounded-full ${isHealthy ? 'bg-green-500' : 'bg-amber-500 animate-pulse'}`}
@@ -209,7 +213,7 @@ export default function AWSTopologyMapLive({
   // Group nodes by layer/category
   const groupedNodes = useMemo(() => {
     const groups: Record<string, GraphNode[]> = {};
-    graphData.nodes.forEach(node => {
+    (graphData.nodes || []).forEach(node => {
       const key = node.category || 'Other';
       if (!groups[key]) groups[key] = [];
       groups[key].push(node);
@@ -231,7 +235,12 @@ export default function AWSTopologyMapLive({
         throw new Error(data.error);
       }
 
-      setGraphData(data);
+      // Ensure nodes and edges are always arrays
+      setGraphData({
+        nodes: data.nodes || [],
+        edges: data.edges || [],
+        error: data.error
+      });
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
@@ -252,11 +261,15 @@ export default function AWSTopologyMapLive({
   // Category stats
   const categoryStats = useMemo(() => {
     const stats: Record<string, number> = {};
-    graphData.nodes.forEach(n => {
-      stats[n.category] = (stats[n.category] || 0) + 1;
+    (graphData.nodes || []).forEach(n => {
+      stats[n.category || 'Other'] = (stats[n.category || 'Other'] || 0) + 1;
     });
     return stats;
   }, [graphData.nodes]);
+
+  // Safe node and edge counts
+  const nodeCount = graphData.nodes?.length ?? 0;
+  const edgeCount = graphData.edges?.length ?? 0;
 
   if (loading) {
     return (
@@ -334,10 +347,10 @@ export default function AWSTopologyMapLive({
 
         <div className="h-6 w-px bg-slate-200" />
 
-        <span className="text-lg font-black text-slate-800">{graphData.nodes.length}</span>
+        <span className="text-lg font-black text-slate-800">{nodeCount}</span>
         <span className="text-slate-500 text-sm">nodes</span>
         <span className="text-slate-300">|</span>
-        <span className="text-lg font-black text-indigo-600">{graphData.edges.length}</span>
+        <span className="text-lg font-black text-indigo-600">{edgeCount}</span>
         <span className="text-slate-500 text-sm">connections</span>
         <span className="text-slate-300">|</span>
         <span className="text-slate-500 text-sm">{timeAgo}</span>
@@ -368,7 +381,7 @@ export default function AWSTopologyMapLive({
         className="absolute inset-0 w-full h-full pointer-events-none z-10"
         style={{ overflow: 'visible' }}
       >
-        {graphData.edges.slice(0, 50).map((edge, idx) => {
+        {(graphData.edges || []).slice(0, 50).map((edge, idx) => {
           const color = EDGE_COLORS[edge.type] || EDGE_COLORS.default;
           // Simple positioning based on index
           const startY = 140 + (idx % 5) * 140;
@@ -392,49 +405,55 @@ export default function AWSTopologyMapLive({
 
       {/* Node rows by category */}
       <div className="pt-20 px-6 pb-6 space-y-6 overflow-auto" style={{ height: `calc(${height} - 20px)` }}>
-        {categories.map((category) => {
-          const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.Security;
-          const nodes = groupedNodes[category];
+        {categories.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-slate-500">
+            No nodes found for system: {systemName}
+          </div>
+        ) : (
+          categories.map((category) => {
+            const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.Security;
+            const nodes = groupedNodes[category] || [];
 
-          return (
-            <div key={category} className="relative">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-2xl">{config.icon}</span>
-                <h3 className="text-lg font-bold" style={{ color: config.color }}>
-                  {category}
-                </h3>
-                <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-sm font-medium">
-                  {nodes.length}
-                </span>
-                
-                {/* Flow indicator */}
-                <div className="flex items-center gap-1 ml-auto">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s' }} />
-                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.3s' }} />
-                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.6s' }} />
+            return (
+              <div key={category} className="relative">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">{config.icon}</span>
+                  <h3 className="text-lg font-bold" style={{ color: config.color }}>
+                    {category}
+                  </h3>
+                  <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-sm font-medium">
+                    {nodes.length}
+                  </span>
+                  
+                  {/* Flow indicator */}
+                  <div className="flex items-center gap-1 ml-auto">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s' }} />
+                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.3s' }} />
+                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.6s' }} />
+                    </div>
+                    <span className="text-xs text-slate-400 ml-2">data flowing</span>
                   </div>
-                  <span className="text-xs text-slate-400 ml-2">data flowing</span>
+                </div>
+
+                <div className="flex flex-wrap gap-4">
+                  {nodes.map((node) => (
+                    <NodeCard
+                      key={node.id}
+                      node={node}
+                      onClick={() => onNodeClick?.(node)}
+                    />
+                  ))}
                 </div>
               </div>
-
-              <div className="flex flex-wrap gap-4">
-                {nodes.map((node) => (
-                  <NodeCard
-                    key={node.id}
-                    node={node}
-                    onClick={() => onNodeClick?.(node)}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {/* Footer */}
       <div className="absolute bottom-4 left-4 bg-white/95 px-4 py-2 rounded-lg shadow-sm text-sm font-medium text-slate-600">
-        📊 Neo4j: {graphData.nodes.length} nodes, {graphData.edges.length} real connections
+        📊 Neo4j: {nodeCount} nodes, {edgeCount} real connections
       </div>
     </div>
   );
