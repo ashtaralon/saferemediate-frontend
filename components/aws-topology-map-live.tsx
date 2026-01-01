@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import cytoscape, { Core } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
-import { Shield, Database, Key, Globe, Server, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronRight, X, Layers, Search, ArrowRight, Play, Pause } from 'lucide-react'
+import { Shield, Database, Key, Globe, Server, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronRight, X, Layers, Search, ArrowRight, Play, Pause, AlertTriangle, CheckCircle } from 'lucide-react'
 
 if (typeof window !== 'undefined') { try { cytoscape.use(coseBilkent) } catch (e) {} }
 
