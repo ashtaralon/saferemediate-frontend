@@ -1,460 +1,138 @@
-'use client';
+'use client'
 
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react'
+import cytoscape, { Core } from 'cytoscape'
+import coseBilkent from 'cytoscape-cose-bilkent'
+import { Shield, Database, Key, Globe, Server, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronRight, AlertTriangle, CheckCircle, X, Network, Layers, Activity, Search, ArrowRight } from 'lucide-react'
 
-// ============================================================================
-// TYPES - Based on /api/dependency-map/graph response
-// ============================================================================
+if (typeof window !== 'undefined') { try { cytoscape.use(coseBilkent) } catch (e) {} }
 
-interface GraphNode {
-  id: string;
-  name: string;
-  type: string;
-  category: string;
-  layer?: number;
-  lpScore?: number;
-  gapCount?: number;
-  severity?: string;
-  isInternetExposed?: boolean;
-}
+const COLORS: Record<string, string> = { IAMRole: '#8b5cf6', SecurityGroup: '#f97316', S3Bucket: '#06b6d4', EC2: '#10b981', Lambda: '#10b981', RDS: '#6366f1', Internet: '#ef4444', External: '#ef4444', Service: '#3b82f6' }
+const SHAPES: Record<string, string> = { IAMRole: 'hexagon', SecurityGroup: 'octagon', S3Bucket: 'barrel', EC2: 'ellipse', Lambda: 'ellipse', RDS: 'round-diamond', Internet: 'diamond', External: 'diamond', Service: 'round-rectangle' }
 
-interface GraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  type: string;
-  port?: string;
-  ports?: string[];
-  protocol?: string;
-  isActual?: boolean;
-}
+interface Props { systemName: string }
 
-interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  error?: string;
-}
+export default function AWSTopologyMapLive({ systemName }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const cyRef = useRef<Core | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<any>(null)
+  const [selectedNode, setSelectedNode] = useState<any>(null)
+  const [selectedEdge, setSelectedEdge] = useState<any>(null)
+  const [isLive, setIsLive] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
 
-interface AWSTopologyMapLiveProps {
-  systemName: string;
-  autoRefreshInterval?: number;
-  height?: string;
-  showLegend?: boolean;
-  onNodeClick?: (node: GraphNode) => void;
-}
-
-// ============================================================================
-// STYLING
-// ============================================================================
-
-const CATEGORY_CONFIG: Record<string, { color: string; icon: string; bg: string }> = {
-  Edge: { color: '#06b6d4', icon: '🌐', bg: 'bg-cyan-50' },
-  Networking: { color: '#8b5cf6', icon: '🔀', bg: 'bg-violet-50' },
-  Security: { color: '#ef4444', icon: '🛡️', bg: 'bg-red-50' },
-  Compute: { color: '#f59e0b', icon: '⚡', bg: 'bg-amber-50' },
-  Database: { color: '#3b82f6', icon: '🗄️', bg: 'bg-blue-50' },
-  Storage: { color: '#22c55e', icon: '📦', bg: 'bg-green-50' },
-  Identity: { color: '#ea580c', icon: '👤', bg: 'bg-orange-50' },
-  Integration: { color: '#ec4899', icon: '🔗', bg: 'bg-pink-50' },
-  Internet: { color: '#dc2626', icon: '🌍', bg: 'bg-red-100' },
-};
-
-const EDGE_COLORS: Record<string, string> = {
-  internet: '#dc2626',
-  network: '#8b5cf6',
-  iam_trust: '#ea580c',
-  data: '#22c55e',
-  invokes: '#f59e0b',
-  default: '#6b7280',
-};
-
-// ============================================================================
-// NODE CARD COMPONENT
-// ============================================================================
-
-const NodeCard = ({ 
-  node, 
-  onClick,
-  isHighlighted,
-}: { 
-  node: GraphNode; 
-  onClick?: () => void;
-  isHighlighted?: boolean;
-}) => {
-  const config = CATEGORY_CONFIG[node.category] || CATEGORY_CONFIG.Security;
-  const isHealthy = (node.lpScore ?? 100) >= 80;
-  
-  // FIXED: Add null safety for node.name
-  const displayName = node.name || node.id || 'Unknown';
-  const truncatedName = displayName.length > 18 ? displayName.substring(0, 15) + '...' : displayName;
-
-  return (
-    <div
-      onClick={onClick}
-      className={`
-        relative p-4 rounded-xl border-2 bg-white shadow-md cursor-pointer
-        hover:shadow-xl hover:scale-[1.02] transition-all duration-200
-        ${isHighlighted ? 'ring-2 ring-indigo-400 ring-offset-2' : ''}
-      `}
-      style={{ borderColor: config.color, minWidth: '180px', maxWidth: '220px' }}
-    >
-      <div className="flex items-center gap-3 mb-2">
-        <span className="text-2xl">{config.icon}</span>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-gray-900 text-sm truncate" title={displayName}>
-            {truncatedName}
-          </p>
-          <p className="text-xs" style={{ color: config.color }}>{node.type || 'Unknown'}</p>
-        </div>
-        <div 
-          className={`w-3 h-3 rounded-full ${isHealthy ? 'bg-green-500' : 'bg-amber-500 animate-pulse'}`}
-        />
-      </div>
-
-      {node.lpScore !== undefined && (
-        <div className="flex justify-between items-center text-xs mt-2">
-          <span className="text-gray-500">LP Score</span>
-          <span 
-            className="font-bold"
-            style={{ color: node.lpScore >= 80 ? '#16a34a' : '#dc2626' }}
-          >
-            {node.lpScore}%
-          </span>
-        </div>
-      )}
-
-      {node.isInternetExposed && (
-        <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-bold animate-pulse">
-          🌐 Public
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// ANIMATED CONNECTION LINE (SVG)
-// ============================================================================
-
-const ConnectionLine = ({ 
-  fromX, fromY, toX, toY, color, label, port 
-}: { 
-  fromX: number; fromY: number; toX: number; toY: number; 
-  color: string; label?: string; port?: string;
-}) => {
-  const midX = (fromX + toX) / 2;
-  const midY = (fromY + toY) / 2;
-  
-  return (
-    <g>
-      {/* Glow */}
-      <line
-        x1={fromX} y1={fromY} x2={toX} y2={toY}
-        stroke={color} strokeWidth="6" opacity="0.15"
-      />
-      
-      {/* Main line */}
-      <line
-        x1={fromX} y1={fromY} x2={toX} y2={toY}
-        stroke={color} strokeWidth="2" markerEnd={`url(#arrow-${color.replace('#', '')})`}
-      />
-      
-      {/* Animated dots */}
-      <circle r="5" fill={color}>
-        <animate attributeName="cx" values={`${fromX};${toX}`} dur="2s" repeatCount="indefinite" />
-        <animate attributeName="cy" values={`${fromY};${toY}`} dur="2s" repeatCount="indefinite" />
-      </circle>
-      <circle r="4" fill={color} opacity="0.6">
-        <animate attributeName="cx" values={`${fromX};${toX}`} dur="2s" repeatCount="indefinite" begin="0.5s" />
-        <animate attributeName="cy" values={`${fromY};${toY}`} dur="2s" repeatCount="indefinite" begin="0.5s" />
-      </circle>
-      <circle r="3" fill={color} opacity="0.3">
-        <animate attributeName="cx" values={`${fromX};${toX}`} dur="2s" repeatCount="indefinite" begin="1s" />
-        <animate attributeName="cy" values={`${fromY};${toY}`} dur="2s" repeatCount="indefinite" begin="1s" />
-      </circle>
-      
-      {/* Label */}
-      {(port || label) && (
-        <g transform={`translate(${midX}, ${midY})`}>
-          <rect x="-35" y="-10" width="70" height="20" rx="4" fill="white" stroke={color} strokeWidth="1" />
-          <text textAnchor="middle" dominantBaseline="middle" fontSize="10" fontWeight="600" fill={color}>
-            {port ? `Port ${port}` : label}
-          </text>
-        </g>
-      )}
-    </g>
-  );
-};
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-export default function AWSTopologyMapLive({
-  systemName,
-  autoRefreshInterval = 30,
-  height = '800px',
-  showLegend = true,
-  onNodeClick,
-}: AWSTopologyMapLiveProps) {
-  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isLive, setIsLive] = useState(autoRefreshInterval > 0);
-
-  const timeAgo = useMemo(() => {
-    if (!lastUpdated) return 'Never';
-    const seconds = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    return `${Math.floor(seconds / 60)}m ago`;
-  }, [lastUpdated]);
-
-  // Group nodes by layer/category
-  const groupedNodes = useMemo(() => {
-    const groups: Record<string, GraphNode[]> = {};
-    (graphData.nodes || []).forEach(node => {
-      const key = node.category || 'Other';
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(node);
-    });
-    return groups;
-  }, [graphData.nodes]);
-
-  // Fetch from Neo4j dependency-map endpoint
-  const fetchData = useCallback(async (isInitial = false) => {
+  const fetchData = useCallback(async () => {
     try {
-      if (isInitial) setLoading(true);
+      const res = await fetch(`/api/proxy/dependency-map/graph?systemName=${systemName}`)
+      if (res.ok) setData(await res.json())
+    } catch (e) { console.error(e) }
+    finally { setLoading(false) }
+  }, [systemName])
 
-      const response = await fetch(`/api/proxy/dependency-map/graph?systemName=${systemName}`);
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
-
-      const data: GraphData = await response.json();
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      // Ensure nodes and edges are always arrays
-      setGraphData({
-        nodes: data.nodes || [],
-        edges: data.edges || [],
-        error: data.error
-      });
-      setLastUpdated(new Date());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch');
-    } finally {
-      setLoading(false);
-    }
-  }, [systemName]);
-
-  useEffect(() => { fetchData(true); }, [systemName]);
+  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { if (!isLive) return; const i = setInterval(fetchData, 30000); return () => clearInterval(i) }, [isLive, fetchData])
 
   useEffect(() => {
-    if (!isLive || autoRefreshInterval <= 0) return;
-    const interval = setInterval(() => fetchData(false), autoRefreshInterval * 1000);
-    return () => clearInterval(interval);
-  }, [isLive, autoRefreshInterval, fetchData]);
+    if (!containerRef.current || !data || loading) return
+    if (cyRef.current) cyRef.current.destroy()
 
-  // Category stats
-  const categoryStats = useMemo(() => {
-    const stats: Record<string, number> = {};
-    (graphData.nodes || []).forEach(n => {
-      stats[n.category || 'Other'] = (stats[n.category || 'Other'] || 0) + 1;
-    });
-    return stats;
-  }, [graphData.nodes]);
+    const elements: cytoscape.ElementDefinition[] = []
+    const nodeIds = new Set<string>()
+    
+    ;(data.nodes || []).forEach((n: any) => {
+      if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
+      nodeIds.add(n.id)
+      elements.push({ group: 'nodes', data: { id: n.id, label: (n.name || n.id).substring(0, 18), type: n.type, lpScore: n.lpScore, ...n } })
+    })
+    
+    ;(data.edges || []).forEach((e: any, i: number) => {
+      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) return
+      elements.push({ group: 'edges', data: { id: e.id || `e${i}`, source: e.source, target: e.target, label: e.port ? `:${e.port}` : '', type: e.type, ...e } })
+    })
 
-  // Safe node and edge counts
-  const nodeCount = graphData.nodes?.length ?? 0;
-  const edgeCount = graphData.edges?.length ?? 0;
+    const cy = cytoscape({
+      container: containerRef.current,
+      elements,
+      style: [
+        { selector: 'node', style: { 'label': 'data(label)', 'text-valign': 'bottom', 'text-margin-y': 8, 'font-size': '10px', 'width': 40, 'height': 40, 'border-width': 3, 'background-color': '#6b7280', 'border-color': '#6b7280' }},
+        ...Object.entries(COLORS).map(([t, c]) => ({ selector: `node[type="${t}"]`, style: { 'background-color': c, 'border-color': c, 'shape': SHAPES[t] || 'ellipse' } as any })),
+        { selector: 'node[lpScore < 50]', style: { 'border-color': '#dc2626', 'border-width': 4 }},
+        { selector: 'node[lpScore >= 50][lpScore < 80]', style: { 'border-color': '#f59e0b' }},
+        { selector: 'node[lpScore >= 80]', style: { 'border-color': '#10b981' }},
+        { selector: 'edge', style: { 'width': 2, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'label': 'data(label)', 'font-size': '9px', 'text-rotation': 'autorotate' }},
+        { selector: 'edge[type="internet"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444', 'line-style': 'dashed' }},
+        { selector: 'edge[type="iam_trust"]', style: { 'line-color': '#8b5cf6', 'target-arrow-color': '#8b5cf6', 'line-style': 'dashed' }},
+        { selector: 'edge[type="network"]', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' }},
+        { selector: '.highlighted', style: { 'border-width': 5, 'border-color': '#fbbf24', 'z-index': 999 }},
+        { selector: 'edge.highlighted', style: { 'width': 4, 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24' }},
+        { selector: '.dimmed', style: { 'opacity': 0.15 }},
+      ],
+      layout: { name: 'cose-bilkent', animate: true, nodeDimensionsIncludeLabels: true, idealEdgeLength: 100, nodeRepulsion: 5000 } as any,
+      minZoom: 0.2, maxZoom: 3,
+    })
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 rounded-2xl" style={{ height }}>
-        <div className="text-center">
-          <div className="relative w-20 h-20 mx-auto mb-6">
-            <div className="absolute inset-0 rounded-full border-4 border-indigo-200" />
-            <div className="absolute inset-0 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin" />
-          </div>
-          <p className="text-xl font-bold text-slate-700">Loading Neo4j Graph</p>
-          <p className="text-slate-500">{systemName}</p>
-        </div>
-      </div>
-    );
-  }
+    cy.on('tap', 'node', (e) => { setSelectedNode(e.target.data()); setSelectedEdge(null); cy.elements().addClass('dimmed'); e.target.closedNeighborhood().removeClass('dimmed'); e.target.addClass('highlighted') })
+    cy.on('tap', 'edge', (e) => { setSelectedEdge(e.target.data()); setSelectedNode(null); cy.elements().addClass('dimmed'); cy.getElementById(e.target.data().source).removeClass('dimmed').addClass('highlighted'); cy.getElementById(e.target.data().target).removeClass('dimmed').addClass('highlighted'); e.target.removeClass('dimmed').addClass('highlighted') })
+    cy.on('tap', (e) => { if (e.target === cy) { cy.elements().removeClass('dimmed highlighted'); setSelectedNode(null); setSelectedEdge(null) } })
+    cyRef.current = cy
+    return () => cy.destroy()
+  }, [data, loading, searchQuery])
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center bg-red-50 rounded-2xl" style={{ height }}>
-        <div className="text-center">
-          <p className="text-4xl mb-4">⚠️</p>
-          <p className="text-red-700 font-bold text-lg mb-2">Neo4j Error</p>
-          <p className="text-red-600 mb-4 max-w-md">{error}</p>
-          <button 
-            onClick={() => fetchData(true)}
-            className="px-6 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 font-bold"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const zoom = (d: number) => cyRef.current?.zoom(cyRef.current.zoom() * (d > 0 ? 1.2 : 0.8))
+  const fit = () => cyRef.current?.fit(undefined, 50)
 
-  const categories = Object.keys(groupedNodes);
+  if (loading) return <div className="flex items-center justify-center h-[600px] bg-white rounded-xl border"><RefreshCw className="w-8 h-8 text-blue-500 animate-spin" /></div>
 
   return (
-    <div 
-      className="relative rounded-2xl border-2 border-slate-200 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50 shadow-xl" 
-      style={{ height }}
-    >
-      {/* SVG Definitions for arrows */}
-      <svg className="absolute" style={{ width: 0, height: 0 }}>
-        <defs>
-          {Object.entries(EDGE_COLORS).map(([key, color]) => (
-            <marker
-              key={key}
-              id={`arrow-${color.replace('#', '')}`}
-              markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"
-            >
-              <polygon points="0 0, 10 3.5, 0 7" fill={color} />
-            </marker>
-          ))}
-        </defs>
-      </svg>
-
-      {/* Controls */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-4 bg-white/95 backdrop-blur px-5 py-3 rounded-xl shadow-lg border border-slate-200">
-        <button
-          onClick={() => setIsLive(!isLive)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-all ${
-            isLive ? 'bg-green-100 text-green-700 ring-2 ring-green-400' : 'bg-slate-100 text-slate-600'
-          }`}
-        >
-          <span className={`w-3 h-3 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />
-          {isLive ? 'LIVE' : 'PAUSED'}
-        </button>
-
-        <button
-          onClick={() => fetchData(false)}
-          className="px-5 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-bold shadow-md"
-        >
-          🔄 Refresh
-        </button>
-
-        <div className="h-6 w-px bg-slate-200" />
-
-        <span className="text-lg font-black text-slate-800">{nodeCount}</span>
-        <span className="text-slate-500 text-sm">nodes</span>
-        <span className="text-slate-300">|</span>
-        <span className="text-lg font-black text-indigo-600">{edgeCount}</span>
-        <span className="text-slate-500 text-sm">connections</span>
-        <span className="text-slate-300">|</span>
-        <span className="text-slate-500 text-sm">{timeAgo}</span>
-      </div>
-
-      {/* Legend */}
-      {showLegend && (
-        <div className="absolute top-4 right-4 z-20 bg-white/95 backdrop-blur px-4 py-3 rounded-xl shadow-lg border border-slate-200">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(categoryStats).map(([cat, count]) => {
-              const config = CATEGORY_CONFIG[cat] || CATEGORY_CONFIG.Security;
-              return (
-                <span
-                  key={cat}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: `${config.color}20`, color: config.color }}
-                >
-                  {config.icon} {cat} ({count})
-                </span>
-              );
-            })}
-          </div>
+    <div className="flex flex-col h-[700px] bg-white rounded-xl border overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setIsLive(!isLive)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${isLive ? 'bg-green-100 text-green-700' : 'bg-slate-200'}`}>
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />{isLive ? 'LIVE' : 'PAUSED'}
+          </button>
+          <button onClick={fetchData} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm"><RefreshCw className="w-4 h-4" /> Refresh</button>
+          <span className="text-sm text-slate-500"><strong>{data?.summary?.totalNodes || 0}</strong> nodes • <strong>{data?.summary?.totalEdges || 0}</strong> connections</span>
         </div>
-      )}
-
-      {/* SVG Canvas for connections */}
-      <svg 
-        className="absolute inset-0 w-full h-full pointer-events-none z-10"
-        style={{ overflow: 'visible' }}
-      >
-        {(graphData.edges || []).slice(0, 50).map((edge, idx) => {
-          const color = EDGE_COLORS[edge.type] || EDGE_COLORS.default;
-          // Simple positioning based on index
-          const startY = 140 + (idx % 5) * 140;
-          const endY = startY + 100;
-          const startX = 200 + (idx % 3) * 250;
-          const endX = startX + 150;
-          
-          return (
-            <ConnectionLine
-              key={edge.id}
-              fromX={startX}
-              fromY={startY}
-              toX={endX}
-              toY={endY}
-              color={color}
-              port={edge.port || edge.ports?.[0]}
-            />
-          );
-        })}
-      </svg>
-
-      {/* Node rows by category */}
-      <div className="pt-20 px-6 pb-6 space-y-6 overflow-auto" style={{ height: `calc(${height} - 20px)` }}>
-        {categories.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-slate-500">
-            No nodes found for system: {systemName}
-          </div>
-        ) : (
-          categories.map((category) => {
-            const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.Security;
-            const nodes = groupedNodes[category] || [];
-
-            return (
-              <div key={category} className="relative">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-2xl">{config.icon}</span>
-                  <h3 className="text-lg font-bold" style={{ color: config.color }}>
-                    {category}
-                  </h3>
-                  <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-sm font-medium">
-                    {nodes.length}
-                  </span>
-                  
-                  {/* Flow indicator */}
-                  <div className="flex items-center gap-1 ml-auto">
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s' }} />
-                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.3s' }} />
-                      <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: config.color, animationDuration: '1s', animationDelay: '0.6s' }} />
-                    </div>
-                    <span className="text-xs text-slate-400 ml-2">data flowing</span>
-                  </div>
+        <div className="flex items-center gap-2">
+          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 pr-3 py-1.5 border rounded-lg text-sm w-40" /></div>
+          <button onClick={() => zoom(-1)} className="p-1.5 hover:bg-slate-200 rounded"><ZoomOut className="w-4 h-4" /></button>
+          <button onClick={() => zoom(1)} className="p-1.5 hover:bg-slate-200 rounded"><ZoomIn className="w-4 h-4" /></button>
+          <button onClick={fit} className="p-1.5 hover:bg-slate-200 rounded"><Maximize2 className="w-4 h-4" /></button>
+        </div>
+      </div>
+      <div className="flex-1 flex relative">
+        <div ref={containerRef} className="flex-1 bg-slate-50" />
+        <div className="absolute bottom-4 left-4 bg-white/95 rounded-lg p-3 text-xs shadow border">
+          <div className="font-medium mb-2">Legend</div>
+          {Object.entries(COLORS).slice(0,6).map(([t,c]) => (<div key={t} className="flex items-center gap-2 mb-1"><div className="w-3 h-3 rounded" style={{backgroundColor:c}}/><span>{t}</span></div>))}
+        </div>
+        {(selectedNode || selectedEdge) && (
+          <div className="w-[320px] bg-white border-l p-4 overflow-y-auto relative">
+            <button onClick={() => {setSelectedNode(null);setSelectedEdge(null);cyRef.current?.elements().removeClass('dimmed highlighted')}} className="absolute top-2 right-2 p-1 hover:bg-slate-100 rounded"><X className="w-4 h-4"/></button>
+            {selectedNode && (<div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white" style={{backgroundColor:COLORS[selectedNode.type]||'#6b7280'}}>
+                  {selectedNode.type==='IAMRole'&&<Key className="w-5 h-5"/>}{selectedNode.type==='SecurityGroup'&&<Shield className="w-5 h-5"/>}{selectedNode.type==='S3Bucket'&&<Database className="w-5 h-5"/>}{!['IAMRole','SecurityGroup','S3Bucket'].includes(selectedNode.type)&&<Layers className="w-5 h-5"/>}
                 </div>
-
-                <div className="flex flex-wrap gap-4">
-                  {nodes.map((node) => (
-                    <NodeCard
-                      key={node.id}
-                      node={node}
-                      onClick={() => onNodeClick?.(node)}
-                    />
-                  ))}
-                </div>
+                <div><h3 className="font-semibold">{selectedNode.name||selectedNode.id}</h3><p className="text-sm text-slate-500">{selectedNode.type}</p></div>
               </div>
-            );
-          })
+              {selectedNode.lpScore!==undefined&&<div className="p-3 bg-slate-50 rounded-lg mb-2"><span className="text-slate-500">LP Score: </span><span className={`font-semibold ${selectedNode.lpScore>=80?'text-green-600':selectedNode.lpScore>=50?'text-amber-600':'text-red-600'}`}>{selectedNode.lpScore}%</span></div>}
+              {selectedNode.arn&&<div className="p-3 bg-slate-50 rounded-lg"><span className="text-xs text-slate-500">ARN</span><p className="text-xs font-mono break-all mt-1">{selectedNode.arn}</p></div>}
+            </div>)}
+            {selectedEdge && (<div>
+              <h3 className="font-semibold mb-4 flex items-center gap-2"><ArrowRight className="w-5 h-5 text-blue-500"/>Connection</h3>
+              <div className="p-3 bg-slate-50 rounded-lg mb-2"><div className="flex items-center gap-2 text-sm"><span className="truncate max-w-[100px]">{selectedEdge.source}</span><ChevronRight className="w-4 h-4"/><span className="truncate max-w-[100px]">{selectedEdge.target}</span></div></div>
+              {selectedEdge.port&&<div className="p-3 bg-slate-50 rounded-lg mb-2"><span className="text-slate-500">Port: </span><span className="font-mono">{selectedEdge.port}</span></div>}
+              <div className="p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">Type: </span><span className="capitalize">{selectedEdge.type?.replace('_',' ')}</span></div>
+            </div>)}
+          </div>
         )}
       </div>
-
-      {/* Footer */}
-      <div className="absolute bottom-4 left-4 bg-white/95 px-4 py-2 rounded-lg shadow-sm text-sm font-medium text-slate-600">
-        📊 Neo4j: {nodeCount} nodes, {edgeCount} real connections
+      <div className="px-4 py-2 border-t bg-slate-50 text-xs text-slate-500 flex justify-between">
+        <span className="flex items-center gap-2"><Database className="w-3 h-3 text-green-500"/>Neo4j: {data?.summary?.totalNodes||0} nodes, {data?.summary?.totalEdges||0} edges</span>
+        <span>{data?.summary?.internetExposedNodes||0} internet exposed</span>
       </div>
     </div>
-  );
+  )
 }
