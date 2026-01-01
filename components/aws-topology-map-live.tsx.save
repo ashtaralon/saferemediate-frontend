@@ -30,8 +30,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
   const [pathLoading, setPathLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/proxy/dependency-map/graph?systemName=${systemName}`)
+    try       const res = await fetch(`/api/proxy/dependency-map/graph?systemName=${systemName}`)
       if (res.ok) setData(await res.json())
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
