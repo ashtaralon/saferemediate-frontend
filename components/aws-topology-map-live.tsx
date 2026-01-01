@@ -377,7 +377,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
 
         {/* Side Panel */}
         {(selectedNode || selectedEdge) && (
-          <div className="w-[340px] flex-shrink-0 relative bg-white border-l border-slate-200 p-5 overflow-y-auto shadow-xl">
+          <div className="w-[340px] flex-shrink-0 relative bg-white border-l border-slate-200 p-5 overflow-y-auto shadow-xl z-10">
             <button onClick={() => {setSelectedNode(null);setSelectedEdge(null);cyRef.current?.elements().removeClass('dimmed highlighted')}} 
               className="absolute top-3 right-3 p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
               <X className="w-4 h-4 text-slate-400"/>
