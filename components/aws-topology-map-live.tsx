@@ -385,7 +385,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                 
                 <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
                   <p className="text-sm text-blue-700">
-                    💡 Click to see full security path including IAM permissions, SG rules, and gap analysis
+                    <button className="w-full text-left" onClick={() => alert('Security path feature coming soon!\n\nThis will show:\n- IAM permissions (used vs unused)\n- Security Group rules\n- Gap analysis\n- Remediation confidence')}><button className="w-full text-left" onClick={() => alert('Security path feature coming soon!\n\nThis will show:\n- IAM permissions (used vs unused)\n- Security Group rules\n- Gap analysis\n- Remediation confidence')}><button className="w-full text-left" onClick={() => alert('Security path feature coming soon!\n\nThis will show:\n- IAM permissions (used vs unused)\n- Security Group rules\n- Gap analysis\n- Remediation confidence')}>💡 Click to see full security path including IAM permissions, SG rules, and gap analysis</button></button></button>
                   </p>
                 </div>
               </div>
