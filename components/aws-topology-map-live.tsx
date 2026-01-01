@@ -151,7 +151,19 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
     
     ;(data.edges || []).forEach((e: any, i: number) => {
       if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) return
-      elements.push({ group: 'edges', data: { id: e.id || `e${i}`, source: e.source, target: e.target, label: e.port ? `:${e.port}` : '', type: e.type, ...e } })
+      elements.push({ 
+        group: 'edges', 
+        data: { 
+          id: e.id || `e${i}`, 
+          source: e.source, 
+          target: e.target, 
+          label: e.port ? `:${e.port}` : '', 
+          type: e.edgeType || e.type,  // Use edgeType from API
+          port: e.port,
+          protocol: e.protocol,
+          ...e 
+        } 
+      })
     })
 
     const cy = cytoscape({
