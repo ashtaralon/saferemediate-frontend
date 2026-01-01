@@ -535,65 +535,6 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
           </div>
         </div>
       )}
-
-                                  <span className="font-mono text-slate-700">{rule.direction} {rule.protocol}:{rule.port}</span>
-                                  <span className="text-slate-400">from {rule.source}</span>
-                                </div>
-                                <span className="text-green-600 text-xs">{rule.hits?.toLocaleString()} hits</span>
-                              </div>
-                            ))}
-                            {layer.type === 'iam' && (
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="text-slate-600">LP Score:</span>
-                                  <span className={`font-semibold ${layer.lpScore >= 80 ? 'text-green-600' : layer.lpScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{layer.lpScore || 'N/A'}%</span>
-                                </div>
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="text-slate-600">Usage Count:</span>
-                                  <span className="font-semibold">{layer.usedCount?.toLocaleString()}</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* Gap Analysis */}
-                  {securityPathData.gaps?.length > 0 ? (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                      <h3 className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" /> Gap Analysis ({securityPathData.gaps.length} issues)
-                      </h3>
-                      {securityPathData.gaps.map((gap: any, idx: number) => (
-                        <div key={idx} className="mb-3 last:mb-0">
-                          <div className="flex items-center gap-2 text-sm">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${gap.severity === 'critical' ? 'bg-red-100 text-red-700' : gap.severity === 'high' ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                              {gap.severity?.toUpperCase() || 'MEDIUM'}
-                            </span>
-                            <span className="font-mono text-slate-700">{gap.rule}</span>
-                          </div>
-                          <p className="text-sm text-amber-700 mt-1 ml-1">💡 {gap.recommendation}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
-                      <h3 className="text-sm font-semibold text-green-700 flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4" /> No Security Gaps Detected
-                      </h3>
-                      <p className="text-sm text-green-600 mt-1">This connection follows least privilege principles.</p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-slate-500">No data available</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
