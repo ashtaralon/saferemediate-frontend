@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import cytoscape, { Core } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
-import { Shield, Database, Key, Globe, Server, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronRight, X, Layers, Search, ArrowRight, Play, Pause, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Shield, Database, Key, Globe, Server, RefreshCw, ZoomIn, ZoomOut, Maximize2, ChevronRight, X, Layers, Search, ArrowRight, Play, Pause, AlertTriangle, CheckCircle, Activity } from 'lucide-react'
 
 if (typeof window !== 'undefined') { try { cytoscape.use(coseBilkent) } catch (e) {} }
 
@@ -519,6 +519,50 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                       </div>
                     </div>
                   ))}
+                  
+                  {/* Observed Ports */}
+                  {securityPathData.observedPorts && (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                      <h3 className="font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                        <Globe className="w-4 h-4" /> Observed Ports (Actual Traffic)
+                      </h3>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {securityPathData.observedPorts.ports?.map((p: any, i: number) => (
+                          <span key={i} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-mono">
+                            {p.port}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-blue-600">{securityPathData.observedPorts.summary}</p>
+                    </div>
+                  )}
+                  
+                  {/* Traffic Timeline */}
+                  {securityPathData.trafficTimeline && (
+                    <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                      <h3 className="font-semibold text-indigo-700 mb-3 flex items-center gap-2">
+                        <Activity className="w-4 h-4" /> Traffic Timeline (Last 7 Days)
+                      </h3>
+                      <div className="flex items-end justify-between h-16 mb-2">
+                        {securityPathData.trafficTimeline.data?.map((d: any, i: number) => {
+                          const maxReq = Math.max(...(securityPathData.trafficTimeline.data?.map((x: any) => x.requests) || [1]))
+                          const height = Math.max((d.requests / maxReq) * 100, 10)
+                          return (
+                            <div key={i} className="flex flex-col items-center flex-1">
+                              <div className="w-4 bg-indigo-400 rounded-t" style={{height: `${height}%`}} title={`${d.requests.toLocaleString()} requests`}/>
+                              <span className="text-xs text-indigo-600 mt-1">{d.dayName}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs text-indigo-600 mt-3">
+                        <div>📅 First: {securityPathData.trafficTimeline.firstSeen}</div>
+                        <div>⏰ Peak: {securityPathData.trafficTimeline.peakHour}</div>
+                        <div>🕐 Last: {securityPathData.trafficTimeline.lastActivity?.split(' ').slice(0,3).join(' ')}</div>
+                      </div>
+                    </div>
+                  )}
+                  
                   {securityPathData.gaps?.length > 0 ? (
                     <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
                       <h3 className="font-semibold text-amber-700 mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Gaps ({securityPathData.gaps.length})</h3>
