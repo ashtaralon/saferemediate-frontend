@@ -4,8 +4,12 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediat
 
 export const maxDuration = 30
 
-export async function GET(req: NextRequest, { params }: { params: { sgId: string } }) {
-  const sgId = params.sgId
+export async function GET(
+  req: NextRequest, 
+  context: { params: Promise<{ sgId: string }> }
+) {
+  // In Next.js 15, params is a Promise
+  const { sgId } = await context.params
   
   if (!sgId) {
     return NextResponse.json({ error: "Missing sgId parameter" }, { status: 400 })
