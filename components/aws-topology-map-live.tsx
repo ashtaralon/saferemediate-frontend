@@ -46,11 +46,101 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
       const sourceNode = data?.nodes?.find((n: any) => n.id === selectedEdge.source)
       const targetNode = data?.nodes?.find((n: any) => n.id === selectedEdge.target)
       
-      const securityLayers: any[] = []
-      const gaps: any[] = []
+      let securityLayers: any[] = []
+      let gaps: any[] = []
+      let observedPorts: any = null
+      let trafficTimeline: any = null
+      let confidence = 75
       
-      // Build Security Group layer
+      // If target is a Security Group, fetch REAL gap analysis from backend
       if (targetNode?.type === "SecurityGroup") {
+        const sgId = targetNode.id?.startsWith('sg-') ? targetNode.id : targetNode.sgId
+        if (sgId) {
+          try {
+            const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis`)
+            if (res.ok) {
+              const gapData = await res.json()
+              
+              // Build security layer from real data
+              const rules = gapData.rules_analysis?.map((rule: any) => ({
+                direction: rule.direction?.toUpperCase() || "INGRESS",
+                protocol: rule.protocol?.toUpperCase() || "TCP",
+                port: rule.port_range || `${rule.from_port}-${rule.to_port}`,
+                source: rule.source || "0.0.0.0/0",
+                isUsed: rule.status !== "UNUSED",
+                hits: rule.traffic?.connection_count || 0,
+                status: rule.status
+              })) || []
+              
+              securityLayers.push({
+                type: "sg",
+                name: gapData.sg_name || targetNode.label,
+                rules,
+                exposure: targetNode.networkExposure,
+                eniCount: gapData.eni_count,
+                vpcId: gapData.vpc_id
+              })
+              
+              // Extract observed ports from traffic data
+              const allPorts = new Set<number>()
+              gapData.rules_analysis?.forEach((rule: any) => {
+                if (rule.traffic?.observed_ports) {
+                  rule.traffic.observed_ports.forEach((p: number) => allPorts.add(p))
+                }
+                if (rule.from_port && rule.status !== "UNUSED") {
+                  allPorts.add(rule.from_port)
+                }
+              })
+              
+              if (allPorts.size > 0) {
+                observedPorts = {
+                  ports: Array.from(allPorts).sort((a,b) => a-b).map(p => ({ port: p })),
+                  totalPorts: allPorts.size,
+                  allowedPorts: 65535,
+                  summary: `${allPorts.size} ports with observed traffic`
+                }
+              }
+              
+              // Build gaps from unused/overly-broad rules
+              gapData.rules_analysis?.forEach((rule: any) => {
+                if (rule.status === "UNUSED") {
+                  gaps.push({
+                    severity: "medium",
+                    rule: `${rule.protocol}:${rule.port_range} from ${rule.source}`,
+                    recommendation: `Unused rule - no traffic observed in ${gapData.observation_days} days`
+                  })
+                }
+                if (rule.is_public && rule.port_range === "0-65535") {
+                  gaps.push({
+                    severity: "critical",
+                    rule: `TCP:0-65535 from 0.0.0.0/0`,
+                    recommendation: "Restrict port range - all ports open to internet is a critical risk"
+                  })
+                }
+                if (rule.is_public && (rule.from_port === 22 || rule.from_port === 3389)) {
+                  gaps.push({
+                    severity: "high",
+                    rule: `${rule.protocol}:${rule.from_port} from 0.0.0.0/0`,
+                    recommendation: `${rule.from_port === 22 ? 'SSH' : 'RDP'} open to internet - use bastion or VPN`
+                  })
+                }
+              })
+              
+              // Calculate confidence based on observation data
+              const usedRules = gapData.rules_analysis?.filter((r: any) => r.status !== "UNUSED").length || 0
+              const totalRules = gapData.rules_analysis?.length || 1
+              confidence = Math.round((usedRules / totalRules) * 100)
+              if (gaps.length > 0) confidence = Math.min(confidence, 75)
+              if (gaps.some((g: any) => g.severity === "critical")) confidence = Math.min(confidence, 50)
+            }
+          } catch (err) {
+            console.error("Failed to fetch SG gap analysis:", err)
+          }
+        }
+      }
+      
+      // Fallback: build from local data if API failed
+      if (securityLayers.length === 0 && targetNode?.type === "SecurityGroup") {
         securityLayers.push({
           type: "sg",
           name: targetNode.label || targetNode.id,
@@ -60,21 +150,17 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
             port: selectedEdge.port || "All",
             source: selectedEdge.sourceType === "External" ? "0.0.0.0/0" : selectedEdge.source,
             isUsed: true,
-            hits: Math.floor(Math.random() * 5000)
+            hits: 0
           }],
           exposure: targetNode.networkExposure
         })
         
-        // Check for gaps
         if (selectedEdge.port === "0-65535" && (selectedEdge.edgeType === "internet" || selectedEdge.type === "internet")) {
           gaps.push({ severity: "critical", rule: "TCP:0-65535 from 0.0.0.0/0", recommendation: "Restrict port range - all ports open to internet is a critical risk" })
         }
-        if (selectedEdge.port === "22" && (selectedEdge.edgeType === "internet" || selectedEdge.type === "internet")) {
-          gaps.push({ severity: "high", rule: "TCP:22 from 0.0.0.0/0", recommendation: "SSH should not be open to internet - use bastion host or VPN" })
-        }
       }
       
-      // Build IAM layer
+      // Build IAM layer from graph data
       if (sourceNode?.type === "IAMRole") {
         securityLayers.push({
           type: "iam",
@@ -94,7 +180,9 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
         edge: selectedEdge,
         securityLayers,
         gaps,
-        confidence: gaps.length === 0 ? 95 : gaps.length === 1 ? 75 : 50
+        observedPorts,
+        trafficTimeline,
+        confidence: gaps.length === 0 ? 95 : confidence
       })
     } catch (e) {
       console.error("Error building security path:", e)
