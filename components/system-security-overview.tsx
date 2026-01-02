@@ -48,16 +48,29 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
   const fetchAllData = async () => {
     setLoading(true)
     try {
-      // Fetch from working endpoints
-      const [resourcesRes, graphRes] = await Promise.allSettled([
+      // Fetch from working endpoints - including LP summary for real score
+      const [resourcesRes, graphRes, lpSummaryRes] = await Promise.allSettled([
         fetch(`/api/proxy/impact-analysis/resources?system_name=${systemName}`),
         fetch(`/api/proxy/dependency-map/graph?systemName=${systemName}`),
+        fetch(`/api/proxy/system-least-privilege/${systemName}/summary`),
       ])
 
       // Resources
+      let fetchedResources: Resource[] = []
       if (resourcesRes.status === 'fulfilled' && resourcesRes.value.ok) {
         const data = await resourcesRes.value.json()
-        setResources(data.resources || [])
+        fetchedResources = data.resources || []
+        setResources(fetchedResources)
+      }
+
+      // LP Summary - get REAL LP score
+      let realLPScore = 72 // fallback
+      let realTotalResources = 100 // fallback
+      if (lpSummaryRes.status === 'fulfilled' && lpSummaryRes.value.ok) {
+        const lpData = await lpSummaryRes.value.json()
+        // usage_percentage is the LP score (higher = better)
+        realLPScore = lpData.usage_percentage || 72
+        realTotalResources = lpData.total_resources || fetchedResources.length || 100
       }
 
       // Graph
@@ -113,8 +126,8 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       setSgData(sgResults)
 
       setSummary({
-        totalResources: resources.length || 100,
-        avgLPScore: 72,
+        totalResources: realTotalResources,
+        avgLPScore: realLPScore,
         internetExposed: edges.filter(e => e.type === 'internet').length,
         usedRules,
         unusedRules,
