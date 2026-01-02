@@ -44,3 +44,4 @@ export default function ArchitecturePage() {
     </div>
   )
 }
+// Deploy trigger: 1767362733
