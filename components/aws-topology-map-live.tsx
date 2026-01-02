@@ -149,9 +149,15 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
               // Calculate confidence based on observation data
               const usedRules = gapData.rules_analysis?.filter((r: any) => r.status !== "UNUSED").length || 0
               const totalRules = gapData.rules_analysis?.length || 1
-              confidence = Math.round((usedRules / totalRules) * 100)
-              if (gaps.length > 0) confidence = Math.min(confidence, 75)
-              if (gaps.some((g: any) => g.severity === "critical")) confidence = Math.min(confidence, 50)
+              
+              // If ENI count is 0, no instances are attached - can't determine confidence
+              if (gapData.eni_count === 0) {
+                confidence = 0 // No data available
+              } else {
+                confidence = Math.round((usedRules / totalRules) * 100)
+                if (gaps.length > 0) confidence = Math.min(confidence, 75)
+                if (gaps.some((g: any) => g.severity === "critical")) confidence = Math.min(confidence, 50)
+              }
             }
           } catch (err) {
             console.error("Failed to fetch SG gap analysis:", err)
@@ -194,6 +200,9 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
         }
       }
       
+      // Get eniCount from the first security layer if available
+      const eniCount = securityLayers[0]?.eniCount ?? null
+      
       setSecurityPathData({
         source: sourceNode,
         target: targetNode,
@@ -202,7 +211,8 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
         gaps,
         observedPorts,
         trafficTimeline,
-        confidence: gaps.length === 0 ? 95 : confidence
+        confidence: gaps.length === 0 && eniCount !== 0 ? 95 : confidence,
+        eniCount
       })
     } catch (e) {
       console.error("Error building security path:", e)
@@ -606,12 +616,31 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                     </div>
                     <div className="text-xs text-slate-500">{securityPathData.edge?.protocol || 'TCP'}:{securityPathData.edge?.port || 'All'}</div>
                   </div>
+                  {/* Warning when no ENIs attached */}
+                  {securityPathData.eniCount === 0 && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-amber-700">
+                        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                        <div>
+                          <div className="font-semibold">No Instances Attached</div>
+                          <div className="text-sm text-amber-600">This Security Group has no ENIs (network interfaces) attached. Traffic data is unavailable because no EC2/Lambda/RDS instances are using this SG.</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="p-4 bg-slate-50 rounded-xl">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-slate-600">Remediation Confidence</span>
-                      <span className={`text-xl font-bold ${securityPathData.confidence >= 80 ? 'text-green-600' : securityPathData.confidence >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{securityPathData.confidence}%</span>
+                      {securityPathData.eniCount === 0 ? (
+                        <span className="text-xl font-bold text-slate-400">No Data</span>
+                      ) : (
+                        <span className={`text-xl font-bold ${securityPathData.confidence >= 80 ? 'text-green-600' : securityPathData.confidence >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{securityPathData.confidence}%</span>
+                      )}
                     </div>
-                    <div className="w-full h-2 bg-slate-200 rounded-full"><div className={`h-full rounded-full ${securityPathData.confidence >= 80 ? 'bg-green-500' : securityPathData.confidence >= 60 ? 'bg-amber-500' : 'bg-red-500'}`} style={{width: `${securityPathData.confidence}%`}} /></div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full">
+                      <div className={`h-full rounded-full ${securityPathData.eniCount === 0 ? 'bg-slate-300' : securityPathData.confidence >= 80 ? 'bg-green-500' : securityPathData.confidence >= 60 ? 'bg-amber-500' : 'bg-red-500'}`} style={{width: securityPathData.eniCount === 0 ? '0%' : `${securityPathData.confidence}%`}} />
+                    </div>
                   </div>
                   {securityPathData.securityLayers?.map((layer: any, idx: number) => (
                     <div key={idx} className="border border-slate-200 rounded-xl overflow-hidden">
@@ -621,7 +650,16 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                       </div>
                       <div className="p-4 bg-white text-sm">
                         {layer.type === 'sg' && layer.rules?.map((r: any, i: number) => (
-                          <div key={i} className="flex justify-between py-1"><span className="font-mono">{r.direction} {r.protocol}:{r.port} from {r.source}</span><span className="text-green-600">{r.hits} hits</span></div>
+                          <div key={i} className="flex justify-between py-1">
+                            <span className="font-mono">{r.direction} {r.protocol}:{r.port} from {r.source}</span>
+                            {layer.eniCount === 0 ? (
+                              <span className="text-slate-400">No data</span>
+                            ) : r.hits > 0 ? (
+                              <span className="text-green-600">{r.hits.toLocaleString()} hits</span>
+                            ) : (
+                              <span className="text-amber-500">0 hits (unused)</span>
+                            )}
+                          </div>
                         ))}
                         {layer.type === 'iam' && <div><div>LP Score: <strong>{layer.lpScore}%</strong></div><div>Usage: <strong>{layer.usedCount}</strong></div></div>}
                       </div>
