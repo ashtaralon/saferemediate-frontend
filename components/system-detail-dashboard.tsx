@@ -45,6 +45,7 @@ import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
 import SnapshotsRecoveryTab from "./snapshots-recovery-tab"
+import { SystemSecurityOverview } from "./system-security-overview" // Security Posture tab
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
@@ -471,17 +472,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setIssues(issues.map((issue) => ({ ...issue, selected: !allSelected })))
   }
 
-  // Add Dependency Map tab to the tabs array
+  // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "issues", label: "Issues", icon: AlertTriangle },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "all-services", label: "All Services", icon: Server },
-    { id: "dependency-map", label: "Dependency Map", icon: Map }, // Added Dependency Map tab
+    { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
-    { id: "config-history", label: "Configuration History", icon: History },
-    { id: "disaster-recovery", label: "Disaster Recovery", icon: ShieldAlert },
+    { id: "security-posture", label: "Security Posture", icon: Shield }, // NEW: Single pane of glass
   ]
 
   const resourceTypes = [
@@ -1213,31 +1213,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </div>
       )}
 
-      {activeTab === "config-history" && (
+      {activeTab === "security-posture" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📜</span>
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Configuration History</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
-              Track configuration changes, drift detection, and compliance history. Coming soon.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "disaster-recovery" && (
-        <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">🔄</span>
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Disaster Recovery</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
-              Configure disaster recovery plans, failover settings, and RTO/RPO targets. Coming soon.
-            </p>
-          </div>
+          <SystemSecurityOverview systemName={systemName} />
         </div>
       )}
 
