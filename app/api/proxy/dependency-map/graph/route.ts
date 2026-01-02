@@ -6,11 +6,15 @@ const BACKEND_URL =
 
 export const maxDuration = 60;
 
+// Simple in-memory cache
+const cache: { [key: string]: { data: any; timestamp: number } } = {};
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
   for (let i = 0; i <= retries; i++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      const timeoutId = setTimeout(() => controller.abort(), 55000);
       
       const res = await fetch(url, {
         cache: "no-store",
@@ -28,7 +32,6 @@ async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
       if (i === retries) throw error;
     }
     
-    // Wait before retry (1s, 2s)
     if (i < retries) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
   }
   throw new Error("All retries failed");
@@ -37,18 +40,43 @@ async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const systemName = url.searchParams.get("systemName") ?? "alon-prod";
+  const cacheKey = `dependency-map-${systemName}`;
+
+  // Check cache first
+  const cached = cache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`[Dependency Map] Cache HIT for ${systemName}`);
+    return NextResponse.json(cached.data, {
+      headers: { "X-Cache": "HIT", "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)) }
+    });
+  }
 
   try {
     const backendUrl = `${BACKEND_URL}/api/dependency-map/graph?systemName=${encodeURIComponent(systemName)}`;
     
+    console.log(`[Dependency Map] Cache MISS - fetching from backend`);
     const res = await fetchWithRetry(backendUrl);
     const data = await res.json();
     
+    // Store in cache
+    cache[cacheKey] = { data, timestamp: Date.now() };
+    
     console.log(`[Dependency Map] Success: ${data.nodes?.length || 0} nodes, ${data.edges?.length || 0} edges`);
     
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: { "X-Cache": "MISS" }
+    });
   } catch (error: any) {
     console.error("[Dependency Map] Error:", error.message);
+    
+    // Return stale cache if available
+    if (cached) {
+      console.log(`[Dependency Map] Returning stale cache due to error`);
+      return NextResponse.json(cached.data, {
+        headers: { "X-Cache": "STALE" }
+      });
+    }
+    
     return NextResponse.json(
       { nodes: [], edges: [], error: error.message },
       { status: 500 }
