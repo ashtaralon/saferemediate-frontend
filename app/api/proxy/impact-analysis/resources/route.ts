@@ -5,17 +5,11 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediat
 export const maxDuration = 30
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
-  const resourceType = url.searchParams.get("resourceType")
+  const { searchParams } = new URL(req.url)
+  const systemName = searchParams.get("system_name") || "alon-prod"
   
   try {
-    let backendUrl = `${BACKEND_URL}/api/impact-analysis/resources?systemName=${systemName}`
-    if (resourceType) {
-      backendUrl += `&resource_type=${encodeURIComponent(resourceType)}`
-    }
-    
-    const res = await fetch(backendUrl, {
+    const res = await fetch(`${BACKEND_URL}/api/impact-analysis/resources?system_name=${systemName}`, {
       headers: { Accept: "application/json" },
       cache: "no-store"
     })
@@ -24,9 +18,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Backend error", status: res.status }, { status: res.status })
     }
     
-    return NextResponse.json(await res.json())
+    const data = await res.json()
+    return NextResponse.json(data)
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    console.error("Impact analysis resources error:", error.message)
+    return NextResponse.json({ error: error.message, resources: [], count: 0 }, { status: 500 })
   }
 }
-
