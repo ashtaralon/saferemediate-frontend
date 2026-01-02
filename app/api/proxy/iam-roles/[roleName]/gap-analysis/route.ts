@@ -53,7 +53,7 @@ export async function GET(
   const timeoutId = setTimeout(() => controller.abort(), 28000)
 
   try {
-    const backendUrl = `${BACKEND_URL}/api/iam/gap-analysis/${encodeURIComponent(roleName)}?days=${days}`
+    const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}`
     console.log(`[IAM Proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {
