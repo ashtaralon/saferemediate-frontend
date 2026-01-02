@@ -54,7 +54,27 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
       
       // If target is a Security Group, fetch REAL gap analysis from backend
       if (targetNode?.type === "SecurityGroup") {
-        const sgId = targetNode.id?.startsWith('sg-') ? targetNode.id : targetNode.sgId
+        // Known SG name to ID mapping (from AWS)
+        const sgNameToId: Record<string, string> = {
+          'saferemediate-test-app-sg': 'sg-02a2ccfe185765527',
+          'saferemediate-test-alb-sg': 'sg-06a6f52b72976da16',
+          'saferemediate-test-db-sg': 'sg-0f8fadc0579ff6845',
+          'AlonTest': 'sg-001295b4de50b389d',
+          'default': 'sg-0212ab87005f59737',
+        }
+        
+        // Try to get sgId from node data, or look up by name
+        let sgId = targetNode.sgId
+        if (!sgId && targetNode.id?.startsWith('sg-')) {
+          sgId = targetNode.id
+        }
+        if (!sgId && sgNameToId[targetNode.id]) {
+          sgId = sgNameToId[targetNode.id]
+        }
+        if (!sgId && sgNameToId[targetNode.label]) {
+          sgId = sgNameToId[targetNode.label]
+        }
+        
         if (sgId) {
           try {
             const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis`)
