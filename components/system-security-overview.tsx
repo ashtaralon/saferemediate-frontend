@@ -31,11 +31,31 @@ interface SGData {
   rules_analysis: SGRule[]
 }
 
+interface IAMGap {
+  role_id: string
+  role_name: string
+  allowed_permissions: number
+  used_permissions: number
+  unused_permissions: number
+  usage_percent: number
+  status: string
+}
+
+interface IAMGapsData {
+  gaps: IAMGap[]
+  total_roles: number
+  total_allowed_permissions: number
+  total_used_permissions: number
+  total_unused_permissions: number
+  overall_usage_percent: number
+}
+
 export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemName?: string }) {
   const [loading, setLoading] = useState(true)
   const [resources, setResources] = useState<Resource[]>([])
   const [connections, setConnections] = useState<Connection[]>([])
   const [sgData, setSgData] = useState<SGData[]>([])
+  const [iamGaps, setIamGaps] = useState<IAMGapsData | null>(null)
   const [summary, setSummary] = useState({
     totalResources: 0,
     avgLPScore: 0,
@@ -43,6 +63,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
     usedRules: 0,
     unusedRules: 0,
     totalHits: 0,
+    iamUnused: 0,
   })
 
   const fetchAllData = async () => {
@@ -125,12 +146,26 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       }
       setSgData(sgResults)
 
+      // Fetch IAM gaps
+      let iamUnused = 0
+      try {
+        const iamRes = await fetch(`/api/proxy/iam-analysis/gaps/${systemName}`)
+        if (iamRes.ok) {
+          const iamData = await iamRes.json()
+          setIamGaps(iamData)
+          iamUnused = iamData.total_unused_permissions || 0
+        }
+      } catch (e) {
+        console.error("Failed to fetch IAM gaps:", e)
+      }
+
       setSummary({
         totalResources: realTotalResources,
         avgLPScore: realLPScore,
         internetExposed: edges.filter(e => e.type === 'internet').length,
         usedRules,
         unusedRules,
+        iamUnused,
         totalHits,
       })
     } catch (err) {
@@ -183,9 +218,9 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <div className="bg-white rounded-xl shadow border p-4 text-center">
-          <div className="text-3xl font-bold text-gray-800">{resources.length || 100}</div>
+          <div className="text-3xl font-bold text-gray-800">{summary.totalResources.toLocaleString()}</div>
           <div className="text-xs text-gray-500">Resources</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
@@ -208,10 +243,14 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
           <div className="text-3xl font-bold text-purple-500">{connections.length}</div>
           <div className="text-xs text-gray-500">Connections</div>
         </div>
+        <div className="bg-white rounded-xl shadow border p-4 text-center">
+          <div className="text-3xl font-bold text-indigo-500">{summary.iamUnused.toLocaleString()}</div>
+          <div className="text-xs text-gray-500">Unused IAM Perms</div>
+        </div>
       </div>
 
-      {/* 3 Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* 4 Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
         {/* Network Connections */}
         <div className="bg-white rounded-xl shadow border overflow-hidden">
           <div className="bg-gradient-to-r from-red-500 to-orange-500 px-4 py-3 text-white flex items-center gap-2">
@@ -285,6 +324,64 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 {items.length > 2 && <div className="text-xs text-gray-400">+{items.length - 2} more</div>}
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* IAM Permission Gaps */}
+        <div className="bg-white rounded-xl shadow border overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-500 to-blue-500 px-4 py-3 text-white flex items-center gap-2">
+            <Shield className="w-5 h-5" />
+            <span className="font-semibold">IAM Permission Gaps</span>
+            <span className="ml-auto bg-white/20 px-2 py-0.5 rounded-full text-xs">
+              {iamGaps?.overall_usage_percent || 0}% used
+            </span>
+          </div>
+          <div className="p-3 border-b bg-gray-50">
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-600">Allowed: {iamGaps?.total_allowed_permissions?.toLocaleString() || 0}</span>
+              <span className="text-green-600">Used: {iamGaps?.total_used_permissions?.toLocaleString() || 0}</span>
+              <span className="text-amber-600">Unused: {iamGaps?.total_unused_permissions?.toLocaleString() || 0}</span>
+            </div>
+          </div>
+          <div className="max-h-80 overflow-y-auto divide-y">
+            {(iamGaps?.gaps || []).slice(0, 10).map((role, idx) => (
+              <div key={idx} className="px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium text-sm truncate max-w-[120px]" title={role.role_name}>{role.role_name}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded ${
+                    role.status === 'OPTIMAL' ? 'bg-green-100 text-green-700' :
+                    role.status === 'REVIEW' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {role.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full ${
+                        role.usage_percent >= 80 ? 'bg-green-500' :
+                        role.usage_percent >= 50 ? 'bg-yellow-500' :
+                        'bg-red-500'
+                      }`}
+                      style={{ width: `${role.usage_percent}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500 w-10 text-right">
+                    {role.usage_percent}%
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>{role.used_permissions} used</span>
+                  <span>{role.unused_permissions} unused</span>
+                </div>
+              </div>
+            ))}
+            {(!iamGaps?.gaps || iamGaps.gaps.length === 0) && (
+              <div className="px-4 py-8 text-center text-gray-400 text-sm">
+                No IAM data available
+              </div>
+            )}
           </div>
         </div>
       </div>
