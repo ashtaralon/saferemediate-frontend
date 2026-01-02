@@ -296,23 +296,63 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 </div>
               ) : roleDetail ? (
                 <div className="space-y-6">
+                  {/* Current State vs Actual State - Key Visual */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-blue-50 rounded-xl p-4 text-center border border-blue-200">
+                      <div className="text-3xl font-bold text-blue-600">{roleDetail.summary?.total_permissions || selectedRole.allowed_permissions || 0}</div>
+                      <div className="text-sm text-blue-600 font-medium">Allowed (Current)</div>
+                      <div className="text-xs text-blue-400 mt-1">Configured permissions</div>
+                    </div>
+                    <div className="bg-green-50 rounded-xl p-4 text-center border border-green-200">
+                      <div className="text-3xl font-bold text-green-600">{roleDetail.summary?.used_count || selectedRole.used_permissions || 0}</div>
+                      <div className="text-sm text-green-600 font-medium">Used (Actual)</div>
+                      <div className="text-xs text-green-400 mt-1">365-day observation</div>
+                    </div>
+                  </div>
+
+                  {/* Usage Bar */}
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-600">Permission Usage</span>
+                      <span className={`font-bold ${
+                        (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 80 ? 'text-green-600' :
+                        (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 50 ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>{roleDetail.summary?.lp_score || selectedRole.usage_percent || 0}%</span>
+                    </div>
+                    <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 80 ? 'bg-gradient-to-r from-green-500 to-green-400' :
+                          (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 50 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' :
+                          'bg-gradient-to-r from-red-500 to-red-400'
+                        }`}
+                        style={{ width: `${roleDetail.summary?.lp_score || selectedRole.usage_percent || 0}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Permissions to Drop */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="w-5 h-5 text-amber-600" />
+                      <span className="font-semibold text-amber-800">Permissions to Drop</span>
+                    </div>
+                    <div className="text-3xl font-bold text-amber-600">{roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0}</div>
+                    <p className="text-sm text-amber-700 mt-1">
+                      {roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0} permissions are allowed but never used in 365 days
+                    </p>
+                  </div>
+
                   {/* Summary Cards */}
-                  <div className="grid grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-purple-50 rounded-xl p-4 text-center">
                       <div className="text-2xl font-bold text-purple-600">{roleDetail.summary?.lp_score || 0}%</div>
                       <div className="text-xs text-purple-500">LP Score</div>
                     </div>
-                    <div className="bg-green-50 rounded-xl p-4 text-center">
-                      <div className="text-2xl font-bold text-green-600">{roleDetail.summary?.used_count || 0}</div>
-                      <div className="text-xs text-green-500">Used</div>
-                    </div>
-                    <div className="bg-amber-50 rounded-xl p-4 text-center">
-                      <div className="text-2xl font-bold text-amber-600">{roleDetail.summary?.unused_count || 0}</div>
-                      <div className="text-xs text-amber-500">Unused</div>
-                    </div>
                     <div className="bg-red-50 rounded-xl p-4 text-center">
                       <div className="text-2xl font-bold text-red-600">{roleDetail.summary?.high_risk_unused_count || 0}</div>
-                      <div className="text-xs text-red-500">High Risk</div>
+                      <div className="text-xs text-red-500">High Risk Unused</div>
                     </div>
                   </div>
 
@@ -406,6 +446,11 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 </div>
               )}
             </div>
+            
+            {/* Footer with data source */}
+            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-gray-500">
+              Data source: Neo4j + CloudTrail • 365 days observation
+            </div>
           </div>
         </div>
       )}
@@ -490,6 +535,11 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                   </div>
                 ))}
               </div>
+            </div>
+            
+            {/* Footer with data source */}
+            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-gray-500">
+              Data source: VPC Flow Logs • 365 days observation
             </div>
           </div>
         </div>
