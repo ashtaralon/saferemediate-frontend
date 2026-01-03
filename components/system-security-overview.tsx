@@ -106,14 +106,41 @@ interface ConnectionDetail {
     last_seen: string
   }
   recommendation: {
-    action: 'KEEP' | 'TIGHTEN' | 'DELETE'
+    action: 'KEEP' | 'TIGHTEN' | 'DELETE' | 'REVIEW' | 'TAG'
     reason: string
     confidence: number
+    category?: 'unused' | 'overly_broad' | 'public_exposure' | 'used' | 'shadowed' | 'redundant'
     suggested_rule?: {
       source: string
       port: string
     }
   }
+  // NEW: Evidence context for credibility
+  evidence?: {
+    observation_window: string
+    eni_coverage: string
+    data_source: string
+    last_ingest?: string
+    confidence_breakdown?: {
+      evidence_coverage: number
+      recency_frequency: number
+      dependency_risk: number
+      final: number
+    }
+  }
+  // NEW: Risk callouts
+  risk_callouts?: {
+    type: 'public_exposure' | 'unused_public' | 'overly_broad'
+    severity: 'critical' | 'high' | 'medium' | 'low'
+    title: string
+    description: string
+    port?: string
+    hits?: number
+    suggested_action?: string
+  }[]
+  // NEW: Is this rule shadowed/redundant?
+  is_shadowed?: boolean
+  shadowed_by?: string
 }
 
 export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemName?: string }) {
@@ -239,7 +266,62 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
           rules.flatMap((r: any) => r.traffic?.observed_ports || [])
         )] as number[]
         
-        // Build the connection detail with REAL data
+        // Get evidence from backend (new v2 analysis)
+        const backendEvidence = matchingRule?.evidence || data.evidence || {}
+        const confidenceBreakdown = backendEvidence?.confidence_breakdown || matchingRule?.recommendation?.confidence_breakdown
+        
+        // Build risk callouts for critical issues
+        const riskCallouts: ConnectionDetail['risk_callouts'] = []
+        
+        // Check for unused public rules (CRITICAL)
+        const unusedPublicRules = rules.filter((r: any) => 
+          r.source === '0.0.0.0/0' && (r.status === 'UNUSED' || r.traffic?.connection_count === 0)
+        )
+        unusedPublicRules.forEach((r: any) => {
+          riskCallouts.push({
+            type: 'unused_public',
+            severity: 'critical',
+            title: `🚨 CRITICAL: Unused Internet Exposure`,
+            description: `Port ${r.port_range} is open to 0.0.0.0/0 with ZERO traffic observed. Immediate deletion recommended.`,
+            port: r.port_range,
+            hits: 0,
+            suggested_action: 'DELETE immediately'
+          })
+        })
+        
+        // Check for overly broad rules (HIGH)
+        const overlyBroadRules = rules.filter((r: any) => 
+          r.status === 'OVERLY_BROAD' || (r.source === '0.0.0.0/0' && r.traffic?.unique_sources < 50 && r.traffic?.connection_count > 0)
+        )
+        overlyBroadRules.forEach((r: any) => {
+          riskCallouts.push({
+            type: 'overly_broad',
+            severity: 'high',
+            title: `⚠️ Overly Broad: Port ${r.port_range}`,
+            description: `Rule allows 0.0.0.0/0 but only ${r.traffic?.unique_sources || 'few'} IPs observed. Can be tightened.`,
+            port: r.port_range,
+            hits: r.traffic?.connection_count || 0,
+            suggested_action: `Restrict to observed sources: ${(r.traffic?.observed_sources || []).slice(0, 3).join(', ')}`
+          })
+        })
+        
+        // Check for active public exposure (MEDIUM - needs review)
+        const activePublicRules = rules.filter((r: any) => 
+          r.source === '0.0.0.0/0' && r.traffic?.connection_count > 0 && r.status !== 'OVERLY_BROAD'
+        )
+        activePublicRules.forEach((r: any) => {
+          riskCallouts.push({
+            type: 'public_exposure',
+            severity: 'medium',
+            title: `🌐 Public Exposure: Port ${r.port_range}`,
+            description: `${r.traffic?.connection_count?.toLocaleString() || 0} connections from ${r.traffic?.unique_sources || 0} sources. Verify intentional.`,
+            port: r.port_range,
+            hits: r.traffic?.connection_count || 0,
+            suggested_action: 'Review if 0.0.0.0/0 is necessary'
+          })
+        })
+
+        // Build the connection detail with REAL data and evidence
         const detail: ConnectionDetail = {
           connection: conn,
           sg_id: data.sg_id || sgToQuery,
@@ -258,43 +340,72 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             unique_ports: allPorts,
             last_seen: matchingRule?.traffic?.last_seen || 'Within last 24h'
           },
+          // NEW: Evidence context
+          evidence: {
+            observation_window: backendEvidence.observation_window || '365 days',
+            eni_coverage: backendEvidence.eni_coverage || `${data.eni_count || 0} ENIs`,
+            data_source: 'VPC Flow Logs',
+            last_ingest: backendEvidence.analyzed_at || new Date().toISOString(),
+            confidence_breakdown: confidenceBreakdown
+          },
+          // NEW: Risk callouts
+          risk_callouts: riskCallouts.length > 0 ? riskCallouts : undefined,
+          // NEW: Shadowed status
+          is_shadowed: matchingRule?.is_shadowed || false,
+          shadowed_by: matchingRule?.shadowed_by,
           recommendation: (() => {
-            // Clear recommendation logic based on traffic analysis
+            // Use backend recommendation if available (v2 analysis)
+            if (matchingRule?.recommendation?.category) {
+              return {
+                action: matchingRule.recommendation.action as ConnectionDetail['recommendation']['action'],
+                reason: matchingRule.recommendation.reason,
+                confidence: matchingRule.recommendation.confidence,
+                category: matchingRule.recommendation.category,
+                suggested_rule: matchingRule.recommendation.suggested_cidrs ? {
+                  source: matchingRule.recommendation.suggested_cidrs.slice(0, 5).join(', '),
+                  port: matchingRule.port_range || conn.port || 'All'
+                } : undefined
+              }
+            }
+            
+            // Fallback: Clear recommendation logic based on traffic analysis
             const isPublicRule = publicRules.length > 0
             const hasTraffic = totalTraffic > 0 || allSources.length > 0
             const isUnused = matchingRule?.status === 'UNUSED' || !hasTraffic
             const canBeTightened = isPublicRule && allSources.length > 0 && allSources.length < 50
             
-            let action: 'KEEP' | 'TIGHTEN' | 'DELETE' = 'KEEP'
+            let action: ConnectionDetail['recommendation']['action'] = 'KEEP'
             let reason = ''
             let confidence = matchingRule?.recommendation?.confidence || 90
+            let category: ConnectionDetail['recommendation']['category'] = 'used'
             
             if (isUnused && isPublicRule) {
-              // No traffic on a public-facing rule = DELETE
               action = 'DELETE'
               reason = '⚠️ No traffic observed in 365 days on internet-exposed rule. REMOVE to reduce attack surface.'
               confidence = 95
+              category = 'unused'
             } else if (isUnused) {
-              // No traffic on internal rule = DELETE  
               action = 'DELETE'
               reason = 'No traffic observed in 365 days. Consider removing this unused rule.'
               confidence = 85
+              category = 'unused'
             } else if (canBeTightened) {
-              // Has traffic but rule is too broad = TIGHTEN
               action = 'TIGHTEN'
               reason = `Rule allows 0.0.0.0/0 but only ${allSources.length} unique source IPs observed. Restrict to actual sources.`
               confidence = 90
+              category = 'overly_broad'
             } else if (hasTraffic) {
-              // Has traffic, rule is appropriate = KEEP
               action = 'KEEP'
               reason = `Active traffic: ${totalTraffic.toLocaleString()} connections from ${allSources.length} unique sources.`
               confidence = 95
+              category = 'used'
             }
             
             return {
               action,
               reason,
               confidence,
+              category,
               suggested_rule: allSources.length > 0 && allSources.length <= 20 ? {
                 source: allSources.slice(0, 5).map(s => `${s}/32`).join(', '),
                 port: allPorts.length > 0 ? allPorts.slice(0, 3).join(', ') : conn.port || 'All'
@@ -916,13 +1027,87 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                     </div>
                   </div>
 
-                  {/* Recommendation */}
+                  {/* NEW: Evidence Context Bar */}
+                  {connectionDetail.evidence && (
+                    <div className="bg-slate-100 rounded-lg px-4 py-2 flex items-center justify-between text-xs text-slate-600 border border-slate-200">
+                      <div className="flex items-center gap-4">
+                        <span className="flex items-center gap-1">
+                          📅 <strong>Window:</strong> {connectionDetail.evidence.observation_window}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          🔌 <strong>Coverage:</strong> {connectionDetail.evidence.eni_coverage}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          📊 <strong>Source:</strong> {connectionDetail.evidence.data_source}
+                        </span>
+                      </div>
+                      <span className="text-slate-400">
+                        Last ingest: {connectionDetail.evidence.last_ingest 
+                          ? new Date(connectionDetail.evidence.last_ingest).toLocaleString()
+                          : 'Unknown'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* NEW: Risk Callouts (Critical Issues) */}
+                  {connectionDetail.risk_callouts && connectionDetail.risk_callouts.length > 0 && (
+                    <div className="space-y-3">
+                      {connectionDetail.risk_callouts.map((callout, idx) => (
+                        <div 
+                          key={idx}
+                          className={`rounded-xl p-4 border-2 ${
+                            callout.severity === 'critical' ? 'bg-red-50 border-red-400' :
+                            callout.severity === 'high' ? 'bg-orange-50 border-orange-300' :
+                            callout.severity === 'medium' ? 'bg-amber-50 border-amber-300' :
+                            'bg-slate-50 border-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`text-2xl ${
+                              callout.severity === 'critical' ? 'animate-pulse' : ''
+                            }`}>
+                              {callout.type === 'unused_public' && '🚨'}
+                              {callout.type === 'overly_broad' && '⚠️'}
+                              {callout.type === 'public_exposure' && '🌐'}
+                            </div>
+                            <div className="flex-1">
+                              <div className={`font-bold ${
+                                callout.severity === 'critical' ? 'text-red-800' :
+                                callout.severity === 'high' ? 'text-orange-800' :
+                                'text-amber-800'
+                              }`}>
+                                {callout.title}
+                              </div>
+                              <div className="text-sm text-gray-700 mt-1">{callout.description}</div>
+                              {callout.suggested_action && (
+                                <div className="mt-2 text-sm font-medium text-blue-700">
+                                  → {callout.suggested_action}
+                                </div>
+                              )}
+                            </div>
+                            <div className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                              callout.severity === 'critical' ? 'bg-red-200 text-red-800' :
+                              callout.severity === 'high' ? 'bg-orange-200 text-orange-800' :
+                              callout.severity === 'medium' ? 'bg-amber-200 text-amber-800' :
+                              'bg-slate-200 text-slate-800'
+                            }`}>
+                              {callout.severity}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recommendation - with category badge */}
                   <div className={`rounded-xl p-4 border-2 ${
                     connectionDetail.recommendation.action === 'DELETE' 
                       ? 'bg-red-50 border-red-300' 
                       : connectionDetail.recommendation.action === 'TIGHTEN' 
                         ? 'bg-amber-50 border-amber-300' 
-                        : 'bg-green-50 border-green-300'
+                        : connectionDetail.recommendation.action === 'REVIEW'
+                          ? 'bg-blue-50 border-blue-300'
+                          : 'bg-green-50 border-green-300'
                   }`}>
                     <div className="flex items-center gap-3 mb-3">
                       {connectionDetail.recommendation.action === 'DELETE' && (
@@ -931,22 +1116,67 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                       {connectionDetail.recommendation.action === 'TIGHTEN' && (
                         <AlertTriangle className="w-8 h-8 text-amber-500" />
                       )}
+                      {connectionDetail.recommendation.action === 'REVIEW' && (
+                        <FileWarning className="w-8 h-8 text-blue-500" />
+                      )}
                       {connectionDetail.recommendation.action === 'KEEP' && (
                         <CheckCircle className="w-8 h-8 text-green-500" />
                       )}
-                      <div>
-                        <div className={`text-lg font-bold ${
-                          connectionDetail.recommendation.action === 'DELETE' ? 'text-red-700' :
-                          connectionDetail.recommendation.action === 'TIGHTEN' ? 'text-amber-700' :
-                          'text-green-700'
-                        }`}>
-                          Recommendation: {connectionDetail.recommendation.action}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-lg font-bold ${
+                            connectionDetail.recommendation.action === 'DELETE' ? 'text-red-700' :
+                            connectionDetail.recommendation.action === 'TIGHTEN' ? 'text-amber-700' :
+                            connectionDetail.recommendation.action === 'REVIEW' ? 'text-blue-700' :
+                            'text-green-700'
+                          }`}>
+                            Recommendation: {connectionDetail.recommendation.action}
+                          </span>
+                          {connectionDetail.recommendation.category && (
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              connectionDetail.recommendation.category === 'unused' ? 'bg-red-100 text-red-700' :
+                              connectionDetail.recommendation.category === 'overly_broad' ? 'bg-amber-100 text-amber-700' :
+                              connectionDetail.recommendation.category === 'public_exposure' ? 'bg-orange-100 text-orange-700' :
+                              connectionDetail.recommendation.category === 'shadowed' ? 'bg-purple-100 text-purple-700' :
+                              'bg-green-100 text-green-700'
+                            }`}>
+                              {connectionDetail.recommendation.category === 'unused' && 'Unused Rule'}
+                              {connectionDetail.recommendation.category === 'overly_broad' && 'Overly Broad'}
+                              {connectionDetail.recommendation.category === 'public_exposure' && 'Public Exposure'}
+                              {connectionDetail.recommendation.category === 'used' && 'Active & Appropriate'}
+                              {connectionDetail.recommendation.category === 'shadowed' && 'Shadowed/Redundant'}
+                            </span>
+                          )}
                         </div>
-                        <div className="text-sm text-gray-600">{connectionDetail.recommendation.reason}</div>
+                        <div className="text-sm text-gray-600 mt-1">{connectionDetail.recommendation.reason}</div>
                       </div>
-                      <div className="ml-auto text-right">
+                      <div className="text-right">
                         <div className="text-2xl font-bold">{connectionDetail.recommendation.confidence}%</div>
                         <div className="text-xs text-gray-500">Confidence</div>
+                        {/* Expandable confidence breakdown */}
+                        {connectionDetail.evidence?.confidence_breakdown && (
+                          <details className="mt-1 text-left">
+                            <summary className="text-xs text-blue-600 cursor-pointer hover:underline">Why {connectionDetail.recommendation.confidence}%?</summary>
+                            <div className="mt-2 p-2 bg-white rounded border text-xs space-y-1">
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Evidence coverage:</span>
+                                <span className="font-mono">{(connectionDetail.evidence.confidence_breakdown.evidence_coverage * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Recency/frequency:</span>
+                                <span className="font-mono">{(connectionDetail.evidence.confidence_breakdown.recency_frequency * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Dependency risk:</span>
+                                <span className="font-mono">{(connectionDetail.evidence.confidence_breakdown.dependency_risk * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="flex justify-between border-t pt-1 font-bold">
+                                <span>Final:</span>
+                                <span>{connectionDetail.evidence.confidence_breakdown.final}%</span>
+                              </div>
+                            </div>
+                          </details>
+                        )}
                       </div>
                     </div>
                   </div>
