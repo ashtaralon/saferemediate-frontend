@@ -378,36 +378,25 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       let usedRules = 0, unusedRules = 0, totalHits = 0
       
       try {
-        // Step 1: Get list of SG IDs for this system (lightweight Neo4j query)
+        // Step 1: Get list of SG IDs for this system
+        // Call backend directly (CORS enabled) to avoid Vercel proxy caching issues
         let sgList: { id: string, name: string }[] = []
+        const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
         
         try {
-          const sgListRes = await fetch(`/api/proxy/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`)
-          
-          if (sgListRes.ok) {
-            const listData = await sgListRes.json()
-            sgList = listData.security_groups || []
-            console.log(`[SG] Found ${sgList.length} security groups from by-system endpoint`)
+          console.log(`[SG] Fetching security groups from backend for ${systemName}`)
+          const backendRes = await fetch(`${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`, {
+            headers: { "Accept": "application/json" }
+          })
+          if (backendRes.ok) {
+            const backendData = await backendRes.json()
+            sgList = backendData.security_groups || []
+            console.log(`[SG] Found ${sgList.length} security groups from backend`)
+          } else {
+            console.warn(`[SG] Backend returned ${backendRes.status}`)
           }
         } catch (e) {
-          console.warn("[SG] by-system endpoint not available, trying fallback")
-        }
-        
-        // Fallback: if by-system returns empty or fails, try calling backend directly
-        if (sgList.length === 0) {
-          try {
-            const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
-            const backendRes = await fetch(`${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`, {
-              headers: { "Accept": "application/json" }
-            })
-            if (backendRes.ok) {
-              const backendData = await backendRes.json()
-              sgList = backendData.security_groups || []
-              console.log(`[SG] Found ${sgList.length} security groups from backend directly`)
-            }
-          } catch (e) {
-            console.warn("[SG] Backend fallback failed:", e)
-          }
+          console.warn("[SG] Backend fetch failed:", e)
         }
         
         console.log(`[SG] Processing ${sgList.length} security groups for system ${systemName}`)
