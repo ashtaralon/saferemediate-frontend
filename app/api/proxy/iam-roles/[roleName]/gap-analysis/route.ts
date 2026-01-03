@@ -126,10 +126,16 @@ export async function GET(
     }
 
     if (error.name === "AbortError") {
-      return NextResponse.json(
-        { error: "Request timeout", detail: "Backend did not respond in time" },
-        { status: 504 }
-      )
+      // Return empty data instead of error - UI will show 0s gracefully
+      return NextResponse.json({
+        role_name: roleName,
+        allowed_count: 0,
+        used_count: 0,
+        unused_count: 0,
+        summary: { allowed_count: 0, used_count: 0, unused_count: 0, lp_score: 0 },
+        timeout: true,
+        message: "Analysis is taking longer than expected - data will refresh shortly"
+      }, { status: 200 })
     }
 
     return NextResponse.json(

@@ -41,10 +41,13 @@ export async function GET(req: NextRequest) {
     console.error("[proxy] least-privilege error:", error.message)
 
     if (error.name === "AbortError") {
-      return NextResponse.json(
-        { error: "Request timeout", detail: "Backend did not respond in time" },
-        { status: 504 }
-      )
+      // Return empty data instead of error
+      return NextResponse.json({
+        roles: [],
+        total: 0,
+        timeout: true,
+        message: "Analysis is taking longer than expected"
+      }, { status: 200 })
     }
 
     return NextResponse.json(

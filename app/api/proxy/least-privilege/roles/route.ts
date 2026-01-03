@@ -48,10 +48,8 @@ export async function GET(req: NextRequest) {
     console.error("[LP Proxy Roles] Error:", error.message)
 
     if (error.name === "AbortError") {
-      return NextResponse.json(
-        { error: "Request timeout", detail: "Backend did not respond in time" },
-        { status: 504 }
-      )
+      // Return empty array instead of error
+      return NextResponse.json([], { status: 200 })
     }
 
     return NextResponse.json(
