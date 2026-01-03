@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
+export const maxDuration = 30 // Increase timeout for Render cold starts
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
