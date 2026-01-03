@@ -378,8 +378,8 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       let usedRules = 0, unusedRules = 0, totalHits = 0
       
       try {
-        // Step 1: Get list of SG IDs for this system
-        // Call backend directly (CORS enabled) to avoid Vercel proxy caching issues
+        // Step 1: Get list of SG IDs for this system - v2 fixed 2026-01-03
+        // Call backend directly (CORS enabled) to bypass Vercel CDN cache issues
         let sgList: { id: string, name: string }[] = []
         const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
         
