@@ -34,9 +34,9 @@ export async function GET(req: NextRequest) {
   try {
     console.log(`[proxy] IAM gap analysis for role: ${roleName}`)
     
-    // Use the correct endpoint: /api/iam/gap-analysis/{role_name}
+    // Use the correct endpoint: /api/iam-roles/{role_name}/gap-analysis
     const res = await fetch(
-      `${BACKEND_URL}/api/iam/gap-analysis/${encodeURIComponent(roleName)}?days=90`,
+      `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`,
       {
         signal: controller.signal,
         headers: { "Content-Type": "application/json" },
