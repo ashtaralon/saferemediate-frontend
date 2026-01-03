@@ -379,14 +379,40 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       
       try {
         // Step 1: Get list of SG IDs for this system (lightweight Neo4j query)
-        const sgListRes = await fetch(`/api/proxy/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`)
+        let sgList: { id: string, name: string }[] = []
         
-        if (sgListRes.ok) {
-          const listData = await sgListRes.json()
-          const sgList = listData.security_groups || []
+        try {
+          const sgListRes = await fetch(`/api/proxy/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`)
           
-          console.log(`[SG] Found ${sgList.length} security groups for system ${systemName}`)
-          
+          if (sgListRes.ok) {
+            const listData = await sgListRes.json()
+            sgList = listData.security_groups || []
+            console.log(`[SG] Found ${sgList.length} security groups from by-system endpoint`)
+          }
+        } catch (e) {
+          console.warn("[SG] by-system endpoint not available, trying fallback")
+        }
+        
+        // Fallback: if by-system returns empty or fails, try calling backend directly
+        if (sgList.length === 0) {
+          try {
+            const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
+            const backendRes = await fetch(`${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`, {
+              headers: { "Accept": "application/json" }
+            })
+            if (backendRes.ok) {
+              const backendData = await backendRes.json()
+              sgList = backendData.security_groups || []
+              console.log(`[SG] Found ${sgList.length} security groups from backend directly`)
+            }
+          } catch (e) {
+            console.warn("[SG] Backend fallback failed:", e)
+          }
+        }
+        
+        console.log(`[SG] Processing ${sgList.length} security groups for system ${systemName}`)
+        
+        if (sgList.length > 0) {
           // Step 2: Fetch gap analysis for each SG in parallel (with limit to avoid overload)
           const sgPromises = sgList.slice(0, 10).map((sg: any) => 
             fetch(`/api/proxy/security-groups/${sg.id}/gap-analysis`)
