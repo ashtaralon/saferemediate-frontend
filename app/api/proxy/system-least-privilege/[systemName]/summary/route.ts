@@ -8,6 +8,9 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ systemName: string }> }
 ) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 28000)
+
   try {
     const { systemName } = await context.params
     
@@ -18,24 +21,38 @@ export async function GET(
           "Content-Type": "application/json",
           "ngrok-skip-browser-warning": "true",
         },
-        next: { revalidate: 60 }, // Cache for 60 seconds
+        signal: controller.signal,
+        cache: "no-store",
       }
     )
 
+    clearTimeout(timeoutId)
+
     if (!response.ok) {
-      return NextResponse.json(
-        { error: "Backend error", status: response.status },
-        { status: response.status }
-      )
+      // Return empty fallback on backend error
+      return NextResponse.json({
+        total_roles: 0,
+        avg_lp_score: 100,
+        total_unused_permissions: 0,
+        error: true,
+        message: `Backend returned ${response.status}`
+      }, { status: 200 })
     }
 
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error: any) {
+    clearTimeout(timeoutId)
     console.error("LP Summary proxy error:", error)
-    return NextResponse.json(
-      { error: "Proxy error", message: error.message },
-      { status: 500 }
-    )
+    
+    // Return empty fallback on timeout or error
+    return NextResponse.json({
+      total_roles: 0,
+      avg_lp_score: 100,
+      total_unused_permissions: 0,
+      timeout: error.name === 'AbortError',
+      error: true,
+      message: error.name === 'AbortError' ? 'Request timed out' : error.message
+    }, { status: 200 })
   }
 }

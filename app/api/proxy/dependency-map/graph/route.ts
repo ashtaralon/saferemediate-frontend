@@ -77,9 +77,10 @@ export async function GET(req: NextRequest) {
       });
     }
     
+    // Return empty fallback with status 200 to prevent UI crash
     return NextResponse.json(
-      { nodes: [], edges: [], error: error.message },
-      { status: 500 }
+      { nodes: [], edges: [], error: true, message: error.message, timeout: error.name === 'AbortError' },
+      { status: 200 }
     );
   }
 }

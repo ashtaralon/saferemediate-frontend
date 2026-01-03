@@ -72,17 +72,16 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error("[proxy] security-groups/gap-analysis error:", error)
     
-    if (error.name === "AbortError") {
-      return NextResponse.json(
-        { error: "Request timeout. Gap analysis is taking longer than expected." },
-        { status: 504 }
-      )
-    }
-
-    return NextResponse.json(
-      { error: error.message || "Internal server error" },
-      { status: 500 }
-    )
+    // Return empty fallback on timeout or error
+    return NextResponse.json({
+      security_groups: [],
+      total: 0,
+      used_rules: 0,
+      unused_rules: 0,
+      timeout: error.name === "AbortError",
+      error: true,
+      message: error.name === "AbortError" ? "Request timed out" : error.message
+    }, { status: 200 })
   }
 }
 
