@@ -29,6 +29,19 @@ const SHAPES: Record<string, string> = {
 
 interface Props { systemName: string }
 
+interface EdgeTrafficData {
+  source_sg?: string
+  target_sg?: string
+  port?: string
+  total_hits: number
+  unique_sources: string[]
+  bytes_transferred: number
+  recommendation: 'keep' | 'tighten' | 'remove'
+  recommendation_reason: string
+  confidence: number
+  is_public: boolean
+}
+
 export default function DependencyMapTab({ systemName }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
@@ -36,8 +49,11 @@ export default function DependencyMapTab({ systemName }: Props) {
   const [data, setData] = useState<any>(null)
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [selectedEdge, setSelectedEdge] = useState<any>(null)
+  const [edgeTrafficData, setEdgeTrafficData] = useState<EdgeTrafficData | null>(null)
+  const [edgeLoading, setEdgeLoading] = useState(false)
   const [isLive, setIsLive] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [highlightRisks, setHighlightRisks] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -46,6 +62,105 @@ export default function DependencyMapTab({ systemName }: Props) {
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }, [systemName])
+
+  // Fetch traffic data for a selected edge
+  const fetchEdgeTrafficData = useCallback(async (edge: any) => {
+    setEdgeLoading(true)
+    setEdgeTrafficData(null)
+    
+    try {
+      // Try to get SG gap analysis if edge has SG info
+      const sgId = edge.source_sg || edge.target_sg || 
+        (edge.source?.includes('sg-') ? edge.source : null) ||
+        (edge.target?.includes('sg-') ? edge.target : null)
+      
+      if (sgId) {
+        const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?days=365`)
+        if (res.ok) {
+          const data = await res.json()
+          const rules = data.rules_analysis || []
+          
+          // Find matching rule by port
+          const matchingRule = rules.find((r: any) => 
+            r.port_range === edge.port || edge.label?.includes(r.port_range)
+          ) || rules[0]
+          
+          const isPublic = matchingRule?.source === '0.0.0.0/0'
+          const totalHits = matchingRule?.traffic?.connection_count || 0
+          
+          setEdgeTrafficData({
+            source_sg: data.sg_id,
+            target_sg: edge.target,
+            port: matchingRule?.port_range || edge.port,
+            total_hits: totalHits,
+            unique_sources: matchingRule?.traffic?.unique_sources || [],
+            bytes_transferred: matchingRule?.traffic?.bytes_transferred || 0,
+            recommendation: totalHits === 0 ? 'remove' : isPublic ? 'tighten' : 'keep',
+            recommendation_reason: totalHits === 0 
+              ? 'No traffic observed in 365 days'
+              : isPublic 
+                ? `Public rule (0.0.0.0/0) but only ${matchingRule?.traffic?.unique_sources?.length || 0} sources used`
+                : `Active traffic: ${totalHits} connections`,
+            confidence: matchingRule?.recommendation?.confidence || 80,
+            is_public: isPublic
+          })
+          return
+        }
+      }
+      
+      // Fallback - basic edge info
+      setEdgeTrafficData({
+        port: edge.port || edge.label,
+        total_hits: edge.traffic_bytes || 0,
+        unique_sources: [],
+        bytes_transferred: edge.traffic_bytes || 0,
+        recommendation: edge.type === 'internet' ? 'tighten' : 'keep',
+        recommendation_reason: edge.type === 'internet' 
+          ? 'Internet-exposed connection - review for least privilege'
+          : 'Internal connection',
+        confidence: 60,
+        is_public: edge.type === 'internet'
+      })
+    } catch (e) {
+      console.error('Failed to fetch edge traffic:', e)
+      setEdgeTrafficData(null)
+    } finally {
+      setEdgeLoading(false)
+    }
+  }, [])
+
+  // Export graph as JSON
+  const exportGraph = () => {
+    if (!data) return
+    const json = JSON.stringify(data, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dependency-map-${systemName}-${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Toggle highlight risks
+  const toggleHighlightRisks = () => {
+    if (!cyRef.current) return
+    const cy = cyRef.current
+    
+    if (highlightRisks) {
+      cy.elements().removeClass('risk-highlight risk-dimmed')
+      setHighlightRisks(false)
+    } else {
+      // Dim everything first
+      cy.elements().addClass('risk-dimmed')
+      // Highlight internet edges and their nodes
+      cy.edges('[type="internet"]').removeClass('risk-dimmed').addClass('risk-highlight')
+      cy.edges('[type="internet"]').connectedNodes().removeClass('risk-dimmed').addClass('risk-highlight')
+      // Highlight low LP score nodes
+      cy.nodes('[lpScore < 50]').removeClass('risk-dimmed').addClass('risk-highlight')
+      setHighlightRisks(true)
+    }
+  }
 
   useEffect(() => { fetchData() }, [fetchData])
   useEffect(() => {
@@ -105,6 +220,9 @@ export default function DependencyMapTab({ systemName }: Props) {
         { selector: '.highlighted', style: { 'border-width': 5, 'border-color': '#fbbf24', 'z-index': 999 }},
         { selector: 'edge.highlighted', style: { 'width': 4, 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24' }},
         { selector: '.dimmed', style: { 'opacity': 0.15 }},
+        { selector: '.risk-highlight', style: { 'border-width': 5, 'border-color': '#ef4444', 'z-index': 999 }},
+        { selector: 'edge.risk-highlight', style: { 'width': 5, 'line-color': '#ef4444', 'target-arrow-color': '#ef4444', 'line-style': 'solid' }},
+        { selector: '.risk-dimmed', style: { 'opacity': 0.2 }},
       ],
       layout: { name: 'cose-bilkent', animate: true, nodeDimensionsIncludeLabels: true, idealEdgeLength: 100, nodeRepulsion: 5000 } as any,
       minZoom: 0.2, maxZoom: 3,
@@ -117,10 +235,12 @@ export default function DependencyMapTab({ systemName }: Props) {
       e.target.addClass('highlighted')
     })
     cy.on('tap', 'edge', (e) => {
-      setSelectedEdge(e.target.data()); setSelectedNode(null)
+      const edgeData = e.target.data()
+      setSelectedEdge(edgeData); setSelectedNode(null)
+      fetchEdgeTrafficData(edgeData) // Fetch traffic data
       cy.elements().addClass('dimmed')
-      cy.getElementById(e.target.data().source).removeClass('dimmed').addClass('highlighted')
-      cy.getElementById(e.target.data().target).removeClass('dimmed').addClass('highlighted')
+      cy.getElementById(edgeData.source).removeClass('dimmed').addClass('highlighted')
+      cy.getElementById(edgeData.target).removeClass('dimmed').addClass('highlighted')
       e.target.removeClass('dimmed').addClass('highlighted')
     })
     cy.on('tap', (e) => {
@@ -145,6 +265,21 @@ export default function DependencyMapTab({ systemName }: Props) {
           </button>
           <button onClick={fetchData} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">
             <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
+          <button 
+            onClick={toggleHighlightRisks} 
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
+              highlightRisks ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700 hover:bg-red-200'
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4" /> 
+            {highlightRisks ? 'Clear Risks' : 'Highlight Risks'}
+          </button>
+          <button 
+            onClick={exportGraph} 
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-600 text-white rounded-lg text-sm"
+          >
+            <Activity className="w-4 h-4" /> Export
           </button>
           <span className="text-sm text-slate-500"><strong>{data?.summary?.totalNodes || 0}</strong> nodes • <strong>{data?.summary?.totalEdges || 0}</strong> connections</span>
         </div>
@@ -190,11 +325,106 @@ export default function DependencyMapTab({ systemName }: Props) {
               </div>
             )}
             {selectedEdge && (
-              <div>
-                <h3 className="font-semibold mb-4 flex items-center gap-2"><ArrowRight className="w-5 h-5 text-blue-500"/>Connection</h3>
-                <div className="p-3 bg-slate-50 rounded-lg mb-2"><div className="flex items-center gap-2 text-sm"><span className="truncate max-w-[100px]">{selectedEdge.source}</span><ChevronRight className="w-4 h-4 flex-shrink-0"/><span className="truncate max-w-[100px]">{selectedEdge.target}</span></div></div>
-                {selectedEdge.port&&<div className="p-3 bg-slate-50 rounded-lg mb-2"><span className="text-slate-500">Port: </span><span className="font-mono">{selectedEdge.port}</span></div>}
-                <div className="p-3 bg-slate-50 rounded-lg"><span className="text-slate-500">Type: </span><span className="capitalize">{selectedEdge.type?.replace('_',' ')}</span></div>
+              <div className="space-y-3">
+                <h3 className="font-semibold flex items-center gap-2"><ArrowRight className="w-5 h-5 text-blue-500"/>Connection Analysis</h3>
+                
+                {/* Connection Path */}
+                <div className="p-3 bg-slate-50 rounded-lg">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="truncate max-w-[100px] font-medium">{selectedEdge.source}</span>
+                    <ChevronRight className="w-4 h-4 flex-shrink-0 text-slate-400"/>
+                    <span className="truncate max-w-[100px] font-medium">{selectedEdge.target}</span>
+                  </div>
+                </div>
+                
+                {/* Basic Info */}
+                <div className="grid grid-cols-2 gap-2">
+                  {selectedEdge.port && (
+                    <div className="p-2 bg-slate-50 rounded-lg text-center">
+                      <div className="text-xs text-slate-500">Port</div>
+                      <div className="font-mono font-bold">{selectedEdge.port}</div>
+                    </div>
+                  )}
+                  <div className="p-2 bg-slate-50 rounded-lg text-center">
+                    <div className="text-xs text-slate-500">Type</div>
+                    <div className={`font-medium capitalize ${selectedEdge.type === 'internet' ? 'text-red-600' : 'text-blue-600'}`}>
+                      {selectedEdge.type?.replace('_', ' ')}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Traffic Data Section */}
+                {edgeLoading ? (
+                  <div className="p-4 bg-slate-50 rounded-lg flex items-center justify-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+                    <span className="text-sm text-slate-500">Loading traffic data...</span>
+                  </div>
+                ) : edgeTrafficData ? (
+                  <>
+                    {/* Traffic Stats */}
+                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                      <div className="text-xs text-green-600 font-semibold mb-2">📊 ACTUAL TRAFFIC (VPC Flow Logs)</div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-slate-500">Hits: </span>
+                          <span className="font-bold text-green-700">{edgeTrafficData.total_hits.toLocaleString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Sources: </span>
+                          <span className="font-bold">{edgeTrafficData.unique_sources.length}</span>
+                        </div>
+                      </div>
+                      {edgeTrafficData.unique_sources.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {edgeTrafficData.unique_sources.slice(0, 5).map((src, i) => (
+                            <span key={i} className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded font-mono">
+                              {src}
+                            </span>
+                          ))}
+                          {edgeTrafficData.unique_sources.length > 5 && (
+                            <span className="text-xs text-slate-400">+{edgeTrafficData.unique_sources.length - 5} more</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Recommendation */}
+                    <div className={`p-3 rounded-lg border-2 ${
+                      edgeTrafficData.recommendation === 'remove' 
+                        ? 'bg-red-50 border-red-300' 
+                        : edgeTrafficData.recommendation === 'tighten'
+                          ? 'bg-amber-50 border-amber-300'
+                          : 'bg-green-50 border-green-300'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {edgeTrafficData.recommendation === 'remove' && <X className="w-5 h-5 text-red-500" />}
+                        {edgeTrafficData.recommendation === 'tighten' && <AlertTriangle className="w-5 h-5 text-amber-500" />}
+                        {edgeTrafficData.recommendation === 'keep' && <CheckCircle className="w-5 h-5 text-green-500" />}
+                        <span className={`font-bold uppercase ${
+                          edgeTrafficData.recommendation === 'remove' ? 'text-red-700' :
+                          edgeTrafficData.recommendation === 'tighten' ? 'text-amber-700' :
+                          'text-green-700'
+                        }`}>
+                          {edgeTrafficData.recommendation}
+                        </span>
+                        <span className="ml-auto text-xs text-slate-500">{edgeTrafficData.confidence}% confidence</span>
+                      </div>
+                      <p className="text-sm text-slate-600">{edgeTrafficData.recommendation_reason}</p>
+                    </div>
+                    
+                    {/* Public Warning */}
+                    {edgeTrafficData.is_public && (
+                      <div className="p-2 bg-red-100 rounded-lg text-red-700 text-sm flex items-center gap-2">
+                        <Globe className="w-4 h-4" />
+                        <span>Public internet access (0.0.0.0/0)</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-500">
+                    No traffic data available for this connection
+                  </div>
+                )}
               </div>
             )}
           </div>
