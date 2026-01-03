@@ -258,23 +258,49 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             unique_ports: allPorts,
             last_seen: matchingRule?.traffic?.last_seen || 'Within last 24h'
           },
-          recommendation: {
-            action: publicRules.length > 0 && allSources.length > 0 && allSources.length < 50 
-              ? 'TIGHTEN' 
-              : matchingRule?.status === 'UNUSED' 
-                ? 'DELETE' 
-                : 'KEEP',
-            reason: publicRules.length > 0 && allSources.length > 0
-              ? `Rule allows 0.0.0.0/0 but only ${allSources.length} unique sources observed - can be tightened`
-              : matchingRule?.status === 'UNUSED'
-                ? 'No traffic observed in 365 days'
-                : `Active traffic: ${totalTraffic.toLocaleString()} connections from ${allSources.length} sources`,
-            confidence: matchingRule?.recommendation?.confidence || 90,
-            suggested_rule: allSources.length > 0 && allSources.length <= 20 ? {
-              source: allSources.slice(0, 5).map(s => `${s}/32`).join(', '),
-              port: allPorts.length > 0 ? allPorts.slice(0, 3).join(', ') : conn.port || 'All'
-            } : undefined
-          }
+          recommendation: (() => {
+            // Clear recommendation logic based on traffic analysis
+            const isPublicRule = publicRules.length > 0
+            const hasTraffic = totalTraffic > 0 || allSources.length > 0
+            const isUnused = matchingRule?.status === 'UNUSED' || !hasTraffic
+            const canBeTightened = isPublicRule && allSources.length > 0 && allSources.length < 50
+            
+            let action: 'KEEP' | 'TIGHTEN' | 'DELETE' = 'KEEP'
+            let reason = ''
+            let confidence = matchingRule?.recommendation?.confidence || 90
+            
+            if (isUnused && isPublicRule) {
+              // No traffic on a public-facing rule = DELETE
+              action = 'DELETE'
+              reason = '⚠️ No traffic observed in 365 days on internet-exposed rule. REMOVE to reduce attack surface.'
+              confidence = 95
+            } else if (isUnused) {
+              // No traffic on internal rule = DELETE  
+              action = 'DELETE'
+              reason = 'No traffic observed in 365 days. Consider removing this unused rule.'
+              confidence = 85
+            } else if (canBeTightened) {
+              // Has traffic but rule is too broad = TIGHTEN
+              action = 'TIGHTEN'
+              reason = `Rule allows 0.0.0.0/0 but only ${allSources.length} unique source IPs observed. Restrict to actual sources.`
+              confidence = 90
+            } else if (hasTraffic) {
+              // Has traffic, rule is appropriate = KEEP
+              action = 'KEEP'
+              reason = `Active traffic: ${totalTraffic.toLocaleString()} connections from ${allSources.length} unique sources.`
+              confidence = 95
+            }
+            
+            return {
+              action,
+              reason,
+              confidence,
+              suggested_rule: allSources.length > 0 && allSources.length <= 20 ? {
+                source: allSources.slice(0, 5).map(s => `${s}/32`).join(', '),
+                port: allPorts.length > 0 ? allPorts.slice(0, 3).join(', ') : conn.port || 'All'
+              } : undefined
+            }
+          })()
         }
         
         console.log("[Connection] Built detail:", detail.recommendation.action, detail.actual_usage.total_packets, "packets")
