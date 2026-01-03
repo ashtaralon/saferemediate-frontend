@@ -373,21 +373,30 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         setConnections(edges)
       }
 
-      // SG Gap Analysis - fetch all SGs for the system dynamically
+      // SG Gap Analysis - fetch SG list first, then individual analyses
       const sgResults: SGData[] = []
       let usedRules = 0, unusedRules = 0, totalHits = 0
       
       try {
-        // Fetch all SGs for this system using the batch endpoint
-        const sgBatchRes = await fetch(`/api/proxy/security-groups/gap-analysis?system_name=${encodeURIComponent(systemName)}`)
+        // Step 1: Get list of SG IDs for this system (lightweight Neo4j query)
+        const sgListRes = await fetch(`/api/proxy/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`)
         
-        if (sgBatchRes.ok) {
-          const batchData = await sgBatchRes.json()
-          const allSGs = batchData.security_groups || []
+        if (sgListRes.ok) {
+          const listData = await sgListRes.json()
+          const sgList = listData.security_groups || []
           
-          console.log(`[SG] Found ${allSGs.length} security groups for system ${systemName}`)
+          console.log(`[SG] Found ${sgList.length} security groups for system ${systemName}`)
           
-          allSGs.forEach((sgData: any) => {
+          // Step 2: Fetch gap analysis for each SG in parallel (with limit to avoid overload)
+          const sgPromises = sgList.slice(0, 10).map((sg: any) => 
+            fetch(`/api/proxy/security-groups/${sg.id}/gap-analysis`)
+              .then(res => res.ok ? res.json() : null)
+              .catch(() => null)
+          )
+          
+          const sgResponses = await Promise.all(sgPromises)
+          
+          sgResponses.forEach((sgData: any) => {
             if (sgData?.sg_name || sgData?.sg_id) {
               const rules = (sgData.rules_analysis || []).map((r: any) => ({
                 port_range: r.port_range,
