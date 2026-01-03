@@ -130,6 +130,19 @@ interface IAMRoleDetail {
   permissions_analysis: IAMPermission[]
 }
 
+// Analysis scope types
+type AnalysisScope =
+  | { kind: "SECURITY_GROUP"; sgId: string; sgName?: string; focusPort?: number }
+  | { 
+      kind: "CONNECTION"; 
+      sourceSgId?: string; 
+      sourceSgName?: string;
+      targetSgId: string; 
+      targetSgName?: string;
+      port: number; 
+      protocol: string;
+    };
+
 interface ConnectionDetail {
   connection: Connection
   sg_id?: string
@@ -157,7 +170,7 @@ interface ConnectionDetail {
       port: string
     }
   }
-  // NEW: Evidence context for credibility
+  // Evidence context for credibility
   evidence?: {
     observation_window: string
     eni_coverage: string
@@ -170,7 +183,7 @@ interface ConnectionDetail {
       final: number
     }
   }
-  // NEW: Risk callouts
+  // Risk callouts
   risk_callouts?: {
     type: 'public_exposure' | 'unused_public' | 'overly_broad'
     severity: 'critical' | 'high' | 'medium' | 'low'
@@ -180,9 +193,22 @@ interface ConnectionDetail {
     hits?: number
     suggested_action?: string
   }[]
-  // NEW: Is this rule shadowed/redundant?
+  // Is this rule shadowed/redundant?
   is_shadowed?: boolean
   shadowed_by?: string
+  
+  // NEW: Scope-aware analysis
+  scope?: AnalysisScope
+  // Port-specific traffic (for CONNECTION scope)
+  port_specific_traffic?: {
+    port: number
+    hits: number
+    sources: string[]
+    has_evidence: boolean
+  }
+  // Filtered rules (for CONNECTION scope)
+  filtered_rules?: SGRule[]
+  all_rules_count?: number
 }
 
 export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemName?: string }) {
@@ -234,6 +260,17 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
     setConnectionDetailLoading(true)
     console.log("[Connection] Fetching detail for:", conn)
     
+    // === SCOPE DETECTION ===
+    // Determine if this is a CONNECTION scope (specific port) or SG-wide
+    const connectionPort = conn.port ? parseInt(conn.port, 10) : 0
+    const isConnectionScope = connectionPort > 0 && conn.type !== 'internet'
+    
+    // Find source and target SGs
+    const sourceSG = sgData.find(sg => 
+      conn.source.toLowerCase().includes(sg.sg_name.toLowerCase().split('-')[0]) ||
+      conn.source.includes(sg.sg_id)
+    )
+    
     try {
       // For internet connections or any connection, try to get SG gap analysis
       // Use the first available SG or find one related to the target
@@ -250,22 +287,31 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       // Use the matched SG - no hardcoded fallbacks to ensure system isolation
       const sgToQuery = targetSG?.sg_id
       
+      // Build the scope
+      const scope: AnalysisScope = isConnectionScope ? {
+        kind: 'CONNECTION',
+        sourceSgId: sourceSG?.sg_id,
+        sourceSgName: sourceSG?.sg_name || conn.source,
+        targetSgId: targetSG?.sg_id || '',
+        targetSgName: targetSG?.sg_name || conn.target,
+        port: connectionPort,
+        protocol: 'tcp'
+      } : {
+        kind: 'SECURITY_GROUP',
+        sgId: targetSG?.sg_id || '',
+        sgName: targetSG?.sg_name
+      }
+      
       // If no SG found for this system, show helpful message
       if (!sgToQuery) {
         console.warn("[Connection] No Security Groups found for this system")
         setConnectionDetail({
+          connection: conn,
           sg_name: 'No Security Group',
           sg_id: '',
-          current_state: {
-            total_rules: 0,
-            public_rules: 0,
-            private_rules: 0,
-          },
-          actual_state: {
-            total_connections: 0,
-            unique_sources: 0,
-            top_sources: [],
-          },
+          scope,
+          current_rule: { source: '', port: '', protocol: '', direction: '' },
+          actual_usage: { total_bytes: 0, total_packets: 0, unique_sources: [], unique_ports: [], last_seen: '' },
           recommendation: {
             action: 'TAG',
             reason: `No Security Groups found for this system. Ensure your SGs are tagged with SystemName="${systemName}" to see traffic analysis.`,
@@ -276,7 +322,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         return
       }
       
-      console.log("[Connection] Querying SG:", sgToQuery)
+      console.log("[Connection] Querying SG:", sgToQuery, "Scope:", scope.kind, isConnectionScope ? `Port: ${connectionPort}` : 'All ports')
       
       // Fetch detailed gap analysis for this SG
       const res = await fetch(`/api/proxy/security-groups/${sgToQuery}/gap-analysis?days=365`)
@@ -285,8 +331,49 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         const data = await res.json()
         console.log("[Connection] Got SG gap analysis:", data.sg_name, data.rules_analysis?.length, "rules")
         
-        // Get all rules and find public ones for internet connections
-        const rules = data.rules_analysis || []
+        // Get all rules
+        const allRules = data.rules_analysis || []
+        
+        // === SCOPE-AWARE FILTERING ===
+        let filteredRules = allRules
+        let portSpecificTraffic = { port: connectionPort, hits: 0, sources: [] as string[], has_evidence: data.eni_count > 0 }
+        
+        if (isConnectionScope && connectionPort > 0) {
+          // CONNECTION SCOPE: Filter to only rules that apply to this port
+          filteredRules = allRules.filter((r: any) => {
+            const rulePort = r.port_range
+            if (rulePort === 'ALL' || rulePort === '0-65535') return true
+            
+            // Check if port matches
+            if (String(rulePort).includes('-')) {
+              const [from, to] = String(rulePort).split('-').map(Number)
+              return connectionPort >= from && connectionPort <= to
+            }
+            return parseInt(rulePort, 10) === connectionPort
+          })
+          
+          // Get traffic specifically for this port
+          const portRule = filteredRules.find((r: any) => {
+            const rulePort = r.port_range
+            if (rulePort === 'ALL' || rulePort === '0-65535') return false // Don't use catch-all for specific port
+            return String(rulePort) === String(connectionPort) ||
+              (String(rulePort).includes('-') && 
+               parseInt(String(rulePort).split('-')[0]) <= connectionPort && 
+               parseInt(String(rulePort).split('-')[1]) >= connectionPort)
+          }) || filteredRules[0]
+          
+          portSpecificTraffic = {
+            port: connectionPort,
+            hits: portRule?.traffic?.connection_count || 0,
+            sources: portRule?.traffic?.observed_sources || [],
+            has_evidence: data.eni_count > 0
+          }
+          
+          console.log(`[Connection] Port ${connectionPort} specific: ${filteredRules.length} rules, ${portSpecificTraffic.hits} hits`)
+        }
+        
+        // For display, use filtered rules in CONNECTION scope
+        const rules = isConnectionScope ? filteredRules : allRules
         
         // For internet connections, find public rules (0.0.0.0/0)
         const publicRules = rules.filter((r: any) => r.source === '0.0.0.0/0')
@@ -294,14 +381,15 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
           ? publicRules[0]
           : rules.find((r: any) => r.port_range === conn.port) || rules[0]
         
-        // Calculate total traffic from all rules
-        const totalTraffic = rules.reduce((sum: number, r: any) => 
-          sum + (r.traffic?.connection_count || 0), 0)
+        // Calculate total traffic from filtered rules (scope-aware)
+        const totalTraffic = isConnectionScope 
+          ? portSpecificTraffic.hits 
+          : rules.reduce((sum: number, r: any) => sum + (r.traffic?.connection_count || 0), 0)
         
-        // Collect all unique sources across rules
-        const allSources = [...new Set(
-          rules.flatMap((r: any) => r.traffic?.unique_sources || [])
-        )] as string[]
+        // Collect all unique sources across filtered rules
+        const allSources = isConnectionScope
+          ? portSpecificTraffic.sources
+          : [...new Set(rules.flatMap((r: any) => r.traffic?.observed_sources || []))] as string[]
         
         // Collect all observed ports
         const allPorts = [...new Set(
@@ -368,6 +456,19 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
           connection: conn,
           sg_id: data.sg_id || sgToQuery,
           sg_name: data.sg_name || 'Security Group',
+          // SCOPE information
+          scope,
+          port_specific_traffic: isConnectionScope ? portSpecificTraffic : undefined,
+          filtered_rules: isConnectionScope ? filteredRules.map((r: any) => ({
+            port_range: r.port_range,
+            source: r.source,
+            status: r.status,
+            hits: r.traffic?.connection_count || 0,
+            protocol: r.protocol,
+            recommendation: r.recommendation,
+            top_sources: r.traffic?.top_sources || [],
+          })) : undefined,
+          all_rules_count: allRules.length,
           current_rule: {
             source: matchingRule?.source || (conn.type === 'internet' ? '0.0.0.0/0' : conn.source),
             port: matchingRule?.port_range || conn.port || '0-65535',
@@ -382,7 +483,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             unique_ports: allPorts,
             last_seen: matchingRule?.traffic?.last_seen || 'Within last 24h'
           },
-          // NEW: Evidence context
+          // Evidence context
           evidence: {
             observation_window: backendEvidence.observation_window || '365 days',
             eni_coverage: backendEvidence.eni_coverage || `${data.eni_count || 0} ENIs`,
@@ -390,9 +491,9 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             last_ingest: backendEvidence.analyzed_at || new Date().toISOString(),
             confidence_breakdown: confidenceBreakdown
           },
-          // NEW: Risk callouts
-          risk_callouts: riskCallouts.length > 0 ? riskCallouts : undefined,
-          // NEW: Shadowed status
+          // Risk callouts (only for SG-wide scope to avoid confusion)
+          risk_callouts: !isConnectionScope && riskCallouts.length > 0 ? riskCallouts : undefined,
+          // Shadowed status
           is_shadowed: matchingRule?.is_shadowed || false,
           shadowed_by: matchingRule?.shadowed_by,
           recommendation: (() => {
@@ -1313,27 +1414,45 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         </div>
       )}
 
-      {/* Connection Detail Modal - Current vs Actual Analysis */}
+      {/* Connection Detail Modal - SCOPE-AWARE */}
       {selectedConnection && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedConnection(null)}>
           <div 
             className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* HEADER: Scope-aware */}
             <div className={`px-6 py-4 text-white flex items-center justify-between ${
-              selectedConnection.type === 'internet' 
-                ? 'bg-gradient-to-r from-red-600 to-orange-600' 
-                : 'bg-gradient-to-r from-blue-600 to-cyan-600'
+              connectionDetail?.scope?.kind === 'CONNECTION'
+                ? 'bg-gradient-to-r from-blue-600 to-cyan-600'
+                : selectedConnection.type === 'internet' 
+                  ? 'bg-gradient-to-r from-red-600 to-orange-600' 
+                  : 'bg-gradient-to-r from-orange-500 to-amber-500'
             }`}>
               <div>
-                <h2 className="text-lg font-bold flex items-center gap-2">
-                  {selectedConnection.type === 'internet' && <Globe className="w-5 h-5" />}
-                  Network Connection Analysis
-                </h2>
-                <p className="text-white/80 text-sm">
-                  {selectedConnection.source} → {selectedConnection.target}
-                  {selectedConnection.port && ` (Port ${selectedConnection.port})`}
-                </p>
+                {connectionDetail?.scope?.kind === 'CONNECTION' ? (
+                  <>
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                      🔗 Connection Analysis
+                    </h2>
+                    <p className="text-white/80 text-sm">
+                      {connectionDetail.scope.sourceSgName || selectedConnection.source} → {connectionDetail.scope.targetSgName || selectedConnection.target}
+                      <span className="ml-2 bg-white/20 px-2 py-0.5 rounded font-mono">
+                        TCP:{connectionDetail.scope.port}
+                      </span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-lg font-bold flex items-center gap-2">
+                      {selectedConnection.type === 'internet' && <Globe className="w-5 h-5" />}
+                      Security Group Analysis
+                    </h2>
+                    <p className="text-white/80 text-sm">
+                      {connectionDetail?.sg_name || selectedConnection.target}
+                    </p>
+                  </>
+                )}
               </div>
               <button onClick={() => setSelectedConnection(null)} className="p-2 hover:bg-white/20 rounded-lg">
                 <X className="w-5 h-5" />
@@ -1344,78 +1463,190 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
               {connectionDetailLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                  <span className="ml-2 text-gray-500">Analyzing connection with Flow Logs...</span>
+                  <span className="ml-2 text-gray-500">
+                    {connectionDetail?.scope?.kind === 'CONNECTION' 
+                      ? `Analyzing TCP:${selectedConnection.port} connection...`
+                      : 'Analyzing security group with Flow Logs...'}
+                  </span>
                 </div>
               ) : connectionDetail ? (
                 <div className="space-y-6">
-                  {/* Current Rule vs Actual Usage - Key Visual */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className={`rounded-xl p-4 border-2 ${
-                      connectionDetail.current_rule.source === '0.0.0.0/0' 
-                        ? 'bg-red-50 border-red-200' 
-                        : 'bg-blue-50 border-blue-200'
-                    }`}>
-                      <div className="text-sm font-semibold text-gray-600 mb-2">CURRENT RULE (Configured)</div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Source:</span>
-                          <span className={`font-mono font-bold ${
-                            connectionDetail.current_rule.source === '0.0.0.0/0' ? 'text-red-600' : 'text-blue-600'
-                          }`}>
-                            {connectionDetail.current_rule.source}
+                  
+                  {/* === CONNECTION SCOPE: Port-specific analysis === */}
+                  {connectionDetail.scope?.kind === 'CONNECTION' && (
+                    <>
+                      {/* Port-specific traffic summary */}
+                      <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
+                        <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                          📊 Traffic for TCP:{connectionDetail.scope.port}
+                          <span className="text-xs font-normal text-blue-600">
+                            ({connectionDetail.scope.sourceSgName} → {connectionDetail.scope.targetSgName})
                           </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Port:</span>
-                          <span className="font-mono font-bold">{connectionDetail.current_rule.port}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Protocol:</span>
-                          <span className="font-mono">{connectionDetail.current_rule.protocol}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Direction:</span>
-                          <span className="font-mono">{connectionDetail.current_rule.direction}</span>
-                        </div>
+                        </h3>
+                        
+                        {connectionDetail.port_specific_traffic?.has_evidence ? (
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-white rounded-lg p-3 text-center">
+                              <div className="text-sm text-gray-600">Observed Hits</div>
+                              <div className={`text-3xl font-bold ${
+                                connectionDetail.port_specific_traffic.hits > 0 ? 'text-green-600' : 'text-red-600'
+                              }`}>
+                                {connectionDetail.port_specific_traffic.hits.toLocaleString()}
+                              </div>
+                            </div>
+                            <div className="bg-white rounded-lg p-3 text-center">
+                              <div className="text-sm text-gray-600">Unique Sources</div>
+                              <div className="text-3xl font-bold text-blue-600">
+                                {connectionDetail.port_specific_traffic.sources.length}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-800">
+                            ⚠️ Traffic evidence unavailable: No ENIs attached to this Security Group
+                          </div>
+                        )}
                       </div>
-                      {connectionDetail.current_rule.source === '0.0.0.0/0' && (
-                        <div className="mt-3 flex items-center gap-1 text-red-600 text-xs">
-                          <AlertTriangle className="w-3.5 h-3.5" />
-                          Open to entire internet!
+                      
+                      {/* Rules enabling this connection */}
+                      {connectionDetail.filtered_rules && connectionDetail.filtered_rules.length > 0 && (
+                        <div>
+                          <h3 className="font-semibold text-gray-800 mb-3">
+                            Rules Enabling TCP:{connectionDetail.scope.port}
+                          </h3>
+                          <div className="space-y-2">
+                            {connectionDetail.filtered_rules.map((rule, idx) => (
+                              <div key={idx} className={`rounded-lg px-4 py-3 border-2 ${
+                                rule.hits > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                              }`}>
+                                <div className="flex justify-between items-center">
+                                  <span className="font-mono font-medium">
+                                    {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
+                                  </span>
+                                  <span className={`font-bold ${rule.hits > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {rule.hits > 0 ? `${rule.hits.toLocaleString()} hits` : '0 hits'}
+                                  </span>
+                                </div>
+                                {rule.top_sources && rule.top_sources.length > 0 && (
+                                  <div className="text-xs text-gray-500 mt-1">
+                                    Top sources: {rule.top_sources.slice(0, 3).map((s: any) => s.ip).join(', ')}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
-                    </div>
-                    
-                    <div className="bg-green-50 rounded-xl p-4 border-2 border-green-200">
-                      <div className="text-sm font-semibold text-gray-600 mb-2">ACTUAL USAGE (VPC Flow Logs)</div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Total Packets:</span>
-                          <span className="font-bold text-green-600">
-                            {connectionDetail.actual_usage.total_packets.toLocaleString()}
-                          </span>
+                      
+                      {/* Connection-specific recommendation */}
+                      <div className={`rounded-xl p-4 border-2 ${
+                        connectionDetail.port_specific_traffic?.hits === 0 
+                          ? 'bg-amber-50 border-amber-300'
+                          : 'bg-green-50 border-green-300'
+                      }`}>
+                        <h3 className="font-semibold mb-2 flex items-center gap-2">
+                          {connectionDetail.port_specific_traffic?.hits === 0 
+                            ? '⚠️ Recommendation: REVIEW'
+                            : '✅ Connection Active'}
+                        </h3>
+                        <p className="text-sm text-gray-700">
+                          {connectionDetail.port_specific_traffic?.hits === 0 
+                            ? `No traffic observed on TCP:${connectionDetail.scope.port} between these security groups. Consider removing this rule if no longer needed.`
+                            : `${connectionDetail.port_specific_traffic?.hits.toLocaleString()} connections observed. Rule is in active use.`}
+                        </p>
+                      </div>
+                      
+                      {/* Link to full SG analysis */}
+                      <div className="pt-4 border-t">
+                        <button 
+                          onClick={() => {
+                            // Switch to SG-wide view
+                            const sg = sgData.find(s => s.sg_id === connectionDetail.scope?.kind === 'CONNECTION' ? connectionDetail.scope.targetSgId : connectionDetail.sg_id)
+                            if (sg) {
+                              setSelectedSG(sg)
+                              setSelectedConnection(null)
+                            }
+                          }}
+                          className="text-blue-600 hover:underline text-sm flex items-center gap-1"
+                        >
+                          📋 View full analysis for {connectionDetail.sg_name}
+                          <span className="text-gray-400">({connectionDetail.all_rules_count} total rules)</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  
+                  {/* === SG-WIDE SCOPE: Original behavior === */}
+                  {connectionDetail.scope?.kind !== 'CONNECTION' && (
+                    <>
+                      {/* Current Rule vs Actual Usage - Key Visual */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className={`rounded-xl p-4 border-2 ${
+                          connectionDetail.current_rule.source === '0.0.0.0/0' 
+                            ? 'bg-red-50 border-red-200' 
+                            : 'bg-blue-50 border-blue-200'
+                        }`}>
+                          <div className="text-sm font-semibold text-gray-600 mb-2">CURRENT RULE (Configured)</div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Source:</span>
+                              <span className={`font-mono font-bold ${
+                                connectionDetail.current_rule.source === '0.0.0.0/0' ? 'text-red-600' : 'text-blue-600'
+                              }`}>
+                                {connectionDetail.current_rule.source}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Port:</span>
+                              <span className="font-mono font-bold">{connectionDetail.current_rule.port}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Protocol:</span>
+                              <span className="font-mono">{connectionDetail.current_rule.protocol}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Direction:</span>
+                              <span className="font-mono">{connectionDetail.current_rule.direction}</span>
+                            </div>
+                          </div>
+                          {connectionDetail.current_rule.source === '0.0.0.0/0' && (
+                            <div className="mt-3 flex items-center gap-1 text-red-600 text-xs">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              Open to entire internet!
+                            </div>
+                          )}
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Total Bytes:</span>
-                          <span className="font-bold text-green-600">
-                            {(connectionDetail.actual_usage.total_bytes / 1024 / 1024).toFixed(2)} MB
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Unique Sources:</span>
-                          <span className="font-bold text-green-600">
-                            {connectionDetail.actual_usage.unique_sources.length}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Last Seen:</span>
-                          <span className="text-sm">{connectionDetail.actual_usage.last_seen}</span>
+                        
+                        <div className="bg-green-50 rounded-xl p-4 border-2 border-green-200">
+                          <div className="text-sm font-semibold text-gray-600 mb-2">ACTUAL USAGE (VPC Flow Logs)</div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Total Packets:</span>
+                              <span className="font-bold text-green-600">
+                                {connectionDetail.actual_usage.total_packets.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Total Bytes:</span>
+                              <span className="font-bold text-green-600">
+                                {(connectionDetail.actual_usage.total_bytes / 1024 / 1024).toFixed(2)} MB
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Unique Sources:</span>
+                              <span className="font-bold text-green-600">
+                                {connectionDetail.actual_usage.unique_sources.length}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Last Seen:</span>
+                              <span className="text-sm">{connectionDetail.actual_usage.last_seen}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* NEW: Evidence Context Bar */}
+                      
+                  {/* Evidence Context Bar */}
                   {connectionDetail.evidence && (
                     <div className="bg-slate-100 rounded-lg px-4 py-2 flex items-center justify-between text-xs text-slate-600 border border-slate-200">
                       <div className="flex items-center gap-4">
@@ -1699,6 +1930,8 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                       <Shield className="w-4 h-4" />
                       Security Group: <span className="font-medium">{connectionDetail.sg_name}</span> ({connectionDetail.sg_id})
                     </div>
+                  )}
+                    </>
                   )}
                 </div>
               ) : (
