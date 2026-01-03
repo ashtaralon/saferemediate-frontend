@@ -178,32 +178,33 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         targetSG = sgData.find(sg => sg.eni_count > 0) || sgData[0]
       }
       
-      // Use the matched SG or fallback - with known SG name to ID mapping as last resort
-      let sgToQuery = targetSG?.sg_id
+      // Use the matched SG - no hardcoded fallbacks to ensure system isolation
+      const sgToQuery = targetSG?.sg_id
       
-      // If no SG found in sgData, try to match by SG name in the connection target
+      // If no SG found for this system, show helpful message
       if (!sgToQuery) {
-        const sgNameToId: Record<string, string> = {
-          'saferemediate-test-app-sg': 'sg-02a2ccfe185765527',
-          'saferemediate-test-alb-sg': 'sg-06a6f52b72976da16',
-          'saferemediate-test-db-sg': 'sg-0f8fadc0579ff6845',
-        }
-        
-        // Try to find matching SG from connection target
-        const targetLower = conn.target.toLowerCase()
-        for (const [name, id] of Object.entries(sgNameToId)) {
-          if (targetLower.includes(name.split('-')[0]) || targetLower === name) {
-            sgToQuery = id
-            console.log("[Connection] Using fallback SG mapping:", name, "->", id)
-            break
+        console.warn("[Connection] No Security Groups found for this system")
+        setConnectionDetail({
+          sg_name: 'No Security Group',
+          sg_id: '',
+          current_state: {
+            total_rules: 0,
+            public_rules: 0,
+            private_rules: 0,
+          },
+          actual_state: {
+            total_connections: 0,
+            unique_sources: 0,
+            top_sources: [],
+          },
+          recommendation: {
+            action: 'TAG',
+            reason: `No Security Groups found for this system. Ensure your SGs are tagged with SystemName="${systemName}" to see traffic analysis.`,
+            confidence: 0
           }
-        }
-        
-        // Last resort: use app-sg for internet, alb-sg for network
-        if (!sgToQuery) {
-          sgToQuery = conn.type === 'internet' ? 'sg-02a2ccfe185765527' : 'sg-06a6f52b72976da16'
-          console.log("[Connection] Using default fallback SG:", sgToQuery)
-        }
+        })
+        setConnectionDetailLoading(false)
+        return
       }
       
       console.log("[Connection] Querying SG:", sgToQuery)
