@@ -368,6 +368,36 @@ export function IdentityPermissionAnalysisModal({
             </div>
           </div>
 
+          {/* Recommendations Summary */}
+          {gapData?.recommendations && (
+            <div className="mb-6 grid grid-cols-2 gap-4">
+              {gapData.recommendations.remove_high_priority?.length > 0 && (
+                <div className="rounded-lg p-4 border" style={{ background: "#ef444415", borderColor: "#ef4444" }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="w-4 h-4" style={{ color: "#ef4444" }} />
+                    <span className="font-semibold text-sm" style={{ color: "#ef4444" }}>Remove Immediately</span>
+                  </div>
+                  <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>
+                    {gapData.recommendations.remove_high_priority.length} permissions
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "#ef4444" }}>High-risk unused permissions</div>
+                </div>
+              )}
+              {gapData.recommendations.safe_to_remove?.length > 0 && (
+                <div className="rounded-lg p-4 border" style={{ background: "#10B98115", borderColor: "#10B981" }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="w-4 h-4" style={{ color: "#10B981" }} />
+                    <span className="font-semibold text-sm" style={{ color: "#10B981" }}>Safe to Remove</span>
+                  </div>
+                  <div className="text-2xl font-bold" style={{ color: "#10B981" }}>
+                    {gapData.recommendations.safe_to_remove.length} permissions
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "#10B981" }}>Low-risk unused permissions</div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Permissions to remove */}
           <div className="mb-6">
             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text-primary, #ffffff)" }}>
@@ -405,12 +435,12 @@ export function IdentityPermissionAnalysisModal({
                         {perm}
                       </span>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs" style={{ color: "var(--text-secondary, #9ca3af)" }}>
-                        {lastUsed}
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                      <span className="text-xs max-w-[200px] truncate" style={{ color: "#10B981" }} title={getRecommendation(perm)}>
+                        {getRecommendation(perm)}
                       </span>
                       <span
-                        className="px-2 py-0.5 rounded text-xs font-medium"
+                        className="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
                         style={{
                           background:
                             risk === "Critical"
