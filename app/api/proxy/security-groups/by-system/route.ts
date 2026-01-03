@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 
+// Route: /api/proxy/security-groups/by-system
+// Returns all security groups for a system from Neo4j
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
-export const maxDuration = 30 // Increase timeout for Render cold starts
+export const maxDuration = 30
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(req: NextRequest) {
+  console.log("[by-system] Route handler invoked")
+  
   try {
     const { searchParams } = new URL(req.url)
     const systemName = searchParams.get("system_name")
