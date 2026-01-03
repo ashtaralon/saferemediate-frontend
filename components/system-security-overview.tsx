@@ -17,23 +17,34 @@ interface Connection {
   port?: string
 }
 
+interface ConfigRisk {
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+  reason: string
+  recommendation: string
+  cis_benchmark?: string | null
+}
+
 interface SGRule {
   port_range: string
   source: string
-  status: string
+  status: string  // USED, UNUSED, OVERLY_BROAD, PUBLIC_USED, SHADOWED, NO_EVIDENCE
   hits: number
   protocol?: string
   direction?: string
   recommendation?: {
     action: string
     reason: string
-    confidence: number
-    category?: string
+    confidence: number | null  // null when no evidence
+    category?: string  // unused, overly_broad, public_exposure, used, config_risk, no_evidence
+    config_risk?: ConfigRisk
   }
-  // NEW: Shadowing info for buyer trust
+  // Shadowing info
   is_shadowed?: boolean
   shadowed_by?: string
   unique_sources?: number
+  // Evidence availability
+  has_evidence?: boolean
+  config_risk?: ConfigRisk
 }
 
 interface SGData {
@@ -571,18 +582,21 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
           sgResponses.forEach((sgData: any, index: number) => {
             if (sgData?.sg_name || sgData?.sg_id) {
               const rules = (sgData.rules_analysis || []).map((r: any) => ({
-            port_range: r.port_range,
-            source: r.source || '0.0.0.0/0',
-                status: r.is_shadowed ? 'SHADOWED' : r.status,
-            hits: r.traffic?.connection_count || 0,
-            protocol: r.protocol,
-            direction: r.direction,
-            recommendation: r.recommendation,
-                // NEW: Shadowing info
+                port_range: r.port_range,
+                source: r.source || '0.0.0.0/0',
+                status: r.status,  // Now includes NO_EVIDENCE status
+                hits: r.traffic?.connection_count || 0,
+                protocol: r.protocol,
+                direction: r.direction,
+                recommendation: r.recommendation,
+                // Shadowing info
                 is_shadowed: r.is_shadowed || false,
                 shadowed_by: r.shadowed_by,
                 unique_sources: r.traffic?.unique_sources || 0,
-          }))
+                // Evidence availability
+                has_evidence: r.has_evidence ?? (sgData.eni_count > 0),
+                config_risk: r.config_risk,
+              }))
               
               console.log(`[SG] Adding ${sgData.sg_name || sgData.sg_id} with ${rules.length} rules`)
           
@@ -862,161 +876,251 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             </div>
             
             <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
-              {selectedSG.eni_count === 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  <span className="text-amber-700 text-sm">No ENIs attached - traffic data unavailable</span>
+              
+              {/* ============================================= */}
+              {/* SECTION 1: EVIDENCE STATUS                    */}
+              {/* ============================================= */}
+              <div className="bg-slate-100 rounded-xl p-4 mb-6 border border-slate-200">
+                <h3 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                  📊 Evidence Status
+                </h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-slate-500">Attachment Status:</span>
+                    <span className={`ml-2 font-medium ${selectedSG.eni_count > 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                      {selectedSG.eni_count > 0 
+                        ? `${selectedSG.eni_count} ENI(s) attached` 
+                        : 'Not attached to any ENI'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Traffic Evidence:</span>
+                    <span className={`ml-2 font-medium ${selectedSG.eni_count > 0 ? 'text-green-600' : 'text-slate-400'}`}>
+                      {selectedSG.eni_count > 0 
+                        ? 'Available (VPC Flow Logs)' 
+                        : 'Not available (no ENIs)'}
+                    </span>
+                  </div>
+                </div>
+                {selectedSG.eni_count === 0 && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
+                    <strong>⚠️ Cannot determine "used vs unused"</strong> - SG not attached to any ENI. 
+                    Only configuration risk assessment is available.
+                  </div>
+                )}
+                {selectedSG.eni_count > 0 && (
+                  <div className="mt-3 text-xs text-slate-500">
+                    Observation window: 365 days • Source: VPC Flow Logs
+                  </div>
+                )}
+              </div>
+              
+              {/* ============================================= */}
+              {/* SECTION 2: CONFIGURATION RISKS (always valid) */}
+              {/* ============================================= */}
+              {(() => {
+                const configRisks = selectedSG.rules_analysis.filter(r => 
+                  r.config_risk?.severity === 'critical' || r.config_risk?.severity === 'high'
+                )
+                const hasConfigRisks = configRisks.length > 0 || 
+                  selectedSG.rules_analysis.some(r => r.source === '0.0.0.0/0')
+                
+                if (!hasConfigRisks) return null
+                
+                return (
+                  <div className="mb-6">
+                    <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      🛡️ Configuration Risks <span className="text-xs font-normal text-slate-500">(CSPM-style, always valid)</span>
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedSG.rules_analysis
+                        .filter(r => r.source === '0.0.0.0/0' || r.config_risk?.severity === 'critical' || r.config_risk?.severity === 'high')
+                        .map((rule, idx) => (
+                          <div key={idx} className={`rounded-lg px-4 py-3 border-2 ${
+                            rule.config_risk?.severity === 'critical' ? 'bg-red-50 border-red-300' :
+                            rule.config_risk?.severity === 'high' ? 'bg-orange-50 border-orange-300' :
+                            rule.config_risk?.severity === 'info' ? 'bg-blue-50 border-blue-200' :
+                            'bg-amber-50 border-amber-200'
+                          }`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
+                                  rule.config_risk?.severity === 'critical' ? 'bg-red-200 text-red-800' :
+                                  rule.config_risk?.severity === 'high' ? 'bg-orange-200 text-orange-800' :
+                                  rule.config_risk?.severity === 'info' ? 'bg-blue-200 text-blue-800' :
+                                  'bg-amber-200 text-amber-800'
+                                }`}>
+                                  {rule.config_risk?.severity || 'medium'}
+                                </span>
+                                <span className="font-mono font-medium">
+                                  {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
+                                </span>
+                              </div>
+                              <span className="text-xs text-slate-500">Config Risk</span>
+                            </div>
+                            <div className="text-sm text-gray-700 mt-1">
+                              {rule.config_risk?.reason || 'Internet-exposed rule'}
+                            </div>
+                            <div className="text-xs text-blue-700 mt-2 font-medium">
+                              → {rule.config_risk?.recommendation || 'Review if public access is necessary'}
+                            </div>
+                            {rule.config_risk?.cis_benchmark && (
+                              <div className="text-xs text-slate-500 mt-1 italic">
+                                {rule.config_risk.cis_benchmark}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )
+              })()}
+              
+              {/* ============================================= */}
+              {/* SECTION 3: LEAST-PRIVILEGE CANDIDATES         */}
+              {/* (only if we have evidence)                    */}
+              {/* ============================================= */}
+              {selectedSG.eni_count > 0 ? (
+                <>
+                  <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    📉 Least-Privilege Candidates <span className="text-xs font-normal text-slate-500">(evidence-based)</span>
+                  </h3>
+                  
+                  {/* Summary - only show when we have evidence */}
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    <div className="bg-green-50 rounded-xl p-3 text-center border border-green-100">
+                      <div className="text-xl font-bold text-green-600">
+                        {selectedSG.rules_analysis.filter(r => (r.status === 'USED' || r.status === 'PUBLIC_USED') && !r.is_shadowed).length}
+                      </div>
+                      <div className="text-xs text-green-600">Active</div>
+                    </div>
+                    <div className="bg-red-50 rounded-xl p-3 text-center border border-red-100">
+                      <div className="text-xl font-bold text-red-600">
+                        {selectedSG.rules_analysis.filter(r => r.status === 'UNUSED' && !r.is_shadowed).length}
+                      </div>
+                      <div className="text-xs text-red-600">Unused</div>
+                    </div>
+                    <div className="bg-orange-50 rounded-xl p-3 text-center border border-orange-100">
+                      <div className="text-xl font-bold text-orange-600">
+                        {selectedSG.rules_analysis.filter(r => r.status === 'OVERLY_BROAD').length}
+                      </div>
+                      <div className="text-xs text-orange-600">Overly Broad</div>
+                    </div>
+                    <div className="bg-purple-50 rounded-xl p-3 text-center border border-purple-100">
+                      <div className="text-xl font-bold text-purple-600">
+                        {selectedSG.rules_analysis.filter(r => r.is_shadowed).length}
+                      </div>
+                      <div className="text-xs text-purple-600">Shadowed</div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mb-4 bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-slate-500">
+                  <div className="text-lg mb-1">📊 Least-Privilege Analysis Unavailable</div>
+                  <div className="text-sm">Cannot determine used vs unused rules without ENI attachment and traffic data.</div>
                 </div>
               )}
               
-              {/* Summary - Clearer categories */}
-              <div className="grid grid-cols-4 gap-3 mb-6">
-                <div className="bg-green-50 rounded-xl p-3 text-center border border-green-100">
-                  <div className="text-xl font-bold text-green-600">
-                    {selectedSG.rules_analysis.filter(r => (r.status === 'USED' || r.status === 'PUBLIC_USED') && !r.is_shadowed).length}
-                  </div>
-                  <div className="text-xs text-green-600">Active & Used</div>
-                </div>
-                <div className="bg-red-50 rounded-xl p-3 text-center border border-red-100">
-                  <div className="text-xl font-bold text-red-600">
-                    {selectedSG.rules_analysis.filter(r => r.status === 'UNUSED' && !r.is_shadowed).length}
-                  </div>
-                  <div className="text-xs text-red-600">Unused</div>
-                </div>
-                <div className="bg-orange-50 rounded-xl p-3 text-center border border-orange-100">
-                  <div className="text-xl font-bold text-orange-600">
-                    {selectedSG.rules_analysis.filter(r => r.status === 'OVERLY_BROAD' || r.recommendation?.category === 'overly_broad').length}
-                  </div>
-                  <div className="text-xs text-orange-600">Overly Broad</div>
-                </div>
-                <div className="bg-purple-50 rounded-xl p-3 text-center border border-purple-100">
-                  <div className="text-xl font-bold text-purple-600">
-                    {selectedSG.rules_analysis.filter(r => r.is_shadowed).length}
-                  </div>
-                  <div className="text-xs text-purple-600">Shadowed</div>
-                </div>
-              </div>
-
-              {/* Rules - Grouped by category */}
-              <h3 className="font-semibold text-gray-800 mb-3">Least-Privilege Candidates</h3>
+              {/* Public Exposure Section - now moved to Configuration Risks above */}
               
-              {/* Public Exposure Section (if any 0.0.0.0/0 rules) */}
-              {selectedSG.rules_analysis.some(r => r.source === '0.0.0.0/0') && (
-                <div className="mb-4 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                  <h4 className="font-semibold text-red-800 flex items-center gap-2 mb-3">
-                    🌐 Public Exposure Detected
-                  </h4>
-                  {selectedSG.rules_analysis.filter(r => r.source === '0.0.0.0/0').map((rule, idx) => (
-                    <div key={idx} className="flex items-center justify-between py-2 border-b border-red-100 last:border-0">
-                      <div>
-                        <span className="font-mono text-red-700">TCP:{rule.port_range} from 0.0.0.0/0</span>
-                        {rule.is_shadowed && (
-                          <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                            Shadowed
+              {/* All Rules - only show if we have evidence for usage assessment */}
+              {selectedSG.eni_count > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-gray-700 mb-2">All Rules (with usage data)</h4>
+                  {selectedSG.rules_analysis.map((rule, idx) => (
+                    <div key={idx} className={`rounded-lg px-4 py-3 ${
+                      rule.is_shadowed ? 'bg-purple-50 border border-purple-100' :
+                      rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'bg-green-50 border border-green-100' : 
+                      rule.status === 'OVERLY_BROAD' ? 'bg-orange-50 border border-orange-100' :
+                      rule.status === 'UNUSED' ? 'bg-red-50 border border-red-100' :
+                      'bg-slate-50 border border-slate-100'
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          {rule.is_shadowed ? (
+                            <span className="text-purple-500">◐</span>
+                          ) : rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          ) : rule.status === 'OVERLY_BROAD' ? (
+                            <AlertTriangle className="w-4 h-4 text-orange-500" />
+                          ) : rule.status === 'UNUSED' ? (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          ) : (
+                            <span className="w-4 h-4 text-slate-400">?</span>
+                          )}
+                          <span className="font-mono font-medium">
+                            {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
                           </span>
-                        )}
+                          {rule.is_shadowed && (
+                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                              Shadowed
+                            </span>
+                          )}
+                          {rule.recommendation?.category && !rule.is_shadowed && (
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              rule.recommendation.category === 'unused' ? 'bg-red-100 text-red-700' :
+                              rule.recommendation.category === 'overly_broad' ? 'bg-orange-100 text-orange-700' :
+                              rule.recommendation.category === 'public_exposure' ? 'bg-amber-100 text-amber-700' :
+                              rule.recommendation.category === 'config_risk' ? 'bg-slate-100 text-slate-700' :
+                              rule.recommendation.category === 'no_evidence' ? 'bg-slate-100 text-slate-500' :
+                              'bg-green-100 text-green-700'
+                            }`}>
+                              {rule.recommendation.category === 'unused' && 'Unused'}
+                              {rule.recommendation.category === 'overly_broad' && 'Overly Broad'}
+                              {rule.recommendation.category === 'public_exposure' && 'Public'}
+                              {rule.recommendation.category === 'used' && 'Active'}
+                              {rule.recommendation.category === 'config_risk' && 'Config Risk'}
+                              {rule.recommendation.category === 'no_evidence' && 'No Evidence'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-medium ${
+                            rule.is_shadowed ? 'text-purple-600' :
+                            rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'text-green-600' : 
+                            rule.status === 'UNUSED' ? 'text-red-600' :
+                            'text-slate-600'
+                          }`}>
+                            {rule.is_shadowed ? '0 hits (shadowed)' :
+                             rule.hits > 0 ? `${rule.hits.toLocaleString()} hits` : '0 hits'}
+                          </span>
+                          {rule.unique_sources !== undefined && rule.unique_sources > 0 && !rule.is_shadowed && (
+                            <div className="text-xs text-gray-500">{rule.unique_sources} sources</div>
+                          )}
+                          {rule.recommendation?.confidence !== null && rule.recommendation?.confidence !== undefined && (
+                            <div className="text-xs text-gray-400">{rule.recommendation.confidence}% confidence</div>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className={`font-medium ${rule.hits > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {rule.is_shadowed 
-                            ? '0 hits (traffic via specific rules)' 
-                            : rule.hits > 0 
-                              ? `${rule.hits.toLocaleString()} hits` 
-                              : '0 hits (unused)'}
-                        </span>
-                        {rule.unique_sources !== undefined && rule.unique_sources > 0 && (
-                          <div className="text-xs text-gray-500">{rule.unique_sources} unique sources</div>
-                        )}
-                      </div>
+                      {rule.is_shadowed && rule.shadowed_by && (
+                        <div className="text-xs text-purple-600 mb-2 italic">
+                          ↳ {rule.shadowed_by}
+                        </div>
+                      )}
+                      {rule.recommendation && !rule.is_shadowed && rule.recommendation.category !== 'config_risk' && (
+                        <div className={`text-xs px-2 py-1 rounded mt-2 ${
+                          rule.recommendation.action === 'DELETE' ? 'bg-red-100 text-red-700' :
+                          rule.recommendation.action === 'TIGHTEN' ? 'bg-orange-100 text-orange-700' :
+                          rule.recommendation.action === 'REVIEW' ? 'bg-blue-100 text-blue-700' :
+                          rule.recommendation.action === 'UNKNOWN' ? 'bg-slate-100 text-slate-600' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          <strong>{rule.recommendation.action}:</strong> {rule.recommendation.reason}
+                        </div>
+                      )}
                     </div>
                   ))}
-                  <div className="mt-3 text-sm text-red-700">
-                    <strong>Recommendation:</strong> {selectedSG.rules_analysis.filter(r => r.source === '0.0.0.0/0').some(r => r.hits === 0) 
-                      ? 'DELETE unused public rules immediately' 
-                      : 'Restrict to ALB SG or known CIDRs'}
-                  </div>
                 </div>
               )}
-              
-              {/* All Rules with proper attribution */}
-              <div className="space-y-2">
-                {selectedSG.rules_analysis.map((rule, idx) => (
-                  <div key={idx} className={`rounded-lg px-4 py-3 ${
-                    rule.is_shadowed ? 'bg-purple-50 border border-purple-100' :
-                    rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'bg-green-50 border border-green-100' : 
-                    rule.status === 'OVERLY_BROAD' ? 'bg-orange-50 border border-orange-100' :
-                    'bg-amber-50 border border-amber-100'
-                  }`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        {rule.is_shadowed ? (
-                          <span className="text-purple-500">◐</span>
-                        ) : rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? (
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                        ) : rule.status === 'OVERLY_BROAD' ? (
-                          <AlertTriangle className="w-4 h-4 text-orange-500" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-amber-500" />
-                        )}
-                        <span className="font-mono font-medium">
-                          {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
-                        </span>
-                        {rule.is_shadowed && (
-                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                            Shadowed
-                          </span>
-                        )}
-                        {rule.recommendation?.category && !rule.is_shadowed && (
-                          <span className={`text-xs px-2 py-0.5 rounded ${
-                            rule.recommendation.category === 'unused' ? 'bg-red-100 text-red-700' :
-                            rule.recommendation.category === 'overly_broad' ? 'bg-orange-100 text-orange-700' :
-                            rule.recommendation.category === 'public_exposure' ? 'bg-amber-100 text-amber-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>
-                            {rule.recommendation.category === 'unused' && 'Unused'}
-                            {rule.recommendation.category === 'overly_broad' && 'Overly Broad'}
-                            {rule.recommendation.category === 'public_exposure' && 'Public'}
-                            {rule.recommendation.category === 'used' && 'Active'}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <span className={`text-sm font-medium ${
-                          rule.is_shadowed ? 'text-purple-600' :
-                          rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'text-green-600' : 'text-amber-600'
-                        }`}>
-                          {selectedSG.eni_count === 0 ? 'No data' : 
-                           rule.is_shadowed ? '0 hits (shadowed)' :
-                           rule.hits > 0 ? `${rule.hits.toLocaleString()} hits` : '0 hits'}
-                      </span>
-                        {rule.unique_sources !== undefined && rule.unique_sources > 0 && !rule.is_shadowed && (
-                          <div className="text-xs text-gray-500">{rule.unique_sources} sources</div>
-                        )}
-                    </div>
-                    </div>
-                    {rule.is_shadowed && rule.shadowed_by && (
-                      <div className="text-xs text-purple-600 mb-2 italic">
-                        ↳ {rule.shadowed_by}
-                      </div>
-                    )}
-                    {rule.recommendation && !rule.is_shadowed && (
-                      <div className={`text-xs px-2 py-1 rounded mt-2 ${
-                        rule.recommendation.action === 'DELETE' ? 'bg-red-100 text-red-700' :
-                        rule.recommendation.action === 'TIGHTEN' ? 'bg-orange-100 text-orange-700' :
-                        rule.recommendation.action === 'REVIEW' ? 'bg-blue-100 text-blue-700' :
-                        'bg-gray-100 text-gray-600'
-                      }`}>
-                        <strong>{rule.recommendation.action}:</strong> {rule.recommendation.reason}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
             </div>
             
             {/* Footer with data source */}
             <div className="px-6 py-3 bg-gray-50 border-t text-xs text-gray-500 flex justify-between">
-              <span>Data source: VPC Flow Logs • 365 days observation</span>
+              <span>
+                {selectedSG.eni_count > 0 
+                  ? 'Data source: VPC Flow Logs • 365 days observation'
+                  : 'No traffic data available (SG not attached to any ENI)'}
+              </span>
               <span className="text-gray-400">Hits attributed to most-specific matching rule</span>
             </div>
           </div>
