@@ -1,25 +1,36 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Network, ArrowRight, Globe, Server, Database, AlertTriangle, Clock, Activity } from 'lucide-react'
+import { Network, ArrowRight, Globe, Server, Database, AlertTriangle, Clock, Activity, ChevronDown, ChevronRight, Cloud, Key, HardDrive, Lock, Zap } from 'lucide-react'
 
-interface Connection {
-  id?: string
-  source: string
-  target: string
-  target_type?: string
-  port?: string | number
-  protocol?: string
-  hits?: number
-  bytes_transferred?: number
-  last_seen?: string
-  is_external?: boolean
-  type?: 'internal' | 'external' | 'internet'
+interface APICallGroup {
+  service: string
+  resource_name: string
+  actions: { action: string; count: number }[]
+  total_calls: number
+}
+
+interface NetworkConnection {
+  source_ip: string
+  dest_ip: string
+  port: number
+  protocol: string
+  hits: number
+  bytes: number
+  resource_type?: string
+  resource_name?: string
+}
+
+interface InboundInvocation {
+  source_type: string
+  source_name: string
+  invocations: number
 }
 
 interface ConnectionsData {
-  outbound: Connection[]
-  inbound: Connection[]
+  cloudtrail_outbound: APICallGroup[]
+  network_connections: NetworkConnection[]
+  inbound_invocations: InboundInvocation[]
 }
 
 interface Props {
@@ -32,7 +43,8 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
   const [data, setData] = useState<ConnectionsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'outbound' | 'inbound'>('outbound')
+  const [expanded, setExpanded] = useState(true)
+  const [activeTab, setActiveTab] = useState<'outbound' | 'network' | 'inbound'>('outbound')
 
   useEffect(() => {
     const fetchConnectionsData = async () => {
@@ -40,58 +52,113 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
       setError(null)
       
       try {
-        // Fetch traffic graph
-        const trafficRes = await fetch('/api/proxy/traffic-graph/full')
+        const cloudtrailOutbound: APICallGroup[] = []
+        const networkConnections: NetworkConnection[] = []
+        const inboundInvocations: InboundInvocation[] = []
         
-        const outbound: Connection[] = []
-        const inbound: Connection[] = []
-        
-        if (trafficRes.ok) {
-          const trafficData = await trafficRes.json()
-          const edges = trafficData.edges || []
-          
-          // Filter edges related to this resource
-          edges.forEach((e: any) => {
-            const sourceName = e.source_name || e.source
-            const targetName = e.target_name || e.target
+        // Fetch CloudTrail events for this resource
+        try {
+          const ctRes = await fetch(`/api/proxy/cloudtrail/events?roleName=${encodeURIComponent(resourceName)}&lookbackDays=30&limit=1000`)
+          if (ctRes.ok) {
+            const ctData = await ctRes.json()
+            const events = ctData.events || []
             
-            // Check if this resource is the source (outbound)
-            if (sourceName?.toLowerCase().includes(resourceName.toLowerCase()) ||
-                e.source === resourceId) {
-              outbound.push({
-                id: e.id,
-                source: sourceName,
-                target: targetName,
-                target_type: e.target_type,
-                port: e.port,
-                protocol: e.protocol || 'tcp',
-                hits: e.connection_count || e.hits || e.traffic_bytes,
-                bytes_transferred: e.bytes_transferred,
-                is_external: e.type === 'internet' || targetName?.toLowerCase().includes('internet'),
-                type: e.type === 'internet' ? 'external' : 'internal'
-              })
-            }
+            // Group events by service and resource
+            const groupedByService: Record<string, Record<string, Record<string, number>>> = {}
             
-            // Check if this resource is the target (inbound)
-            if (targetName?.toLowerCase().includes(resourceName.toLowerCase()) ||
-                e.target === resourceId) {
-              inbound.push({
-                id: e.id,
-                source: sourceName,
-                target: targetName,
-                target_type: e.source_type,
-                port: e.port,
-                protocol: e.protocol || 'tcp',
-                hits: e.connection_count || e.hits || e.traffic_bytes,
-                bytes_transferred: e.bytes_transferred,
-                is_external: e.type === 'internet' || sourceName?.toLowerCase().includes('internet'),
-                type: e.type === 'internet' ? 'external' : 'internal'
+            events.forEach((e: any) => {
+              const eventSource = e.eventSource || ''
+              const eventName = e.eventName || ''
+              const requestParams = e.requestParameters || {}
+              
+              // Extract service name
+              const service = eventSource.replace('.amazonaws.com', '').toUpperCase()
+              
+              // Extract resource name
+              let resourceTarget = ''
+              if (service === 'DYNAMODB') {
+                resourceTarget = requestParams.tableName || 'Unknown Table'
+              } else if (service === 'S3') {
+                resourceTarget = requestParams.bucketName || 'Unknown Bucket'
+              } else if (service === 'SECRETSMANAGER') {
+                resourceTarget = requestParams.secretId || 'Unknown Secret'
+              } else if (service === 'KMS') {
+                resourceTarget = requestParams.keyId || 'Unknown Key'
+              } else {
+                resourceTarget = service
+              }
+              
+              if (!groupedByService[service]) {
+                groupedByService[service] = {}
+              }
+              if (!groupedByService[service][resourceTarget]) {
+                groupedByService[service][resourceTarget] = {}
+              }
+              if (!groupedByService[service][resourceTarget][eventName]) {
+                groupedByService[service][resourceTarget][eventName] = 0
+              }
+              groupedByService[service][resourceTarget][eventName]++
+            })
+            
+            // Convert to array format
+            Object.entries(groupedByService).forEach(([service, resources]) => {
+              Object.entries(resources).forEach(([resourceTarget, actions]) => {
+                const actionsList = Object.entries(actions).map(([action, count]) => ({
+                  action,
+                  count
+                })).sort((a, b) => b.count - a.count)
+                
+                cloudtrailOutbound.push({
+                  service,
+                  resource_name: resourceTarget,
+                  actions: actionsList,
+                  total_calls: actionsList.reduce((sum, a) => sum + a.count, 0)
+                })
               })
-            }
-          })
+            })
+            
+            // Sort by total calls
+            cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+          }
+        } catch (e) {
+          console.error('CloudTrail fetch error:', e)
         }
         
-        // If it's a Security Group, also try to get observed traffic
+        // Fetch VPC Flow Logs / Traffic Graph
+        try {
+          const trafficRes = await fetch('/api/proxy/traffic-graph/full')
+          if (trafficRes.ok) {
+            const trafficData = await trafficRes.json()
+            const edges = trafficData.edges || []
+            
+            // Filter edges related to this resource
+            edges.forEach((e: any) => {
+              const sourceName = e.source_name || e.source
+              const targetName = e.target_name || e.target
+              
+              // Check if this resource is involved
+              if (sourceName?.toLowerCase().includes(resourceName.toLowerCase()) ||
+                  targetName?.toLowerCase().includes(resourceName.toLowerCase()) ||
+                  e.source === resourceId ||
+                  e.target === resourceId) {
+                networkConnections.push({
+                  source_ip: e.source_ip || sourceName,
+                  dest_ip: e.target_ip || targetName,
+                  port: e.port || 0,
+                  protocol: e.protocol || 'tcp',
+                  hits: e.connection_count || e.hits || 0,
+                  bytes: e.bytes_transferred || 0,
+                  resource_type: e.target_type || e.source_type,
+                  resource_name: targetName
+                })
+              }
+            })
+          }
+        } catch (e) {
+          console.error('Traffic graph fetch error:', e)
+        }
+        
+        // If it's a Security Group, get observed traffic
         if (resourceType === 'SecurityGroup') {
           const sgId = resourceId.startsWith('sg-') ? resourceId : resourceName
           try {
@@ -101,31 +168,64 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
               const traffic = obsData.traffic || obsData.observed_traffic || []
               
               traffic.forEach((t: any) => {
-                // These are typically inbound connections
-                const existing = inbound.find(c => c.port === t.port && c.source === t.source_ip)
+                const existing = networkConnections.find(c => 
+                  c.port === t.port && c.source_ip === t.source_ip
+                )
                 if (!existing) {
-                  inbound.push({
-                    source: t.source_ip,
-                    target: resourceName,
+                  networkConnections.push({
+                    source_ip: t.source_ip,
+                    dest_ip: t.dest_ip || resourceName,
                     port: t.port,
                     protocol: t.protocol || 'tcp',
-                    hits: t.connection_count || t.packets,
-                    bytes_transferred: t.bytes,
-                    is_external: t.source_ip?.startsWith('0.0.0.0') || false,
-                    type: 'internal'
+                    hits: t.connection_count || t.packets || 0,
+                    bytes: t.bytes || 0
                   })
                 }
               })
             }
-          } catch (e) {
-            // Ignore - optional data
+          } catch {
+            // Optional data
           }
         }
         
-        setData({ outbound, inbound })
+        // Try to get inbound invocations (for Lambda, etc.)
+        try {
+          const graphRes = await fetch('/api/proxy/dependency-map/graph')
+          if (graphRes.ok) {
+            const graphData = await graphRes.json()
+            const edges = graphData.edges || []
+            
+            // Find edges where this resource is the target (inbound)
+            edges.forEach((e: any) => {
+              if (e.target === resourceId || 
+                  e.target_name?.toLowerCase().includes(resourceName.toLowerCase())) {
+                const existing = inboundInvocations.find(i => i.source_name === e.source_name)
+                if (existing) {
+                  existing.invocations += e.invocations || 1
+                } else {
+                  inboundInvocations.push({
+                    source_type: e.source_type || 'Unknown',
+                    source_name: e.source_name || e.source,
+                    invocations: e.invocations || e.connection_count || 1
+                  })
+                }
+              }
+            })
+          }
+        } catch {
+          // Optional data
+        }
+        
+        setData({
+          cloudtrail_outbound: cloudtrailOutbound,
+          network_connections: networkConnections,
+          inbound_invocations: inboundInvocations
+        })
         
         // Set default tab based on data
-        if (outbound.length === 0 && inbound.length > 0) {
+        if (cloudtrailOutbound.length === 0 && networkConnections.length > 0) {
+          setActiveTab('network')
+        } else if (cloudtrailOutbound.length === 0 && networkConnections.length === 0 && inboundInvocations.length > 0) {
           setActiveTab('inbound')
         }
         
@@ -147,12 +247,15 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`
   }
 
-  const getTargetIcon = (type?: string, isExternal?: boolean) => {
-    if (isExternal) return <Globe className="w-4 h-4 text-red-500" />
-    if (type?.toLowerCase().includes('rds') || type?.toLowerCase().includes('database')) {
-      return <Database className="w-4 h-4 text-blue-500" />
+  const getServiceIcon = (service: string) => {
+    switch (service.toLowerCase()) {
+      case 'dynamodb': return <Database className="w-4 h-4 text-amber-500" />
+      case 's3': return <HardDrive className="w-4 h-4 text-green-500" />
+      case 'secretsmanager': return <Lock className="w-4 h-4 text-purple-500" />
+      case 'kms': return <Key className="w-4 h-4 text-emerald-500" />
+      case 'lambda': return <Zap className="w-4 h-4 text-orange-500" />
+      default: return <Cloud className="w-4 h-4 text-blue-500" />
     }
-    return <Server className="w-4 h-4 text-slate-500" />
   }
 
   if (loading) {
@@ -163,7 +266,7 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
             <Network className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
-            <h3 className="font-semibold text-lg">Connections</h3>
+            <h3 className="font-semibold text-lg">📡 Connections</h3>
             <p className="text-sm text-slate-500">Loading...</p>
           </div>
         </div>
@@ -178,12 +281,12 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
   if (error) {
     return (
       <div className="bg-white rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
             <Network className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
-            <h3 className="font-semibold text-lg">Connections</h3>
+            <h3 className="font-semibold text-lg">📡 Connections</h3>
             <p className="text-sm text-slate-500">{error}</p>
           </div>
         </div>
@@ -191,138 +294,221 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
     )
   }
 
-  const totalConnections = (data?.outbound?.length || 0) + (data?.inbound?.length || 0)
+  const totalOutbound = data?.cloudtrail_outbound?.length || 0
+  const totalNetwork = data?.network_connections?.length || 0
+  const totalInbound = data?.inbound_invocations?.length || 0
+  const totalConnections = totalOutbound + totalNetwork + totalInbound
 
   if (totalConnections === 0) {
     return (
       <div className="bg-white rounded-xl border p-6">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
             <Network className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
-            <h3 className="font-semibold text-lg">Connections</h3>
-            <p className="text-sm text-slate-500">No connection data found from VPC Flow Logs or CloudTrail</p>
+            <h3 className="font-semibold text-lg">📡 Connections</h3>
+            <p className="text-sm text-slate-500">No connection data found from CloudTrail or VPC Flow Logs</p>
           </div>
         </div>
       </div>
     )
   }
 
-  const currentConnections = activeTab === 'outbound' ? data?.outbound : data?.inbound
-
   return (
-    <div className="bg-white rounded-xl border p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="bg-white rounded-xl border overflow-hidden">
+      {/* Header - Collapsible */}
+      <button 
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
+      >
         <div className="flex items-center gap-3">
+          {expanded ? (
+            <ChevronDown className="w-5 h-5 text-slate-400" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          )}
           <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
             <Network className="w-5 h-5 text-indigo-600" />
           </div>
-          <div>
-            <h3 className="font-semibold text-lg">Connections</h3>
-            <p className="text-sm text-slate-500">From VPC Flow Logs & CloudTrail</p>
+          <div className="text-left">
+            <h3 className="font-semibold text-lg">📡 Connections</h3>
+            <p className="text-sm text-slate-500">From CloudTrail & VPC Flow Logs</p>
           </div>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <Activity className="w-4 h-4 text-green-500" />
-          <span className="text-slate-600">{totalConnections} total</span>
+          <span className="text-slate-600">{totalConnections} connections</span>
         </div>
-      </div>
+      </button>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setActiveTab('outbound')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            activeTab === 'outbound'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          Outbound ({data?.outbound?.length || 0})
-        </button>
-        <button
-          onClick={() => setActiveTab('inbound')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            activeTab === 'inbound'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          Inbound ({data?.inbound?.length || 0})
-        </button>
-      </div>
-
-      {/* Connection List */}
-      <div className="space-y-2 max-h-[400px] overflow-y-auto">
-        {currentConnections?.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 text-sm">
-            No {activeTab} connections found
+      {expanded && (
+        <div className="px-6 pb-6 border-t pt-4">
+          {/* Tabs */}
+          <div className="flex gap-2 mb-4 flex-wrap">
+            <button
+              onClick={() => setActiveTab('outbound')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'outbound'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Outbound API Calls ({totalOutbound})
+            </button>
+            <button
+              onClick={() => setActiveTab('network')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'network'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Network ({totalNetwork})
+            </button>
+            <button
+              onClick={() => setActiveTab('inbound')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === 'inbound'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Inbound ({totalInbound})
+            </button>
           </div>
-        ) : (
-          currentConnections?.map((conn, i) => (
-            <div key={conn.id || i} className={`p-3 rounded-lg border ${
-              conn.is_external ? 'bg-red-50 border-red-200' : 'bg-slate-50'
-            }`}>
-              <div className="flex items-center gap-3">
-                {/* Source/Target Icon */}
-                {getTargetIcon(conn.target_type, conn.is_external)}
-                
-                {/* Connection Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 text-sm">
-                    {activeTab === 'outbound' ? (
-                      <>
-                        <span className="truncate max-w-[120px] font-medium">{resourceName}</span>
-                        <ArrowRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                        <span className={`truncate max-w-[180px] ${conn.is_external ? 'text-red-600' : ''}`}>
-                          {conn.target}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className={`truncate max-w-[120px] ${conn.is_external ? 'text-red-600' : ''}`}>
-                          {conn.source}
-                        </span>
-                        <ArrowRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                        <span className="truncate max-w-[180px] font-medium">{resourceName}</span>
-                      </>
-                    )}
-                  </div>
-                  
-                  {/* Port & Protocol */}
-                  <div className="flex items-center gap-3 mt-1">
-                    {conn.port && (
-                      <span className="text-xs font-mono px-2 py-0.5 bg-white border rounded">
-                        {conn.protocol}:{conn.port}
-                      </span>
-                    )}
-                    {conn.is_external && (
-                      <span className="text-xs text-red-600 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" />
-                        External
-                      </span>
-                    )}
-                  </div>
+
+          {/* Outbound API Calls (CloudTrail) */}
+          {activeTab === 'outbound' && (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {data?.cloudtrail_outbound.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  No outbound API calls found in CloudTrail
                 </div>
-                
-                {/* Traffic Stats */}
-                <div className="text-right text-xs text-slate-500">
-                  {conn.hits !== undefined && conn.hits > 0 && (
-                    <div className="font-semibold text-green-600">{conn.hits.toLocaleString()} hits</div>
-                  )}
-                  {conn.bytes_transferred !== undefined && conn.bytes_transferred > 0 && (
-                    <div>{formatBytes(conn.bytes_transferred)}</div>
-                  )}
-                </div>
-              </div>
+              ) : (
+                data?.cloudtrail_outbound.map((group, i) => (
+                  <div key={i} className="p-4 bg-slate-50 rounded-lg border-l-4 border-indigo-400">
+                    <div className="flex items-center gap-3 mb-3">
+                      {getServiceIcon(group.service)}
+                      <div className="flex-1">
+                        <div className="font-medium text-sm">{group.service}: {group.resource_name}</div>
+                      </div>
+                      <span className="text-xs text-slate-500">{group.total_calls.toLocaleString()} calls</span>
+                    </div>
+                    <div className="ml-7 flex flex-wrap gap-2">
+                      {group.actions.slice(0, 6).map((action, j) => (
+                        <span key={j} className="px-2 py-1 bg-white border rounded text-xs font-mono flex items-center gap-1">
+                          {action.action}
+                          <span className="text-indigo-600 font-semibold">({action.count})</span>
+                        </span>
+                      ))}
+                      {group.actions.length > 6 && (
+                        <span className="px-2 py-1 text-slate-500 text-xs">
+                          +{group.actions.length - 6} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-          ))
-        )}
-      </div>
+          )}
+
+          {/* Network Connections (VPC Flow Logs) */}
+          {activeTab === 'network' && (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              <div className="text-xs text-slate-500 mb-3 flex items-center gap-2">
+                <Activity className="w-3 h-3" />
+                From VPC Flow Logs
+              </div>
+              {data?.network_connections.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  No network connections found in VPC Flow Logs
+                </div>
+              ) : (
+                data?.network_connections.map((conn, i) => (
+                  <div key={i} className={`p-3 rounded-lg border ${
+                    conn.source_ip?.includes('0.0.0.0') || conn.dest_ip?.includes('0.0.0.0')
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-slate-50'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {conn.source_ip?.startsWith('0.0.0.0') || conn.dest_ip?.includes('external') ? (
+                        <Globe className="w-4 h-4 text-red-500" />
+                      ) : conn.resource_type?.toLowerCase().includes('rds') ? (
+                        <Database className="w-4 h-4 text-blue-500" />
+                      ) : (
+                        <Server className="w-4 h-4 text-slate-500" />
+                      )}
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="font-mono text-xs truncate max-w-[120px]">{conn.source_ip}</span>
+                          <ArrowRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                          <span className="font-mono text-xs truncate max-w-[120px]">{conn.dest_ip}</span>
+                          {conn.port > 0 && (
+                            <span className="text-xs text-slate-500">:{conn.port}</span>
+                          )}
+                        </div>
+                        {conn.resource_name && (
+                          <div className="text-xs text-slate-500 mt-1">
+                            └── {conn.resource_name}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="text-right text-xs">
+                        {conn.hits > 0 && (
+                          <div className="text-green-600 font-semibold">{conn.hits.toLocaleString()} connections</div>
+                        )}
+                        {conn.bytes > 0 && (
+                          <div className="text-slate-400">{formatBytes(conn.bytes)}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* Inbound Invocations */}
+          {activeTab === 'inbound' && (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              <div className="text-xs text-slate-500 mb-3">
+                Who calls this resource
+              </div>
+              {data?.inbound_invocations.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-sm">
+                  No inbound invocations found
+                </div>
+              ) : (
+                data?.inbound_invocations.map((inv, i) => (
+                  <div key={i} className="p-3 bg-slate-50 rounded-lg border flex items-center gap-3">
+                    {inv.source_type.toLowerCase().includes('api') ? (
+                      <Cloud className="w-4 h-4 text-blue-500" />
+                    ) : inv.source_type.toLowerCase().includes('event') ? (
+                      <Zap className="w-4 h-4 text-amber-500" />
+                    ) : (
+                      <Server className="w-4 h-4 text-slate-500" />
+                    )}
+                    
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{inv.source_type}: {inv.source_name}</div>
+                    </div>
+                    
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-indigo-600">
+                        {inv.invocations.toLocaleString()} invocations
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
-
-
