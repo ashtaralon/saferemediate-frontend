@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import cytoscape, { Core } from 'cytoscape'
+// @ts-ignore - no types available for cytoscape-cose-bilkent
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { 
   Shield, Database, Key, Globe, 
