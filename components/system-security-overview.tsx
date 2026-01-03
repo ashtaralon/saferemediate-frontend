@@ -1076,8 +1076,14 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             ) : connections.map((conn, idx) => (
               <div 
                 key={idx} 
-                className="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 cursor-pointer transition-colors"
-                onClick={() => setSelectedConnection(conn)}
+                className="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 cursor-pointer transition-colors active:bg-blue-100"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  console.log("[Click] Network Connection clicked:", conn)
+                  setSelectedConnection(conn)
+                }}
+                role="button"
+                tabIndex={0}
               >
                 <span className={`w-2 h-2 rounded-full ${conn.type === 'internet' ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
                 <span className="font-medium truncate max-w-[70px]">{conn.source}</span>
