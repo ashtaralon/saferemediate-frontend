@@ -178,13 +178,16 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         targetSG = sgData.find(sg => sg.eni_count > 0) || sgData[0]
       }
       
-      // Known SG IDs for fallback
-      const knownSGs = [
-        'sg-02a2ccfe185765527', // saferemediate-test-app-sg
-        'sg-06a6f52b72976da16', // saferemediate-test-alb-sg
-      ]
+      // Use the matched SG or fallback to first available
+      let sgToQuery = targetSG?.sg_id
       
-      let sgToQuery = targetSG?.sg_id || (conn.type === 'internet' ? knownSGs[0] : knownSGs[1])
+      // If no SG found in data, we can't query
+      if (!sgToQuery) {
+        console.warn("[Connection] No SG found to query for connection details")
+        setConnectionDetail(null)
+        setConnectionDetailLoading(false)
+        return
+      }
       
       console.log("[Connection] Querying SG:", sgToQuery)
       
@@ -352,47 +355,49 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         setConnections(edges)
       }
 
-      // SG Gap Analysis - fetch in parallel
-      const knownSGs = [
-        { name: 'saferemediate-test-app-sg', id: 'sg-02a2ccfe185765527' },
-        { name: 'saferemediate-test-alb-sg', id: 'sg-06a6f52b72976da16' },
-      ]
-      
-      const sgPromises = knownSGs.map(sg => 
-        fetch(`/api/proxy/security-groups/${sg.id}/gap-analysis`)
-          .then(res => res.ok ? res.json() : null)
-          .catch(() => null)
-      )
-      
-      const sgResponses = await Promise.all(sgPromises)
+      // SG Gap Analysis - fetch all SGs for the system dynamically
       const sgResults: SGData[] = []
       let usedRules = 0, unusedRules = 0, totalHits = 0
       
-      sgResponses.forEach((data, idx) => {
-        if (data?.sg_name) {
-          const rules = (data.rules_analysis || []).map((r: any) => ({
-            port_range: r.port_range,
-            source: r.source || '0.0.0.0/0',
-            status: r.status,
-            hits: r.traffic?.connection_count || 0,
-            protocol: r.protocol,
-            direction: r.direction,
-            recommendation: r.recommendation,
-          }))
+      try {
+        // Fetch all SGs for this system using the batch endpoint
+        const sgBatchRes = await fetch(`/api/proxy/security-groups/gap-analysis?system_name=${encodeURIComponent(systemName)}`)
+        
+        if (sgBatchRes.ok) {
+          const batchData = await sgBatchRes.json()
+          const allSGs = batchData.security_groups || []
           
-          sgResults.push({
-            sg_name: data.sg_name,
-            sg_id: data.sg_id || knownSGs[idx].id,
-            eni_count: data.eni_count || 0,
-            rules_analysis: rules,
-          })
+          console.log(`[SG] Found ${allSGs.length} security groups for system ${systemName}`)
           
-          rules.forEach((r: SGRule) => {
-            if (r.status === 'USED') { usedRules++; totalHits += r.hits }
-            else { unusedRules++ }
+          allSGs.forEach((sgData: any) => {
+            if (sgData?.sg_name || sgData?.sg_id) {
+              const rules = (sgData.rules_analysis || []).map((r: any) => ({
+                port_range: r.port_range,
+                source: r.source || '0.0.0.0/0',
+                status: r.status,
+                hits: r.traffic?.connection_count || 0,
+                protocol: r.protocol,
+                direction: r.direction,
+                recommendation: r.recommendation,
+              }))
+              
+              sgResults.push({
+                sg_name: sgData.sg_name || sgData.sg_id,
+                sg_id: sgData.sg_id,
+                eni_count: sgData.eni_count || 0,
+                rules_analysis: rules,
+              })
+              
+              rules.forEach((r: SGRule) => {
+                if (r.status === 'USED') { usedRules++; totalHits += r.hits }
+                else { unusedRules++ }
+              })
+            }
           })
         }
-      })
+      } catch (e) {
+        console.error("Failed to fetch SG gap analysis:", e)
+      }
       setSgData(sgResults)
 
       // Fetch IAM gaps
