@@ -221,11 +221,13 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
                           Private
                         </span>
                       )}
-                      {bucket.is_encrypted ? (
-                        <CheckCircle className="w-4 h-4 text-green-500" title="Encrypted" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-amber-500" title="Not encrypted" />
-                      )}
+                      <span title={bucket.is_encrypted ? "Encrypted" : "Not encrypted"}>
+                        {bucket.is_encrypted ? (
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-amber-500" />
+                        )}
+                      </span>
                     </div>
                   </div>
                   {bucket.arn && (

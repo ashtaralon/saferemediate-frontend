@@ -1203,7 +1203,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <AWSTopologyMapLive systemName={systemName} />
+          <DependencyMapTab systemName={systemName} />
         </div>
       )}
 
