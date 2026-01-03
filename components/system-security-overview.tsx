@@ -402,16 +402,31 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
         console.log(`[SG] Processing ${sgList.length} security groups for system ${systemName}`)
         
         if (sgList.length > 0) {
-          // Step 2: Fetch gap analysis for each SG in parallel (with limit to avoid overload)
-          const sgPromises = sgList.slice(0, 10).map((sg: any) => 
-            fetch(`/api/proxy/security-groups/${sg.id}/gap-analysis`)
-              .then(res => res.ok ? res.json() : null)
-              .catch(() => null)
-          )
+          // Step 2: Fetch gap analysis for each SG in parallel
+          const sgPromises = sgList.slice(0, 10).map(async (sg: any, index: number) => {
+            try {
+              console.log(`[SG] Fetching gap-analysis for ${sg.name} (${sg.id})`)
+              const res = await fetch(`/api/proxy/security-groups/${sg.id}/gap-analysis`)
+              if (res.ok) {
+                const data = await res.json()
+                console.log(`[SG] Got data for ${sg.name}: ${data.rules_analysis?.length || 0} rules`)
+                return data
+              } else {
+                console.warn(`[SG] Failed to fetch ${sg.name}: HTTP ${res.status}`)
+                // Return basic info so SG still shows
+                return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: 0 }
+              }
+            } catch (e) {
+              console.error(`[SG] Error fetching ${sg.name}:`, e)
+              // Return basic info so SG still shows
+              return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: 0 }
+            }
+          })
           
           const sgResponses = await Promise.all(sgPromises)
+          console.log(`[SG] Got ${sgResponses.length} responses, filtering...`)
           
-          sgResponses.forEach((sgData: any) => {
+          sgResponses.forEach((sgData: any, index: number) => {
             if (sgData?.sg_name || sgData?.sg_id) {
               const rules = (sgData.rules_analysis || []).map((r: any) => ({
                 port_range: r.port_range,
@@ -422,6 +437,8 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 direction: r.direction,
                 recommendation: r.recommendation,
               }))
+              
+              console.log(`[SG] Adding ${sgData.sg_name || sgData.sg_id} with ${rules.length} rules`)
               
               sgResults.push({
                 sg_name: sgData.sg_name || sgData.sg_id,
@@ -434,8 +451,14 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 if (r.status === 'USED') { usedRules++; totalHits += r.hits }
                 else { unusedRules++ }
               })
+            } else {
+              console.warn(`[SG] Skipping response ${index}: no sg_name or sg_id`)
             }
           })
+          
+          console.log(`[SG] Final: ${sgResults.length} SGs with ${usedRules} used + ${unusedRules} unused rules`)
+        } else {
+          console.warn("[SG] No security groups in list!")
         }
       } catch (e) {
         console.error("Failed to fetch SG gap analysis:", e)
