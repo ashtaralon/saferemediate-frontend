@@ -24,6 +24,14 @@ interface ConfigRisk {
   cis_benchmark?: string | null
 }
 
+interface ConfidenceBreakdown {
+  evidence_coverage: number
+  recency_frequency: number
+  dependency_risk: number
+  final: number
+  explanation: string
+}
+
 interface SGRule {
   port_range: string
   source: string
@@ -37,14 +45,31 @@ interface SGRule {
     confidence: number | null  // null when no evidence
     category?: string  // unused, overly_broad, public_exposure, used, config_risk, no_evidence
     config_risk?: ConfigRisk
+    confidence_breakdown?: ConfidenceBreakdown  // NEW: For "Why X%?" explanation
   }
   // Shadowing info
   is_shadowed?: boolean
   shadowed_by?: string
   unique_sources?: number
+  // Top sources for transparency
+  top_sources?: { ip: string; hits: number }[]
   // Evidence availability
   has_evidence?: boolean
   config_risk?: ConfigRisk
+}
+
+interface CriticalFinding {
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  type: string
+  title: string
+  description: string
+  top_sources?: { ip: string; hits: number }[]
+  recommendation: {
+    action: string
+    details: string[]
+  }
+  rule_id?: string
+  port?: string
 }
 
 interface SGData {
@@ -52,6 +77,7 @@ interface SGData {
   sg_id: string
   eni_count: number
   rules_analysis: SGRule[]
+  critical_findings?: CriticalFinding[]
 }
 
 interface IAMGap {
@@ -588,24 +614,31 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 hits: r.traffic?.connection_count || 0,
                 protocol: r.protocol,
                 direction: r.direction,
-                recommendation: r.recommendation,
+                recommendation: {
+                  ...r.recommendation,
+                  // Include confidence breakdown for explanation
+                  confidence_breakdown: r.evidence?.confidence_breakdown,
+                },
                 // Shadowing info
                 is_shadowed: r.is_shadowed || false,
                 shadowed_by: r.shadowed_by,
                 unique_sources: r.traffic?.unique_sources || 0,
+                // Top sources for transparency
+                top_sources: r.traffic?.top_sources || [],
                 // Evidence availability
                 has_evidence: r.has_evidence ?? (sgData.eni_count > 0),
                 config_risk: r.config_risk,
               }))
               
-              console.log(`[SG] Adding ${sgData.sg_name || sgData.sg_id} with ${rules.length} rules`)
+              console.log(`[SG] Adding ${sgData.sg_name || sgData.sg_id} with ${rules.length} rules, ${sgData.critical_findings?.length || 0} critical findings`)
           
-          sgResults.push({
+              sgResults.push({
                 sg_name: sgData.sg_name || sgData.sg_id,
                 sg_id: sgData.sg_id,
                 eni_count: sgData.eni_count || 0,
-            rules_analysis: rules,
-          })
+                rules_analysis: rules,
+                critical_findings: sgData.critical_findings || [],
+              })
           
           rules.forEach((r: SGRule) => {
             if (r.status === 'USED') { usedRules++; totalHits += r.hits }
@@ -878,6 +911,73 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
               
               {/* ============================================= */}
+              {/* CRITICAL FINDINGS (top priority, high visibility) */}
+              {/* ============================================= */}
+              {selectedSG.critical_findings && selectedSG.critical_findings.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
+                    🚨 Critical Findings ({selectedSG.critical_findings.length})
+                  </h3>
+                  <div className="space-y-3">
+                    {selectedSG.critical_findings.map((finding, idx) => (
+                      <div key={idx} className={`rounded-xl p-4 border-2 ${
+                        finding.severity === 'critical' ? 'bg-red-50 border-red-400' :
+                        finding.severity === 'high' ? 'bg-orange-50 border-orange-300' :
+                        'bg-amber-50 border-amber-200'
+                      }`}>
+                        <div className="flex items-start gap-3">
+                          <div className={`text-2xl ${finding.severity === 'critical' ? 'animate-pulse' : ''}`}>
+                            {finding.severity === 'critical' ? '🚨' : '⚠️'}
+                          </div>
+                          <div className="flex-1">
+                            <div className={`font-bold text-lg ${
+                              finding.severity === 'critical' ? 'text-red-800' : 'text-orange-800'
+                            }`}>
+                              {finding.title}
+                            </div>
+                            <div className="text-sm text-gray-700 mt-1">{finding.description}</div>
+                            
+                            {/* Top Sources (validates attribution) */}
+                            {finding.top_sources && finding.top_sources.length > 0 && (
+                              <div className="mt-3 bg-white/50 rounded-lg p-3">
+                                <div className="text-xs font-medium text-gray-600 mb-2">Top Sources Observed:</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {finding.top_sources.map((src, i) => (
+                                    <span key={i} className="font-mono text-xs bg-white px-2 py-1 rounded border">
+                                      {src.ip} <span className="text-gray-400">({src.hits.toLocaleString()} hits)</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Recommendations */}
+                            <div className="mt-3 bg-blue-50 rounded-lg p-3 border border-blue-200">
+                              <div className="text-xs font-bold text-blue-800 mb-1">
+                                Recommended Fix: {finding.recommendation.action}
+                              </div>
+                              <ul className="text-xs text-blue-700 space-y-1">
+                                {finding.recommendation.details.map((detail, i) => (
+                                  <li key={i}>• {detail}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                          <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                            finding.severity === 'critical' ? 'bg-red-200 text-red-800' :
+                            finding.severity === 'high' ? 'bg-orange-200 text-orange-800' :
+                            'bg-amber-200 text-amber-800'
+                          }`}>
+                            {finding.severity}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* ============================================= */}
               {/* SECTION 1: EVIDENCE STATUS                    */}
               {/* ============================================= */}
               <div className="bg-slate-100 rounded-xl p-4 mb-6 border border-slate-200">
@@ -1021,12 +1121,97 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                 </div>
               )}
               
-              {/* Public Exposure Section - now moved to Configuration Risks above */}
+              {/* ============================================= */}
+              {/* RISKY RULES (public exposure with traffic)    */}
+              {/* ============================================= */}
+              {(() => {
+                const riskyRules = selectedSG.rules_analysis.filter(r => 
+                  r.source === '0.0.0.0/0' && r.hits > 0 && !r.is_shadowed
+                )
+                if (riskyRules.length === 0) return null
+                
+                return (
+                  <div className="mb-6">
+                    <h3 className="font-semibold text-orange-800 mb-3 flex items-center gap-2">
+                      ⚡ Risky Rules ({riskyRules.length})
+                      <span className="text-xs font-normal text-orange-600">Active public exposure - review priority</span>
+                    </h3>
+                    <div className="space-y-2">
+                      {riskyRules.map((rule, idx) => (
+                        <div key={idx} className="bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-mono font-medium text-orange-800">
+                              {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
+                            </span>
+                            <span className="text-green-600 font-bold">{rule.hits.toLocaleString()} hits</span>
+                          </div>
+                          {/* Top sources for this rule */}
+                          {rule.top_sources && rule.top_sources.length > 0 && (
+                            <div className="text-xs text-gray-600 mb-2">
+                              Top sources: {rule.top_sources.slice(0, 3).map(s => `${s.ip} (${s.hits})`).join(', ')}
+                            </div>
+                          )}
+                          <div className="text-xs text-orange-700 font-medium">
+                            → Restrict to specific CIDRs, ALB SG, or WAF
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               
-              {/* All Rules - only show if we have evidence for usage assessment */}
+              {/* ============================================= */}
+              {/* UNUSED RULES (evidence-based) - renamed from "Gaps" */}
+              {/* ============================================= */}
+              {selectedSG.eni_count > 0 && (() => {
+                const unusedRules = selectedSG.rules_analysis.filter(r => 
+                  r.status === 'UNUSED' && !r.is_shadowed
+                )
+                if (unusedRules.length === 0) return null
+                
+                return (
+                  <div className="mb-6">
+                    <h3 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
+                      🗑️ Least-Privilege Candidates ({unusedRules.length})
+                      <span className="text-xs font-normal text-red-600">No traffic observed - safe to remove</span>
+                    </h3>
+                    <div className="space-y-2">
+                      {unusedRules.map((rule, idx) => (
+                        <div key={idx} className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-mono font-medium text-red-800">
+                              {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
+                            </span>
+                            <span className="text-red-600 font-medium">0 hits</span>
+                          </div>
+                          {rule.recommendation?.confidence !== null && rule.recommendation?.confidence !== undefined && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-blue-600 cursor-pointer hover:underline">
+                                Why {rule.recommendation.confidence}% confidence?
+                              </summary>
+                              <div className="mt-2 p-2 bg-white rounded border text-xs">
+                                {rule.recommendation.confidence_breakdown?.explanation || 
+                                  'Based on observation period and evidence coverage'}
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+              
+              {/* ============================================= */}
+              {/* ACTIVE RULES (for reference)                  */}
+              {/* ============================================= */}
               {selectedSG.eni_count > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-700 mb-2">All Rules (with usage data)</h4>
+                <details className="mb-4">
+                  <summary className="font-medium text-gray-700 mb-2 cursor-pointer hover:text-gray-900">
+                    📋 All Rules ({selectedSG.rules_analysis.length}) - click to expand
+                  </summary>
+                  <div className="space-y-2 mt-3">
                   {selectedSG.rules_analysis.map((rule, idx) => (
                     <div key={idx} className={`rounded-lg px-4 py-3 ${
                       rule.is_shadowed ? 'bg-purple-50 border border-purple-100' :
@@ -1110,7 +1295,8 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                       )}
                     </div>
                   ))}
-                </div>
+                  </div>
+                </details>
               )}
             </div>
             
