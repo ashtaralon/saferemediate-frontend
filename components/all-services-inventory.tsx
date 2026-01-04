@@ -5,7 +5,8 @@ import {
   Server, Database, HardDrive, Shield, Key, Zap, Globe, 
   Network, Lock, RefreshCw, Search, Filter, Grid, List,
   ChevronRight, X, ExternalLink, Check, AlertTriangle,
-  Box, FileText, Radio, Activity, Eye, Clock
+  Box, FileText, Radio, Activity, Eye, Clock, ChevronDown,
+  TrendingUp, CheckCircle, User
 } from 'lucide-react'
 
 // Service icons by type
@@ -92,6 +93,13 @@ export default function AllServicesInventory({ systemName }: Props) {
   const [sortBy, setSortBy] = useState('connections')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null)
+  const [iamData, setIamData] = useState<any>(null)
+  const [iamLoading, setIamLoading] = useState(false)
+  const [iamError, setIamError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'overview' | 'iam'>('overview')
+  const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
+  const [showUsedPerms, setShowUsedPerms] = useState(true)
+  const [showUnusedPerms, setShowUnusedPerms] = useState(true)
 
   // Fetch all services
   const fetchServices = useCallback(async () => {
@@ -293,6 +301,123 @@ export default function AllServicesInventory({ systemName }: Props) {
   const getIcon = (type: string) => SERVICE_ICONS[type] || SERVICE_ICONS.default
 
   const getCategoryStyle = (category: string) => CATEGORIES[category as keyof typeof CATEGORIES] || CATEGORIES.Management
+
+  // Extract IAM role name from service details
+  const getIAMRoleName = useCallback((service: ServiceItem): string | null => {
+    if (service.type === 'IAMRole') {
+      // Extract role name from ARN or name
+      if (service.id?.includes('arn:aws:iam::')) {
+        const parts = service.id.split('/')
+        return parts[parts.length - 1]
+      }
+      return service.name
+    }
+    
+    // For Lambda functions
+    if (service.type === 'Lambda' || service.type === 'LambdaFunction') {
+      const roleArn = service.details?.role || service.details?.Role
+      if (roleArn) {
+        const parts = roleArn.split('/')
+        return parts[parts.length - 1]
+      }
+      // Try to infer from name
+      if (service.name) {
+        return `${service.name}-Role`
+      }
+    }
+    
+    // For EC2 instances
+    if (service.type === 'EC2') {
+      const instanceProfile = service.details?.iam_instance_profile || service.details?.IamInstanceProfile
+      if (instanceProfile) {
+        const arn = typeof instanceProfile === 'string' ? instanceProfile : instanceProfile.Arn
+        if (arn) {
+          const parts = arn.split('/')
+          return parts[parts.length - 1]
+        }
+      }
+    }
+    
+    // For ECS tasks/services
+    if (service.type === 'ECSService' || service.type === 'TaskDefinition') {
+      const taskRoleArn = service.details?.taskRoleArn || service.details?.task_role_arn
+      if (taskRoleArn) {
+        const parts = taskRoleArn.split('/')
+        return parts[parts.length - 1]
+      }
+    }
+    
+    // Try to find role in details
+    if (service.details) {
+      const roleKeys = ['role', 'Role', 'roleArn', 'role_arn', 'iamRole', 'iam_role']
+      for (const key of roleKeys) {
+        const roleValue = service.details[key]
+        if (roleValue && typeof roleValue === 'string' && roleValue.includes('arn:aws:iam::')) {
+          const parts = roleValue.split('/')
+          return parts[parts.length - 1]
+        }
+      }
+    }
+    
+    return null
+  }, [])
+
+  // Fetch IAM data when service is selected
+  useEffect(() => {
+    if (!selectedService) {
+      setIamData(null)
+      setIamError(null)
+      return
+    }
+
+    const roleName = getIAMRoleName(selectedService)
+    if (!roleName) {
+      setIamData(null)
+      setIamError(null)
+      return
+    }
+
+    const fetchIAMData = async () => {
+      setIamLoading(true)
+      setIamError(null)
+      
+      try {
+        const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`)
+        
+        if (!res.ok) {
+          // Try with service name as fallback
+          const altRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(selectedService.name)}/gap-analysis`)
+          if (altRes.ok) {
+            const data = await altRes.json()
+            setIamData(data)
+            return
+          }
+          throw new Error('IAM role not found')
+        }
+        
+        const data = await res.json()
+        setIamData(data)
+      } catch (e: any) {
+        console.error('IAM fetch error:', e)
+        setIamError(e.message || 'Unable to fetch IAM data')
+        setIamData(null)
+      } finally {
+        setIamLoading(false)
+      }
+    }
+
+    fetchIAMData()
+  }, [selectedService, getIAMRoleName])
+
+  const togglePolicy = (policyName: string) => {
+    const newExpanded = new Set(expandedPolicies)
+    if (newExpanded.has(policyName)) {
+      newExpanded.delete(policyName)
+    } else {
+      newExpanded.add(policyName)
+    }
+    setExpandedPolicies(newExpanded)
+  }
 
   if (loading) {
     return (
@@ -570,7 +695,7 @@ export default function AllServicesInventory({ systemName }: Props) {
       {/* Details Panel */}
       {selectedService && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b">
               <div className="flex items-center gap-4">
@@ -585,70 +710,335 @@ export default function AllServicesInventory({ systemName }: Props) {
                 </div>
               </div>
               <button
-                onClick={() => setSelectedService(null)}
+                onClick={() => {
+                  setSelectedService(null)
+                  setActiveTab('overview')
+                }}
                 className="p-2 hover:bg-slate-100 rounded-lg"
               >
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
+
+            {/* Tabs */}
+            {getIAMRoleName(selectedService) && (
+              <div className="flex border-b bg-slate-50">
+                <button
+                  onClick={() => setActiveTab('overview')}
+                  className={`px-6 py-3 font-medium text-sm transition-colors ${
+                    activeTab === 'overview'
+                      ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Overview
+                </button>
+                <button
+                  onClick={() => setActiveTab('iam')}
+                  className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                    activeTab === 'iam'
+                      ? 'border-b-2 border-violet-600 text-violet-600 bg-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Key className="w-4 h-4" />
+                  IAM Role & Policies
+                </button>
+              </div>
+            )}
             
             {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-slate-50 rounded-xl p-4">
-                  <h3 className="text-sm font-medium text-slate-500 mb-3">Basic Info</h3>
-                  <dl className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <dt className="text-slate-500">ID</dt>
-                      <dd className="text-slate-900 font-mono text-xs truncate max-w-[180px]">{selectedService.id}</dd>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+              {activeTab === 'overview' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <h3 className="text-sm font-medium text-slate-500 mb-3">Basic Info</h3>
+                      <dl className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <dt className="text-slate-500">ID</dt>
+                          <dd className="text-slate-900 font-mono text-xs truncate max-w-[180px]">{selectedService.id}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-slate-500">Region</dt>
+                          <dd className="text-slate-900">{selectedService.region || '-'}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-slate-500">Status</dt>
+                          <dd className="text-green-600">{selectedService.status || 'active'}</dd>
+                        </div>
+                      </dl>
                     </div>
-                    <div className="flex justify-between">
-                      <dt className="text-slate-500">Region</dt>
-                      <dd className="text-slate-900">{selectedService.region || '-'}</dd>
+                    
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <h3 className="text-sm font-medium text-slate-500 mb-3">Security</h3>
+                      <dl className="space-y-2 text-sm">
+                        {selectedService.lpScore !== undefined && (
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">LP Score</dt>
+                            <dd className="text-slate-900 font-bold">{selectedService.lpScore}%</dd>
+                          </div>
+                        )}
+                        {selectedService.usedCount !== undefined && (
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">Used Permissions</dt>
+                            <dd className="text-green-600">{selectedService.usedCount}</dd>
+                          </div>
+                        )}
+                        {selectedService.gapCount !== undefined && (
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">Unused Permissions</dt>
+                            <dd className="text-red-600">{selectedService.gapCount}</dd>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <dt className="text-slate-500">Encrypted</dt>
+                          <dd>{selectedService.isEncrypted ? '✅ Yes' : '❌ No'}</dd>
+                        </div>
+                      </dl>
                     </div>
-                    <div className="flex justify-between">
-                      <dt className="text-slate-500">Status</dt>
-                      <dd className="text-green-600">{selectedService.status || 'active'}</dd>
+                  </div>
+                  
+                  {/* Raw details */}
+                  {selectedService.details && (
+                    <div className="bg-slate-900 rounded-xl p-4">
+                      <h3 className="text-sm font-medium text-slate-400 mb-3">Raw Details</h3>
+                      <pre className="text-xs text-slate-300 overflow-x-auto max-h-64">
+                        {JSON.stringify(selectedService.details, null, 2)}
+                      </pre>
                     </div>
-                  </dl>
-                </div>
-                
-                <div className="bg-slate-50 rounded-xl p-4">
-                  <h3 className="text-sm font-medium text-slate-500 mb-3">Security</h3>
-                  <dl className="space-y-2 text-sm">
-                    {selectedService.lpScore !== undefined && (
-                      <div className="flex justify-between">
-                        <dt className="text-slate-500">LP Score</dt>
-                        <dd className="text-slate-900 font-bold">{selectedService.lpScore}%</dd>
+                  )}
+                </>
+              ) : (
+                /* IAM Overview Tab */
+                <div className="space-y-6">
+                  {iamLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <RefreshCw className="w-8 h-8 animate-spin text-violet-500" />
+                      <span className="ml-3 text-slate-600">Loading IAM data...</span>
+                    </div>
+                  ) : iamError ? (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+                      <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                      <p className="text-red-600">{iamError}</p>
+                      <p className="text-sm text-red-500 mt-2">Role: {getIAMRoleName(selectedService)}</p>
+                    </div>
+                  ) : iamData ? (
+                    <>
+                      {/* Role Header */}
+                      <div className="bg-gradient-to-r from-violet-50 to-purple-50 rounded-xl p-6 border border-violet-200">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-lg bg-violet-100 flex items-center justify-center">
+                              <Key className="w-6 h-6 text-violet-600" />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-bold text-slate-900">{iamData.role_name || getIAMRoleName(selectedService)}</h3>
+                              {iamData.role_arn && (
+                                <p className="text-xs font-mono text-slate-600 mt-1 break-all">{iamData.role_arn}</p>
+                              )}
+                            </div>
+                          </div>
+                          {iamData.summary?.lp_score !== undefined && (
+                            <div className={`px-4 py-2 rounded-lg font-bold text-lg ${
+                              iamData.summary.lp_score >= 80 ? 'bg-green-100 text-green-700' :
+                              iamData.summary.lp_score >= 50 ? 'bg-amber-100 text-amber-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {iamData.summary.lp_score}% LP Score
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Permission Stats */}
+                        <div className="grid grid-cols-3 gap-4 mt-4">
+                          <div className="bg-white rounded-lg p-3">
+                            <div className="text-xs text-slate-500 mb-1">Total Permissions</div>
+                            <div className="text-2xl font-bold text-slate-900">
+                              {iamData.summary?.allowed_count || iamData.allowed_count || 0}
+                            </div>
+                          </div>
+                          <div className="bg-white rounded-lg p-3">
+                            <div className="text-xs text-slate-500 mb-1">Used</div>
+                            <div className="text-2xl font-bold text-green-600">
+                              {iamData.summary?.used_count || iamData.used_count || 0}
+                            </div>
+                          </div>
+                          <div className="bg-white rounded-lg p-3">
+                            <div className="text-xs text-slate-500 mb-1">Unused</div>
+                            <div className="text-2xl font-bold text-red-600">
+                              {iamData.summary?.unused_count || iamData.unused_count || 0}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    {selectedService.usedCount !== undefined && (
-                      <div className="flex justify-between">
-                        <dt className="text-slate-500">Used Permissions</dt>
-                        <dd className="text-green-600">{selectedService.usedCount}</dd>
-                      </div>
-                    )}
-                    {selectedService.gapCount !== undefined && (
-                      <div className="flex justify-between">
-                        <dt className="text-slate-500">Unused Permissions</dt>
-                        <dd className="text-red-600">{selectedService.gapCount}</dd>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <dt className="text-slate-500">Encrypted</dt>
-                      <dd>{selectedService.isEncrypted ? '✅ Yes' : '❌ No'}</dd>
+
+                      {/* Trust Policy */}
+                      {iamData.trust_policy && (
+                        <div className="bg-slate-50 rounded-xl p-4 border">
+                          <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                            <User className="w-4 h-4" />
+                            Trust Relationship
+                          </h4>
+                          <pre className="text-xs bg-white p-3 rounded border overflow-x-auto">
+                            {JSON.stringify(iamData.trust_policy, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Attached Policies */}
+                      {iamData.policy_analysis && iamData.policy_analysis.length > 0 && (
+                        <div className="space-y-3">
+                          <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                            <FileText className="w-4 h-4" />
+                            Attached Policies ({iamData.policy_analysis.length})
+                          </h4>
+                          {iamData.policy_analysis.map((policy: any, idx: number) => {
+                            const policyName = policy.policy_name || policy.name || `Policy ${idx + 1}`
+                            const isExpanded = expandedPolicies.has(policyName)
+                            const permissions = policy.all_permissions || policy.permissions || []
+                            const usedPerms = policy.used_permissions || []
+                            const unusedPerms = policy.unused_permissions || []
+                            
+                            return (
+                              <div key={idx} className="border rounded-lg overflow-hidden">
+                                <button
+                                  onClick={() => togglePolicy(policyName)}
+                                  className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left ${
+                                    policy.has_admin_access ? 'bg-red-50' : 
+                                    unusedPerms.length > 0 ? 'bg-amber-50' : ''
+                                  }`}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                                  )}
+                                  <FileText className="w-4 h-4 text-slate-500" />
+                                  <div className="flex-1">
+                                    <span className="font-medium">{policyName}</span>
+                                    <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
+                                      policy.policy_type?.toLowerCase().includes('inline') 
+                                        ? 'bg-blue-100 text-blue-700' 
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {policy.policy_type || 'managed'}
+                                    </span>
+                                  </div>
+                                  {policy.has_admin_access && (
+                                    <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                                      ADMIN
+                                    </span>
+                                  )}
+                                  {unusedPerms.length > 0 && !policy.has_admin_access && (
+                                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                  )}
+                                  <span className="text-sm text-slate-500">{permissions.length} permissions</span>
+                                </button>
+                                
+                                {isExpanded && (
+                                  <div className="border-t px-4 py-3 bg-slate-50 space-y-3">
+                                    {policy.policy_arn && (
+                                      <div className="text-xs">
+                                        <span className="text-slate-500">ARN: </span>
+                                        <span className="font-mono text-slate-700 break-all">{policy.policy_arn}</span>
+                                      </div>
+                                    )}
+                                    {permissions.length > 0 && (
+                                      <div>
+                                        <div className="text-xs font-medium text-slate-700 mb-2">
+                                          All Permissions ({permissions.length})
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {permissions.slice(0, 15).map((perm: string, i: number) => (
+                                            <span key={i} className="px-2 py-1 bg-white border rounded text-xs font-mono">
+                                              {perm}
+                                            </span>
+                                          ))}
+                                          {permissions.length > 15 && (
+                                            <span className="px-2 py-1 text-slate-500 text-xs">
+                                              +{permissions.length - 15} more
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {/* Used Permissions */}
+                      {iamData.used_permissions && iamData.used_permissions.length > 0 && (
+                        <div>
+                          <button
+                            onClick={() => setShowUsedPerms(!showUsedPerms)}
+                            className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2 hover:text-green-800"
+                          >
+                            {showUsedPerms ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            <CheckCircle className="w-4 h-4" />
+                            {iamData.used_permissions.length} Used Permissions
+                          </button>
+                          {showUsedPerms && (
+                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                              <div className="flex flex-wrap gap-1.5">
+                                {iamData.used_permissions.slice(0, 20).map((perm: string, i: number) => (
+                                  <span key={i} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-mono">
+                                    {perm}
+                                  </span>
+                                ))}
+                                {iamData.used_permissions.length > 20 && (
+                                  <span className="px-2 py-1 text-green-600 text-xs">
+                                    +{iamData.used_permissions.length - 20} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Unused Permissions */}
+                      {iamData.unused_permissions && iamData.unused_permissions.length > 0 && (
+                        <div>
+                          <button
+                            onClick={() => setShowUnusedPerms(!showUnusedPerms)}
+                            className="flex items-center gap-2 text-sm font-medium text-amber-700 mb-2 hover:text-amber-800"
+                          >
+                            {showUnusedPerms ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            <AlertTriangle className="w-4 h-4" />
+                            {iamData.unused_permissions.length} Unused Permissions
+                          </button>
+                          {showUnusedPerms && (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div className="flex flex-wrap gap-1.5">
+                                {iamData.unused_permissions.slice(0, 15).map((perm: string, i: number) => (
+                                  <span key={i} className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-mono flex items-center gap-1">
+                                    {perm}
+                                    <X className="w-3 h-3 text-amber-500" />
+                                  </span>
+                                ))}
+                                {iamData.unused_permissions.length > 15 && (
+                                  <span className="px-2 py-1 text-amber-600 text-xs">
+                                    +{iamData.unused_permissions.length - 15} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-12">
+                      <Key className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-500">No IAM data available</p>
+                      <p className="text-sm text-slate-400 mt-1">Role: {getIAMRoleName(selectedService)}</p>
                     </div>
-                  </dl>
-                </div>
-              </div>
-              
-              {/* Raw details */}
-              {selectedService.details && (
-                <div className="bg-slate-900 rounded-xl p-4">
-                  <h3 className="text-sm font-medium text-slate-400 mb-3">Raw Details</h3>
-                  <pre className="text-xs text-slate-300 overflow-x-auto">
-                    {JSON.stringify(selectedService.details, null, 2)}
-                  </pre>
+                  )}
                 </div>
               )}
             </div>
@@ -656,11 +1046,23 @@ export default function AllServicesInventory({ systemName }: Props) {
             {/* Footer */}
             <div className="p-6 border-t flex justify-end gap-3">
               <button
-                onClick={() => setSelectedService(null)}
+                onClick={() => {
+                  setSelectedService(null)
+                  setActiveTab('overview')
+                }}
                 className="px-4 py-2 border rounded-lg hover:bg-slate-50"
               >
                 Close
               </button>
+              {activeTab === 'iam' && iamData && (
+                <button 
+                  onClick={() => window.open(`https://console.aws.amazon.com/iam/home#/roles/${iamData.role_name}`, '_blank')}
+                  className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex items-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open in AWS Console
+                </button>
+              )}
               <button className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex items-center gap-2">
                 <Eye className="w-4 h-4" />
                 View in Least Privilege
