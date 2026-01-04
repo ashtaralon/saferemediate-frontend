@@ -152,11 +152,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
               criticality: isMissionCritical ? 5 : 3,
               criticalityLabel: isMissionCritical ? "MISSION CRITICAL" : "3 - Medium",
               environment: sys.environment || (isProd ? "Production" : "Development"),
-              health: sys.health_score || 44, // Default to 44 based on screenshot
-              critical: sys.critical_count || 0,
-              high: sys.high_count || 28, // Default based on screenshot
+              // Use real data from backend, no hardcoded fallbacks
+              health: sys.health_score ?? sys.healthScore ?? 0,
+              critical: sys.critical_count ?? sys.criticalIssues ?? 0,
+              high: sys.high_count ?? sys.highIssues ?? 0,
               total: resourceCount,
-              lastScan: "Just now",
+              lastScan: sys.lastScan || "Just now",
               owner: sys.owner || "Platform Team",
             }
           })
