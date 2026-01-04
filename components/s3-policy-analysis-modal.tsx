@@ -158,8 +158,6 @@ export function S3PolicyAnalysisModal({
       console.error('[S3-Modal] Policy fetch error:', err)
       // Return null on error (no mock data)
       setPolicyData(null)
-        versioning: null
-      })
     } finally {
       setPolicyLoading(false)
     }
