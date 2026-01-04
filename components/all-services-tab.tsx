@@ -449,16 +449,39 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     return "bg-blue-100 text-blue-700"
   }
 
+  // Helper function to extract permissions from policy document
+  const extractPermissionsFromPolicy = (doc: any): string[] => {
+    if (!doc || typeof doc !== 'object') return []
+    const statements = doc.Statement || (Array.isArray(doc) ? doc : [doc])
+    const permissions: string[] = []
+    for (const stmt of statements) {
+      if (stmt.Effect === 'Allow') {
+        const actions = stmt.Action || []
+        if (Array.isArray(actions)) {
+          permissions.push(...actions)
+        } else if (typeof actions === 'string') {
+          permissions.push(actions)
+        }
+      }
+    }
+    return permissions
+  }
+
   // Extract IAM role name from service
   const getIAMRoleName = (service: ServiceNode | null): string | null => {
     if (!service) return null
     
     if (service.type === 'IAMRole') {
-      // Extract role name from ID or name
+      // For IAM roles, the name is usually the role name
+      // Extract from ARN if present, otherwise use name directly
       if (service.id?.includes('arn:aws:iam::')) {
         const parts = service.id.split('/')
-        return parts[parts.length - 1]
+        const roleName = parts[parts.length - 1]
+        console.log('[AllServices] Extracted role name from ARN:', roleName)
+        return roleName
       }
+      // Service name should be the role name for IAM roles
+      console.log('[AllServices] Using service name as role name:', service.name)
       return service.name
     }
     
@@ -511,23 +534,108 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       setIamError(null)
       
       try {
+        console.log('[AllServices] Fetching IAM data for role:', roleName)
         const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`)
         
         if (!res.ok) {
+          console.log('[AllServices] First attempt failed, trying with service name:', selectedService.name)
           // Try with service name as fallback
           const altRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(selectedService.name)}/gap-analysis`)
           if (altRes.ok) {
             const data = await altRes.json()
+            console.log('[AllServices] IAM data received (fallback):', data)
+            console.log('[AllServices] Policy analysis:', data.policy_analysis || data.policies || data.attached_policies)
             setIamData(data)
             return
           }
-          throw new Error('IAM role not found')
+          throw new Error(`IAM role not found (${res.status})`)
         }
         
         const data = await res.json()
-        setIamData(data)
+        console.log('[AllServices] IAM data received:', data)
+        console.log('[AllServices] Policy analysis field:', data.policy_analysis || data.policies || data.attached_policies)
+        console.log('[AllServices] All data keys:', Object.keys(data))
+        
+        // Check if we have policies, if not try to construct from available data
+        let policies = data.policy_analysis || data.policies || data.attached_policies || []
+        
+        // If no policies but we have permission lists, create a synthetic policy entry
+        if (policies.length === 0 && (data.allowed_actions_list || data.all_permissions || data.permissions)) {
+          const allPerms = data.allowed_actions_list || data.all_permissions || data.permissions || []
+          const usedPerms = data.used_actions_list || data.used_permissions || []
+          const unusedPerms = data.unused_actions_list || data.unused_permissions || []
+          
+          if (allPerms.length > 0) {
+            // Create a single "All Permissions" policy entry
+            policies = [{
+              policy_name: 'All Permissions',
+              policy_type: 'aggregated',
+              policy_arn: data.role_arn || '',
+              all_permissions: Array.isArray(allPerms) ? allPerms : [],
+              permissions: Array.isArray(allPerms) ? allPerms : [],
+              used_permissions: Array.isArray(usedPerms) ? usedPerms : [],
+              unused_permissions: Array.isArray(unusedPerms) ? unusedPerms : [],
+            }]
+            console.log('[AllServices] Created synthetic policy from permissions list')
+          }
+        }
+        
+        // If still no policies and it's an IAM role, try fetching from least-privilege endpoint
+        if (policies.length === 0 && selectedService.type === 'IAMRole') {
+          try {
+            console.log('[AllServices] Trying least-privilege endpoint for role details...')
+            const lpRes = await fetch(`/api/proxy/least-privilege/roles?systemName=${encodeURIComponent(systemName)}`)
+            if (lpRes.ok) {
+              const lpData = await lpRes.json()
+              const roleData = Array.isArray(lpData) 
+                ? lpData.find((r: any) => r.roleName === roleName || r.roleArn?.includes(roleName))
+                : lpData
+              
+              if (roleData && (roleData.attachedPolicies || roleData.inlinePolicies)) {
+                const attached = roleData.attachedPolicies || []
+                const inline = roleData.inlinePolicies || []
+                
+                policies = [
+                  ...attached.map((p: any) => ({
+                    policy_name: p.name || p.PolicyName || 'Managed Policy',
+                    policy_arn: p.arn || p.PolicyArn || '',
+                    policy_type: 'managed',
+                    all_permissions: extractPermissionsFromPolicy(p.document || p.Document || {}),
+                    permissions: extractPermissionsFromPolicy(p.document || p.Document || {}),
+                  })),
+                  ...inline.map((p: any) => ({
+                    policy_name: p.name || p.PolicyName || 'Inline Policy',
+                    policy_type: 'inline',
+                    all_permissions: extractPermissionsFromPolicy(p.document || p.Document || {}),
+                    permissions: extractPermissionsFromPolicy(p.document || p.Document || {}),
+                  }))
+                ]
+                console.log('[AllServices] Extracted policies from LP endpoint:', policies.length)
+              }
+            }
+          } catch (lpErr) {
+            console.warn('[AllServices] Failed to fetch from LP endpoint:', lpErr)
+          }
+        }
+        
+        // Normalize the data structure - handle different field names
+        const normalizedData = {
+          ...data,
+          // Support multiple field names for policies
+          policy_analysis: policies,
+          // Ensure summary exists
+          summary: data.summary || {
+            total_permissions: data.allowed_count || data.total_permissions || 0,
+            used_count: data.used_count || 0,
+            unused_count: data.unused_count || 0,
+            lp_score: data.lp_score || 0,
+          }
+        }
+        
+        console.log('[AllServices] Normalized data with policies:', normalizedData.policy_analysis?.length || 0)
+        setIamData(normalizedData)
       } catch (e: any) {
-        console.error('IAM fetch error:', e)
+        console.error('[AllServices] IAM fetch error:', e)
         setIamError(e.message || 'Unable to fetch IAM data')
         setIamData(null)
       } finally {
@@ -1101,13 +1209,29 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       )}
 
                       {/* Attached Policies */}
-                      {iamData.policy_analysis && iamData.policy_analysis.length > 0 && (
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                            <FileText className="w-4 h-4" />
-                            Attached Policies ({iamData.policy_analysis.length})
-                          </h4>
-                          {iamData.policy_analysis.map((policy: any, idx: number) => {
+                      {(() => {
+                        const policies = iamData.policy_analysis || iamData.policies || iamData.attached_policies || []
+                        if (policies.length === 0) {
+                          return (
+                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+                              <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                              <p className="text-gray-600 font-medium">No Policy Data Available</p>
+                              <p className="text-sm text-gray-500 mt-2">
+                                The backend may not have policy analysis data for this role yet.
+                              </p>
+                              <p className="text-xs text-gray-400 mt-1 font-mono">
+                                Role: {getIAMRoleName(selectedService)}
+                              </p>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div className="space-y-3">
+                            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              <FileText className="w-4 h-4" />
+                              Attached Policies ({policies.length})
+                            </h4>
+                            {policies.map((policy: any, idx: number) => {
                             const policyName = policy.policy_name || policy.name || `Policy ${idx + 1}`
                             const isExpanded = expandedPolicies.has(policyName)
                             const permissions = policy.all_permissions || policy.permissions || []
@@ -1181,8 +1305,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                               </div>
                             )
                           })}
-                        </div>
-                      )}
+                          </div>
+                        )
+                      })()}
 
                       {/* Used Permissions */}
                       {iamData.used_permissions && iamData.used_permissions.length > 0 && (
