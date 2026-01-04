@@ -6,23 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Check if this is a demo mode request
-    if (body.demoMode) {
-      return NextResponse.json(
-        {
-          success: true,
-          message: 'Demo mode - simulated execution',
-          data: {
-            executionId: `demo-${Date.now()}`,
-            status: 'completed',
-            remediationApplied: true,
-          },
-        },
-        { status: 200 }
-      );
-    }
-
-    // Make the actual API call to Safe Remediate
+    // Make the actual API call to Safe Remediate - no demo mode
     const response = await fetch(`${SAFE_REMEDIATE_API_BASE}/execute`, {
       method: 'POST',
       headers: {

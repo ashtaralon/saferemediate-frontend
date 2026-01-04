@@ -144,15 +144,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loadingFindings, setLoadingFindings] = useState(true)
 
-  const fallbackGapData: GapAnalysis = {
-    allowed: 28,
+  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>({
+    allowed: 0,
     actual: 0,
-    gap: 28,
-    gapPercent: 100,
-    confidence: 99,
-  }
-
-  const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis>(fallbackGapData)
+    gap: 0,
+    gapPercent: 0,
+    confidence: 0,
+  })
   const [loadingGap, setLoadingGap] = useState(true)
   const [gapError, setGapError] = useState<string | null>(null)
   const [loadingAutoTag, setLoadingAutoTag] = useState(true)
@@ -164,12 +162,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   })
   const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
 
-  const fallbackAutoTagStatus: AutoTagStatus = {
-    status: "stopped",
-    totalCycles: 0,
-    actualTrafficCaptured: 15,
-    lastSync: "Awaiting connection",
-  }
 
   // =============================================================================
   // TAG ALL STATE
@@ -234,8 +226,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       setIssues([])
     } catch (error) {
       console.error("[v0] Error fetching gap analysis:", error)
-      setGapAnalysis(fallbackGapData)
-      setGapError(null) // Set gapError to null to ensure fallback data is shown without an error message
+      setGapAnalysis({
+        allowed: 0,
+        actual: 0,
+        gap: 0,
+        gapPercent: 0,
+        confidence: 0,
+      })
+      setGapError(error instanceof Error ? error.message : 'Failed to fetch gap analysis')
     } finally {
       setLoadingGap(false)
     }
@@ -247,8 +245,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       const data = await response.json()
 
       if (!response.ok || data.error) {
-        console.log("[v0] Auto-tag status backend error, using fallback data")
-        setAutoTagStatus(fallbackAutoTagStatus)
+        console.log("[v0] Auto-tag status backend error")
+        setAutoTagStatus({
+          status: "stopped",
+          totalCycles: 0,
+          actualTrafficCaptured: 0,
+          lastSync: "Error",
+        })
         return
       }
 
@@ -265,7 +268,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       })
     } catch (error) {
       console.error("[v0] Error fetching auto-tag status:", error)
-      setAutoTagStatus(fallbackAutoTagStatus)
+      setAutoTagStatus({
+        status: "stopped",
+        totalCycles: 0,
+        actualTrafficCaptured: 0,
+        lastSync: "Error",
+      })
     } finally {
       setLoadingAutoTag(false)
     }

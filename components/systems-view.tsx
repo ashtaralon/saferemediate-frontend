@@ -178,17 +178,17 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           setLocalSystems(deduplicatedSystems)
           setBackendStatus("connected")
         } else {
-          // No systems returned - use fallback
-          setFallbackSystems()
+          // No systems returned - show empty state
+          setLocalSystems([])
         }
       } else {
         console.warn(`[systems-view] Systems API returned ${systemsRes.status}`)
-        setFallbackSystems()
+        setLocalSystems([])
         setBackendStatus("offline")
       }
     } catch (fetchErr: any) {
       console.error("[systems-view] Failed to fetch systems:", fetchErr.message)
-      setFallbackSystems()
+      setLocalSystems([])
       setBackendStatus("offline")
     } finally {
       setIsLoadingData(false)
@@ -196,35 +196,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
   }, [fetchGapAnalysisFromFindings])
 
-  // Helper function for fallback systems
-  const setFallbackSystems = () => {
-    setLocalSystems([
-      {
-        name: "alon-prod",
-        criticality: 5,
-        criticalityLabel: "MISSION CRITICAL",
-        environment: "Production",
-        health: 44,
-        critical: 0,
-        high: 28,
-        total: 16,
-        lastScan: "Just now",
-        owner: "Platform Team",
-      },
-      {
-        name: "Payment-Production",
-        criticality: 5,
-        criticalityLabel: "MISSION CRITICAL",
-        environment: "Production",
-        health: 85,
-        critical: 0,
-        high: 0,
-        total: 3,
-        lastScan: "Just now",
-        owner: "Platform Team",
-      },
-    ])
-  }
 
   useEffect(() => {
     fetchSystemsData()

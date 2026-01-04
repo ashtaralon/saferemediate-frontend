@@ -17,7 +17,6 @@ import { SecurityFindingsList } from "@/components/issues/security-findings-list
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
-import { demoSecurityFindings } from "@/lib/data"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
@@ -137,20 +136,20 @@ export default function HomePage() {
         setData(null)
       }
       
-      // Handle findings - use fallback if empty or failed
+      // Handle findings - only use real data, no fallback
       if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
         setSecurityFindings(findings.value)
         console.log("[page] Loaded", findings.value.length, "security findings")
       } else {
-        console.warn("[page] Using fallback findings - fetch result:", findings.status)
-        setSecurityFindings(demoSecurityFindings)
+        console.log("[page] No findings returned from backend")
+        setSecurityFindings([])
       }
     } catch (error) {
       console.error("Failed to load data:", error)
       clearTimeout(timeoutId)
       setData(null)
-      // Use fallback findings even on error
-      setSecurityFindings(demoSecurityFindings)
+      // Return empty array on error (no mock data)
+      setSecurityFindings([])
     } finally {
       clearTimeout(timeoutId)
       setLoading(false) // ALWAYS set to false

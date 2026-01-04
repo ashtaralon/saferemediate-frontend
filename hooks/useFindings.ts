@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiService, Finding, FindingsFilters } from '@/services/api'
-import { DEMO_FINDINGS } from '@/lib/demoFindings'
 
 interface UseFindingsOptions extends FindingsFilters {
   autoRefresh?: boolean
@@ -33,8 +32,8 @@ export function useFindings(options: UseFindingsOptions = {}): UseFindingsReturn
     refreshInterval = 300000, // 5 minutes default
   } = options
 
-  // ✅ FALLBACK: Start with demo data so UI always shows something
-  const [findings, setFindings] = useState<Finding[]>(DEMO_FINDINGS as Finding[])
+  // Start with empty array - only show real data
+  const [findings, setFindings] = useState<Finding[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,19 +50,19 @@ export function useFindings(options: UseFindingsOptions = {}): UseFindingsReturn
         systemName,  // ✅ Pass systemName
       })
 
-      // ✅ Use real data if available and not empty, otherwise keep demo data
+      // Only use real data - return empty array if backend returns empty
       if (data && data.length > 0) {
         setFindings(data)
       } else {
-        // Keep demo data if backend returns empty
-        setFindings(DEMO_FINDINGS as Finding[])
+        // Backend returned empty - show empty state
+        setFindings([])
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
       setError(errorMessage)
-      console.error('[useFindings] Error fetching findings, using demo data:', err)
-      // ✅ On error, keep demo data so UI always shows something
-      setFindings(DEMO_FINDINGS as Finding[])
+      console.error('[useFindings] Error fetching findings:', err)
+      // On error, return empty array (no mock data)
+      setFindings([])
     } finally {
       setLoading(false)
     }

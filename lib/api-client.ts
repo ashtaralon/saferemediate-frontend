@@ -1,5 +1,4 @@
 import type { SecurityFinding } from "./types"
-import { infrastructureData } from "./data"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
@@ -175,10 +174,46 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       console.warn("[v0] Nodes endpoint failed or timed out")
     }
 
-    // If no nodes from backend and no issues summary, use fallback data
+    // If no nodes from backend and no issues summary, return empty structure
     if (nodes.length === 0 && !issuesSummary && Object.keys(metrics).length === 0) {
-      console.warn("[v0] No data from backend, using fallback data")
-      return infrastructureData
+      console.warn("[v0] No data from backend")
+      return {
+        resources: [],
+        stats: {
+          avgHealthScore: 0,
+          healthScoreTrend: 0,
+          needAttention: 0,
+          totalIssues: 0,
+          criticalIssues: 0,
+          averageScore: 0,
+          averageScoreTrend: 0,
+          lastScanTime: new Date().toISOString(),
+        },
+        infrastructure: {
+          containerClusters: 0,
+          kubernetesWorkloads: 0,
+          standaloneVMs: 0,
+          vmScalingGroups: 0,
+          relationalDatabases: 0,
+          blockStorage: 0,
+          fileStorage: 0,
+          objectStorage: 0,
+        },
+        securityIssues: {
+          critical: 0,
+          high: 0,
+          medium: 0,
+          low: 0,
+          totalIssues: 0,
+          todayChange: 0,
+          cveCount: 0,
+          threatsCount: 0,
+          zeroDayCount: 0,
+          secretsCount: 0,
+          complianceCount: 0,
+        },
+        complianceSystems: [],
+      }
     }
 
     // Map backend data to our InfrastructureData format
@@ -254,8 +289,45 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       complianceSystems: metrics.complianceSystems || [],
     }
   } catch (error) {
-    console.warn("[v0] Backend not available, using fallback data. Error:", error)
-    return infrastructureData
+    console.warn("[v0] Backend not available. Error:", error)
+    // Return empty structure instead of fallback data
+    return {
+      resources: [],
+      stats: {
+        avgHealthScore: 0,
+        healthScoreTrend: 0,
+        needAttention: 0,
+        totalIssues: 0,
+        criticalIssues: 0,
+        averageScore: 0,
+        averageScoreTrend: 0,
+        lastScanTime: new Date().toISOString(),
+      },
+      infrastructure: {
+        containerClusters: 0,
+        kubernetesWorkloads: 0,
+        standaloneVMs: 0,
+        vmScalingGroups: 0,
+        relationalDatabases: 0,
+        blockStorage: 0,
+        fileStorage: 0,
+        objectStorage: 0,
+      },
+      securityIssues: {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        totalIssues: 0,
+        todayChange: 0,
+        cveCount: 0,
+        threatsCount: 0,
+        zeroDayCount: 0,
+        secretsCount: 0,
+        complianceCount: 0,
+      },
+      complianceSystems: [],
+    }
   }
 }
 

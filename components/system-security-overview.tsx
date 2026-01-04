@@ -631,8 +631,8 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
       }
 
       // LP Summary - get REAL LP score
-      let realLPScore = 72 // fallback
-      let realTotalResources = 100 // fallback
+      let realLPScore = 0 // No fallback - only real data
+      let realTotalResources = 0 // No fallback - only real data
       if (lpSummaryRes.status === 'fulfilled' && lpSummaryRes.value.ok) {
         const lpData = await lpSummaryRes.value.json()
         // usage_percentage is the LP score (higher = better)

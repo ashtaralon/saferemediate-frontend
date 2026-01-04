@@ -10,9 +10,7 @@ const BACKEND_URL =
   process.env.BACKEND_API_URL ||
   "https://saferemediate-backend-f.onrender.com"
 
-// Demo mode: bypass backend blocking logic for demonstration purposes
-// In production, this would be false and backend decisions would be respected
-const DEMO_MODE = process.env.DEMO_MODE === "true" || true // Default to demo for now
+// No demo mode - only real data from backend
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,26 +19,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[SIMULATE-EXECUTE] Executing remediation for finding: ${finding_id}`)
 
-    // In DEMO_MODE, skip backend and return success directly
-    // This demonstrates the product without backend blocking issues
-    if (DEMO_MODE) {
-      console.log(`[SIMULATE-EXECUTE] 🎯 DEMO MODE - Executing remediation directly`)
-      return NextResponse.json({
-        success: true,
-        finding_id,
-        resource_id,
-        status: 'executed',
-        message: 'Remediation executed successfully',
-        removed_permissions: 17, // Mock data for demo
-        rollback_available: true,
-        execution_time_ms: 1247,
-        timestamp: new Date().toISOString(),
-      }, {
-        headers: { "X-Proxy": "simulate-execute-demo" }
-      })
-    }
-
-    // Production mode: Call backend execute endpoint
+    // Call backend execute endpoint - no mock data
     const response = await fetch(`${BACKEND_URL}/api/safe-remediate/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

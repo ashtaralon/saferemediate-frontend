@@ -36,39 +36,21 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // If backend returns error, try to get error message
-      const errorText = await response.text().catch(() => 'Unknown error')
-      console.log(`[ROLLBACK] Backend returned ${response.status}: ${errorText}`)
-    } catch (backendError) {
-      console.log(`[ROLLBACK] Backend unavailable:`, backendError)
-    }
-
-    // Backend not available - handle demo mode rollback
-    // This allows the full flow to work in demo
-    if (body.execution_id || body.snapshot_id) {
-      console.log(`[ROLLBACK] Demo mode - simulating successful rollback`)
-
+      // If backend returns error, return error (no mock data)
+      const errorData = await response.json().catch(() => ({ error: `Backend returned ${response.status}` }))
       return NextResponse.json({
-        success: true,
-        demo_mode: true,
-        execution_id: body.execution_id,
-        snapshot_id: body.snapshot_id,
-        finding_id: body.finding_id,
-        status: 'rolled_back',
-        message: 'Rollback completed successfully - changes reverted',
-        timestamp: new Date().toISOString()
-      })
-    }
-
-    // No valid IDs provided
-    return NextResponse.json(
-      {
         success: false,
-        error: "Rollback failed",
-        message: "No execution_id or snapshot_id provided"
-      },
-      { status: 400 }
-    )
+        error: errorData.error || errorData.message || `Backend returned ${response.status}`,
+      }, { status: response.status })
+    } catch (backendError) {
+      console.error(`[ROLLBACK] Backend unavailable:`, backendError)
+      // Return error (no mock data)
+      return NextResponse.json({
+        success: false,
+        error: "Backend unavailable",
+        message: backendError instanceof Error ? backendError.message : "Unknown error"
+      }, { status: 503 })
+    }
   } catch (error) {
     console.error("[ROLLBACK] Error:", error)
     return NextResponse.json(

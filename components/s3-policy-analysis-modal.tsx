@@ -128,51 +128,8 @@ export function S3PolicyAnalysisModal({
         console.log('[S3-Modal] Got data from API:', data)
         setGapData(data)
       } else {
-        console.log('[S3-Modal] API not available, using resource data')
-        if (resourceData) {
-          const mockData: S3GapAnalysisData = {
-            bucket_name: bucketName,
-            bucket_arn: resourceData.resourceArn,
-            observation_days: resourceData.observationDays || 90,
-            summary: {
-              total_policies: resourceData.allowedCount || (resourceData.usedCount || 0) + (resourceData.gapCount || 0),
-              used_count: resourceData.usedCount || 0,
-              unused_count: resourceData.gapCount || 0,
-              lp_score: resourceData.lpScore || 0,
-              overall_risk: resourceData.severity?.toUpperCase() || 'MEDIUM',
-              s3_events: 0,
-              has_public_access: resourceData.unusedList?.some((p: string) => p.toLowerCase().includes('public'))
-            },
-            policies_analysis: [
-              ...(resourceData.usedList || []).map((p: string) => ({
-                policy_name: p,
-                policy_type: 'used' as const,
-                risk_level: 'LOW' as const,
-                recommendation: 'Keep - actively used',
-                access_count: Math.floor(Math.random() * 100) + 1,
-                is_public: false
-              })),
-              ...(resourceData.unusedList || []).map((p: string) => ({
-                policy_name: p,
-                policy_type: 'unused' as const,
-                risk_level: p.toLowerCase().includes('public') ? 'CRITICAL' as const : 
-                           p.toLowerCase().includes('delete') ? 'HIGH' as const : 'MEDIUM' as const,
-                recommendation: 'Remove - not used',
-                access_count: 0,
-                is_public: p.toLowerCase().includes('public')
-              }))
-            ],
-            used_policies: resourceData.usedList || [],
-            unused_policies: resourceData.unusedList || [],
-            security_issues: resourceData.unusedList?.filter((p: string) => 
-              p.toLowerCase().includes('public') || p.toLowerCase().includes('*')
-            ) || [],
-            confidence: resourceData.evidence?.confidence || 'MEDIUM'
-          }
-          setGapData(mockData)
-        } else {
-          throw new Error('No data available')
-        }
+        console.log('[S3-Modal] API not available')
+        throw new Error('S3 gap analysis API not available')
       }
     } catch (err: any) {
       console.error('[S3-Modal] Error:', err)
@@ -194,39 +151,13 @@ export function S3PolicyAnalysisModal({
         console.log('[S3-Modal] Got policy data:', data)
         setPolicyData(data)
       } else {
-        console.log('[S3-Modal] Policy API not available, using mock data')
-        // Mock data for demo
-        setPolicyData({
-          bucket_policy: null,
-          public_access_block: {
-            blockPublicAcls: true,
-            blockPublicPolicy: true,
-            ignorePublicAcls: true,
-            restrictPublicBuckets: true
-          },
-          acl: {
-            owner: 'bucket-owner',
-            grants: [
-              { grantee: 'bucket-owner', grantee_type: 'CanonicalUser', permission: 'FULL_CONTROL' }
-            ]
-          },
-          encryption: {
-            type: 'AES256'
-          },
-          versioning: {
-            status: 'Disabled',
-            mfa_delete: 'Disabled'
-          }
-        })
+        console.log('[S3-Modal] Policy API not available')
+        setPolicyData(null)
       }
     } catch (err: any) {
       console.error('[S3-Modal] Policy fetch error:', err)
-      // Set default mock data on error
-      setPolicyData({
-        bucket_policy: null,
-        public_access_block: null,
-        acl: null,
-        encryption: null,
+      // Return null on error (no mock data)
+      setPolicyData(null)
         versioning: null
       })
     } finally {

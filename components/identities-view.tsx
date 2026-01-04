@@ -47,156 +47,6 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
   const [loading, setLoading] = useState(true)
   const [identitiesAtRisk, setIdentitiesAtRisk] = useState<Identity[]>([])
 
-  // Demo data with realistic permission lists
-  const getDemoIdentities = (): Identity[] => [
-    {
-      name: "admin@payment-prod",
-      type: "Human User",
-      system: "Payment-Prod",
-      risk: "Critical",
-      issues: ["67% unused permissions (18 of 27)", "No MFA enabled", "Password not rotated (180 days)"],
-      lastActivity: "2 days ago",
-      permissions: 27,
-      usedPermissions: 9,
-      unusedPermissions: 18,
-      recordingDays: 90,
-      confidence: 97,
-      usedList: [
-        "s3:GetObject",
-        "s3:PutObject",
-        "dynamodb:Query",
-        "dynamodb:PutItem",
-        "cloudwatch:PutMetricData",
-        "sns:Publish",
-        "sqs:SendMessage",
-        "kms:Decrypt",
-        "secretsmanager:GetSecretValue",
-      ],
-      unusedList: [
-        "s3:DeleteBucket",
-        "s3:PutBucketPolicy",
-        "iam:CreateUser",
-        "iam:AttachUserPolicy",
-        "ec2:TerminateInstances",
-        "rds:DeleteDBInstance",
-        "dynamodb:DeleteTable",
-        "lambda:DeleteFunction",
-        "cloudwatch:DeleteAlarms",
-        "sns:DeleteTopic",
-        "sqs:DeleteQueue",
-        "kms:ScheduleKeyDeletion",
-        "secretsmanager:DeleteSecret",
-        "ec2:ModifyInstanceAttribute",
-        "elasticloadbalancing:DeleteLoadBalancer",
-        "autoscaling:DeleteAutoScalingGroup",
-        "cloudformation:DeleteStack",
-        "route53:DeleteHostedZone",
-      ],
-    },
-    {
-      name: "api-service-account",
-      type: "Service Account",
-      system: "Data-Pipeline",
-      risk: "High",
-      issues: ["54% unused permissions (12 of 22)", "Overly permissive S3 access"],
-      lastActivity: "Active now",
-      permissions: 22,
-      usedPermissions: 10,
-      unusedPermissions: 12,
-      recordingDays: 90,
-      confidence: 94,
-      usedList: [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:ListBucket",
-        "dynamodb:Query",
-        "dynamodb:PutItem",
-        "dynamodb:GetItem",
-        "sqs:SendMessage",
-        "sqs:ReceiveMessage",
-        "logs:PutLogEvents",
-        "cloudwatch:PutMetricData",
-      ],
-      unusedList: [
-        "s3:DeleteObject",
-        "s3:PutBucketPolicy",
-        "dynamodb:DeleteTable",
-        "dynamodb:CreateTable",
-        "iam:PassRole",
-        "lambda:InvokeFunction",
-        "ec2:DescribeInstances",
-        "ec2:StartInstances",
-        "ec2:StopInstances",
-        "rds:DescribeDBInstances",
-        "sns:CreateTopic",
-        "sns:DeleteTopic",
-      ],
-    },
-    {
-      name: "db-admin-role",
-      type: "IAM Role",
-      system: "Health-Records",
-      risk: "High",
-      issues: ["72% unused permissions (13 of 18)", "Full database access"],
-      lastActivity: "5 hours ago",
-      permissions: 18,
-      usedPermissions: 5,
-      unusedPermissions: 13,
-      recordingDays: 90,
-      confidence: 91,
-      usedList: [
-        "rds:DescribeDBInstances",
-        "rds:DescribeDBClusters",
-        "cloudwatch:GetMetricData",
-        "logs:GetLogEvents",
-        "secretsmanager:GetSecretValue",
-      ],
-      unusedList: [
-        "rds:DeleteDBInstance",
-        "rds:CreateDBInstance",
-        "rds:ModifyDBInstance",
-        "rds:RebootDBInstance",
-        "rds:RestoreDBInstanceFromSnapshot",
-        "rds:CreateDBSnapshot",
-        "rds:DeleteDBSnapshot",
-        "rds:CreateDBCluster",
-        "rds:DeleteDBCluster",
-        "rds:ModifyDBCluster",
-        "iam:PassRole",
-        "kms:CreateKey",
-        "kms:ScheduleKeyDeletion",
-      ],
-    },
-    {
-      name: "backup-service",
-      type: "Service Account",
-      system: "Storage-Service",
-      risk: "Medium",
-      issues: ["83% unused permissions (10 of 12)", "Unused for 45 days"],
-      lastActivity: "45 days ago",
-      permissions: 12,
-      usedPermissions: 2,
-      unusedPermissions: 10,
-      recordingDays: 90,
-      confidence: 99,
-      usedList: [
-        "s3:GetObject",
-        "s3:ListBucket",
-      ],
-      unusedList: [
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:PutBucketPolicy",
-        "s3:DeleteBucket",
-        "glacier:InitiateJob",
-        "glacier:GetJobOutput",
-        "glacier:DeleteArchive",
-        "backup:StartBackupJob",
-        "backup:StopBackupJob",
-        "backup:DeleteBackupVault",
-      ],
-    },
-  ]
 
   // Fetch data from backend
   useEffect(() => {
@@ -242,13 +92,13 @@ export function IdentitiesView({ onRequestRemediation }: IdentitiesViewProps) {
         })
         setIdentitiesAtRisk(transformed)
       } else {
-        // Use demo data as fallback
-        setIdentitiesAtRisk(getDemoIdentities())
+        // Backend returned empty - show empty state
+        setIdentitiesAtRisk([])
       }
     } catch (error) {
       console.error("Error fetching identities:", error)
-      // Use demo data as fallback
-      setIdentitiesAtRisk(getDemoIdentities())
+      // Return empty array on error (no mock data)
+      setIdentitiesAtRisk([])
     } finally {
       setLoading(false)
     }

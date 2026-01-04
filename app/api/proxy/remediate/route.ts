@@ -29,26 +29,22 @@ export async function POST(request: NextRequest) {
         ...data,
       })
     } else {
-      // If backend endpoint doesn't exist yet, return success for UI demo
-      // Remove this fallback when backend is ready
-      console.log(`[v0] Remediation API not available, simulating success for: ${permission}`)
+      // Backend error - return error (no mock data)
+      const errorData = await response.json().catch(() => ({ error: `Backend returned ${response.status}` }))
       return NextResponse.json({
-        success: true,
-        simulated: true,
-        message: `Permission "${permission}" remediation queued (backend pending)`,
+        success: false,
+        error: errorData.error || errorData.message || `Backend returned ${response.status}`,
         permission,
-        roleName: roleName || "SafeRemediate-Lambda-Remediation-Role",
-        action: action || "remove",
-        timestamp: new Date().toISOString(),
-      })
+        roleName,
+        action,
+      }, { status: response.status })
     }
   } catch (error) {
     console.error("[v0] Remediation error:", error)
-    // Return success for UI demo even on error
+    // Return error (no mock data)
     return NextResponse.json({
-      success: true,
-      simulated: true,
-      message: "Remediation queued (backend connection pending)",
-    })
+      success: false,
+      error: error instanceof Error ? error.message : "Remediation failed",
+    }, { status: 500 })
   }
 }
