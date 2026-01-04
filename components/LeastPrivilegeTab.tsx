@@ -388,28 +388,58 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     await fetchGaps(true, true) // Force cache refresh
   }
 
-  // Handle successful IAM remediation - remove resource from list
-  const handleRemediationSuccess = (roleName: string) => {
-    console.log('[LeastPrivilegeTab] Remediation successful for:', roleName)
+  // Handle successful remediation - remove resource from list and update counts
+  const handleRemediationSuccess = (resourceName: string) => {
+    console.log('[LeastPrivilegeTab] Remediation successful for:', resourceName)
     
     // Remove the remediated resource from the displayed list
     setData(prev => {
       if (!prev) return prev
       
-      const filteredResources = prev.resources.filter(r => r.resourceName !== roleName)
-      const removedResource = prev.resources.find(r => r.resourceName === roleName)
+      const removedResource = prev.resources.find(r => r.resourceName === resourceName || r.id === resourceName)
+      if (!removedResource) {
+        console.warn('[LeastPrivilegeTab] Resource not found:', resourceName)
+        return prev
+      }
       
-      // Update summary counts
+      const filteredResources = prev.resources.filter(r => r.resourceName !== resourceName && r.id !== resourceName)
+      
+      // Update summary counts based on resource type
+      const resourceType = removedResource.resourceType
       const newSummary = {
         ...prev.summary,
         totalResources: filteredResources.length,
-        iamIssuesCount: Math.max(0, prev.summary.iamIssuesCount - 1)
+        // Decrement the appropriate count based on resource type
+        iamIssuesCount: resourceType === 'IAMRole' 
+          ? Math.max(0, (prev.summary.iamIssuesCount || 0) - 1) 
+          : prev.summary.iamIssuesCount,
+        networkIssuesCount: resourceType === 'SecurityGroup' 
+          ? Math.max(0, (prev.summary.networkIssuesCount || 0) - 1) 
+          : prev.summary.networkIssuesCount,
+        s3IssuesCount: resourceType === 'S3Bucket' 
+          ? Math.max(0, (prev.summary.s3IssuesCount || 0) - 1) 
+          : prev.summary.s3IssuesCount,
+        // Update severity counts
+        criticalCount: removedResource.severity === 'critical' 
+          ? Math.max(0, (prev.summary.criticalCount || 0) - 1) 
+          : prev.summary.criticalCount,
+        highCount: removedResource.severity === 'high' 
+          ? Math.max(0, (prev.summary.highCount || 0) - 1) 
+          : prev.summary.highCount,
+        mediumCount: removedResource.severity === 'medium' 
+          ? Math.max(0, (prev.summary.mediumCount || 0) - 1) 
+          : prev.summary.mediumCount,
+        lowCount: removedResource.severity === 'low' 
+          ? Math.max(0, (prev.summary.lowCount || 0) - 1) 
+          : prev.summary.lowCount,
       }
       
       console.log('[LeastPrivilegeTab] Updated resources:', {
         before: prev.resources.length,
         after: filteredResources.length,
-        removed: removedResource?.resourceName
+        removed: removedResource?.resourceName,
+        resourceType: resourceType,
+        newTotalResources: newSummary.totalResources
       })
       
       return {
@@ -419,9 +449,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       }
     })
     
-    // Also clear the cache for this role
+    // Also clear the cache for this resource (for IAM roles)
     setIamGapAnalysisCache(prev => {
-      const { [roleName]: _, ...rest } = prev
+      const { [resourceName]: _, ...rest } = prev
       return rest
     })
   }
