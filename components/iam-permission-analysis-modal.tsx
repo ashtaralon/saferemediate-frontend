@@ -16,6 +16,21 @@ interface PermissionAnalysis {
   last_used?: string
 }
 
+interface DependencyInfo {
+  arn?: string
+  type?: string
+  name?: string
+  environment?: string
+}
+
+interface DependencyContext {
+  status: 'ok' | 'not_found' | 'neo4j_unavailable' | 'error'
+  system?: { name?: string; criticality?: string }
+  dependencies?: DependencyInfo[]
+  has_critical_dependencies?: boolean
+  error?: string
+}
+
 interface GapAnalysisData {
   role_name: string
   role_arn?: string
@@ -34,6 +49,7 @@ interface GapAnalysisData {
   unused_permissions: string[]
   high_risk_unused: string[]
   confidence: string
+  dependency_context?: DependencyContext
 }
 
 interface IAMPermissionAnalysisModalProps {
@@ -123,7 +139,8 @@ export function IAMPermissionAnalysisModal({
         used_permissions: rawData.used_permissions || rawData.summary?.used_permissions || [],
         unused_permissions: rawData.unused_permissions || rawData.summary?.unused_permissions || [],
         high_risk_unused: rawData.high_risk_unused || [],
-        confidence: rawData.confidence?.level || rawData.confidence || 'HIGH'
+        confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
+        dependency_context: rawData.dependency_context
       }
       
       console.log('[IAM-Modal] Mapped data:', {
@@ -453,6 +470,96 @@ export function IAMPermissionAnalysisModal({
               )}
             </div>
 
+            {/* Dependency Context */}
+            {gapData?.dependency_context && (
+              <div className={`p-4 rounded-xl ${
+                gapData.dependency_context.status === 'ok' && gapData.dependency_context.has_critical_dependencies
+                  ? 'bg-amber-50 border border-amber-200'
+                  : gapData.dependency_context.status !== 'ok'
+                  ? 'bg-gray-50 border border-gray-200'
+                  : 'bg-green-50 border border-green-200'
+              }`}>
+                <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  {gapData.dependency_context.status === 'ok' && gapData.dependency_context.has_critical_dependencies ? (
+                    <>
+                      <AlertTriangle className="w-5 h-5 text-amber-500" />
+                      Critical Dependencies Detected
+                    </>
+                  ) : gapData.dependency_context.status !== 'ok' ? (
+                    <>
+                      <Activity className="w-5 h-5 text-gray-400" />
+                      Dependency Evidence Unavailable
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-5 h-5 text-green-500" />
+                      Dependency Analysis
+                    </>
+                  )}
+                </h3>
+                
+                {gapData.dependency_context.status === 'ok' ? (
+                  <>
+                    {gapData.dependency_context.system?.name && (
+                      <p className="text-sm text-gray-600 mb-2">
+                        System: <span className="font-medium">{gapData.dependency_context.system.name}</span>
+                        {gapData.dependency_context.system.criticality && (
+                          <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+                            ['production', 'prod', 'critical', 'mission_critical'].includes(
+                              (gapData.dependency_context.system.criticality || '').toLowerCase()
+                            ) ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {gapData.dependency_context.system.criticality}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    
+                    {gapData.dependency_context.dependencies && gapData.dependency_context.dependencies.length > 0 ? (
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        <p className="text-sm font-medium text-gray-700 mb-2">
+                          Affected Resources ({gapData.dependency_context.dependencies.length}):
+                        </p>
+                        {gapData.dependency_context.dependencies.slice(0, 10).map((dep, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span className="px-1.5 py-0.5 rounded text-xs bg-gray-200 text-gray-600 font-mono">
+                              {dep.type || 'Unknown'}
+                            </span>
+                            <span className="text-gray-700 truncate">{dep.name || dep.arn}</span>
+                            {dep.environment && (
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                ['prod', 'production'].includes(dep.environment.toLowerCase())
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {dep.environment}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                        {gapData.dependency_context.dependencies.length > 10 && (
+                          <p className="text-xs text-gray-500 italic">
+                            +{gapData.dependency_context.dependencies.length - 10} more...
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-green-700">✓ No dependent resources detected</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {gapData.dependency_context.status === 'neo4j_unavailable' 
+                      ? 'Graph database not configured - dependency analysis skipped'
+                      : gapData.dependency_context.status === 'not_found'
+                      ? 'Resource not found in dependency graph'
+                      : `Error: ${gapData.dependency_context.error || 'Unknown error'}`
+                    }
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Confidence Factors */}
             <div className="p-4 bg-gray-50 rounded-xl">
               <h3 className="font-bold text-gray-900 mb-3">Confidence Factors:</h3>
@@ -460,15 +567,27 @@ export function IAMPermissionAnalysisModal({
                 {[
                   { label: `${observationDays} days of CloudTrail analysis`, score: 99 },
                   { label: 'All unused permissions verified', score: 100 },
-                  { label: 'No production dependencies detected', score: 100 },
+                  { 
+                    label: gapData?.dependency_context?.has_critical_dependencies 
+                      ? 'Critical dependencies detected (reduced confidence)' 
+                      : 'No production dependencies detected', 
+                    score: gapData?.dependency_context?.has_critical_dependencies ? 75 : 100,
+                    warning: gapData?.dependency_context?.has_critical_dependencies
+                  },
                   { label: 'Similar fixes applied successfully', score: 98 }
                 ].map((factor, i) => (
                   <div key={i} className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
+                      {factor.warning ? (
+                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      ) : (
+                        <Check className="w-4 h-4 text-green-500" />
+                      )}
                       {factor.label}
                     </span>
-                    <span className="text-green-600 font-semibold">{factor.score}%</span>
+                    <span className={`font-semibold ${factor.warning ? 'text-amber-600' : 'text-green-600'}`}>
+                      {factor.score}%
+                    </span>
                   </div>
                 ))}
               </div>
