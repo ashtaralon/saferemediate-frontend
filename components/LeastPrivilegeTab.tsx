@@ -239,7 +239,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       
       // Use AWS-based endpoint directly - this returns actual LP analysis data
       // The Neo4j endpoint returns graph nodes without LP analysis, causing "0 used / 0 unused" display
-      const refreshParam = forceRefresh ? '&refresh=true' : ''
+      const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365${refreshParam}`)
       if (!response.ok) throw new Error(`Failed: ${response.status}`)
       const result = await response.json()
@@ -444,7 +444,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       // Only refresh least privilege issues - this gets ALL data we need for the list view
       // Individual gap-analysis calls are now made ON-DEMAND when user opens a modal
       try {
-        await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&refresh=true`)
+        await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&force_refresh=true`)
         console.log('[RefreshAll] LP issues refreshed successfully')
       } catch (e) {
         console.warn('[RefreshAll] LP issues refresh failed:', e)

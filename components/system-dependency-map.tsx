@@ -442,7 +442,7 @@ export default function SystemDependencyMap({ systemName }: Props) {
   const handleRefresh = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/proxy/dependency-map/graph?systemName=${encodeURIComponent(systemName)}&refresh=true`)
+      const response = await fetch(`/api/proxy/dependency-map/graph?systemName=${encodeURIComponent(systemName)}&force_refresh=true`)
       const data = await response.json()
       setRawData(data)
       buildGraph(data)

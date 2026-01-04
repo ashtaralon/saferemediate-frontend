@@ -224,7 +224,7 @@ export default function AllServicesInventory({ systemName }: Props) {
   const handleSync = async () => {
     setSyncing(true)
     try {
-      await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&refresh=true`)
+      await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&force_refresh=true`)
       await fetchServices()
     } finally {
       setSyncing(false)

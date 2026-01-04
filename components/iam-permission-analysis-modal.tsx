@@ -188,7 +188,7 @@ export function IAMPermissionAnalysisModal({
         
         // 1. Clear frontend cache for this role (force refresh)
         try {
-          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90&refresh=true`)
+          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90&force_refresh=true`)
           console.log('[IAM-Modal] Cleared role cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)
@@ -196,7 +196,7 @@ export function IAMPermissionAnalysisModal({
         
         // 2. Clear the LP issues cache (force refresh)
         try {
-          await fetch(`/api/proxy/least-privilege/issues?refresh=true`)
+          await fetch(`/api/proxy/least-privilege/issues?force_refresh=true`)
           console.log('[IAM-Modal] Cleared LP issues cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear LP cache:', e)
