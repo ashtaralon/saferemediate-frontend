@@ -91,6 +91,18 @@ export interface InfrastructureData {
     owner: string
     tags: string[]
   }>
+  issuesSummary?: {
+    total: number
+    by_severity?: {
+      critical?: number
+      high?: number
+      medium?: number
+      low?: number
+    }
+    by_source?: Record<string, any>
+    cached?: boolean
+    cache_age_seconds?: number
+  } | null
 }
 
 export async function fetchInfrastructure(): Promise<InfrastructureData> {
@@ -247,14 +259,18 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
   }
 }
 
-export async function fetchSecurityFindings(): Promise<SecurityFinding[]> {
+export async function fetchSecurityFindings(systemName?: string): Promise<SecurityFinding[]> {
   // Create timeout controller - increased to 30s to match proxy route timeout (25s) + buffer
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout (was 8s)
 
   try {
-    // Use direct backend URL with cache: "no-store" and cache-busting headers to always fetch fresh
-    const response = await fetch(`${BACKEND_URL}/api/findings?_t=${Date.now()}`, {
+    // Use proxy route instead of direct backend call - proxy has better timeout handling and fallback
+    const params = new URLSearchParams()
+    params.append('_t', Date.now().toString())
+    if (systemName) params.append('systemName', systemName)
+    
+    const response = await fetch(`/api/proxy/findings?${params.toString()}`, {
       cache: "no-store",
       headers: { 
         "Content-Type": "application/json",
