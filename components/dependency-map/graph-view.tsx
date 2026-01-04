@@ -37,19 +37,27 @@ interface EdgeTrafficData {
   direction?: 'inbound' | 'outbound'
   source?: string
   destination?: string
+  source_type?: 'internet' | 'cidr' | 'security_group'
   total_hits: number
   unique_sources: string[]
   bytes_transferred: number
   packets_transferred?: number
-  recommendation: 'keep' | 'tighten' | 'remove'
+  recommendation: 'keep' | 'tighten' | 'remove' | 'review'
   recommendation_reason: string
   confidence: number
+  confidence_reason?: string
   is_public: boolean
+  is_internal: boolean
   last_seen?: string
   observation_days?: number
   rule_id?: string
   created_at?: string
   modified_at?: string
+  expected_exposure?: {
+    is_public: boolean
+    source: string
+    reason?: string
+  }
 }
 
 interface Props {
@@ -133,10 +141,56 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             (edge.port && r.port_range?.includes(edge.port))
           ) || rules[0]
           
-          const isPublic = matchingRule?.source === '0.0.0.0/0'
+          const isPublic = matchingRule?.source === '0.0.0.0/0' || matchingRule?.is_public
           const totalHits = matchingRule?.traffic?.connection_count || 0
           const lastSeen = matchingRule?.traffic?.last_seen || matchingRule?.last_seen
           const uniqueSources = matchingRule?.traffic?.unique_sources || []
+          const sourceValue = matchingRule?.source || edge.source
+          const sourceType = isPublic ? 'internet' : (sourceValue?.startsWith('sg-') ? 'security_group' : 'cidr')
+          const isInternal = !isPublic && sourceType === 'security_group'
+          
+          // Determine recommendation based on evidence and intent
+          let recommendation: 'keep' | 'tighten' | 'remove' | 'review' = 'review'
+          let recommendationReason = ''
+          let confidence = 60
+          let confidenceReason = ''
+          
+          // Check if this is expected to be public (from tags, ALB scheme, etc.)
+          const expectedPublic = matchingRule?.expected_exposure?.is_public || false
+          const expectedReason = matchingRule?.expected_exposure?.reason || ''
+          
+          if (isPublic && totalHits === 0) {
+            // Internet-exposed but no traffic observed
+            if (expectedPublic) {
+              recommendation = 'keep'
+              recommendationReason = `Declared public endpoint. Keep ${matchingRule?.port_range || edge.port} open, but validate health checks and add monitoring.`
+              confidence = 70
+              confidenceReason = 'Intent-based decision; no traffic evidence available'
+            } else {
+              recommendation = 'review'
+              recommendationReason = `No traffic observed in ${observationDays} days. Restrict source or temporarily disable; run simulation.`
+              confidence = 85
+              confidenceReason = 'No evidence of use; internet exposure is suspicious'
+            }
+          } else if (isPublic && totalHits > 0 && uniqueSources.length < 5) {
+            // Public but only few sources used
+            recommendation = 'tighten'
+            recommendationReason = `Public rule (0.0.0.0/0) but only ${uniqueSources.length} sources used. Restrict to observed sources.`
+            confidence = 90
+            confidenceReason = 'Flow Logs show limited source usage'
+          } else if (totalHits > 0) {
+            // Active traffic observed
+            recommendation = 'keep'
+            recommendationReason = `Active traffic: ${totalHits} connections from ${uniqueSources.length} sources`
+            confidence = 95
+            confidenceReason = 'Flow Logs enabled, full window coverage'
+          } else if (totalHits === 0 && !isPublic) {
+            // Internal rule with no traffic
+            recommendation = 'remove'
+            recommendationReason = `No traffic observed in the last ${observationDays} days`
+            confidence = 85
+            confidenceReason = 'No evidence of use in observation window'
+          }
           
           setEdgeTrafficData({
             source_sg: data.sg_id,
@@ -144,46 +198,56 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             port: matchingRule?.port_range || edge.port,
             protocol: edge.protocol || matchingRule?.protocol || 'TCP',
             direction: matchingRule?.direction || 'inbound',
-            source: matchingRule?.source || edge.source,
+            source: sourceValue,
             destination: edge.target,
+            source_type: sourceType,
             total_hits: totalHits,
             unique_sources: uniqueSources,
             bytes_transferred: matchingRule?.traffic?.bytes_transferred || 0,
             packets_transferred: matchingRule?.traffic?.packets_transferred || 0,
-            recommendation: totalHits === 0 ? 'remove' : isPublic ? 'tighten' : 'keep',
-            recommendation_reason: totalHits === 0 
-              ? `No traffic observed in the last ${observationDays} days`
-              : isPublic 
-                ? `Public rule (0.0.0.0/0) but only ${uniqueSources.length} sources used`
-                : `Active traffic: ${totalHits} connections`,
-            confidence: matchingRule?.recommendation?.confidence || 80,
+            recommendation,
+            recommendation_reason: recommendationReason,
+            confidence,
+            confidence_reason: confidenceReason || matchingRule?.recommendation?.confidence_reason,
             is_public: isPublic,
+            is_internal: isInternal,
             last_seen: lastSeen,
             observation_days: observationDays,
             rule_id: matchingRule?.rule_id,
             created_at: matchingRule?.created_at,
-            modified_at: matchingRule?.modified_at
+            modified_at: matchingRule?.modified_at,
+            expected_exposure: expectedPublic ? {
+              is_public: true,
+              source: expectedReason || 'Service configuration',
+              reason: expectedReason
+            } : undefined
           })
           return
         }
       }
       
       // Fallback
+      const isPublicFallback = edge.type === 'internet' || edge.source === 'Internet' || edge.source === '0.0.0.0/0'
+      const sourceTypeFallback = isPublicFallback ? 'internet' : (edge.source?.startsWith('sg-') ? 'security_group' : 'cidr')
+      
       setEdgeTrafficData({
         port: edge.port || edge.label,
         protocol: edge.protocol || 'TCP',
         direction: 'inbound',
         source: edge.source,
         destination: edge.target,
+        source_type: sourceTypeFallback,
         total_hits: edge.traffic_bytes || 0,
         unique_sources: [],
         bytes_transferred: edge.traffic_bytes || 0,
-        recommendation: edge.type === 'internet' ? 'tighten' : 'keep',
-        recommendation_reason: edge.type === 'internet' 
+        recommendation: isPublicFallback ? 'review' : 'keep',
+        recommendation_reason: isPublicFallback 
           ? 'Internet-exposed connection - review for least privilege'
           : 'Internal connection',
         confidence: 60,
-        is_public: edge.type === 'internet',
+        confidence_reason: 'Limited data available; recommendation based on configuration only',
+        is_public: isPublicFallback,
+        is_internal: !isPublicFallback && sourceTypeFallback === 'security_group',
         observation_days: observationDays
       })
     } catch (e) {
@@ -193,6 +257,13 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       setEdgeLoading(false)
     }
   }, [findPathFromInternet, observationDays, graphData])
+
+  // Refetch when observation days change
+  useEffect(() => {
+    if (selectedEdge) {
+      fetchEdgeTrafficData(selectedEdge)
+    }
+  }, [observationDays, fetchEdgeTrafficData, selectedEdge])
 
   // Export graph as image
   const exportGraph = () => {
@@ -474,29 +545,36 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                   <div className={`p-3 rounded-lg border-2 ${
                     edgeTrafficData.recommendation === 'remove' 
                       ? 'bg-red-50 border-red-300' 
-                      : edgeTrafficData.recommendation === 'tighten'
+                      : edgeTrafficData.recommendation === 'tighten' || edgeTrafficData.recommendation === 'review'
                         ? 'bg-amber-50 border-amber-300'
                         : 'bg-green-50 border-green-300'
                   }`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         {edgeTrafficData.recommendation === 'remove' && <X className="w-5 h-5 text-red-500" />}
-                        {edgeTrafficData.recommendation === 'tighten' && <AlertTriangle className="w-5 h-5 text-amber-500" />}
+                        {(edgeTrafficData.recommendation === 'tighten' || edgeTrafficData.recommendation === 'review') && <AlertTriangle className="w-5 h-5 text-amber-500" />}
                         {edgeTrafficData.recommendation === 'keep' && <CheckCircle className="w-5 h-5 text-green-500" />}
                         <span className={`font-bold uppercase text-sm ${
                           edgeTrafficData.recommendation === 'remove' ? 'text-red-700' :
-                          edgeTrafficData.recommendation === 'tighten' ? 'text-amber-700' :
+                          edgeTrafficData.recommendation === 'tighten' || edgeTrafficData.recommendation === 'review' ? 'text-amber-700' :
                           'text-green-700'
                         }`}>
                           {edgeTrafficData.recommendation === 'remove' ? 'REMOVE RULE' : 
-                           edgeTrafficData.recommendation === 'tighten' ? 'RESTRICT' : 'KEEP RULE'}
+                           edgeTrafficData.recommendation === 'tighten' ? 'RESTRICT' :
+                           edgeTrafficData.recommendation === 'review' ? 'REVIEW' : 'KEEP RULE'}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-slate-500" title={edgeTrafficData.confidence_reason || ''}>
                         Confidence: {edgeTrafficData.confidence >= 80 ? 'High' : edgeTrafficData.confidence >= 60 ? 'Medium' : 'Low'}
+                        {edgeTrafficData.confidence_reason && (
+                          <span className="ml-1 text-slate-400" title={edgeTrafficData.confidence_reason}>ℹ️</span>
+                        )}
                       </div>
                     </div>
                     <p className="text-sm text-slate-700 font-medium">{edgeTrafficData.recommendation_reason}</p>
+                    {edgeTrafficData.confidence_reason && (
+                      <p className="mt-1 text-xs text-slate-500 italic">{edgeTrafficData.confidence_reason}</p>
+                    )}
                     {edgeTrafficData.is_public && (
                       <div className="mt-2 pt-2 border-t border-red-200 flex items-center gap-2 text-xs text-red-700">
                         <Globe className="w-3 h-3" />
@@ -536,9 +614,9 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                         )
                       })}
                     </div>
-                    {pathFromInternet.length > 0 && pathFromInternet[0] === 'Internet' && (
+                    {pathFromInternet.length > 0 && pathFromInternet[0] === 'Internet' && edgeTrafficData && (
                       <div className="mt-2 text-xs text-blue-700">
-                        Internet-exposed path exists {selectedEdge.port && `(via ${selectedEdge.protocol || 'TCP'}:${selectedEdge.port})`}
+                        Internet-exposed path exists via <code className="bg-blue-100 px-1 rounded">{edgeTrafficData.source || '0.0.0.0/0'}</code> inbound {edgeTrafficData.protocol || 'TCP'}/{edgeTrafficData.port || 'N/A'}
                       </div>
                     )}
                   </div>
@@ -578,7 +656,15 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-500">Source:</span>
-                        <span className="font-medium text-right max-w-[150px] truncate">{edgeTrafficData.source || selectedEdge.source}</span>
+                        <span className="font-medium text-right max-w-[150px] truncate">
+                          {edgeTrafficData.source || selectedEdge.source}
+                          {edgeTrafficData.source_type && (
+                            <span className="ml-1 text-xs text-slate-400">
+                              ({edgeTrafficData.source_type === 'internet' ? 'Internet' : 
+                                edgeTrafficData.source_type === 'security_group' ? 'Security Group' : 'CIDR'})
+                            </span>
+                          )}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-500">Destination:</span>
@@ -594,6 +680,28 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                   </div>
                 )}
                 
+                {/* Expected Exposure */}
+                {edgeTrafficData?.expected_exposure && (
+                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                    <div className="text-xs text-purple-600 font-semibold mb-2">Expected Exposure</div>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Public ALB:</span>
+                        <span className="font-medium text-purple-700">Yes</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Source:</span>
+                        <span className="font-medium text-right max-w-[200px] truncate">{edgeTrafficData.expected_exposure.source}</span>
+                      </div>
+                      {edgeTrafficData.expected_exposure.reason && (
+                        <div className="mt-2 pt-2 border-t border-purple-200 text-xs text-purple-600">
+                          {edgeTrafficData.expected_exposure.reason}
+                        </div>
+                      )}
+                  </div>
+                </div>
+                )}
+                
                 {/* 4. Evidence (VPC Flow Logs) */}
                 {edgeLoading ? (
                   <div className="p-4 bg-slate-50 rounded-lg flex items-center justify-center gap-2">
@@ -601,10 +709,32 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                     <span className="text-sm text-slate-500">Loading traffic data...</span>
                   </div>
                 ) : edgeTrafficData ? (
-                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                    <div className="text-xs text-green-600 font-semibold mb-2 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      ACTUAL TRAFFIC (VPC Flow Logs)
+                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs text-green-600 font-semibold flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        ACTUAL TRAFFIC (VPC Flow Logs)
+                        </div>
+                      <div className="flex items-center gap-1">
+                        {[7, 30, 90].map(days => (
+                          <button
+                            key={days}
+                            onClick={() => {
+                              setObservationDays(days)
+                              if (selectedEdge) {
+                                fetchEdgeTrafficData(selectedEdge)
+                              }
+                            }}
+                            className={`px-2 py-0.5 text-xs rounded ${
+                              (edgeTrafficData.observation_days || observationDays) === days
+                                ? 'bg-green-200 text-green-800 font-semibold'
+                                : 'bg-green-100 text-green-700 hover:bg-green-200'
+                            }`}
+                          >
+                            {days}d
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <div className="space-y-1.5 text-xs">
                       <div className="flex justify-between">
@@ -633,8 +763,8 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                         <div className="flex justify-between">
                           <span className="text-slate-600">Bytes:</span>
                           <span className="font-medium">{(edgeTrafficData.bytes_transferred / 1024 / 1024).toFixed(2)} MB</span>
-                        </div>
-                      )}
+                      </div>
+                    )}
                     </div>
                   </div>
                 ) : (
@@ -652,7 +782,13 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                         ? 'Remove rule — no traffic observed'
                         : edgeTrafficData.recommendation === 'tighten'
                           ? `Restrict source to ${edgeTrafficData.unique_sources.length} observed sources only`
-                          : 'Keep as-is — required by observed traffic'}
+                          : edgeTrafficData.recommendation === 'review'
+                            ? 'Review required — no traffic evidence but internet-exposed'
+                            : edgeTrafficData.total_hits > 0
+                              ? 'Keep as-is — required by observed traffic'
+                              : edgeTrafficData.expected_exposure?.is_public
+                                ? 'Keep as-is — declared public endpoint'
+                                : 'Review required'}
                     </p>
                   </div>
                 )}
