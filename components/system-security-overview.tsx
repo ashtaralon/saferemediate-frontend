@@ -1104,9 +1104,16 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                   </div>
                 </div>
                 {selectedSG.eni_count === 0 && (
-                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-800">
-                    <strong>⚠️ Cannot determine "used vs unused"</strong> - SG not attached to any ENI. 
-                    Only configuration risk assessment is available.
+                  <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-700">
+                    <div className="flex items-start gap-2">
+                      <span className="text-blue-600">ℹ️</span>
+                      <div>
+                        <strong>Traffic Analysis Unavailable</strong> - This security group is not attached to any network interface (ENI). 
+                        <span className="block mt-1 text-blue-600">
+                          ✓ Configuration risk assessment is still available below
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {selectedSG.eni_count > 0 && (
@@ -1216,9 +1223,19 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
                   </div>
                 </>
               ) : (
-                <div className="mb-4 bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-slate-500">
-                  <div className="text-lg mb-1">📊 Least-Privilege Analysis Unavailable</div>
-                  <div className="text-sm">Cannot determine used vs unused rules without ENI attachment and traffic data.</div>
+                <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="text-blue-600 text-2xl">ℹ️</div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-blue-800 mb-1">Traffic-Based Analysis Unavailable</div>
+                      <div className="text-sm text-blue-700">
+                        This security group is not attached to any network interface (ENI), so we cannot analyze actual traffic patterns.
+                      </div>
+                      <div className="text-sm text-blue-600 mt-2 font-medium">
+                        ✓ Configuration risk assessment is available above to identify potential security issues
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
               
