@@ -126,14 +126,30 @@ export function S3PolicyAnalysisModal({
       if (response.ok) {
         const data = await response.json()
         console.log('[S3-Modal] Got data from API:', data)
-        setGapData(data)
+        // Check if it's a not_found response
+        if (data.not_found) {
+          console.log('[S3-Modal] Backend returned not_found flag')
+          setGapData(null)
+        } else {
+          setGapData(data)
+        }
       } else {
-        console.log('[S3-Modal] API not available')
-        throw new Error('S3 gap analysis API not available')
+        // 404 or other error - don't throw, just set empty data
+        console.log(`[S3-Modal] API returned ${response.status}, setting empty data`)
+        setGapData(null)
+        // Only set error for non-404 errors
+        if (response.status !== 404) {
+          setError(`S3 gap analysis not available (${response.status})`)
+        }
       }
     } catch (err: any) {
       console.error('[S3-Modal] Error:', err)
-      setError(err.message || 'Failed to fetch gap analysis')
+      // Don't set error on 404 - just show empty state
+      if (!err.message?.includes('404')) {
+        setError(err.message || 'Failed to fetch gap analysis')
+      } else {
+        setGapData(null)
+      }
     } finally {
       setLoading(false)
     }

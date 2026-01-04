@@ -4,9 +4,9 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediat
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { bucketName: string } }
+  { params }: { params: Promise<{ bucketName: string }> }
 ) {
-  const bucketName = params.bucketName
+  const { bucketName } = await params
   const searchParams = request.nextUrl.searchParams
   const days = searchParams.get('days') || '90'
   
@@ -25,6 +25,21 @@ export async function GET(
     )
     
     if (!response.ok) {
+      // For 404, return empty data instead of error to prevent UI crashes
+      if (response.status === 404) {
+        console.log('[Proxy] Backend returned 404, returning empty data')
+        return NextResponse.json({
+          bucket_name: bucketName,
+          allowed_actions: 0,
+          used_actions: 0,
+          unused_actions: 0,
+          allowed_count: 0,
+          used_count: 0,
+          unused_count: 0,
+          not_found: true
+        }, { status: 200 })
+      }
+      
       const errorText = await response.text()
       console.error('[Proxy] Backend error:', response.status, errorText)
       return NextResponse.json(

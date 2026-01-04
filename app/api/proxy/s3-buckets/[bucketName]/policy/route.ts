@@ -4,9 +4,9 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediat
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { bucketName: string } }
+  { params }: { params: Promise<{ bucketName: string }> }
 ) {
-  const bucketName = params.bucketName
+  const { bucketName } = await params
   
   console.log('[Proxy] GET /api/proxy/s3-buckets/' + bucketName + '/policy')
   
@@ -23,6 +23,12 @@ export async function GET(
     )
     
     if (!response.ok) {
+      // For 404, return null instead of error to prevent UI crashes
+      if (response.status === 404) {
+        console.log('[Proxy] Backend returned 404 for policy, returning null')
+        return NextResponse.json(null, { status: 200 })
+      }
+      
       const errorText = await response.text()
       console.error('[Proxy] Backend error:', response.status, errorText)
       return NextResponse.json(

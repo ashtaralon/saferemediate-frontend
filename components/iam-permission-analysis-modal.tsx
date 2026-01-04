@@ -100,20 +100,52 @@ export function IAMPermissionAnalysisModal({
       
       const rawData = await response.json()
       console.log('[IAM-Modal] Raw API data:', rawData)
+      console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
+      console.log('[IAM-Modal] Raw data summary:', rawData.summary)
+      console.log('[IAM-Modal] Raw data allowed_count:', rawData.allowed_count)
+      console.log('[IAM-Modal] Raw data used_count:', rawData.used_count)
+      console.log('[IAM-Modal] Raw data used_permissions:', rawData.used_permissions?.length || 0)
+      console.log('[IAM-Modal] Raw data unused_permissions:', rawData.unused_permissions?.length || 0)
       
       // Map API response (snake_case, flat) to expected format (nested summary)
       // API returns: allowed_count, used_count, unused_count, used_permissions[], unused_permissions[]
       // Modal expects: summary.total_permissions, summary.used_count, permissions_analysis[]
+      
+      // Try multiple field name variations
+      const allowedCount = rawData.summary?.total_permissions ?? 
+                          rawData.summary?.allowed_count ?? 
+                          rawData.allowed_count ?? 
+                          rawData.allowed_actions ?? 
+                          (rawData.allowed_actions_list?.length || 0) ?? 0
+      
+      const usedCount = rawData.summary?.used_count ?? 
+                       rawData.used_count ?? 
+                       rawData.used_actions ?? 
+                       (rawData.used_actions_list?.length || 0) ?? 0
+      
+      const unusedCount = rawData.summary?.unused_count ?? 
+                         rawData.unused_count ?? 
+                         rawData.unused_actions ?? 
+                         (rawData.unused_actions_list?.length || 0) ?? 0
+      
+      const usedPerms = rawData.used_permissions || 
+                       rawData.summary?.used_permissions || 
+                       rawData.used_actions_list || 
+                       []
+      
+      const unusedPerms = rawData.unused_permissions || 
+                         rawData.summary?.unused_permissions || 
+                         rawData.unused_actions_list || 
+                         []
       
       const mappedData: GapAnalysisData = {
         role_name: rawData.role_name || roleName,
         role_arn: rawData.role_arn,
         observation_days: rawData.observation_days || 90,
         summary: {
-          // Support both nested summary and flat structure
-          total_permissions: rawData.summary?.total_permissions ?? rawData.allowed_count ?? 0,
-          used_count: rawData.summary?.used_count ?? rawData.used_count ?? 0,
-          unused_count: rawData.summary?.unused_count ?? rawData.unused_count ?? 0,
+          total_permissions: allowedCount,
+          used_count: usedCount,
+          unused_count: unusedCount,
           lp_score: rawData.summary?.lp_score ?? rawData.lp_score ?? 0,
           overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
           cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
@@ -121,14 +153,14 @@ export function IAMPermissionAnalysisModal({
         },
         // Build permissions_analysis from used_permissions and unused_permissions arrays
         permissions_analysis: [
-          ...(rawData.used_permissions || rawData.summary?.used_permissions || []).map((p: string) => ({
+          ...(Array.isArray(usedPerms) ? usedPerms : []).map((p: string) => ({
             permission: p,
             status: 'USED' as const,
             risk_level: 'LOW' as const,
             recommendation: 'Keep this permission',
             usage_count: 1
           })),
-          ...(rawData.unused_permissions || rawData.summary?.unused_permissions || []).map((p: string) => ({
+          ...(Array.isArray(unusedPerms) ? unusedPerms : []).map((p: string) => ({
             permission: p,
             status: 'UNUSED' as const,
             risk_level: (rawData.high_risk_unused || []).includes(p) ? 'HIGH' as const : 'MEDIUM' as const,
@@ -136,8 +168,8 @@ export function IAMPermissionAnalysisModal({
             usage_count: 0
           }))
         ],
-        used_permissions: rawData.used_permissions || rawData.summary?.used_permissions || [],
-        unused_permissions: rawData.unused_permissions || rawData.summary?.unused_permissions || [],
+        used_permissions: Array.isArray(usedPerms) ? usedPerms : [],
+        unused_permissions: Array.isArray(unusedPerms) ? unusedPerms : [],
         high_risk_unused: rawData.high_risk_unused || [],
         confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
         dependency_context: rawData.dependency_context
@@ -147,7 +179,9 @@ export function IAMPermissionAnalysisModal({
         total: mappedData.summary.total_permissions,
         used: mappedData.summary.used_count,
         unused: mappedData.summary.unused_count,
-        permissions_analysis_count: mappedData.permissions_analysis.length
+        permissions_analysis_count: mappedData.permissions_analysis.length,
+        used_perms_count: mappedData.used_permissions.length,
+        unused_perms_count: mappedData.unused_permissions.length
       })
       
       setGapData(mappedData)
