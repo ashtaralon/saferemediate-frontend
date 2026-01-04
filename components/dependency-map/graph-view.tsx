@@ -758,7 +758,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                       <div className="flex justify-between">
                         <span className="text-slate-600">Window:</span>
                         <span className="font-medium">Last {edgeTrafficData.observation_days || observationDays} days</span>
-                      </div>
+                    </div>
                       {edgeTrafficData.bytes_transferred > 0 && (
                         <div className="flex justify-between">
                           <span className="text-slate-600">Bytes:</span>
@@ -808,11 +808,17 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                       Simulate
                     </button>
                     <button 
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition"
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition ${
+                        false // TODO: Check if simulation completed
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                      }`}
+                      disabled={true} // TODO: Enable after simulation
                       onClick={() => {
                         // TODO: Wire to remediation endpoint
                         console.log('Apply remediation for edge:', selectedEdge.id)
                       }}
+                      title={false ? 'Apply remediation' : 'Simulate first before applying'}
                     >
                       <CheckCircle className="w-3 h-3" />
                       Apply
