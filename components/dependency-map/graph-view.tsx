@@ -389,14 +389,15 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     ;(graphData.nodes || []).forEach((n: any) => {
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
       nodeIds.add(n.id)
-      const nodeName = (n.name || n.id).substring(0, 15)
+      const nodeName = (n.name || n.id).substring(0, 12)
       const serviceType = formatServiceType(n.type || 'Service')
-      // Label format: "Name\nType"
+      // Label format: "Name (Type)" - single line since Cytoscape doesn't support multi-line
+      const label = `${nodeName}\n(${serviceType})`
       elements.push({
         group: 'nodes',
         data: { 
           id: n.id, 
-          label: `${nodeName}\n${serviceType}`, 
+          label: label, 
           type: n.type, 
           lpScore: n.lpScore,
           name: n.name || n.id,
@@ -425,12 +426,12 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         { selector: 'node', style: {
           'label': 'data(label)', 
           'text-valign': 'bottom', 
-          'text-margin-y': 10,
+          'text-margin-y': 14,
           'text-halign': 'center',
           'font-size': '9px', 
-          'font-weight': '500',
-          'width': 48, 
-          'height': 48, 
+          'font-weight': '600',
+          'width': 60, 
+          'height': 60, 
           'border-width': 2,
           'background-color': '#ffffff', 
           'border-color': '#cbd5e1',
@@ -438,10 +439,14 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           'background-clip': 'node',
           'shape': 'round-rectangle',
           'text-wrap': 'wrap',
-          'text-max-width': '60px',
-          'color': '#1f2937',
+          'text-max-width': '80px',
+          'color': '#111827',
           'text-outline-color': '#ffffff',
-          'text-outline-width': 2,
+          'text-outline-width': 3,
+          'text-background-color': '#ffffff',
+          'text-background-opacity': 0.85,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle',
         }},
         ...Object.entries(COLORS).map(([t, c]) => {
           const icon = AWS_ICONS[t] || AWS_ICONS.Service
@@ -453,8 +458,8 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
               'background-image': icon,
               'background-opacity': 1,
               'shape': SHAPES[t] || 'round-rectangle',
-              'width': 48,
-              'height': 48,
+              'width': 60,
+              'height': 60,
             } as any
           }
         }),
