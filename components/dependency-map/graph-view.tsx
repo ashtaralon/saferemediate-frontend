@@ -16,17 +16,70 @@ if (typeof window !== 'undefined') {
   try { cytoscape.use(coseBilkent) } catch (e) {}
 }
 
+// AWS-style colors matching official AWS icons
 const COLORS: Record<string, string> = {
-  IAMRole: '#8b5cf6', SecurityGroup: '#f97316', S3Bucket: '#06b6d4',
-  EC2: '#10b981', Lambda: '#10b981', RDS: '#6366f1',
-  Internet: '#ef4444', External: '#ef4444', Service: '#3b82f6',
-  User: '#ec4899', Role: '#8b5cf6',
+  IAMRole: '#759C3E', // AWS IAM green
+  SecurityGroup: '#7B2FBE', // AWS VPC purple
+  S3Bucket: '#759C3E', // AWS S3 green
+  EC2: '#F58536', // AWS EC2 orange
+  Lambda: '#F58536', // AWS Lambda orange
+  RDS: '#3F48CC', // AWS RDS blue
+  DynamoDB: '#3F48CC', // AWS DynamoDB blue
+  Internet: '#D13212', // AWS Internet red
+  External: '#D13212',
+  Service: '#3B82F6',
+  User: '#759C3E',
+  Role: '#759C3E',
+  VPC: '#7B2FBE',
+  CloudWatch: '#F58536',
+  CloudTrail: '#759C3E',
+}
+
+// AWS-style SVG icons as data URIs
+const AWS_ICONS: Record<string, string> = {
+  // EC2 - Orange square with server icon
+  EC2: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#F58536" rx="4"/><path d="M12 14h24v20H12V14zm2 2v16h20V16H14zm2 2h16v2H16v-2zm0 4h16v2H16v-2zm0 4h12v2H16v-2z" fill="white"/></svg>`)}`,
+  
+  // Lambda - Orange square with lambda symbol (λ)
+  Lambda: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#F58536" rx="4"/><text x="24" y="32" font-family="Arial" font-size="28" font-weight="bold" fill="white" text-anchor="middle">λ</text></svg>`)}`,
+  
+  // S3 - Green square with bucket icon
+  S3Bucket: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#759C3E" rx="4"/><path d="M12 18c0-2 2-4 4-4h16c2 0 4 2 4 4v2H12v-2zm0 4v8c0 2 2 4 4 4h16c2 0 4-2 4-4v-8H12zm2 2h20v6c0 1-1 2-2 2H16c-1 0-2-1-2-2v-6z" fill="white"/></svg>`)}`,
+  
+  // IAM Role - Green square with key/shield icon
+  IAMRole: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#759C3E" rx="4"/><path d="M24 12c-4 0-7 3-7 7v3h-3v6h6v-6h2v6h6v-6h-2v-3c0-4-3-7-7-7zm0 2c3 0 5 2 5 5v3h-10v-3c0-3 2-5 5-5z" fill="white"/></svg>`)}`,
+  
+  // Security Group - Purple square with shield icon
+  SecurityGroup: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#7B2FBE" rx="4"/><path d="M24 10l-8 4v8c0 5 4 9 8 10 4-1 8-5 8-10v-8l-8-4zm0 2l6 3v7c0 4-3 7-6 8-3-1-6-4-6-8v-7l6-3z" fill="white"/></svg>`)}`,
+  
+  // RDS - Blue square with database cylinder
+  RDS: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#3F48CC" rx="4"/><ellipse cx="24" cy="16" rx="8" ry="3" fill="white" opacity="0.8"/><rect x="16" y="16" width="16" height="16" fill="white" opacity="0.6"/><ellipse cx="24" cy="32" rx="8" ry="3" fill="white"/></svg>`)}`,
+  
+  // DynamoDB - Blue square with lightning bolt over database
+  DynamoDB: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#3F48CC" rx="4"/><ellipse cx="24" cy="16" rx="8" ry="3" fill="white" opacity="0.8"/><rect x="16" y="16" width="16" height="16" fill="white" opacity="0.6"/><ellipse cx="24" cy="32" rx="8" ry="3" fill="white"/><path d="M20 20l8 4-4 4 8-8-8-4 4-4-8 8z" fill="#FFD700"/></svg>`)}`,
+  
+  // Internet - Red diamond
+  Internet: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path d="M24 4l20 20-20 20L4 24z" fill="#D13212"/><circle cx="24" cy="24" r="8" fill="white"/></svg>`)}`,
+  
+  // VPC - Purple square with cloud
+  VPC: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#7B2FBE" rx="4"/><path d="M16 20c-2 0-4 2-4 4s2 4 4 4h2v2h12v-2h2c2 0 4-2 4-4s-2-4-4-4h-2v-2H18v2h-2zm0 2h2v2h-2v-2zm14 0h2v2h-2v-2z" fill="white"/></svg>`)}`,
+  
+  // Default service icon
+  Service: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" fill="#3B82F6" rx="4"/><rect x="12" y="12" width="24" height="24" rx="2" fill="white" opacity="0.8"/></svg>`)}`,
 }
 
 const SHAPES: Record<string, string> = {
-  IAMRole: 'hexagon', SecurityGroup: 'octagon', S3Bucket: 'barrel',
-  EC2: 'ellipse', Lambda: 'ellipse', RDS: 'round-diamond',
-  Internet: 'diamond', External: 'diamond', Service: 'round-rectangle',
+  IAMRole: 'round-rectangle', 
+  SecurityGroup: 'round-rectangle', 
+  S3Bucket: 'round-rectangle',
+  EC2: 'round-rectangle', 
+  Lambda: 'round-rectangle', 
+  RDS: 'round-rectangle',
+  DynamoDB: 'round-rectangle',
+  Internet: 'diamond', 
+  External: 'diamond', 
+  Service: 'round-rectangle',
+  VPC: 'round-rectangle',
 }
 
 interface EdgeTrafficData {
@@ -342,13 +395,26 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       style: [
         { selector: 'node', style: {
           'label': 'data(label)', 'text-valign': 'bottom', 'text-margin-y': 8,
-          'font-size': '10px', 'width': 40, 'height': 40, 'border-width': 3,
-          'background-color': '#6b7280', 'border-color': '#6b7280',
+          'font-size': '10px', 'width': 48, 'height': 48, 'border-width': 2,
+          'background-color': '#ffffff', 'border-color': '#cbd5e1',
+          'background-fit': 'cover', 'background-clip': 'node',
+          'shape': 'round-rectangle',
         }},
-        ...Object.entries(COLORS).map(([t, c]) => ({
+        ...Object.entries(COLORS).map(([t, c]) => {
+          const icon = AWS_ICONS[t] || AWS_ICONS.Service
+          return {
           selector: `node[type="${t}"]`,
-          style: { 'background-color': c, 'border-color': c, 'shape': SHAPES[t] || 'ellipse' } as any
-        })),
+            style: { 
+              'background-color': c, 
+              'border-color': c, 
+              'background-image': icon,
+              'background-opacity': 1,
+              'shape': SHAPES[t] || 'round-rectangle',
+              'width': 48,
+              'height': 48,
+            } as any
+          }
+        }),
         { selector: 'node[lpScore < 50]', style: { 'border-color': '#dc2626', 'border-width': 4 }},
         { selector: 'node[lpScore >= 50][lpScore < 80]', style: { 'border-color': '#f59e0b' }},
         { selector: 'node[lpScore >= 80]', style: { 'border-color': '#10b981' }},
@@ -495,11 +561,23 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             {selectedNode && (
               <div>
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white" style={{ backgroundColor: COLORS[selectedNode.type] || '#6b7280' }}>
-                    {selectedNode.type === 'IAMRole' && <Key className="w-5 h-5" />}
-                    {selectedNode.type === 'SecurityGroup' && <Shield className="w-5 h-5" />}
-                    {selectedNode.type === 'S3Bucket' && <Database className="w-5 h-5" />}
-                    {!['IAMRole', 'SecurityGroup', 'S3Bucket'].includes(selectedNode.type) && <Layers className="w-5 h-5" />}
+                  <div 
+                    className="w-10 h-10 rounded-lg flex items-center justify-center"
+                    style={{ 
+                      backgroundColor: COLORS[selectedNode.type] || '#6b7280',
+                      backgroundImage: AWS_ICONS[selectedNode.type] || AWS_ICONS.Service,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  >
+                    {!AWS_ICONS[selectedNode.type] && (
+                      <>
+                        {selectedNode.type === 'IAMRole' && <Key className="w-5 h-5 text-white" />}
+                        {selectedNode.type === 'SecurityGroup' && <Shield className="w-5 h-5 text-white" />}
+                        {selectedNode.type === 'S3Bucket' && <Database className="w-5 h-5 text-white" />}
+                        {!['IAMRole', 'SecurityGroup', 'S3Bucket'].includes(selectedNode.type) && <Layers className="w-5 h-5 text-white" />}
+                      </>
+                    )}
                   </div>
                   <div>
                     <h3 className="font-semibold">{selectedNode.name || selectedNode.id}</h3>
