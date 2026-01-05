@@ -368,12 +368,41 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       nodeIds.add('Internet')
     }
     
+    // Helper function to format service type names
+    const formatServiceType = (type: string): string => {
+      const typeMap: Record<string, string> = {
+        'IAMRole': 'IAM Role',
+        'SecurityGroup': 'Security Group',
+        'S3Bucket': 'S3 Bucket',
+        'EC2': 'EC2',
+        'Lambda': 'Lambda',
+        'RDS': 'RDS',
+        'DynamoDB': 'DynamoDB',
+        'Internet': 'Internet',
+        'VPC': 'VPC',
+        'CloudWatch': 'CloudWatch',
+        'CloudTrail': 'CloudTrail',
+      }
+      return typeMap[type] || type
+    }
+    
     ;(graphData.nodes || []).forEach((n: any) => {
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
       nodeIds.add(n.id)
+      const nodeName = (n.name || n.id).substring(0, 15)
+      const serviceType = formatServiceType(n.type || 'Service')
+      // Label format: "Name\nType"
       elements.push({
         group: 'nodes',
-        data: { id: n.id, label: (n.name || n.id).substring(0, 18), type: n.type, lpScore: n.lpScore, ...n }
+        data: { 
+          id: n.id, 
+          label: `${nodeName}\n${serviceType}`, 
+          type: n.type, 
+          lpScore: n.lpScore,
+          name: n.name || n.id,
+          serviceType: serviceType,
+          ...n 
+        }
       })
     })
     
@@ -394,11 +423,25 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       elements,
       style: [
         { selector: 'node', style: {
-          'label': 'data(label)', 'text-valign': 'bottom', 'text-margin-y': 8,
-          'font-size': '10px', 'width': 48, 'height': 48, 'border-width': 2,
-          'background-color': '#ffffff', 'border-color': '#cbd5e1',
-          'background-fit': 'cover', 'background-clip': 'node',
+          'label': 'data(label)', 
+          'text-valign': 'bottom', 
+          'text-margin-y': 10,
+          'text-halign': 'center',
+          'font-size': '9px', 
+          'font-weight': '500',
+          'width': 48, 
+          'height': 48, 
+          'border-width': 2,
+          'background-color': '#ffffff', 
+          'border-color': '#cbd5e1',
+          'background-fit': 'cover', 
+          'background-clip': 'node',
           'shape': 'round-rectangle',
+          'text-wrap': 'wrap',
+          'text-max-width': '60px',
+          'color': '#1f2937',
+          'text-outline-color': '#ffffff',
+          'text-outline-width': 2,
         }},
         ...Object.entries(COLORS).map(([t, c]) => {
           const icon = AWS_ICONS[t] || AWS_ICONS.Service
