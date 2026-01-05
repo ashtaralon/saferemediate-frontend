@@ -389,10 +389,10 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     ;(graphData.nodes || []).forEach((n: any) => {
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
       nodeIds.add(n.id)
-      const nodeName = (n.name || n.id).substring(0, 12)
+      const nodeName = (n.name || n.id).substring(0, 14)
       const serviceType = formatServiceType(n.type || 'Service')
-      // Label format: "Name (Type)" - single line since Cytoscape doesn't support multi-line
-      const label = `${nodeName}\n(${serviceType})`
+      // Label format: "Name (Type)" - single line with type in parentheses
+      const label = `${nodeName} (${serviceType})`
       elements.push({
         group: 'nodes',
         data: { 
