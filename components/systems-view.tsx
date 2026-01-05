@@ -89,9 +89,11 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         const gapJson = await res.json()
         
         // The proxy already transforms field names
-        const allowed = gapJson.allowed_actions || gapJson.allowed_count || 0
-        const used = gapJson.used_actions || gapJson.used_count || 0
-        const unused = gapJson.unused_actions || gapJson.unused_count || (allowed - used)
+        // Backend returns: allowed_count, used_count, unused_count
+        // Also check for allowed_actions, used_actions, unused_actions (backwards compat)
+        const allowed = gapJson.allowed_count ?? gapJson.allowed_actions ?? 0
+        const used = gapJson.used_count ?? gapJson.used_actions ?? 0
+        const unused = gapJson.unused_count ?? gapJson.unused_actions ?? (allowed - used)
         
         setGapData({
           allowed: allowed,
@@ -99,7 +101,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           unused: unused,
         })
         
-        console.log("[systems-view] Gap Analysis:", { allowed, used, unused })
+        console.log("[systems-view] Gap Analysis:", { allowed, used, unused, raw: gapJson })
       } else {
         console.warn(`[systems-view] Gap analysis returned ${res.status}`)
       }
