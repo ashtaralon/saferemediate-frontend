@@ -624,7 +624,13 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                   </div>
                   <div>
                     <h3 className="font-semibold">{selectedNode.name || selectedNode.id}</h3>
-                    <p className="text-sm text-slate-500">{selectedNode.type}</p>
+                    <p className="text-sm text-slate-500 font-medium">
+                      {selectedNode.serviceType || 
+                       (selectedNode.type === 'IAMRole' ? 'IAM Role' :
+                        selectedNode.type === 'SecurityGroup' ? 'Security Group' :
+                        selectedNode.type === 'S3Bucket' ? 'S3 Bucket' :
+                        selectedNode.type || 'Service')}
+                    </p>
                   </div>
                 </div>
                 
