@@ -161,7 +161,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     lastSync: "Awaiting connection",
   })
   const [triggeringAutoTag, setTriggeringAutoTag] = useState(false)
-
+  const [autoTaggerResult, setAutoTaggerResult] = useState<any>(null)
+  const [autoTaggerLoading, setAutoTaggerLoading] = useState(false)
+  const [showAutoTaggerResult, setShowAutoTaggerResult] = useState(false)
 
   // =============================================================================
   // TAG ALL STATE
@@ -365,6 +367,53 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const removeCustomTag = (index: number) => {
     setCustomTags(customTags.filter((_, i) => i !== index))
+  }
+
+  // =============================================================================
+  // MANUAL AUTO-TAGGER HANDLER
+  // =============================================================================
+  const handleManualAutoTag = async () => {
+    try {
+      setAutoTaggerLoading(true)
+      setAutoTaggerResult(null)
+      
+      console.log('[SystemDetail] Triggering manual auto-tagger...')
+      
+      const response = await fetch("/api/proxy/auto-tagger/run-once", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        const errData = await response.json()
+        throw new Error(errData.error || `HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      console.log('[SystemDetail] Auto-tagger result:', data)
+      
+      setAutoTaggerResult(data)
+      setShowAutoTaggerResult(true)
+      
+      // Refresh data after tagging
+      if (data.success && data.tagged > 0) {
+        setTimeout(() => {
+          window.location.reload() // Simple refresh to show new tags
+        }, 2000)
+      }
+    } catch (err: any) {
+      console.error("Error triggering auto-tagger:", err)
+      setAutoTaggerResult({ 
+        success: false, 
+        error: err.message,
+        tagged: 0 
+      })
+      setShowAutoTaggerResult(true)
+    } finally {
+      setAutoTaggerLoading(false)
+    }
   }
 
   // =============================================================================
@@ -581,9 +630,22 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 Tag All Resources
               </button>
 
-              <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-                <Download className="w-4 h-4" />
-                Generate Report
+              <button
+                onClick={handleManualAutoTag}
+                disabled={autoTaggerLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                {autoTaggerLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Tagging...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    Auto-Tag Connected Resources
+                  </>
+                )}
               </button>
               <button className="flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] transition-colors">
                 <Calendar className="w-4 h-4" />
@@ -1446,6 +1508,111 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     )}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Tagger Result Modal */}
+      {showAutoTaggerResult && autoTaggerResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowAutoTaggerResult(false)}>
+          <div 
+            className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`px-6 py-4 ${autoTaggerResult.success ? 'bg-green-600' : 'bg-red-600'}`}>
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  {autoTaggerResult.success ? (
+                    <>
+                      <CheckCircle className="w-5 h-5" />
+                      Auto-Tagging Complete
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-5 h-5" />
+                      Auto-Tagging Failed
+                    </>
+                  )}
+                </h2>
+                <button
+                  onClick={() => setShowAutoTaggerResult(false)}
+                  className="text-white hover:text-gray-200 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {autoTaggerResult.success ? (
+                <div className="space-y-4">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Resources Tagged</span>
+                      <span className="text-2xl font-bold text-green-600">{autoTaggerResult.tagged || autoTaggerResult.propagated || 0}</span>
+                    </div>
+                    {autoTaggerResult.forward_propagated !== undefined && (
+                      <div className="text-xs text-gray-600 mt-2">
+                        Forward: {autoTaggerResult.forward_propagated} • Backward: {autoTaggerResult.backward_propagated || 0}
+                      </div>
+                    )}
+                  </div>
+
+                  {autoTaggerResult.tagged_resources && autoTaggerResult.tagged_resources.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Tagged Resources:</h3>
+                      <div className="max-h-60 overflow-y-auto space-y-1">
+                        {autoTaggerResult.tagged_resources.slice(0, 10).map((resource: any, idx: number) => (
+                          <div key={idx} className="text-xs bg-gray-50 p-2 rounded border">
+                            <span className="font-medium">{resource.resource}</span>
+                            <span className="text-gray-500 ml-2">({resource.resource_type || 'Unknown'})</span>
+                            <div className="text-gray-400 text-xs mt-1">
+                              → {resource.system} (from {resource.tagged_from})
+                            </div>
+                          </div>
+                        ))}
+                        {autoTaggerResult.tagged_resources.length > 10 && (
+                          <div className="text-xs text-gray-500 text-center py-2">
+                            +{autoTaggerResult.tagged_resources.length - 10} more resources
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {autoTaggerResult.cross_system_dependencies && autoTaggerResult.cross_system_dependencies.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Cross-System Dependencies Found:</h3>
+                      <div className="text-xs text-gray-600">
+                        {autoTaggerResult.cross_system_dependencies.length} dependencies detected (not tagged)
+                      </div>
+                    </div>
+                  )}
+
+                  {autoTaggerResult.duration_ms && (
+                    <div className="text-xs text-gray-500 text-center pt-2 border-t">
+                      Completed in {autoTaggerResult.duration_ms}ms
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-red-800 font-medium">Error: {autoTaggerResult.error}</p>
+                  <p className="text-sm text-red-600 mt-2">
+                    The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowAutoTaggerResult(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

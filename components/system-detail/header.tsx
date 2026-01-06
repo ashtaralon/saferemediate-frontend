@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeft, Download, Calendar, AlertTriangle, Tag } from "lucide-react"
+import { ArrowLeft, Download, Calendar, AlertTriangle, Tag, Zap, RefreshCw } from "lucide-react"
 import type { SeverityCounts } from "./types"
 
 interface HeaderProps {
@@ -8,9 +8,11 @@ interface HeaderProps {
   severityCounts: SeverityCounts
   onBack: () => void
   onTagAll: () => void
+  onAutoTag?: () => void
+  autoTagLoading?: boolean
 }
 
-export function Header({ systemName, severityCounts, onBack, onTagAll }: HeaderProps) {
+export function Header({ systemName, severityCounts, onBack, onTagAll, onAutoTag, autoTagLoading }: HeaderProps) {
   return (
     <div className="bg-white border-b border-gray-200 px-6 py-4">
       <div className="max-w-[1800px] mx-auto px-8 py-6">
@@ -53,10 +55,25 @@ export function Header({ systemName, severityCounts, onBack, onTagAll }: HeaderP
               <Tag className="w-4 h-4" />
               Tag All Resources
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-              <Download className="w-4 h-4" />
-              Generate Report
-            </button>
+            {onAutoTag && (
+              <button
+                onClick={onAutoTag}
+                disabled={autoTagLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                {autoTagLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Tagging...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    Auto-Tag Connected
+                  </>
+                )}
+              </button>
+            )}
             <button className="flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] transition-colors">
               <Calendar className="w-4 h-4" />
               Schedule Maintenance
