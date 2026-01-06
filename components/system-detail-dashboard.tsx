@@ -164,6 +164,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [autoTaggerResult, setAutoTaggerResult] = useState<any>(null)
   const [autoTaggerLoading, setAutoTaggerLoading] = useState(false)
   const [showAutoTaggerResult, setShowAutoTaggerResult] = useState(false)
+  const [autoTaggerDiagnostic, setAutoTaggerDiagnostic] = useState<any>(null)
 
   // =============================================================================
   // TAG ALL STATE
@@ -370,6 +371,22 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   // =============================================================================
+  // AUTO-TAGGER DIAGNOSTIC
+  // =============================================================================
+  const fetchAutoTaggerDiagnostic = async () => {
+    try {
+      const response = await fetch("/api/proxy/auto-tagger/diagnostic")
+      if (response.ok) {
+        const data = await response.json()
+        setAutoTaggerDiagnostic(data)
+        console.log('[SystemDetail] Auto-tagger diagnostic:', data)
+      }
+    } catch (err) {
+      console.error("Error fetching diagnostic:", err)
+    }
+  }
+
+  // =============================================================================
   // MANUAL AUTO-TAGGER HANDLER
   // =============================================================================
   const handleManualAutoTag = async () => {
@@ -408,6 +425,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       
       setAutoTaggerResult(data)
       setShowAutoTaggerResult(true)
+      
+      // Fetch diagnostic info to help debug
+      await fetchAutoTaggerDiagnostic()
       
       // Refresh data after tagging
       if (data.success && data.tagged > 0) {
@@ -1606,6 +1626,47 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   {autoTaggerResult.duration_ms && (
                     <div className="text-xs text-gray-500 text-center pt-2 border-t">
                       Completed in {autoTaggerResult.duration_ms}ms
+                    </div>
+                  )}
+
+                  {autoTaggerDiagnostic && (
+                    <div className="mt-4 pt-4 border-t">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Diagnostic Info:</h3>
+                      <div className="text-xs space-y-1 text-gray-600">
+                        <p>Tagged resources: {autoTaggerDiagnostic.tagged_count}</p>
+                        <p>Untagged resources: {autoTaggerDiagnostic.untagged_count}</p>
+                        <p>Potential connections: {autoTaggerDiagnostic.potential_connections || 0}</p>
+                        {autoTaggerDiagnostic.relationships && autoTaggerDiagnostic.relationships.length > 0 && (
+                          <div className="mt-2">
+                            <p className="font-medium">Found relationships:</p>
+                            {autoTaggerDiagnostic.relationships.slice(0, 5).map((rel: any, idx: number) => (
+                              <p key={idx} className="ml-2">
+                                • {rel.from} → {rel.to} ({rel.type})
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {autoTaggerDiagnostic.specific_resources && autoTaggerDiagnostic.specific_resources.length > 0 && (
+                          <div className="mt-2">
+                            <p className="font-medium">Your resources:</p>
+                            {autoTaggerDiagnostic.specific_resources.map((res: any, idx: number) => (
+                              <p key={idx} className="ml-2">
+                                • {res.name} - SystemName: {res.systemName || res.SystemName || 'None'}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {autoTaggerDiagnostic.traffic_relationships && autoTaggerDiagnostic.traffic_relationships.length > 0 && (
+                          <div className="mt-2">
+                            <p className="font-medium">ACTUAL_TRAFFIC relationships:</p>
+                            {autoTaggerDiagnostic.traffic_relationships.map((rel: any, idx: number) => (
+                              <p key={idx} className="ml-2">
+                                • {rel.from} → {rel.to} (port: {rel.port || 'N/A'})
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
