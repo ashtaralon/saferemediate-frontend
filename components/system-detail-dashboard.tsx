@@ -1687,16 +1687,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             ))}
                           </div>
                         )}
+                      {autoTaggerDiagnostic.potential_connections === 0 && (
+                        <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                          <p className="font-medium text-yellow-800">⚠️ No relationships found!</p>
+                          <p className="text-yellow-700 mt-1">
+                            This means either:
+                            <br />• No ACTUAL_TRAFFIC relationships exist (need to ingest VPC Flow Logs)
+                            <br />• All resources are already tagged
+                            <br />• Resources don't have the right labels in Neo4j
+                          </p>
+                        </div>
+                      )}
                       </div>
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-red-800 font-medium">Error: {autoTaggerResult.error}</p>
-                  <p className="text-sm text-red-600 mt-2">
-                    The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.
-                  </p>
                 </div>
               )}
 
