@@ -1194,7 +1194,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 </div>
               )}
                 </>
-              ) : (
+              ) : activeTab === 'iam' ? (
                 /* IAM Overview Tab */
                 <div className="space-y-6">
                   {iamLoading ? (
