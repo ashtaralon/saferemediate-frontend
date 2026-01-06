@@ -1687,22 +1687,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             ))}
                           </div>
                         )}
-                      {autoTaggerDiagnostic.potential_connections === 0 && (
-                        <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
-                          <p className="font-medium text-yellow-800">⚠️ No relationships found!</p>
-                          <p className="text-yellow-700 mt-1">
-                            This means either:
-                            <br />• No ACTUAL_TRAFFIC relationships exist (need to ingest VPC Flow Logs)
-                            <br />• All resources are already tagged
-                            <br />• Resources don't have the right labels in Neo4j
-                          </p>
-                        </div>
-                      )}
+                        {autoTaggerDiagnostic.potential_connections === 0 && (
+                          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                            <p className="font-medium text-yellow-800">⚠️ No relationships found!</p>
+                            <p className="text-yellow-700 mt-1">
+                              This means either:
+                              <br />• No ACTUAL_TRAFFIC relationships exist (need to ingest VPC Flow Logs)
+                              <br />• All resources are already tagged
+                              <br />• Resources don't have the right labels in Neo4j
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                  </div>
+                )}
 
               <div className="flex justify-end mt-6">
                 <button
