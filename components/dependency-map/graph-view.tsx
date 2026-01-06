@@ -372,27 +372,36 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     const formatServiceType = (type: string): string => {
       const typeMap: Record<string, string> = {
         'IAMRole': 'IAM Role',
+        'IAMPolicy': 'IAM Policy',
+        'IAMUser': 'IAM User',
         'SecurityGroup': 'Security Group',
         'S3Bucket': 'S3 Bucket',
         'EC2': 'EC2',
+        'EC2Instance': 'EC2',
         'Lambda': 'Lambda',
+        'LambdaFunction': 'Lambda',
         'RDS': 'RDS',
+        'RDSInstance': 'RDS',
         'DynamoDB': 'DynamoDB',
+        'DynamoDBTable': 'DynamoDB',
         'Internet': 'Internet',
         'VPC': 'VPC',
         'CloudWatch': 'CloudWatch',
         'CloudTrail': 'CloudTrail',
+        'Subnet': 'Subnet',
+        'InternetGateway': 'IGW',
+        'CloudWatchLogGroup': 'CloudWatch',
       }
-      return typeMap[type] || type
+      return typeMap[type] || type || 'Service'
     }
     
     ;(graphData.nodes || []).forEach((n: any) => {
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
       nodeIds.add(n.id)
-      const nodeName = (n.name || n.id).substring(0, 14)
+      const nodeName = (n.name || n.id)
       const serviceType = formatServiceType(n.type || 'Service')
-      // Label format: "Name (Type)" - single line with type in parentheses
-      const label = `${nodeName} (${serviceType})`
+      // Label format: "Name\nType" - two lines for better visibility
+      const label = `${nodeName}\n${serviceType}`
       elements.push({
         group: 'nodes',
         data: { 
@@ -425,13 +434,12 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       style: [
         { selector: 'node', style: {
           'label': 'data(label)', 
-          'text-valign': 'bottom', 
-          'text-margin-y': 14,
+          'text-valign': 'center', 
           'text-halign': 'center',
-          'font-size': '9px', 
+          'font-size': '10px', 
           'font-weight': '600',
-          'width': 60, 
-          'height': 60, 
+          'width': 70, 
+          'height': 70, 
           'border-width': 2,
           'background-color': '#ffffff', 
           'border-color': '#cbd5e1',
@@ -439,14 +447,15 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           'background-clip': 'node',
           'shape': 'round-rectangle',
           'text-wrap': 'wrap',
-          'text-max-width': '80px',
+          'text-max-width': '90px',
           'color': '#111827',
           'text-outline-color': '#ffffff',
           'text-outline-width': 3,
           'text-background-color': '#ffffff',
-          'text-background-opacity': 0.85,
-          'text-background-padding': '2px',
+          'text-background-opacity': 0.9,
+          'text-background-padding': '3px',
           'text-background-shape': 'roundrectangle',
+          'line-height': '1.2',
         }},
         ...Object.entries(COLORS).map(([t, c]) => {
           const icon = AWS_ICONS[t] || AWS_ICONS.Service

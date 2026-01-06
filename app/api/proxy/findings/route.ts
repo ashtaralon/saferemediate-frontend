@@ -44,14 +44,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ 
         success: false, 
         findings: [], 
-        source: "backend",
+        total: 0,
         count: 0,
+        source: "backend",
         error: `Backend returned ${response.status} status`
       });
     }
 
     const data = await response.json();
     const findings = data.findings || data.recommendations || data || [];
+    const total = data.total ?? data.count ?? findings.length;
 
     // If no findings returned, return empty array (no mock data)
     if (!Array.isArray(findings) || findings.length === 0) {
@@ -59,16 +61,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ 
         success: true, 
         findings: [], 
-        source: "backend",
-        count: 0 
+        total: 0,
+        count: 0,
+        source: "backend"
       });
     }
 
     return NextResponse.json({ 
       success: true, 
       findings, 
-      source: "backend",
-      count: findings.length 
+      total: total,
+      count: findings.length,
+      source: "backend"
     });
   } catch (error: any) {
     // Handle timeout or network errors - return empty array (no mock data)
@@ -84,8 +88,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ 
       success: false, 
       findings: [], 
-      source: "backend",
+      total: 0,
       count: 0,
+      source: "backend",
       error: error.message,
       warning: error.name === 'AbortError' 
         ? 'Backend request timed out after 25 seconds' 
