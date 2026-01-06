@@ -387,11 +387,23 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       })
 
       if (!response.ok) {
-        const errData = await response.json()
-        throw new Error(errData.error || `HTTP ${response.status}`)
+        let errData: any = {}
+        try {
+          errData = await response.json()
+        } catch (e) {
+          const errorText = await response.text()
+          throw new Error(errorText || `HTTP ${response.status}`)
+        }
+        throw new Error(errData.error || errData.message || `HTTP ${response.status}`)
       }
 
-      const data = await response.json()
+      let data: any
+      try {
+        data = await response.json()
+      } catch (e) {
+        const errorText = await response.text()
+        throw new Error(`Invalid response: ${errorText.substring(0, 100)}`)
+      }
       console.log('[SystemDetail] Auto-tagger result:', data)
       
       setAutoTaggerResult(data)
