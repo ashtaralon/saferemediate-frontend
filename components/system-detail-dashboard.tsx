@@ -375,14 +375,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchAutoTaggerDiagnostic = async () => {
     try {
+      console.log('[SystemDetail] Fetching diagnostic info...')
       const response = await fetch("/api/proxy/auto-tagger/diagnostic")
       if (response.ok) {
         const data = await response.json()
         setAutoTaggerDiagnostic(data)
         console.log('[SystemDetail] Auto-tagger diagnostic:', data)
+      } else {
+        const errorText = await response.text()
+        console.error('[SystemDetail] Diagnostic fetch failed:', response.status, errorText)
+        setAutoTaggerDiagnostic({ error: `Failed to fetch diagnostic: ${response.status}` })
       }
     } catch (err) {
       console.error("Error fetching diagnostic:", err)
+      setAutoTaggerDiagnostic({ error: `Error: ${err instanceof Error ? err.message : 'Unknown error'}` })
     }
   }
 
@@ -1628,14 +1634,29 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       Completed in {autoTaggerResult.duration_ms}ms
                     </div>
                   )}
+                </div>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-red-800 font-medium">Error: {autoTaggerResult.error}</p>
+                  <p className="text-sm text-red-600 mt-2">
+                    The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.
+                  </p>
+                </div>
+              )}
 
-                  {autoTaggerDiagnostic && (
-                    <div className="mt-4 pt-4 border-t">
-                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Diagnostic Info:</h3>
-                      <div className="text-xs space-y-1 text-gray-600">
-                        <p>Tagged resources: {autoTaggerDiagnostic.tagged_count}</p>
-                        <p>Untagged resources: {autoTaggerDiagnostic.untagged_count}</p>
-                        <p>Potential connections: {autoTaggerDiagnostic.potential_connections || 0}</p>
+              {/* Always show diagnostic info if available */}
+              {autoTaggerDiagnostic && (
+                <div className="mt-4 pt-4 border-t">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">🔍 Diagnostic Info:</h3>
+                  {autoTaggerDiagnostic.error ? (
+                    <div className="text-xs text-red-600">
+                      <p>❌ {autoTaggerDiagnostic.error}</p>
+                    </div>
+                  ) : (
+                    <div className="text-xs space-y-1 text-gray-600">
+                      <p><strong>Tagged resources:</strong> {autoTaggerDiagnostic.tagged_count || 0}</p>
+                      <p><strong>Untagged resources:</strong> {autoTaggerDiagnostic.untagged_count || 0}</p>
+                      <p><strong>Potential connections:</strong> {autoTaggerDiagnostic.potential_connections || 0}</p>
                         {autoTaggerDiagnostic.relationships && autoTaggerDiagnostic.relationships.length > 0 && (
                           <div className="mt-2">
                             <p className="font-medium">Found relationships:</p>
