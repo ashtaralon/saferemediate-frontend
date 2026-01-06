@@ -140,10 +140,13 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [iamData, setIamData] = useState<any>(null)
   const [iamLoading, setIamLoading] = useState(false)
   const [iamError, setIamError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'iam'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'iam' | 'policies'>('overview')
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [showUsedPerms, setShowUsedPerms] = useState(true)
   const [showUnusedPerms, setShowUnusedPerms] = useState(true)
+  const [servicePolicies, setServicePolicies] = useState<any>(null)
+  const [policiesLoading, setPoliciesLoading] = useState(false)
+  const [policiesError, setPoliciesError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchServices()
@@ -513,12 +516,56 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     return null
   }
 
-  // Fetch IAM data when service is selected
+  // Fetch policies when service is selected
   useEffect(() => {
     if (!selectedService) {
       setIamData(null)
       setIamError(null)
+      setServicePolicies(null)
+      setPoliciesError(null)
       setActiveTab('overview')
+      return
+    }
+
+    // Fetch service policies for all service types
+    const fetchServicePolicies = async () => {
+      setPoliciesLoading(true)
+      setPoliciesError(null)
+      
+      try {
+        // Use service ID or name as identifier
+        const serviceId = selectedService.id || selectedService.name
+        const region = selectedService.region || 'eu-west-1'
+        
+        console.log('[AllServices] Fetching policies for service:', serviceId, 'type:', selectedService.type)
+        
+        const res = await fetch(`/api/proxy/services/${encodeURIComponent(serviceId)}/policies?region=${encodeURIComponent(region)}`)
+        
+        if (res.ok) {
+          const data = await res.json()
+          console.log('[AllServices] Policies received:', data)
+          setServicePolicies(data)
+        } else {
+          console.log('[AllServices] Policies fetch failed:', res.status)
+          setServicePolicies({ policies: [], policyCount: 0 })
+        }
+      } catch (e: any) {
+        console.error('[AllServices] Policies fetch error:', e)
+        setPoliciesError(e.message || 'Unable to fetch policies')
+        setServicePolicies({ policies: [], policyCount: 0 })
+      } finally {
+        setPoliciesLoading(false)
+      }
+    }
+
+    fetchServicePolicies()
+  }, [selectedService])
+
+  // Fetch IAM data when service is selected (for IAM roles only)
+  useEffect(() => {
+    if (!selectedService) {
+      setIamData(null)
+      setIamError(null)
       return
     }
 
@@ -1052,18 +1099,18 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
             </div>
 
             {/* Tabs */}
-            {getIAMRoleName(selectedService) && (
-              <div className="flex border-b bg-gray-50">
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`px-6 py-3 font-medium text-sm transition-colors ${
-                    activeTab === 'overview'
-                      ? 'border-b-2 border-blue-600 text-blue-600 bg-white'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Overview
-                </button>
+            <div className="flex border-b bg-gray-50">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`px-6 py-3 font-medium text-sm transition-colors ${
+                  activeTab === 'overview'
+                    ? 'border-b-2 border-blue-600 text-blue-600 bg-white'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Overview
+              </button>
+              {getIAMRoleName(selectedService) && (
                 <button
                   onClick={() => setActiveTab('iam')}
                   className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
@@ -1075,8 +1122,24 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   <Key className="w-4 h-4" />
                   IAM Role & Policies
                 </button>
-              </div>
-            )}
+              )}
+              <button
+                onClick={() => setActiveTab('policies')}
+                className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
+                  activeTab === 'policies'
+                    ? 'border-b-2 border-blue-600 text-blue-600 bg-white'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                Policies & Rules
+                {servicePolicies?.policyCount > 0 && (
+                  <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                    {servicePolicies.policyCount}
+                  </span>
+                )}
+              </button>
+            </div>
 
             {/* Content */}
             <div className="p-6 space-y-6 max-h-[calc(80vh-200px)] overflow-y-auto">
@@ -1378,7 +1441,170 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                     </div>
                   )}
                 </div>
-              )}
+              ) : activeTab === 'policies' ? (
+                /* Policies Tab */
+                <div className="space-y-6">
+                  {policiesLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+                      <span className="ml-3 text-gray-600">Loading policies...</span>
+                    </div>
+                  ) : policiesError ? (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+                      <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                      <p className="text-red-600">{policiesError}</p>
+                    </div>
+                  ) : servicePolicies && servicePolicies.policies && servicePolicies.policies.length > 0 ? (
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="font-semibold text-gray-900">Service Policies</h3>
+                            <p className="text-sm text-gray-600 mt-1">
+                              {servicePolicies.policyCount} policy{servicePolicies.policyCount !== 1 ? 'ies' : ''} found
+                            </p>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            SERVICE_COLORS[servicePolicies.serviceType] || SERVICE_COLORS.default
+                          }`}>
+                            {servicePolicies.serviceType || selectedService.type}
+                          </span>
+                        </div>
+                      </div>
+
+                      {servicePolicies.policies.map((policy: any, idx: number) => {
+                        const policyName = policy.name || policy.type || `Policy ${idx + 1}`
+                        const isExpanded = expandedPolicies.has(policyName)
+                        const policyDoc = policy.document || policy.policy || {}
+                        
+                        return (
+                          <div key={idx} className="border rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => togglePolicy(policyName)}
+                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4 text-gray-400" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-gray-400" />
+                              )}
+                              <FileText className="w-4 h-4 text-gray-500" />
+                              <div className="flex-1">
+                                <span className="font-medium">{policyName}</span>
+                                <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
+                                  policy.type === 'InlinePolicy' || policy.isInline
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : policy.type === 'ManagedPolicy' || policy.isManaged
+                                    ? 'bg-gray-100 text-gray-600'
+                                    : policy.type === 'BucketPolicy'
+                                    ? 'bg-green-100 text-green-700'
+                                    : policy.type === 'IngressRules' || policy.type === 'EgressRules'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {policy.type || 'Policy'}
+                                </span>
+                                {policy.ruleCount !== undefined && (
+                                  <span className="ml-2 text-xs text-gray-500">
+                                    {policy.ruleCount} rule{policy.ruleCount !== 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </div>
+                              {policy.arn && (
+                                <span className="text-xs text-gray-400 font-mono truncate max-w-[200px]" title={policy.arn}>
+                                  {policy.arn.split('/').pop()}
+                                </span>
+                              )}
+                            </button>
+                            
+                            {isExpanded && (
+                              <div className="border-t px-4 py-4 bg-gray-50 space-y-3">
+                                {policy.arn && (
+                                  <div className="text-xs">
+                                    <span className="text-gray-500">ARN: </span>
+                                    <span className="font-mono text-gray-700 break-all">{policy.arn}</span>
+                                  </div>
+                                )}
+                                
+                                {/* Security Group Rules */}
+                                {(policy.type === 'IngressRules' || policy.type === 'EgressRules') && Array.isArray(policyDoc) && (
+                                  <div>
+                                    <div className="text-xs font-medium text-gray-700 mb-2">
+                                      {policy.type === 'IngressRules' ? 'Inbound' : 'Outbound'} Rules ({policyDoc.length})
+                                    </div>
+                                    <div className="space-y-2">
+                                      {policyDoc.map((rule: any, ruleIdx: number) => (
+                                        <div key={ruleIdx} className="bg-white p-3 rounded border text-xs">
+                                          <div className="grid grid-cols-2 gap-2 mb-2">
+                                            <div>
+                                              <span className="text-gray-500">Protocol: </span>
+                                              <span className="font-mono">{rule.IpProtocol || 'All'}</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-gray-500">Port: </span>
+                                              <span className="font-mono">
+                                                {rule.FromPort === rule.ToPort 
+                                                  ? rule.FromPort || 'All'
+                                                  : `${rule.FromPort || 'All'}-${rule.ToPort || 'All'}`}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <span className="text-gray-500">Source/Destination: </span>
+                                            <div className="mt-1 space-y-1">
+                                              {rule.IpRanges?.map((range: any, i: number) => (
+                                                <div key={i} className="font-mono text-gray-700">
+                                                  {range.CidrIp || range.CidrIpv6} {range.Description ? `(${range.Description})` : ''}
+                                                </div>
+                                              ))}
+                                              {rule.UserIdGroupPairs?.map((sg: any, i: number) => (
+                                                <div key={i} className="font-mono text-gray-700">
+                                                  {sg.GroupId || sg.GroupName} {sg.Description ? `(${sg.Description})` : ''}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* IAM Policy Document */}
+                                {policyDoc && typeof policyDoc === 'object' && !Array.isArray(policyDoc) && Object.keys(policyDoc).length > 0 && (
+                                  <div>
+                                    <div className="text-xs font-medium text-gray-700 mb-2">Policy Document</div>
+                                    <pre className="text-xs bg-white p-3 rounded border overflow-x-auto max-h-96">
+                                      {JSON.stringify(policyDoc, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                
+                                {(!policyDoc || (typeof policyDoc === 'object' && Object.keys(policyDoc).length === 0)) && (
+                                  <div className="text-sm text-gray-500 text-center py-4">
+                                    No policy document available
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+                      <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-600 font-medium">No Policies Found</p>
+                      <p className="text-sm text-gray-500 mt-2">
+                        This service does not have any policies or rules configured.
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1 font-mono">
+                        Service: {selectedService.name} ({selectedService.type})
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             {/* Footer */}
