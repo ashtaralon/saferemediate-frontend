@@ -376,7 +376,22 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const fetchAutoTaggerDiagnostic = async () => {
     try {
       console.log('[SystemDetail] Fetching diagnostic info...')
-      const response = await fetch("/api/proxy/auto-tagger/diagnostic")
+      
+      // Try the proxy endpoint first
+      let response = await fetch("/api/proxy/auto-tagger/diagnostic")
+      
+      // If proxy fails, try direct backend call as fallback
+      if (!response.ok) {
+        console.log('[SystemDetail] Proxy failed, trying direct backend call...')
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+        response = await fetch(`${backendUrl}/api/auto-tagger/diagnostic`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      }
+      
       if (response.ok) {
         const data = await response.json()
         setAutoTaggerDiagnostic(data)
@@ -384,11 +399,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       } else {
         const errorText = await response.text()
         console.error('[SystemDetail] Diagnostic fetch failed:', response.status, errorText)
-        setAutoTaggerDiagnostic({ error: `Failed to fetch diagnostic: ${response.status}` })
+        setAutoTaggerDiagnostic({ 
+          error: `Failed to fetch diagnostic: ${response.status}`,
+          tagged_count: 0,
+          untagged_count: 0,
+          potential_connections: 0
+        })
       }
     } catch (err) {
       console.error("Error fetching diagnostic:", err)
-      setAutoTaggerDiagnostic({ error: `Error: ${err instanceof Error ? err.message : 'Unknown error'}` })
+      setAutoTaggerDiagnostic({ 
+        error: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        tagged_count: 0,
+        untagged_count: 0,
+        potential_connections: 0
+      })
     }
   }
 
