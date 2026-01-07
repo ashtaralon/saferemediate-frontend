@@ -114,6 +114,24 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
                 {result.results.cloudtrail?.relationships_created || 0} relationships
               </div>
               <div>
+                IAM Analyzer:{" "}
+                {(result.results.iam_analyzer?.external_access_relationships || 0) +
+                 (result.results.iam_analyzer?.unused_permission_relationships || 0)}{" "}
+                findings
+              </div>
+              <div>
+                AWS Config:{" "}
+                {(result.results.aws_config?.config_relationships || 0) +
+                 (result.results.aws_config?.violations || 0)}{" "}
+                items
+              </div>
+              <div>
+                X-Ray:{" "}
+                {(result.results.xray?.calls_relationships || 0) +
+                 (result.results.xray?.traffic_relationships || 0)}{" "}
+                traces
+              </div>
+              <div>
                 Auto-Tagger:{" "}
                 {result.results.auto_tagger?.tagged || 0} resources tagged
               </div>
