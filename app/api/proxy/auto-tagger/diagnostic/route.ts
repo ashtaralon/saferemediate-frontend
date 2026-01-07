@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60; // Increased for Render cold starts
 export const runtime = 'nodejs';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com';
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(25000), // 25 second timeout
+      signal: AbortSignal.timeout(35000), // 35 second timeout (Render cold start can take 30s)
       cache: 'no-store',
     });
 
