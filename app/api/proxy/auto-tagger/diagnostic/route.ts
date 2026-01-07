@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(35000), // 35 second timeout (Render cold start can take 30s)
+      signal: AbortSignal.timeout(35000),
       cache: 'no-store',
     });
 
