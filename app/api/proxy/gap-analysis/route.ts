@@ -27,9 +27,9 @@ export async function GET(req: NextRequest) {
   const systemName = url.searchParams.get("systemName") ?? "alon-prod"
   const roleName = getRoleName(systemName)
 
-  // Timeout to prevent Vercel limit - use shorter timeout for faster fallback
+  // Timeout to prevent Vercel limit - increased to 25s for slow backend
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout - fast fail, use cache
+  const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
 
   try {
     console.log(`[proxy] IAM gap analysis for role: ${roleName}`)

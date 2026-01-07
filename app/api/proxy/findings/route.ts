@@ -9,26 +9,26 @@ export async function GET(request: Request) {
     process.env.BACKEND_URL || 
     "https://saferemediate-backend-f.onrender.com";
 
+  // Get query params for filtering
+  const { searchParams } = new URL(request.url);
+  const systemName = searchParams.get('systemName');
+  const status = searchParams.get('status');
+  const severity = searchParams.get('severity');
+  
+  // Build query string
+  const queryParams = new URLSearchParams();
+  if (systemName) queryParams.append('systemName', systemName);
+  if (status) queryParams.append('status', status);
+  if (severity) queryParams.append('severity', severity);
+  
+  const queryString = queryParams.toString();
+  const url = `${backendUrl}/api/findings${queryString ? `?${queryString}` : ''}`;
+
   try {
     // Create AbortController for timeout - increased to 25s to allow backend time
     // Vercel maxDuration is 30s, so 25s gives us buffer
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout (was 15s)
-
-    // Get query params for filtering
-    const { searchParams } = new URL(request.url);
-    const systemName = searchParams.get('systemName');
-    const status = searchParams.get('status');
-    const severity = searchParams.get('severity');
-    
-    // Build query string
-    const queryParams = new URLSearchParams();
-    if (systemName) queryParams.append('systemName', systemName);
-    if (status) queryParams.append('status', status);
-    if (severity) queryParams.append('severity', severity);
-    
-    const queryString = queryParams.toString();
-    const url = `${backendUrl}/api/findings${queryString ? `?${queryString}` : ''}`;
 
     const response = await fetch(url, {
       headers: { "Content-Type": "application/json" },

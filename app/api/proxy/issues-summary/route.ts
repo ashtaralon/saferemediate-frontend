@@ -19,13 +19,17 @@ export async function GET(req: NextRequest) {
       ? `${BACKEND_URL}/api/issues/summary?systemName=${encodeURIComponent(systemName)}`
       : `${BACKEND_URL}/api/issues/summary`
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 28000); // 28 seconds
+    
     const res = await fetch(backendUrl, {
       headers: {
         "Content-Type": "application/json",
       },
-      // Increased timeout for aggregation (safe under Vercel 30s limit)
-      signal: AbortSignal.timeout(28000), // 28 seconds
+      signal: controller.signal,
     })
+    
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       console.error(`[proxy] Issues summary error: ${res.status} ${res.statusText}`)
