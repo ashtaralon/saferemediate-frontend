@@ -379,65 +379,90 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       
       let data: any = null
       let error: string | null = null
+      let usedProxy = false
       
       // Try the proxy endpoint first
       try {
         const proxyResponse = await fetch("/api/proxy/auto-tagger/diagnostic", {
-          cache: 'no-store'
+          cache: 'no-store',
+          signal: AbortSignal.timeout(10000) // 10 second timeout for proxy
         })
         
         if (proxyResponse.ok) {
           data = await proxyResponse.json()
-          console.log('[SystemDetail] Diagnostic from proxy:', data)
+          usedProxy = true
+          console.log('[SystemDetail] ✅ Diagnostic from proxy:', data)
         } else {
-          console.log('[SystemDetail] Proxy returned', proxyResponse.status, '- trying direct backend call...')
+          // 404 or other error from proxy
+          const errorText = await proxyResponse.text().catch(() => '')
+          console.warn(`[SystemDetail] ⚠️ Proxy returned ${proxyResponse.status}${errorText ? ': ' + errorText.substring(0, 50) : ''} - trying direct backend call...`)
           throw new Error(`Proxy returned ${proxyResponse.status}`)
         }
-      } catch (proxyErr) {
-        // If proxy fails, try direct backend call as fallback
-        console.log('[SystemDetail] Proxy failed, trying direct backend call...', proxyErr)
+      } catch (proxyErr: any) {
+        // If proxy fails (404, timeout, network error), try direct backend call as fallback
+        if (proxyErr.name === 'AbortError') {
+          console.warn('[SystemDetail] ⚠️ Proxy request timed out, trying direct backend call...')
+        } else {
+          console.warn('[SystemDetail] ⚠️ Proxy failed:', proxyErr.message || proxyErr, '- trying direct backend call...')
+        }
+        
         try {
           const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+          console.log(`[SystemDetail] 🔄 Calling backend directly: ${backendUrl}/api/auto-tagger/diagnostic`)
+          
           const directResponse = await fetch(`${backendUrl}/api/auto-tagger/diagnostic`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             },
             mode: 'cors',
-            cache: 'no-store'
+            cache: 'no-store',
+            signal: AbortSignal.timeout(35000) // 35 second timeout for Render cold start
           })
           
           if (directResponse.ok) {
             data = await directResponse.json()
-            console.log('[SystemDetail] Diagnostic from direct backend:', data)
+            console.log('[SystemDetail] ✅ Diagnostic from direct backend:', data)
           } else {
-            const errorText = await directResponse.text()
-            error = `Backend returned ${directResponse.status}: ${errorText.substring(0, 100)}`
-            console.error('[SystemDetail] Direct backend failed:', directResponse.status, errorText)
+            const errorText = await directResponse.text().catch(() => '')
+            error = `Backend returned ${directResponse.status}${errorText ? ': ' + errorText.substring(0, 100) : ''}`
+            console.error(`[SystemDetail] ❌ Direct backend failed: ${directResponse.status}`, errorText.substring(0, 200))
           }
-        } catch (directErr) {
-          error = `Both proxy and direct backend failed: ${directErr instanceof Error ? directErr.message : 'Unknown error'}`
-          console.error('[SystemDetail] Direct backend call error:', directErr)
+        } catch (directErr: any) {
+          if (directErr.name === 'AbortError') {
+            error = 'Backend request timed out (Render may be sleeping - cold start takes ~30s)'
+          } else if (directErr.message?.includes('CORS')) {
+            error = 'CORS error: Backend may not allow direct browser requests'
+          } else {
+            error = `Direct backend failed: ${directErr instanceof Error ? directErr.message : 'Unknown error'}`
+          }
+          console.error('[SystemDetail] ❌ Direct backend call error:', directErr)
         }
       }
       
       if (data) {
-        setAutoTaggerDiagnostic(data)
+        // Add metadata about which source was used
+        setAutoTaggerDiagnostic({
+          ...data,
+          _source: usedProxy ? 'proxy' : 'direct_backend'
+        })
       } else {
         setAutoTaggerDiagnostic({ 
-          error: error || 'Failed to fetch diagnostic',
+          error: error || 'Failed to fetch diagnostic (both proxy and direct backend failed)',
           tagged_count: 0,
           untagged_count: 0,
-          potential_connections: 0
+          potential_connections: 0,
+          _source: 'none'
         })
       }
     } catch (err) {
-      console.error("Error fetching diagnostic:", err)
+      console.error("[SystemDetail] ❌ Error fetching diagnostic:", err)
       setAutoTaggerDiagnostic({ 
         error: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
         tagged_count: 0,
         untagged_count: 0,
-        potential_connections: 0
+        potential_connections: 0,
+        _source: 'error'
       })
     }
   }
