@@ -518,9 +518,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       }
     } catch (err: any) {
       console.error("Error triggering auto-tagger:", err)
+      
+      // Handle timeout errors specifically
+      let errorMessage = err.message || 'Unknown error'
+      if (err.message?.includes('timeout') || err.message?.includes('aborted') || err.name === 'AbortError') {
+        errorMessage = 'The operation was aborted due to timeout. The auto-tagger could not propagate tags. Check Neo4j connection and ensure there are tagged seed resources.'
+      }
+      
       setAutoTaggerResult({ 
         success: false, 
-        error: err.message,
+        error: errorMessage,
         tagged: 0 
       })
       setShowAutoTaggerResult(true)
