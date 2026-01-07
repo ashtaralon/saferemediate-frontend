@@ -32,8 +32,7 @@ interface System {
 }
 
 interface AvailableSystem {
-  systemName?: string
-  system_name?: string
+  SystemName?: string  // Only SystemName format (capital S, capital N)
   resourceCount?: number
   resource_count?: number
   criticality?: number
@@ -51,7 +50,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [newSystems, setNewSystems] = useState<Array<{ systemName: string; resourceCount: number; resources?: any[] }>>(
+  const [newSystems, setNewSystems] = useState<Array<{ SystemName: string; resourceCount: number; resources?: any[] }>>(
     [],
   )
   const [showNewSystemsModal, setShowNewSystemsModal] = useState(false)
@@ -135,9 +134,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         console.log("[systems-view] Loaded", backendSystems.length, "systems from backend")
 
         if (backendSystems.length > 0) {
-          // Transform backend systems to UI format
+          // Transform backend systems to UI format - ONLY use SystemName (capital S, capital N)
           const transformedSystems: System[] = backendSystems.map((sys: any) => {
-            const systemName = sys.systemName || sys.system_name || sys.name || "Unknown"
+            const systemName = sys.SystemName || sys.name || "Unknown"  // Only SystemName format
             const resourceCount = sys.resourceCount || sys.resource_count || sys.resources?.length || 0
             
             // Determine criticality based on system name or environment
@@ -301,7 +300,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         const systems = data.systems || data || []
         const existingNames = new Set(localSystems.map((s) => s.name.toLowerCase()))
         const filtered = systems.filter((sys: AvailableSystem) => {
-          const name = sys.systemName || sys.system_name || ""
+          const name = sys.SystemName || ""  // Only SystemName format (capital S, capital N)
           return name && !existingNames.has(name.toLowerCase())
         })
         setAvailableSystems(filtered)
@@ -325,7 +324,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   }
 
   const addSystemToTable = async (sys: AvailableSystem) => {
-    const systemName = sys.systemName || sys.system_name || "Unknown"
+    const systemName = sys.SystemName || "Unknown"  // Only SystemName format (capital S, capital N)
     const newSystem: System = {
       name: systemName,
       criticality: sys.criticality || 5,
@@ -341,7 +340,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
     setLocalSystems((prev) => [...prev, newSystem])
     setAvailableSystems((prev) =>
-      prev.filter((s) => (s.systemName || s.system_name) !== (sys.systemName || sys.system_name)),
+      prev.filter((s) => s.SystemName !== sys.SystemName),  // Only SystemName format
     )
     setIsDropdownOpen(false)
 
@@ -547,7 +546,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                         className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-gray-100 last:border-0"
                       >
                         <div>
-                          <p className="font-medium text-gray-900">{sys.systemName || sys.system_name}</p>
+                          <p className="font-medium text-gray-900">{sys.SystemName || ""}</p>
                           <p className="text-xs text-gray-500">
                             {sys.resourceCount || sys.resource_count || 0} resources
                           </p>
@@ -660,7 +659,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                         className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-gray-100 last:border-0"
                       >
                         <div>
-                          <p className="font-medium text-gray-900">{sys.systemName || sys.system_name}</p>
+                          <p className="font-medium text-gray-900">{sys.SystemName || ""}</p>
                           <p className="text-xs text-gray-500">
                             {sys.resourceCount || sys.resource_count || 0} resources
                           </p>
@@ -855,7 +854,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           onClose={() => setShowNewSystemsModal(false)}
           onAddSystem={(sys) => {
             const newSystem: System = {
-              name: sys.systemName,
+              name: sys.SystemName || "",  // Only SystemName format (capital S, capital N)
               criticality: 5,
               criticalityLabel: "5 - MISSION CRITICAL",
               environment: "Production",
@@ -867,7 +866,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
               owner: "Unassigned",
             }
             setLocalSystems((prev) => [...prev, newSystem])
-            setNewSystems((prev) => prev.filter((s) => s.systemName !== sys.systemName))
+            setNewSystems((prev) => prev.filter((s) => s.SystemName !== sys.SystemName))  // Only SystemName format
           }}
         />
       )}
