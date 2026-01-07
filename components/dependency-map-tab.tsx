@@ -30,9 +30,18 @@ export default function DependencyMapTab({ systemName }: Props) {
   const fetchGraphData = useCallback(async () => {
     setIsLoading(true)
     try {
+      console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
       const res = await fetch(`/api/proxy/dependency-map/graph?systemName=${encodeURIComponent(systemName)}`)
+      console.log('[DependencyMapTab] Response status:', res.status, res.ok)
       if (res.ok) {
         const data = await res.json()
+        console.log('[DependencyMapTab] Graph data received:', {
+          nodesCount: data.nodes?.length || 0,
+          edgesCount: data.edges?.length || 0,
+          hasNodes: !!data.nodes,
+          hasEdges: !!data.edges,
+          dataKeys: Object.keys(data)
+        })
         setGraphData(data)
         
         // Extract resources from graph nodes
@@ -42,11 +51,15 @@ export default function DependencyMapTab({ systemName }: Props) {
           type: n.type,
           arn: n.arn
         }))
+        console.log('[DependencyMapTab] Extracted resources:', resourceList.length)
         setResources(resourceList)
         setResourcesLoading(false)
+      } else {
+        const errorText = await res.text()
+        console.error('[DependencyMapTab] Response not OK:', res.status, errorText)
       }
     } catch (e) {
-      console.error('Failed to fetch graph data:', e)
+      console.error('[DependencyMapTab] Failed to fetch graph data:', e)
       
       // Fallback to system resources endpoint
       try {

@@ -352,7 +352,23 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
   }, [isLive, onRefresh])
 
   useEffect(() => {
-    if (!containerRef.current || !graphData || isLoading) return
+    console.log('[GraphView] useEffect triggered:', {
+      hasContainer: !!containerRef.current,
+      hasGraphData: !!graphData,
+      isLoading,
+      graphDataNodes: graphData?.nodes?.length || 0,
+      graphDataEdges: graphData?.edges?.length || 0,
+      graphDataKeys: graphData ? Object.keys(graphData) : []
+    })
+    
+    if (!containerRef.current || !graphData || isLoading) {
+      console.log('[GraphView] Skipping render:', {
+        noContainer: !containerRef.current,
+        noGraphData: !graphData,
+        isLoading
+      })
+      return
+    }
     if (cyRef.current) cyRef.current.destroy()
 
     const elements: cytoscape.ElementDefinition[] = []
@@ -372,29 +388,21 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     const formatServiceType = (type: string): string => {
       const typeMap: Record<string, string> = {
         'IAMRole': 'IAM Role',
-        'IAMPolicy': 'IAM Policy',
-        'IAMUser': 'IAM User',
         'SecurityGroup': 'Security Group',
         'S3Bucket': 'S3 Bucket',
         'EC2': 'EC2',
-        'EC2Instance': 'EC2',
         'Lambda': 'Lambda',
-        'LambdaFunction': 'Lambda',
         'RDS': 'RDS',
-        'RDSInstance': 'RDS',
         'DynamoDB': 'DynamoDB',
-        'DynamoDBTable': 'DynamoDB',
         'Internet': 'Internet',
         'VPC': 'VPC',
         'CloudWatch': 'CloudWatch',
         'CloudTrail': 'CloudTrail',
-        'Subnet': 'Subnet',
-        'InternetGateway': 'IGW',
-        'CloudWatchLogGroup': 'CloudWatch',
       }
-      return typeMap[type] || type || 'Service'
+      return typeMap[type] || type
     }
     
+    console.log('[GraphView] Processing nodes:', graphData.nodes?.length || 0)
     ;(graphData.nodes || []).forEach((n: any) => {
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
       nodeIds.add(n.id)
@@ -414,6 +422,11 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           ...n 
         }
       })
+    })
+    console.log('[GraphView] Created elements:', {
+      nodes: elements.filter(e => e.group === 'nodes').length,
+      edges: elements.filter(e => e.group === 'edges').length,
+      total: elements.length
     })
     
     ;(graphData.edges || []).forEach((e: any, i: number) => {
