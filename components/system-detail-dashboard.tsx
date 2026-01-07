@@ -377,30 +377,55 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     try {
       console.log('[SystemDetail] Fetching diagnostic info...')
       
-      // Try the proxy endpoint first
-      let response = await fetch("/api/proxy/auto-tagger/diagnostic")
+      let data: any = null
+      let error: string | null = null
       
-      // If proxy fails, try direct backend call as fallback
-      if (!response.ok) {
-        console.log('[SystemDetail] Proxy failed, trying direct backend call...')
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-        response = await fetch(`${backendUrl}/api/auto-tagger/diagnostic`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+      // Try the proxy endpoint first
+      try {
+        const proxyResponse = await fetch("/api/proxy/auto-tagger/diagnostic", {
+          cache: 'no-store'
         })
+        
+        if (proxyResponse.ok) {
+          data = await proxyResponse.json()
+          console.log('[SystemDetail] Diagnostic from proxy:', data)
+        } else {
+          console.log('[SystemDetail] Proxy returned', proxyResponse.status, '- trying direct backend call...')
+          throw new Error(`Proxy returned ${proxyResponse.status}`)
+        }
+      } catch (proxyErr) {
+        // If proxy fails, try direct backend call as fallback
+        console.log('[SystemDetail] Proxy failed, trying direct backend call...', proxyErr)
+        try {
+          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+          const directResponse = await fetch(`${backendUrl}/api/auto-tagger/diagnostic`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            mode: 'cors',
+            cache: 'no-store'
+          })
+          
+          if (directResponse.ok) {
+            data = await directResponse.json()
+            console.log('[SystemDetail] Diagnostic from direct backend:', data)
+          } else {
+            const errorText = await directResponse.text()
+            error = `Backend returned ${directResponse.status}: ${errorText.substring(0, 100)}`
+            console.error('[SystemDetail] Direct backend failed:', directResponse.status, errorText)
+          }
+        } catch (directErr) {
+          error = `Both proxy and direct backend failed: ${directErr instanceof Error ? directErr.message : 'Unknown error'}`
+          console.error('[SystemDetail] Direct backend call error:', directErr)
+        }
       }
       
-      if (response.ok) {
-        const data = await response.json()
+      if (data) {
         setAutoTaggerDiagnostic(data)
-        console.log('[SystemDetail] Auto-tagger diagnostic:', data)
       } else {
-        const errorText = await response.text()
-        console.error('[SystemDetail] Diagnostic fetch failed:', response.status, errorText)
         setAutoTaggerDiagnostic({ 
-          error: `Failed to fetch diagnostic: ${response.status}`,
+          error: error || 'Failed to fetch diagnostic',
           tagged_count: 0,
           untagged_count: 0,
           potential_connections: 0
