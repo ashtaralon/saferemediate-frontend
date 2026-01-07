@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 30;
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com';
 
@@ -11,7 +12,8 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(25000), // 25 second timeout
+      cache: 'no-store',
     });
 
     if (!response.ok) {
