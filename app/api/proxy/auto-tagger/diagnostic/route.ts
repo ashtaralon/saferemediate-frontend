@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com';
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('[diagnostic] Fetching from backend:', `${BACKEND_URL}/api/auto-tagger/diagnostic`);
+    
     const response = await fetch(`${BACKEND_URL}/api/auto-tagger/diagnostic`, {
-      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(35000),
       cache: 'no-store',
     });
 
