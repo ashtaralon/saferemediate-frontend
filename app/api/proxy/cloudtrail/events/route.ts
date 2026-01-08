@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 10 // Reduced to match Vercel free tier limits (5s) with buffer
+export const maxDuration = 60 // Increased for Vercel Pro/Enterprise
 
 const BACKEND_URL = 
   process.env.NEXT_PUBLIC_BACKEND_URL || 
@@ -21,14 +21,13 @@ export async function GET(req: NextRequest) {
   fetch('http://127.0.0.1:7242/ingest/3e225f22-2009-4adc-becd-46492cc46094',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cloudtrail-events-route.ts:21',message:'Request started',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
   // #endregion
   const { searchParams } = new URL(req.url)
-  // Aggressively cap limits to prevent timeouts - Vercel free tier has 5s timeout
   let limit = parseInt(searchParams.get('limit') || '100')
   let days = parseInt(searchParams.get('days') || searchParams.get('lookbackDays') || '7')
   const roleName = searchParams.get('roleName')
   
-  // Reduce query size aggressively for Vercel timeout limits
-  if (limit > 100) limit = 100  // Max 100 events
-  if (days > 7) days = 7        // Max 7 days
+  // Cap limits to prevent excessive queries
+  if (limit > 1000) limit = 1000  // Max 1000 events
+  if (days > 30) days = 30        // Max 30 days
   
   console.log(`[proxy] CloudTrail events: limit=${limit}, days=${days}, roleName=${roleName || 'none'}`)
   
@@ -58,13 +57,12 @@ export async function GET(req: NextRequest) {
   console.log(`[proxy] CloudTrail cache MISS - fetching from backend`)
   
   const controller = new AbortController()
-  // Use 4 second timeout to stay well under Vercel's 5s free tier limit
   const timeoutId = setTimeout(() => {
     // #region agent log
     fetch('http://127.0.0.1:7242/ingest/3e225f22-2009-4adc-becd-46492cc46094',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'cloudtrail-events-route.ts:50',message:'Timeout triggered',data:{elapsed:Date.now()-startTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
     // #endregion
     controller.abort()
-  }, 4000) // 4 second timeout - well under Vercel's 5s free tier limit
+  }, 55000) // 55 second timeout
   
   try {
     // Backend endpoint is /api/traffic/cloudtrail (not /api/cloudtrail/events)
