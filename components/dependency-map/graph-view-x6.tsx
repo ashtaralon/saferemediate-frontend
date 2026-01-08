@@ -1,23 +1,31 @@
 'use client'
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import dynamic from 'next/dynamic'
 import dagre from 'dagre'
 
-// Dynamic imports for browser-only libraries
+// Dynamic imports for browser-only libraries - loaded on component mount
 let Graph: any = null
 let register: any = null
 
-if (typeof window !== 'undefined') {
-  // Only import on client side
-  const x6Module = require('@antv/x6')
-  Graph = x6Module.Graph
+// Load libraries when component mounts (client-side only)
+const loadLibraries = () => {
+  if (typeof window === 'undefined') return false
   
   try {
-    const reactShapeModule = require('@antv/x6-react-shape')
-    register = reactShapeModule.register
+    if (!Graph) {
+      const x6Module = require('@antv/x6')
+      Graph = x6Module.Graph
+    }
+    
+    if (!register) {
+      const reactShapeModule = require('@antv/x6-react-shape')
+      register = reactShapeModule.register
+    }
+    
+    return true
   } catch (e) {
-    console.warn('x6-react-shape not available:', e)
+    console.error('[GraphViewX6] Failed to load libraries:', e)
+    return false
   }
 }
 // Import AWS icons - handle different export styles
@@ -229,16 +237,25 @@ export default function GraphViewX6({
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
 
-  // Only render on client
+  // Only render on client and load libraries
   useEffect(() => {
     setIsClient(true)
+    loadLibraries()
   }, [])
 
   // Initialize graph
   useEffect(() => {
-    if (!containerRef.current || typeof window === 'undefined' || !Graph) return
+    if (!containerRef.current || typeof window === 'undefined' || !Graph) {
+      console.warn('[GraphViewX6] Skipping graph init - not ready:', {
+        hasContainer: !!containerRef.current,
+        isClient: typeof window !== 'undefined',
+        hasGraph: !!Graph
+      })
+      return
+    }
 
-    const graph = new Graph({
+    try {
+      const graph = new Graph({
       container: containerRef.current,
       width: containerRef.current.offsetWidth,
       height: containerRef.current.offsetHeight,
@@ -321,17 +338,36 @@ export default function GraphViewX6({
       setSelectedEdge(null)
     })
 
-    return () => {
-      graph.dispose()
+      return () => {
+        if (graph) {
+          try {
+            graph.dispose()
+          } catch (e) {
+            console.warn('[GraphViewX6] Error disposing graph:', e)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[GraphViewX6] Error initializing graph:', error)
     }
-  }, [onNodeClick])
+  }, [onNodeClick, isClient])
 
   // Update graph data
   useEffect(() => {
-    if (!graphRef.current || !graphData || isLoading) return
+    if (!graphRef.current || !graphData || isLoading || !isClient || !Graph) {
+      console.log('[GraphViewX6] Skipping graph update:', {
+        hasGraph: !!graphRef.current,
+        hasData: !!graphData,
+        isLoading,
+        isClient,
+        hasGraphClass: !!Graph
+      })
+      return
+    }
 
-    const graph = graphRef.current
-    graph.clearCells()
+    try {
+      const graph = graphRef.current
+      graph.clearCells()
 
     // Important resource types for grouped mode
     const importantTypes = ['EC2', 'RDS', 'Lambda', 'SecurityGroup', 'VPC', 'Subnet', 'S3Bucket', 'S3', 'DynamoDB']
@@ -614,8 +650,10 @@ export default function GraphViewX6({
           }
         }
       }, 500)
+    } catch (error) {
+      console.error('[GraphViewX6] Error updating graph:', error)
     }
-  }, [graphData, isLoading, searchQuery, viewMode, highlightPath])
+  }, [graphData, isLoading, searchQuery, viewMode, highlightPath, isClient])
 
   // Add CSS animation for flowing traffic
   useEffect(() => {

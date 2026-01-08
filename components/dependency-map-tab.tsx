@@ -2,9 +2,22 @@
 
 import React, { useState, useCallback, useEffect } from 'react'
 import { Map, Search, RefreshCw, Network, Layers } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
-import GraphViewX6 from './dependency-map/graph-view-x6'
 import ResourceView from './dependency-map/resource-view'
+
+// Lazy load GraphViewX6 with SSR disabled to prevent build errors
+const GraphViewX6 = dynamic(
+  () => import('./dependency-map/graph-view-x6'),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    )
+  }
+)
 
 interface Resource {
   id: string
