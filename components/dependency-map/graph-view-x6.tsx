@@ -217,15 +217,7 @@ const ReactNodeComponent: React.FC<{ data: any }> = ({ data }) => {
   )
 }
 
-// Register React Shape after component definition (only on client)
-if (typeof window !== 'undefined' && register && Graph) {
-  register({
-    shape: 'react-node',
-    component: ReactNodeComponent,
-    width: 120,
-    height: 100,
-  })
-}
+// Register React Shape will be done in useEffect after libraries load
 
 export default function GraphViewX6({
   systemName,
