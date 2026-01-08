@@ -31,7 +31,7 @@ export default function DependencyMapTab({ systemName }: Props) {
     setIsLoading(true)
     try {
       console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
-      const res = await fetch(`/api/proxy/dependency-map/graph?systemName=${encodeURIComponent(systemName)}`)
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`)
       console.log('[DependencyMapTab] Response status:', res.status, res.ok)
       if (res.ok) {
         const data = await res.json()
