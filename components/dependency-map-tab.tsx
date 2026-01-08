@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useState, useCallback, useEffect } from 'react'
-import { Map, Search, RefreshCw } from 'lucide-react'
+import { Map, Search, RefreshCw, Network, Layers } from 'lucide-react'
 import GraphView from './dependency-map/graph-view'
+import GraphViewX6 from './dependency-map/graph-view-x6'
 import ResourceView from './dependency-map/resource-view'
 
 interface Resource {
@@ -20,6 +21,7 @@ type ViewType = 'graph' | 'resource'
 
 export default function DependencyMapTab({ systemName }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>('architectural')
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
   const [graphData, setGraphData] = useState<any>(null)
   const [resources, setResources] = useState<Resource[]>([])
@@ -156,35 +158,72 @@ export default function DependencyMapTab({ systemName }: Props) {
     <div className="flex flex-col h-full min-h-[700px]">
       {/* View Switcher Header */}
       <div className="flex items-center justify-between px-1 py-3 mb-4">
-        <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-          <button
-            onClick={() => setActiveView('graph')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              activeView === 'graph'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Map className="w-4 h-4" />
-            Graph View
-          </button>
-          <button
-            onClick={() => setActiveView('resource')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              activeView === 'resource'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Search className="w-4 h-4" />
-            Resource View
-          </button>
+        <div className="flex items-center gap-3">
+          {/* Main View Toggle */}
+          <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
+            <button
+              onClick={() => setActiveView('graph')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeView === 'graph'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Map className="w-4 h-4" />
+              Graph View
+            </button>
+            <button
+              onClick={() => setActiveView('resource')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeView === 'resource'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Search className="w-4 h-4" />
+              Resource View
+            </button>
+          </div>
+
+          {/* Graph Engine Toggle (only show in graph view) */}
+          {activeView === 'graph' && (
+            <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
+              <button
+                onClick={() => setGraphEngine('logical')}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  graphEngine === 'logical'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Logical View - Graph theory layout with all connections"
+              >
+                <Network className="w-4 h-4" />
+                Logical
+              </button>
+              <button
+                onClick={() => setGraphEngine('architectural')}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  graphEngine === 'architectural'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Architectural View - True containment with functional lanes"
+              >
+                <Layers className="w-4 h-4" />
+                Architectural
+              </button>
+            </div>
+          )}
         </div>
 
         {/* View description */}
         <div className="text-sm text-slate-500">
           {activeView === 'graph' ? (
-            <span>Visual network graph of all resources • Double-click a node for details</span>
+            <span>
+              {graphEngine === 'architectural' 
+                ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
+                : 'Graph theory view with all connections • Double-click a node for details'}
+            </span>
           ) : (
             <span>Detailed dependency breakdown of a single resource</span>
           )}
@@ -194,13 +233,23 @@ export default function DependencyMapTab({ systemName }: Props) {
       {/* View Content */}
       <div className="flex-1">
         {activeView === 'graph' ? (
-          <GraphView
-            systemName={systemName}
-            graphData={graphData}
-            isLoading={isLoading}
-            onNodeClick={handleNodeClick}
-            onRefresh={fetchGraphData}
-          />
+          graphEngine === 'architectural' ? (
+            <GraphViewX6
+              systemName={systemName}
+              graphData={graphData}
+              isLoading={isLoading}
+              onNodeClick={handleNodeClick}
+              onRefresh={fetchGraphData}
+            />
+          ) : (
+            <GraphView
+              systemName={systemName}
+              graphData={graphData}
+              isLoading={isLoading}
+              onNodeClick={handleNodeClick}
+              onRefresh={fetchGraphData}
+            />
+          )
         ) : (
           <ResourceView
             systemName={systemName}

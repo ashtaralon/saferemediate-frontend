@@ -91,25 +91,68 @@ const ReactNodeComponent: React.FC<{ data: any }> = ({ data }) => {
   const isContainer = data.isContainer || false
 
   if (isContainer) {
+    // Color-code subnets: green for public, blue for private
+    let containerBg = `${color}15`
+    let containerBorder = color
+    if (data.type === 'Subnet') {
+      if (data.subnetType === 'public') {
+        containerBg = '#f0fff4' // Light green
+        containerBorder = '#22c55e'
+      } else if (data.subnetType === 'private') {
+        containerBg = '#ebf8ff' // Light blue
+        containerBorder = '#3b82f6'
+      } else if (data.subnetType === 'database') {
+        containerBg = '#e0f2fe' // Light blue
+        containerBorder = '#0ea5e9'
+      }
+    }
+
     return (
       <div
         style={{
           width: '100%',
           height: '100%',
-          border: `3px dashed ${color}`,
+          border: `3px dashed ${containerBorder}`,
           borderRadius: '8px',
-          backgroundColor: `${color}15`,
+          backgroundColor: containerBg,
           padding: '20px',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'flex-start',
+          position: 'relative',
         }}
       >
-        <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '8px' }}>
+        {/* Label at top-left with z-index to stay on top */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            fontWeight: 'bold',
+            fontSize: '14px',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            zIndex: 1000,
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          }}
+        >
           {data.name || data.id}
         </div>
-        <div style={{ fontSize: '12px', color: '#666' }}>
+        <div
+          style={{
+            position: 'absolute',
+            top: '36px',
+            left: '10px',
+            fontSize: '12px',
+            color: '#666',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            padding: '2px 8px',
+            borderRadius: '4px',
+            zIndex: 1000,
+          }}
+        >
           {data.type}
         </div>
       </div>
@@ -264,8 +307,10 @@ export default function GraphViewX6({
     // Important resource types for grouped mode
     const importantTypes = ['EC2', 'RDS', 'Lambda', 'SecurityGroup', 'VPC', 'Subnet', 'S3Bucket', 'S3', 'DynamoDB']
     const filteredNodes = viewMode === 'grouped'
-      ? (graphData.nodes || []).filter((n: any) => importantTypes.includes(n.type))
-      : (graphData.nodes || [])
+      ? (graphData.nodes || []).filter((n: any) => 
+          importantTypes.includes(n.type) && n.type !== 'System' // Hide System nodes in Architectural view
+        )
+      : (graphData.nodes || []).filter((n: any) => n.type !== 'System') // Always hide System nodes
 
     // Build VPC and Subnet maps
     const vpcMap = new Map<string, any>()
@@ -316,12 +361,23 @@ export default function GraphViewX6({
       })
     })
 
-    // Create Subnet container nodes (nested in VPCs)
+    // Create Subnet container nodes (nested in VPCs) - Color-coded
     subnetMap.forEach((subnet, subnetId) => {
       const vpcId = subnet.vpc_id || subnet.vpcId
       const parentVpcId = vpcId ? `vpc-${vpcId}` : null
       const isPublic = subnet.public !== false
       const subnetType = subnet.type || (isPublic ? 'public' : 'private')
+
+      // Color-code subnets: green for public, blue for private
+      let subnetColor = '#3b82f6'
+      let subnetFill = '#ebf8ff' // Light blue default
+      if (subnetType === 'public') {
+        subnetColor = '#22c55e'
+        subnetFill = '#f0fff4' // Light green
+      } else if (subnetType === 'database') {
+        subnetColor = '#0ea5e9'
+        subnetFill = '#e0f2fe' // Light blue
+      }
 
       nodes.push({
         id: `subnet-${subnetId}`,
@@ -341,14 +397,10 @@ export default function GraphViewX6({
         },
         attrs: {
           body: {
-            stroke: '#3b82f6',
+            stroke: subnetColor,
             strokeWidth: 3,
             strokeDasharray: '5 5',
-            fill: subnetType === 'public' 
-              ? 'rgba(34, 197, 94, 0.2)'
-              : subnetType === 'database'
-              ? 'rgba(59, 130, 246, 0.2)'
-              : 'rgba(234, 179, 8, 0.2)',
+            fill: subnetFill,
           },
         },
       })
@@ -619,6 +671,29 @@ export default function GraphViewX6({
       {/* Graph Canvas + Sidebar */}
       <div className="flex-1 flex relative">
         <div ref={containerRef} className="flex-1 bg-slate-50" style={{ minHeight: '500px' }} />
+        
+        {/* Active Traffic Legend */}
+        <div className="absolute bottom-4 left-4 bg-white/95 rounded-lg p-3 text-xs shadow-lg border">
+          <div className="font-medium mb-2 text-slate-700">Connection Types</div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-1 bg-green-500 rounded" style={{ 
+                background: 'linear-gradient(90deg, #10b981 0%, #10b981 50%, transparent 50%)',
+                backgroundSize: '10px 2px',
+                animation: 'flowing 2s linear infinite'
+              }} />
+              <span className="text-green-700 font-medium">Verified Traffic</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-0.5 bg-purple-500" style={{ borderStyle: 'dashed', borderWidth: '1px', borderColor: '#8b5cf6' }} />
+              <span className="text-slate-600">Allowed/Configured</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-1 bg-yellow-500 rounded" />
+              <span className="text-slate-600">Highlighted Path</span>
+            </div>
+          </div>
+        </div>
 
         {/* Inspector Sidebar */}
         {(selectedNode || selectedEdge) && (
