@@ -219,7 +219,7 @@ const ReactNodeComponent: React.FC<{ data: any }> = ({ data }) => {
 
 // Register React Shape will be done in useEffect after libraries load
 
-export default function GraphViewX6({
+function GraphViewX6Component({
   systemName,
   graphData,
   isLoading,
