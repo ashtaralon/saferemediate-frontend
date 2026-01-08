@@ -37,9 +37,18 @@ export async function GET(req: NextRequest) {
     
   } catch (error: any) {
     console.error('[proxy] Extended resources error:', error.message);
+    // Return empty structure instead of error to prevent UI crashes
     return NextResponse.json(
-      { error: error.message, resources: {}, summary: {} },
-      { status: 500 }
+      { 
+        s3_buckets: [],
+        dynamodb_tables: [],
+        ec2_instances: [],
+        lambda_functions: [],
+        rds_instances: [],
+        resources: {},
+        summary: {}
+      },
+      { status: 200 }
     );
   }
 }

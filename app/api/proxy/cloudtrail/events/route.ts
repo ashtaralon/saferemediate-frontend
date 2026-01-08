@@ -10,15 +10,19 @@ const BACKEND_URL =
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const limit = searchParams.get('limit') || '100'
-  const days = searchParams.get('days') || '7'
+  const days = searchParams.get('days') || searchParams.get('lookbackDays') || '7'
+  const roleName = searchParams.get('roleName')
   
-  console.log(`[proxy] CloudTrail events: limit=${limit}, days=${days}`)
+  console.log(`[proxy] CloudTrail events: limit=${limit}, days=${days}, roleName=${roleName || 'none'}`)
   
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 28000)
   
   try {
-    const backendUrl = `${BACKEND_URL}/api/cloudtrail/events?limit=${limit}&days=${days}`
+    let backendUrl = `${BACKEND_URL}/api/cloudtrail/events?limit=${limit}&days=${days}`
+    if (roleName) {
+      backendUrl += `&roleName=${encodeURIComponent(roleName)}`
+    }
     console.log(`[proxy] Calling: ${backendUrl}`)
     
     const response = await fetch(backendUrl, {
