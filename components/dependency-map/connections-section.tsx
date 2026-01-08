@@ -35,65 +35,185 @@ function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProp
       setError(null)
       
       try {
-        console.log(`[ConnectionsSection] Fetching connections for: ${resourceId}`)
+        const cloudtrailOutbound: APICallGroup[] = []
+        const networkConnections: NetworkConnection[] = []
+        const inboundInvocations: InboundInvocation[] = []
         
-        const response = await fetch(`/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`)
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch connections: ${response.status}`)
-        }
-        
-        const data = await response.json()
-        console.log(`[ConnectionsSection] Raw response:`, data)
-        
-        // Process connections from the API response
-        const processedConnections: Connection[] = []
-        
-        // Process inbound connections (ACTUAL_TRAFFIC where this resource is target)
-        if (data.inbound && Array.isArray(data.inbound)) {
-          data.inbound.forEach((rel: any) => {
-            processedConnections.push({
-              source_id: rel.source_id || rel.sourceId || '',
-              source_name: rel.source_name || rel.sourceName || rel.source_id || 'Unknown',
-              target_id: resourceId,
-              target_name: resourceName,
-              port: typeof rel.port === 'string' ? parseInt(rel.port) || rel.port : (rel.port || 0),
-              protocol: rel.protocol || 'TCP',
-              direction: "inbound",
-              traffic_bytes: rel.traffic_bytes || rel.trafficBytes || 0,
-              last_seen: rel.last_seen || rel.lastSeen,
-              edge_type: rel.edge_type || rel.edgeType || 'ACTUAL_TRAFFIC'
+        // PRIMARY: Use new Resource View API (A7 Patent - Neo4j connections)
+        try {
+          console.log('[ConnectionsSection] Fetching Resource View API for:', resourceId, resourceName)
+          const resourceViewRes = await fetch(`/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`)
+          
+          if (!resourceViewRes.ok) {
+            const errorText = await resourceViewRes.text()
+            console.warn('[ConnectionsSection] Resource View API returned error:', resourceViewRes.status, errorText)
+            throw new Error(`Resource View API returned ${resourceViewRes.status}: ${errorText}`)
+          }
+          
+          const viewData = await resourceViewRes.json()
+          console.log('[ConnectionsSection] Resource View API response:', {
+            success: viewData.success,
+            inbound_count: viewData.inbound_count,
+            outbound_count: viewData.outbound_count,
+            connections: viewData.connections ? {
+              inbound: viewData.connections.inbound?.length || 0,
+              outbound: viewData.connections.outbound?.length || 0
+            } : null
+          })
+          
+          // Ensure we're accessing the nested connections structure correctly
+          const connections = viewData.connections || {}
+          console.log('[ConnectionsSection] Processing connections:', {
+            hasConnections: !!viewData.connections,
+            inboundCount: connections.inbound?.length || 0,
+            outboundCount: connections.outbound?.length || 0,
+            sampleInbound: connections.inbound?.[0] || null,
+            sampleOutbound: connections.outbound?.[0] || null
+          })
+            
+          // Process inbound connections
+          (connections.inbound || []).forEach((conn: any) => {
+            const rel = conn.relationship || {}
+            const source = conn.source || {}
+            
+            // Network connections (ACTUAL_TRAFFIC)
+            // Check both possible field names for relationship type
+            const relType = rel.type || rel.relationship_type || ''
+            console.log('[ConnectionsSection] Processing inbound connection:', {
+              relType,
+              source: source.name || source.id,
+              port: rel.port,
+              protocol: rel.protocol
             })
+            if (relType === 'ACTUAL_TRAFFIC') {
+              networkConnections.push({
+                source_ip: source.name || source.id || '',
+                dest_ip: resourceName,
+                port: parseInt(rel.port) || 0,
+                protocol: (rel.protocol || 'tcp').toLowerCase(),
+                hits: rel.hit_count || 0,
+                bytes: 0,
+                resource_type: source.type || 'Unknown',
+                resource_name: source.name || source.id || ''
+              })
+            }
+            
+            // API calls (ACTUAL_API_CALL)
+            if (relType === 'ACTUAL_API_CALL') {
+              const service = rel.service || 'Unknown'
+              const action = rel.action || 'Unknown'
+              
+              let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === service)
+              if (!existing) {
+                existing = {
+                  service,
+                  resource_name: service,
+                  actions: [],
+                  total_calls: 0
+                }
+                cloudtrailOutbound.push(existing)
+              }
+              
+              const actionEntry = existing.actions.find(a => a.action === action)
+              if (actionEntry) {
+                actionEntry.count += rel.hit_count || 1
+              } else {
+                existing.actions.push({
+                  action,
+                  count: rel.hit_count || 1
+                })
+              }
+              existing.total_calls += rel.hit_count || 1
+            }
+            
+            // Inbound invocations (CALLS, INVOKES)
+            if (relType === 'CALLS' || relType === 'INVOKES') {
+              const existing = inboundInvocations.find(i => i.source_name === source.name)
+              if (existing) {
+                existing.invocations += rel.call_count || rel.hit_count || 1
+              } else {
+                inboundInvocations.push({
+                  source_type: source.type || 'Unknown',
+                  source_name: source.name || source.id || '',
+                  invocations: rel.call_count || rel.hit_count || 1
+                })
+              }
+            }
+          })
+          
+          // Process outbound connections
+          (connections.outbound || []).forEach((conn: any) => {
+            const rel = conn.relationship || {}
+            const target = conn.target || {}
+            
+            // Network connections (ACTUAL_TRAFFIC)
+            // Check both possible field names for relationship type
+            const relType = rel.type || rel.relationship_type || ''
+            console.log('[ConnectionsSection] Processing outbound connection:', {
+              relType,
+              target: target.name || target.id,
+              port: rel.port,
+              protocol: rel.protocol
+            })
+            if (relType === 'ACTUAL_TRAFFIC') {
+              networkConnections.push({
+                source_ip: resourceName,
+                dest_ip: target.name || target.id || '',
+                port: parseInt(rel.port) || 0,
+                protocol: (rel.protocol || 'tcp').toLowerCase(),
+                hits: rel.hit_count || 0,
+                bytes: 0,
+                resource_type: target.type || 'Unknown',
+                resource_name: target.name || target.id || ''
+              })
+            }
+            
+            // API calls (ACTUAL_API_CALL)
+            if (relType === 'ACTUAL_API_CALL') {
+              const service = rel.service || target.type || 'Unknown'
+              const action = rel.action || 'Unknown'
+              
+              let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === target.name)
+              if (!existing) {
+                existing = {
+                  service,
+                  resource_name: target.name || service,
+                  actions: [],
+                  total_calls: 0
+                }
+                cloudtrailOutbound.push(existing)
+              }
+              
+              const actionEntry = existing.actions.find(a => a.action === action)
+              if (actionEntry) {
+                actionEntry.count += rel.hit_count || 1
+              } else {
+                existing.actions.push({
+                  action,
+                  count: rel.hit_count || 1
+                })
+              }
+              existing.total_calls += rel.hit_count || 1
+            }
+          })
+          
+          // Sort CloudTrail outbound by total calls
+          cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+          
+          console.log('[ConnectionsSection] Resource View API data loaded:', {
+            inbound: connections.inbound?.length || 0,
+            outbound: connections.outbound?.length || 0,
+            networkConnections: networkConnections.length,
+            cloudtrailOutbound: cloudtrailOutbound.length,
+            inboundInvocations: inboundInvocations.length
+          })
+        } catch (e) {
+          console.error('[ConnectionsSection] Resource View API failed, falling back to legacy endpoints:', e)
+          console.error('[ConnectionsSection] Error details:', {
+            message: e instanceof Error ? e.message : String(e),
+            stack: e instanceof Error ? e.stack : undefined
           })
         }
-        
-        // Process outbound connections (ACTUAL_TRAFFIC where this resource is source)
-        if (data.outbound && Array.isArray(data.outbound)) {
-          data.outbound.forEach((rel: any) => {
-            processedConnections.push({
-              source_id: resourceId,
-              source_name: resourceName,
-              target_id: rel.target_id || rel.targetId || '',
-              target_name: rel.target_name || rel.targetName || rel.target_id || 'Unknown',
-              port: typeof rel.port === 'string' ? parseInt(rel.port) || rel.port : (rel.port || 0),
-              protocol: rel.protocol || 'TCP',
-              direction: "outbound",
-              traffic_bytes: rel.traffic_bytes || rel.trafficBytes || 0,
-              last_seen: rel.last_seen || rel.lastSeen,
-              edge_type: rel.edge_type || rel.edgeType || 'ACTUAL_TRAFFIC'
-            })
-          })
-        }
-        
-        console.log(`[ConnectionsSection] Processed ${processedConnections.length} connections:`, processedConnections)
-        setConnections(processedConnections)
-        
-      } catch (err) {
-        console.error('[ConnectionsSection] Error fetching connections:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load connections')
-      } finally {
-        setLoading(false)
-      }
     }
 
     if (resourceId) {
