@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ACTUAL_TRAFFIC Edge Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+    .result { background: #252526; padding: 15px; margin: 10px 0; border-radius: 5px; }
+    .success { border-left: 4px solid #4ec9b0; }
+    .error { border-left: 4px solid #f48771; }
+    .info { border-left: 4px solid #569cd6; }
+    button { padding: 10px 20px; background: #0e639c; color: white; border: none; border-radius: 3px; cursor: pointer; }
+    button:hover { background: #1177bb; }
+    pre { background: #1e1e1e; padding: 10px; overflow-x: auto; }
+    .edge-item { margin: 10px 0; padding: 10px; background: #2d2d30; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>ACTUAL_TRAFFIC Edge Test</h1>
+  <button onclick="testAPI()">Test API</button>
+  <div id="results"></div>
+
+  <script>
+    async function testAPI() {
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '<div class="result info">Fetching data...</div>';
+      
+      try {
+        const apiUrl = window.location.origin + '/api/proxy/dependency-map/full?systemName=alon-prod';
+        console.log('Fetching from:', apiUrl);
+        
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        
+        console.log('Full response:', data);
+        
+        // Check for ACTUAL_TRAFFIC edges
+        const trafficEdges = (data.edges || []).filter(e => 
+          e.edge_type === 'ACTUAL_TRAFFIC' || 
+          e.type === 'ACTUAL_TRAFFIC' ||
+          e.relationship_type === 'ACTUAL_TRAFFIC'
+        );
+        
+        let html = '';
+        
+        // Summary
+        html += `<div class="result success">
+          <h3>✅ API Response Summary</h3>
+          <p>Total nodes: <strong>${data.nodes?.length || 0}</strong></p>
+          <p>Total edges: <strong>${data.edges?.length || 0}</strong></p>
+          <p>ACTUAL_TRAFFIC edges found: <strong>${trafficEdges.length}</strong></p>
+        </div>`;
+        
+        if (trafficEdges.length > 0) {
+          // Field usage analysis
+          const usingType = trafficEdges.filter(e => e.type === 'ACTUAL_TRAFFIC').length;
+          const usingEdgeType = trafficEdges.filter(e => e.edge_type === 'ACTUAL_TRAFFIC').length;
+          const usingRelationshipType = trafficEdges.filter(e => e.relationship_type === 'ACTUAL_TRAFFIC').length;
+          
+          html += `<div class="result info">
+            <h3>Field Usage</h3>
+            <p>Using "type": ${usingType}</p>
+            <p>Using "edge_type": ${usingEdgeType}</p>
+            <p>Using "relationship_type": ${usingRelationshipType}</p>
+          </div>`;
+          
+          // Show sample edges
+          html += `<div class="result success">
+            <h3>Sample ACTUAL_TRAFFIC Edges (showing first 10)</h3>`;
+          
+          trafficEdges.slice(0, 10).forEach((edge, i) => {
+            html += `<div class="edge-item">
+              <strong>Edge ${i + 1}:</strong><br>
+              Source: ${edge.source}<br>
+              Target: ${edge.target}<br>
+              Type: ${edge.type || 'N/A'}<br>
+              Edge_type: ${edge.edge_type || 'N/A'}<br>
+              Relationship_type: ${edge.relationship_type || 'N/A'}<br>
+              Port: ${edge.port || 'N/A'}<br>
+              Protocol: ${edge.protocol || 'N/A'}<br>
+              Hit count: ${edge.hit_count || 'N/A'}<br>
+              <pre>${JSON.stringify(edge, null, 2)}</pre>
+            </div>`;
+          });
+          
+          html += `</div>`;
+        } else {
+          html += `<div class="result error">
+            <h3>⚠️ No ACTUAL_TRAFFIC edges found!</h3>
+            <p>Checking all edge types in response:</p>`;
+          
+          const edgeTypes = {};
+          (data.edges || []).forEach(e => {
+            const type = e.type || e.edge_type || e.relationship_type || 'unknown';
+            edgeTypes[type] = (edgeTypes[type] || 0) + 1;
+          });
+          
+          html += `<pre>${JSON.stringify(edgeTypes, null, 2)}</pre>`;
+          html += `</div>`;
+        }
+        
+        // Show raw data
+        html += `<div class="result info">
+          <h3>Raw Response (first 3 edges)</h3>
+          <pre>${JSON.stringify(data.edges?.slice(0, 3), null, 2)}</pre>
+        </div>`;
+        
+        resultsDiv.innerHTML = html;
+        
+        // Also log to console
+        console.log('ACTUAL_TRAFFIC edges found:', trafficEdges.length);
+        console.log(trafficEdges);
+        
+      } catch (error) {
+        resultsDiv.innerHTML = `<div class="result error">
+          <h3>❌ Error</h3>
+          <p>${error.message}</p>
+        </div>`;
+        console.error('Error:', error);
+      }
+    }
+    
+    // Auto-run on load
+    window.addEventListener('load', () => {
+      testAPI();
+    });
+  </script>
+</body>
+</html>
+
