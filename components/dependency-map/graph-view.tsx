@@ -9,7 +9,7 @@ import {
   RefreshCw, ZoomIn, ZoomOut, Maximize2,
   ChevronRight, AlertTriangle, CheckCircle, X,
   Layers, Search, ArrowRight, Download,
-  Play, FileText, Clock, Info
+  Play, FileText, Clock, Info, Activity
 } from 'lucide-react'
 
 if (typeof window !== 'undefined') {
@@ -31,8 +31,10 @@ const COLORS: Record<string, string> = {
   User: '#759C3E',
   Role: '#759C3E',
   VPC: '#7B2FBE',
+  Subnet: '#7B2FBE',
   CloudWatch: '#F58536',
   CloudTrail: '#759C3E',
+  System: '#64748b',
 }
 
 // AWS-style SVG icons as data URIs
@@ -80,6 +82,23 @@ const SHAPES: Record<string, string> = {
   External: 'diamond', 
   Service: 'round-rectangle',
   VPC: 'round-rectangle',
+  Subnet: 'round-rectangle',
+  System: 'ellipse',
+}
+
+// Edge type colors
+const EDGE_COLORS: Record<string, { line: string, arrow: string, style?: string }> = {
+  ACTUAL_TRAFFIC: { line: '#10b981', arrow: '#10b981' },
+  internet: { line: '#ef4444', arrow: '#ef4444', style: 'dashed' },
+  iam_trust: { line: '#8b5cf6', arrow: '#8b5cf6', style: 'dashed' },
+  network: { line: '#f97316', arrow: '#f97316' },
+  HAS_POLICY: { line: '#94a3b8', arrow: '#94a3b8' },
+  HAS_SECURITY_GROUP: { line: '#7B2FBE', arrow: '#7B2FBE' },
+  IN_VPC: { line: '#7B2FBE', arrow: '#7B2FBE', style: 'dashed' },
+  IN_SUBNET: { line: '#7B2FBE', arrow: '#7B2FBE', style: 'dashed' },
+  BELONGS_TO_SYSTEM: { line: '#64748b', arrow: '#64748b', style: 'dashed' },
+  CONTAINS: { line: '#64748b', arrow: '#64748b', style: 'dashed' },
+  default: { line: '#94a3b8', arrow: '#94a3b8' },
 }
 
 interface EdgeTrafficData {
@@ -124,15 +143,63 @@ interface Props {
 export default function GraphView({ systemName, graphData, isLoading, onNodeClick, onRefresh }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
+  const animationRef = useRef<number | null>(null)
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [selectedEdge, setSelectedEdge] = useState<any>(null)
   const [edgeTrafficData, setEdgeTrafficData] = useState<EdgeTrafficData | null>(null)
   const [edgeLoading, setEdgeLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightRisks, setHighlightRisks] = useState(false)
+  const [highlightTraffic, setHighlightTraffic] = useState(false)
   const [isLive, setIsLive] = useState(true)
   const [pathFromInternet, setPathFromInternet] = useState<string[]>([])
   const [observationDays, setObservationDays] = useState(30)
+  const [stats, setStats] = useState({ nodes: 0, edges: 0, actualTraffic: 0 })
+
+  // Animate ACTUAL_TRAFFIC edges
+  const animateTrafficEdges = useCallback(() => {
+    if (!cyRef.current || !highlightTraffic) return
+    
+    const cy = cyRef.current
+    const trafficEdges = cy.edges('[type="ACTUAL_TRAFFIC"]')
+    
+    let phase = 0
+    const animate = () => {
+      phase = (phase + 0.05) % 1
+      trafficEdges.forEach((edge) => {
+        const opacity = 0.5 + Math.sin(phase * Math.PI * 2) * 0.5
+        edge.style('line-opacity', opacity)
+        edge.style('target-arrow-opacity', opacity)
+      })
+      animationRef.current = requestAnimationFrame(animate)
+    }
+    
+    animate()
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [highlightTraffic])
+
+  useEffect(() => {
+    if (highlightTraffic) {
+      const cleanup = animateTrafficEdges()
+      return cleanup
+    } else {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+      // Reset opacity
+      if (cyRef.current) {
+        cyRef.current.edges('[type="ACTUAL_TRAFFIC"]').style({
+          'line-opacity': 1,
+          'target-arrow-opacity': 1
+        })
+      }
+    }
+  }, [highlightTraffic, animateTrafficEdges])
 
   // Find path from Internet to a given edge
   const findPathFromInternet = useCallback((edge: any, nodes: any[], edges: any[]): string[] => {
@@ -180,6 +247,31 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     setPathFromInternet(path)
     
     try {
+      // For ACTUAL_TRAFFIC edges, show the traffic info directly
+      if (edge.type === 'ACTUAL_TRAFFIC') {
+        setEdgeTrafficData({
+          port: edge.port || edge.label,
+          protocol: edge.protocol || 'TCP',
+          direction: 'outbound',
+          source: edge.source,
+          destination: edge.target,
+          source_type: 'security_group',
+          total_hits: edge.hit_count || 1,
+          unique_sources: [edge.source],
+          bytes_transferred: edge.bytes_transferred || 0,
+          recommendation: 'keep',
+          recommendation_reason: 'Active verified traffic observed from VPC Flow Logs',
+          confidence: 95,
+          confidence_reason: 'Verified by ACTUAL_TRAFFIC relationship in graph',
+          is_public: false,
+          is_internal: true,
+          last_seen: edge.last_seen,
+          observation_days: observationDays
+        })
+        setEdgeLoading(false)
+        return
+      }
+      
       const sgId = edge.source_sg || edge.target_sg || 
         (edge.source?.includes('sg-') ? edge.source : null) ||
         (edge.target?.includes('sg-') ? edge.target : null)
@@ -345,6 +437,21 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     }
   }
 
+  const toggleHighlightTraffic = () => {
+    if (!cyRef.current) return
+    const cy = cyRef.current
+    
+    if (highlightTraffic) {
+      cy.elements().removeClass('traffic-highlight traffic-dimmed')
+      setHighlightTraffic(false)
+    } else {
+      cy.elements().addClass('traffic-dimmed')
+      cy.edges('[type="ACTUAL_TRAFFIC"]').removeClass('traffic-dimmed').addClass('traffic-highlight')
+      cy.edges('[type="ACTUAL_TRAFFIC"]').connectedNodes().removeClass('traffic-dimmed').addClass('traffic-highlight')
+      setHighlightTraffic(true)
+    }
+  }
+
   useEffect(() => {
     if (!isLive) return
     const i = setInterval(onRefresh, 30000)
@@ -373,31 +480,34 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
 
     const elements: cytoscape.ElementDefinition[] = []
     const nodeIds = new Set<string>()
+    let actualTrafficCount = 0
     
-    // Ensure Internet node exists if there are internet edges
     const hasInternetEdges = (graphData.edges || []).some((e: any) => e.type === 'internet' || e.source === 'Internet')
     if (hasInternetEdges && !graphData.nodes?.find((n: any) => n.id === 'Internet')) {
       elements.push({
         group: 'nodes',
-        data: { id: 'Internet', label: 'Internet', type: 'Internet', lpScore: 0 }
+        data: { id: 'Internet', label: 'Internet\nExternal', type: 'Internet', lpScore: 0 }
       })
       nodeIds.add('Internet')
     }
     
-    // Helper function to format service type names
     const formatServiceType = (type: string): string => {
       const typeMap: Record<string, string> = {
         'IAMRole': 'IAM Role',
+        'IAMPolicy': 'IAM Policy',
         'SecurityGroup': 'Security Group',
         'S3Bucket': 'S3 Bucket',
-        'EC2': 'EC2',
-        'Lambda': 'Lambda',
-        'RDS': 'RDS',
-        'DynamoDB': 'DynamoDB',
-        'Internet': 'Internet',
-        'VPC': 'VPC',
+        'S3': 'S3 Bucket',
+        'EC2': 'EC2 Instance',
+        'Lambda': 'Lambda Function',
+        'RDS': 'RDS Database',
+        'DynamoDB': 'DynamoDB Table',
+        'Internet': 'Internet Gateway',
+        'VPC': 'Virtual Private Cloud',
+        'Subnet': 'Subnet',
         'CloudWatch': 'CloudWatch',
         'CloudTrail': 'CloudTrail',
+        'System': 'System',
       }
       return typeMap[type] || type
     }
@@ -408,8 +518,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       nodeIds.add(n.id)
       const nodeName = (n.name || n.id)
       const serviceType = formatServiceType(n.type || 'Service')
-      // Label format: "Name\nType" - two lines for better visibility
-      const label = `${nodeName}\n${serviceType}`
+      const label = nodeName + "\n" + serviceType
       elements.push({
         group: 'nodes',
         data: { 
@@ -423,23 +532,72 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         }
       })
     })
+    
+    console.log('[GraphView] Processing edges:', graphData.edges?.length || 0)
+    ;(graphData.edges || []).forEach((e: any, i: number) => {
+      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) {
+        console.log('[GraphView] Skipping edge - missing node:', e.source, '->', e.target)
+        return
+      }
+      
+      // Handle both 'type' and 'edge_type' field names from API
+      const edgeType = e.type || e.edge_type || e.relationship_type || 'default'
+      if (edgeType === 'ACTUAL_TRAFFIC') {
+        actualTrafficCount++
+        console.log('[GraphView] Found ACTUAL_TRAFFIC edge:', e.source, '->', e.target)
+      }
+      
+      const protocol = e.protocol || 'TCP'
+      const port = e.port || ''
+      let label = ''
+      
+      if (edgeType === 'ACTUAL_TRAFFIC') {
+        label = port ? protocol + "/" + port : 'Traffic'
+      } else if (port) {
+        label = protocol + "/" + port
+      } else if (edgeType === 'internet') {
+        label = 'Internet'
+      }
+      
+      elements.push({
+        group: 'edges',
+        data: { 
+          id: e.id || ("e" + i), 
+          source: e.source, 
+          target: e.target, 
+          label, 
+          type: edgeType, 
+          protocol, 
+          port,
+          last_seen: e.last_seen,
+          hit_count: e.hit_count,
+          ...e 
+        }
+      })
+    })
+
     console.log('[GraphView] Created elements:', {
       nodes: elements.filter(e => e.group === 'nodes').length,
       edges: elements.filter(e => e.group === 'edges').length,
-      total: elements.length
+      actualTraffic: actualTrafficCount
     })
     
-    ;(graphData.edges || []).forEach((e: any, i: number) => {
-      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) return
-      // Build edge label with protocol and port (e.g., "TCP/3000")
-      const protocol = e.protocol || 'TCP'
-      const port = e.port || ''
-      const label = port ? `${protocol}/${port}` : (e.type === 'internet' ? 'Internet' : '')
-      elements.push({
-        group: 'edges',
-        data: { id: e.id || `e${i}`, source: e.source, target: e.target, label, type: e.type, protocol, port, ...e }
-      })
+    setStats({
+      nodes: elements.filter(e => e.group === 'nodes').length,
+      edges: elements.filter(e => e.group === 'edges').length,
+      actualTraffic: actualTrafficCount
     })
+
+    // Build dynamic edge styles
+    const edgeStyles = Object.entries(EDGE_COLORS).map(([type, colors]) => ({
+      selector: 'edge[type="' + type + '"]',
+      style: {
+        'line-color': colors.line,
+        'target-arrow-color': colors.arrow,
+        'line-style': colors.style || 'solid',
+        'width': type === 'ACTUAL_TRAFFIC' ? 4 : 2,
+      } as any
+    }))
 
     const cy = cytoscape({
       container: containerRef.current,
@@ -492,18 +650,39 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           'width': 2, 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8',
           'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
           'label': 'data(label)', 'font-size': '9px', 'text-rotation': 'autorotate',
+          'text-background-color': '#ffffff',
+          'text-background-opacity': 0.8,
+          'text-background-padding': '2px',
         }},
-        { selector: 'edge[type="internet"]', style: { 'line-color': '#ef4444', 'target-arrow-color': '#ef4444', 'line-style': 'dashed' }},
-        { selector: 'edge[type="iam_trust"]', style: { 'line-color': '#8b5cf6', 'target-arrow-color': '#8b5cf6', 'line-style': 'dashed' }},
-        { selector: 'edge[type="network"]', style: { 'line-color': '#f97316', 'target-arrow-color': '#f97316' }},
+        // ACTUAL_TRAFFIC edges - bright green, thicker
+        { selector: 'edge[type="ACTUAL_TRAFFIC"]', style: { 
+          'line-color': '#10b981', 
+          'target-arrow-color': '#10b981', 
+          'width': 4,
+          'line-style': 'solid',
+          'z-index': 100,
+        }},
+        ...edgeStyles,
         { selector: '.highlighted', style: { 'border-width': 5, 'border-color': '#fbbf24', 'z-index': 999 }},
-        { selector: 'edge.highlighted', style: { 'width': 4, 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24' }},
+        { selector: 'edge.highlighted', style: { 'width': 5, 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24' }},
         { selector: '.dimmed', style: { 'opacity': 0.15 }},
         { selector: '.risk-highlight', style: { 'border-width': 5, 'border-color': '#ef4444', 'z-index': 999 }},
-        { selector: 'edge.risk-highlight', style: { 'width': 5, 'line-color': '#ef4444', 'target-arrow-color': '#ef4444', 'line-style': 'solid' }},
+        { selector: 'edge.risk-highlight', style: { 'width': 5, 'line-color': '#ef4444', 'target-arrow-color': '#ef4444' }},
         { selector: '.risk-dimmed', style: { 'opacity': 0.2 }},
+        { selector: '.traffic-highlight', style: { 'border-width': 5, 'border-color': '#10b981', 'z-index': 999 }},
+        { selector: 'edge.traffic-highlight', style: { 'width': 6, 'line-color': '#10b981', 'target-arrow-color': '#10b981' }},
+        { selector: '.traffic-dimmed', style: { 'opacity': 0.15 }},
       ],
-      layout: { name: 'cose-bilkent', animate: true, nodeDimensionsIncludeLabels: true, idealEdgeLength: 100, nodeRepulsion: 5000 } as any,
+      layout: { 
+        name: 'cose-bilkent', 
+        animate: true, 
+        nodeDimensionsIncludeLabels: true, 
+        idealEdgeLength: 120, 
+        nodeRepulsion: 6000,
+        gravity: 0.25,
+        numIter: 2500,
+        tile: true,
+      } as any,
       minZoom: 0.2, maxZoom: 3,
     })
 
@@ -563,13 +742,27 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
           <button 
+            onClick={toggleHighlightTraffic} 
+            className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
+              highlightTraffic ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700 hover:bg-green-200'
+            )}
+          >
+            <Activity className="w-4 h-4" /> 
+            {highlightTraffic ? 'Clear Traffic' : 'Show Traffic'}
+            {stats.actualTraffic > 0 && (
+              <span className={"ml-1 px-1.5 py-0.5 rounded-full text-xs " + (highlightTraffic ? 'bg-green-500' : 'bg-green-200')}>
+                {stats.actualTraffic}
+              </span>
+            )}
+          </button>
+          <button 
             onClick={toggleHighlightRisks} 
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
+            className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
               highlightRisks ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700 hover:bg-red-200'
-            }`}
+            )}
           >
             <AlertTriangle className="w-4 h-4" /> 
-            {highlightRisks ? 'Clear Risks' : 'Highlight Risks'}
+            {highlightRisks ? 'Clear Risks' : 'Show Risks'}
           </button>
           <button onClick={exportGraph} className="flex items-center gap-2 px-3 py-1.5 bg-slate-600 text-white rounded-lg text-sm">
             <Download className="w-4 h-4" /> Export
@@ -602,13 +795,26 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         
         {/* Legend */}
         <div className="absolute bottom-4 left-4 bg-white/95 rounded-lg p-3 text-xs shadow border">
-          <div className="font-medium mb-2">Legend</div>
-          {Object.entries(COLORS).slice(0, 6).map(([t, c]) => (
+          <div className="font-medium mb-2">Resource Types</div>
+          {[['EC2', '#F58536'], ['RDS', '#3F48CC'], ['Lambda', '#F58536'], ['S3', '#759C3E'], ['IAMRole', '#759C3E'], ['SecurityGroup', '#7B2FBE']].map(([t, c]) => (
             <div key={t} className="flex items-center gap-2 mb-1">
-              <div className="w-3 h-3 rounded" style={{ backgroundColor: c }} />
+              <div className="w-3 h-3 rounded" style={{ backgroundColor: c as string }} />
               <span>{t}</span>
             </div>
           ))}
+          <div className="mt-2 pt-2 border-t font-medium mb-1">Connections</div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-6 h-1 rounded bg-green-500" />
+            <span className="text-green-700 font-medium">ACTUAL_TRAFFIC</span>
+          </div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-6 h-0.5 bg-red-500" style={{ borderStyle: 'dashed', borderWidth: '1px', borderColor: '#ef4444' }} />
+            <span>Internet Exposed</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-0.5 bg-slate-400" />
+            <span>Configuration</span>
+          </div>
           <div className="mt-2 pt-2 border-t text-slate-500">
             Double-click node for details
           </div>
@@ -690,12 +896,36 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             {selectedEdge && (
               <div className="space-y-4">
                 <h3 className="font-semibold flex items-center gap-2 text-base">
-                  <ArrowRight className="w-5 h-5 text-blue-500" />
-                  Connection Analysis
+                  {selectedEdge.type === 'ACTUAL_TRAFFIC' ? (
+                    <Activity className="w-5 h-5 text-green-500" />
+                  ) : (
+                    <ArrowRight className="w-5 h-5 text-blue-500" />
+                  )}
+                  {selectedEdge.type === 'ACTUAL_TRAFFIC' ? 'Verified Traffic' : 'Connection Analysis'}
                 </h3>
                 
-                {/* 1. Verdict Row */}
-                {edgeTrafficData && (
+                {/* ACTUAL_TRAFFIC Badge */}
+                {selectedEdge.type === 'ACTUAL_TRAFFIC' && (
+                  <div className="p-3 rounded-lg border-2 bg-green-50 border-green-300">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="w-5 h-5 text-green-500" />
+                      <span className="font-bold uppercase text-sm text-green-700">
+                        VERIFIED TRAFFIC
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-700">
+                      This connection was observed in VPC Flow Logs - real traffic between these resources.
+                    </p>
+                    {selectedEdge.last_seen && (
+                      <p className="mt-2 text-xs text-green-600">
+                        Last seen: {new Date(selectedEdge.last_seen).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
+                
+                {/* Verdict Row for non-traffic edges */}
+                {edgeTrafficData && selectedEdge.type !== 'ACTUAL_TRAFFIC' && (
                   <div className={`p-3 rounded-lg border-2 ${
                     edgeTrafficData.recommendation === 'remove' 
                       ? 'bg-red-50 border-red-300' 
@@ -856,19 +1086,20 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                 </div>
                 )}
                 
-                {/* 4. Evidence (VPC Flow Logs) */}
+                {/* Traffic Data */}
                 {edgeLoading ? (
                   <div className="p-4 bg-slate-50 rounded-lg flex items-center justify-center gap-2">
                     <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
                     <span className="text-sm text-slate-500">Loading traffic data...</span>
                   </div>
                 ) : edgeTrafficData ? (
-                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-xs text-green-600 font-semibold flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        ACTUAL TRAFFIC (VPC Flow Logs)
-                        </div>
+                        TRAFFIC DATA
+                      </div>
+                    </div>
                       <div className="flex items-center gap-1">
                         {[7, 30, 90].map(days => (
                           <button
@@ -896,39 +1127,80 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                         <span className="font-bold text-green-700">{edgeTrafficData.total_hits.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-600">Unique sources:</span>
-                        <span className="font-bold">{edgeTrafficData.unique_sources.length}</span>
+                        <span className="text-slate-600">Protocol:</span>
+                        <span className="font-medium">{edgeTrafficData.protocol}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">Port:</span>
+                        <span className="font-mono font-medium">{edgeTrafficData.port || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-600">Last seen:</span>
                         <span className="font-medium">
                           {edgeTrafficData.last_seen 
                             ? new Date(edgeTrafficData.last_seen).toLocaleDateString()
-                            : edgeTrafficData.total_hits === 0 
-                              ? 'Never' 
-                              : 'N/A'}
+                            : 'N/A'}
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Window:</span>
-                        <span className="font-medium">Last {edgeTrafficData.observation_days || observationDays} days</span>
-                    </div>
-                      {edgeTrafficData.bytes_transferred > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-600">Bytes:</span>
-                          <span className="font-medium">{(edgeTrafficData.bytes_transferred / 1024 / 1024).toFixed(2)} MB</span>
-                      </div>
-                    )}
                     </div>
                   </div>
-                ) : (
-                  <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-500 border border-slate-200">
-                    No traffic data available for this connection
-                  </div>
-                )}
+                ) : null}
                 
-                {/* 5. Recommendation */}
-                {edgeTrafficData && (
+                {/* Actions */}
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-600 font-semibold">Actions</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
+                      onClick={() => console.log('Simulate:', selectedEdge.id)}
+                    >
+                      <Play className="w-3 h-3" />
+                      Simulate
+                    </button>
+                    <button 
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-300"
+                      onClick={() => {
+                        const exportData = {
+                          edge: selectedEdge,
+                          traffic: edgeTrafficData,
+                          timestamp: new Date().toISOString()
+                        }
+                        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = "connection-" + selectedEdge.id + ".json"
+                        a.click()
+                        URL.revokeObjectURL(url)
+                      }}
+                    >
+                      <Download className="w-3 h-3" />
+                      Export
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-2 border-t bg-slate-50 text-xs text-slate-500 flex justify-between">
+        <span className="flex items-center gap-2">
+          <Database className="w-3 h-3 text-green-500" />
+          <span>{stats.nodes} nodes, {stats.edges} edges</span>
+          {stats.actualTraffic > 0 && (
+            <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">
+              {stats.actualTraffic} verified traffic flows
+            </span>
+          )}
+        </span>
+        <span>{graphData?.summary?.internetExposedNodes || 0} internet exposed</span>
+      </div>
+    </div>
+  )
+}
                   <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                     <div className="text-xs text-blue-600 font-semibold mb-2">Recommendation</div>
                     <p className="text-sm text-slate-700">
