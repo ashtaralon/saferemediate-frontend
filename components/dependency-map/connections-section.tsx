@@ -205,7 +205,6 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
               inboundInvocations: inboundInvocations.length,
               rawConnections: connections
             })
-          }
         } catch (e) {
           console.error('[ConnectionsSection] Resource View API failed, falling back to legacy endpoints:', e)
           console.error('[ConnectionsSection] Error details:', {
