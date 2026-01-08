@@ -366,7 +366,9 @@ function GraphViewX6Component({
 
   // Update graph data
   useEffect(() => {
-    if (!graphRef.current || !graphData || isLoading || !isClient || !Graph) {
+    if (!isClient) return
+
+    if (!graphRef.current || !graphData || isLoading || !Graph) {
       console.log('[GraphViewX6] Skipping graph update:', {
         hasGraph: !!graphRef.current,
         hasData: !!graphData,
@@ -377,231 +379,233 @@ function GraphViewX6Component({
       return
     }
 
+    let highlightTimer: NodeJS.Timeout | null = null
+
     try {
       const graph = graphRef.current
       graph.clearCells()
 
-    // Important resource types for grouped mode
-    const importantTypes = ['EC2', 'RDS', 'Lambda', 'SecurityGroup', 'VPC', 'Subnet', 'S3Bucket', 'S3', 'DynamoDB']
-    const filteredNodes = viewMode === 'grouped'
-      ? (graphData.nodes || []).filter((n: any) => 
-          importantTypes.includes(n.type) && n.type !== 'System' // Hide System nodes in Architectural view
-        )
-      : (graphData.nodes || []).filter((n: any) => n.type !== 'System') // Always hide System nodes
+      // Important resource types for grouped mode
+      const importantTypes = ['EC2', 'RDS', 'Lambda', 'SecurityGroup', 'VPC', 'Subnet', 'S3Bucket', 'S3', 'DynamoDB']
+      const filteredNodes = viewMode === 'grouped'
+        ? (graphData.nodes || []).filter((n: any) => 
+            importantTypes.includes(n.type) && n.type !== 'System' // Hide System nodes in Architectural view
+          )
+        : (graphData.nodes || []).filter((n: any) => n.type !== 'System') // Always hide System nodes
 
-    // Build VPC and Subnet maps
-    const vpcMap = new Map<string, any>()
-    const subnetMap = new Map<string, any>()
-    const vpcToSubnets = new Map<string, Set<string>>()
+      // Build VPC and Subnet maps
+      const vpcMap = new Map<string, any>()
+      const subnetMap = new Map<string, any>()
+      const vpcToSubnets = new Map<string, Set<string>>()
 
-    filteredNodes.forEach((n: any) => {
-      if (n.type === 'VPC') {
-        vpcMap.set(n.id, n)
-        vpcToSubnets.set(n.id, new Set())
-      } else if (n.type === 'Subnet') {
-        subnetMap.set(n.id, n)
-        const vpcId = n.vpc_id || n.vpcId
-        if (vpcId && vpcMap.has(vpcId)) {
-          vpcToSubnets.get(vpcId)?.add(n.id)
+      filteredNodes.forEach((n: any) => {
+        if (n.type === 'VPC') {
+          vpcMap.set(n.id, n)
+          vpcToSubnets.set(n.id, new Set())
+        } else if (n.type === 'Subnet') {
+          subnetMap.set(n.id, n)
+          const vpcId = n.vpc_id || n.vpcId
+          if (vpcId && vpcMap.has(vpcId)) {
+            vpcToSubnets.get(vpcId)?.add(n.id)
+          }
         }
-      }
-    })
+      })
 
-    const nodes: any[] = []
-    const edges: any[] = []
+      const nodes: any[] = []
+      const edges: any[] = []
 
-    // Create VPC container nodes
-    vpcMap.forEach((vpc, vpcId) => {
-      const subnetCount = vpcToSubnets.get(vpcId)?.size || 0
-      nodes.push({
-        id: `vpc-${vpcId}`,
-        shape: 'react-node',
-        x: 0,
-        y: 0,
-        width: 500,
-        height: 400,
-        data: {
-          id: vpcId,
-          name: vpc.name || vpcId,
-          type: 'VPC',
-          isContainer: true,
-          ...vpc,
-        },
-        attrs: {
-          body: {
-            stroke: '#22c55e',
-            strokeWidth: 3,
-            strokeDasharray: '5 5',
-            fill: 'rgba(34, 197, 94, 0.15)',
+      // Create VPC container nodes
+      vpcMap.forEach((vpc, vpcId) => {
+        const subnetCount = vpcToSubnets.get(vpcId)?.size || 0
+        nodes.push({
+          id: `vpc-${vpcId}`,
+          shape: 'react-node',
+          x: 0,
+          y: 0,
+          width: 500,
+          height: 400,
+          data: {
+            id: vpcId,
+            name: vpc.name || vpcId,
+            type: 'VPC',
+            isContainer: true,
+            ...vpc,
           },
-        },
-      })
-    })
-
-    // Create Subnet container nodes (nested in VPCs) - Color-coded
-    subnetMap.forEach((subnet, subnetId) => {
-      const vpcId = subnet.vpc_id || subnet.vpcId
-      const parentVpcId = vpcId ? `vpc-${vpcId}` : null
-      const isPublic = subnet.public !== false
-      const subnetType = subnet.type || (isPublic ? 'public' : 'private')
-
-      // Color-code subnets: green for public, blue for private
-      let subnetColor = '#3b82f6'
-      let subnetFill = '#ebf8ff' // Light blue default
-      if (subnetType === 'public') {
-        subnetColor = '#22c55e'
-        subnetFill = '#f0fff4' // Light green
-      } else if (subnetType === 'database') {
-        subnetColor = '#0ea5e9'
-        subnetFill = '#e0f2fe' // Light blue
-      }
-
-      nodes.push({
-        id: `subnet-${subnetId}`,
-        shape: 'react-node',
-        x: 0,
-        y: 0,
-        width: 350,
-        height: 250,
-        parent: parentVpcId,
-        data: {
-          id: subnetId,
-          name: subnet.name || subnetId,
-          type: 'Subnet',
-          isContainer: true,
-          subnetType,
-          ...subnet,
-        },
-        attrs: {
-          body: {
-            stroke: subnetColor,
-            strokeWidth: 3,
-            strokeDasharray: '5 5',
-            fill: subnetFill,
-          },
-        },
-      })
-    })
-
-    // Create resource nodes
-    filteredNodes.forEach((n: any) => {
-      if (n.type === 'VPC' || n.type === 'Subnet') return // Already created as containers
-
-      if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
-
-      let parent: string | undefined = undefined
-      if (n.subnet_id || n.subnetId) {
-        const subnetId = n.subnet_id || n.subnetId
-        if (subnetMap.has(subnetId)) {
-          parent = `subnet-${subnetId}`
-        }
-      } else if (n.vpc_id || n.vpcId) {
-        const vpcId = n.vpc_id || n.vpcId
-        if (vpcMap.has(vpcId)) {
-          parent = `vpc-${vpcId}`
-        }
-      }
-
-      // Categorize by functional lane
-      let functionalLane: 'inbound' | 'compute' | 'data' = 'compute'
-      if (n.type === 'EC2' || n.type === 'Lambda' || n.type === 'ECS') {
-        functionalLane = 'compute'
-      } else if (n.type === 'RDS' || n.type === 'DynamoDB' || n.type === 'S3Bucket' || n.type === 'S3') {
-        functionalLane = 'data'
-      } else if (n.type === 'SecurityGroup' || n.type === 'ALB' || n.type === 'LoadBalancer') {
-        functionalLane = 'inbound'
-      }
-
-      nodes.push({
-        id: n.id,
-        shape: 'react-node',
-        x: 0,
-        y: 0,
-        width: 120,
-        height: 100,
-        parent: parent,
-        data: {
-          ...n,
-          functionalLane,
-        },
-      })
-    })
-
-    // Create edges
-    ;(graphData.edges || []).forEach((e: any, i: number) => {
-      const sourceId = vpcMap.has(e.source) ? `vpc-${e.source}` : 
-                      subnetMap.has(e.source) ? `subnet-${e.source}` : e.source
-      const targetId = vpcMap.has(e.target) ? `vpc-${e.target}` : 
-                      subnetMap.has(e.target) ? `subnet-${e.target}` : e.target
-
-      // Skip edges to/from hidden nodes in grouped mode
-      if (viewMode === 'grouped') {
-        const sourceNode = filteredNodes.find((n: any) => n.id === e.source)
-        const targetNode = filteredNodes.find((n: any) => n.id === e.target)
-        if (!sourceNode || !targetNode) return
-      }
-
-      const edgeType = e.type || e.edge_type || e.relationship_type || 'default'
-      const isActualTraffic = edgeType === 'ACTUAL_TRAFFIC'
-      const isHighlighted = highlightPath && (
-        (sourceId === highlightPath.source && targetId === highlightPath.target) ||
-        (sourceId === highlightPath.target && targetId === highlightPath.source)
-      ) && (!highlightPath.port || e.port === highlightPath.port)
-
-      edges.push({
-        id: e.id || `e-${i}`,
-        source: sourceId,
-        target: targetId,
-        shape: 'edge',
-        data: {
-          ...e,
-          edgeType,
-          isActualTraffic,
-          isHighlighted,
-        },
-        attrs: {
-          line: {
-            stroke: isHighlighted 
-              ? '#fbbf24'
-              : isActualTraffic 
-              ? '#10b981'
-              : '#94a3b8',
-            strokeWidth: isHighlighted ? 6 : isActualTraffic ? 4 : 2,
-            strokeDasharray: isActualTraffic ? '0' : '5 5',
-            style: {
-              animation: isActualTraffic ? 'flowing 2s linear infinite' : undefined,
+          attrs: {
+            body: {
+              stroke: '#22c55e',
+              strokeWidth: 3,
+              strokeDasharray: '5 5',
+              fill: 'rgba(34, 197, 94, 0.15)',
             },
           },
-          targetMarker: {
-            name: 'classic',
-            size: 8,
-            fill: isHighlighted 
-              ? '#fbbf24'
-              : isActualTraffic 
-              ? '#10b981'
-              : '#94a3b8',
+        })
+      })
+
+      // Create Subnet container nodes (nested in VPCs) - Color-coded
+      subnetMap.forEach((subnet, subnetId) => {
+        const vpcId = subnet.vpc_id || subnet.vpcId
+        const parentVpcId = vpcId ? `vpc-${vpcId}` : null
+        const isPublic = subnet.public !== false
+        const subnetType = subnet.type || (isPublic ? 'public' : 'private')
+
+        // Color-code subnets: green for public, blue for private
+        let subnetColor = '#3b82f6'
+        let subnetFill = '#ebf8ff' // Light blue default
+        if (subnetType === 'public') {
+          subnetColor = '#22c55e'
+          subnetFill = '#f0fff4' // Light green
+        } else if (subnetType === 'database') {
+          subnetColor = '#0ea5e9'
+          subnetFill = '#e0f2fe' // Light blue
+        }
+
+        nodes.push({
+          id: `subnet-${subnetId}`,
+          shape: 'react-node',
+          x: 0,
+          y: 0,
+          width: 350,
+          height: 250,
+          parent: parentVpcId,
+          data: {
+            id: subnetId,
+            name: subnet.name || subnetId,
+            type: 'Subnet',
+            isContainer: true,
+            subnetType,
+            ...subnet,
           },
-        },
-        labels: e.port ? [
-          {
-            attrs: {
-              text: {
-                text: `${e.protocol || 'TCP'}/${e.port}`,
-                fill: '#333',
-                fontSize: 10,
+          attrs: {
+            body: {
+              stroke: subnetColor,
+              strokeWidth: 3,
+              strokeDasharray: '5 5',
+              fill: subnetFill,
+            },
+          },
+        })
+      })
+
+      // Create resource nodes
+      filteredNodes.forEach((n: any) => {
+        if (n.type === 'VPC' || n.type === 'Subnet') return // Already created as containers
+
+        if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
+
+        let parent: string | undefined = undefined
+        if (n.subnet_id || n.subnetId) {
+          const subnetId = n.subnet_id || n.subnetId
+          if (subnetMap.has(subnetId)) {
+            parent = `subnet-${subnetId}`
+          }
+        } else if (n.vpc_id || n.vpcId) {
+          const vpcId = n.vpc_id || n.vpcId
+          if (vpcMap.has(vpcId)) {
+            parent = `vpc-${vpcId}`
+          }
+        }
+
+        // Categorize by functional lane
+        let functionalLane: 'inbound' | 'compute' | 'data' = 'compute'
+        if (n.type === 'EC2' || n.type === 'Lambda' || n.type === 'ECS') {
+          functionalLane = 'compute'
+        } else if (n.type === 'RDS' || n.type === 'DynamoDB' || n.type === 'S3Bucket' || n.type === 'S3') {
+          functionalLane = 'data'
+        } else if (n.type === 'SecurityGroup' || n.type === 'ALB' || n.type === 'LoadBalancer') {
+          functionalLane = 'inbound'
+        }
+
+        nodes.push({
+          id: n.id,
+          shape: 'react-node',
+          x: 0,
+          y: 0,
+          width: 120,
+          height: 100,
+          parent: parent,
+          data: {
+            ...n,
+            functionalLane,
+          },
+        })
+      })
+
+      // Create edges
+      ;(graphData.edges || []).forEach((e: any, i: number) => {
+        const sourceId = vpcMap.has(e.source) ? `vpc-${e.source}` : 
+                        subnetMap.has(e.source) ? `subnet-${e.source}` : e.source
+        const targetId = vpcMap.has(e.target) ? `vpc-${e.target}` : 
+                        subnetMap.has(e.target) ? `subnet-${e.target}` : e.target
+
+        // Skip edges to/from hidden nodes in grouped mode
+        if (viewMode === 'grouped') {
+          const sourceNode = filteredNodes.find((n: any) => n.id === e.source)
+          const targetNode = filteredNodes.find((n: any) => n.id === e.target)
+          if (!sourceNode || !targetNode) return
+        }
+
+        const edgeType = e.type || e.edge_type || e.relationship_type || 'default'
+        const isActualTraffic = edgeType === 'ACTUAL_TRAFFIC'
+        const isHighlighted = highlightPath && (
+          (sourceId === highlightPath.source && targetId === highlightPath.target) ||
+          (sourceId === highlightPath.target && targetId === highlightPath.source)
+        ) && (!highlightPath.port || e.port === highlightPath.port)
+
+        edges.push({
+          id: e.id || `e-${i}`,
+          source: sourceId,
+          target: targetId,
+          shape: 'edge',
+          data: {
+            ...e,
+            edgeType,
+            isActualTraffic,
+            isHighlighted,
+          },
+          attrs: {
+            line: {
+              stroke: isHighlighted 
+                ? '#fbbf24'
+                : isActualTraffic 
+                ? '#10b981'
+                : '#94a3b8',
+              strokeWidth: isHighlighted ? 6 : isActualTraffic ? 4 : 2,
+              strokeDasharray: isActualTraffic ? '0' : '5 5',
+              style: {
+                animation: isActualTraffic ? 'flowing 2s linear infinite' : undefined,
               },
             },
-            position: {
-              distance: 0.5,
+            targetMarker: {
+              name: 'classic',
+              size: 8,
+              fill: isHighlighted 
+                ? '#fbbf24'
+                : isActualTraffic 
+                ? '#10b981'
+                : '#94a3b8',
             },
           },
-        ] : [],
+          labels: e.port ? [
+            {
+              attrs: {
+                text: {
+                  text: `${e.protocol || 'TCP'}/${e.port}`,
+                  fill: '#333',
+                  fontSize: 10,
+                },
+              },
+              position: {
+                distance: 0.5,
+              },
+            },
+          ] : [],
+        })
       })
-    })
 
-    // Add nodes and edges to graph
-    graph.addNodes(nodes)
-    graph.addEdges(edges)
+      // Add nodes and edges to graph
+      graph.addNodes(nodes)
+      graph.addEdges(edges)
 
       // Apply Dagre layout for left-to-right flow
       if (viewMode === 'grouped' && dagre) {
@@ -644,7 +648,6 @@ function GraphViewX6Component({
       }
 
       // Highlight path if provided
-      let highlightTimer: NodeJS.Timeout | null = null
       if (highlightPath) {
         highlightTimer = setTimeout(() => {
           try {
@@ -668,15 +671,15 @@ function GraphViewX6Component({
           }
         }, 500)
       }
-
-      // Return cleanup function to clear timeout
-      return () => {
-        if (highlightTimer) {
-          clearTimeout(highlightTimer)
-        }
-      }
     } catch (error) {
       console.error('[GraphViewX6] Error updating graph:', error)
+    }
+
+    // Return cleanup function to clear timeout (always returned, outside try/catch)
+    return () => {
+      if (highlightTimer) {
+        clearTimeout(highlightTimer)
+      }
     }
   }, [graphData, isLoading, searchQuery, viewMode, highlightPath, isClient])
 
