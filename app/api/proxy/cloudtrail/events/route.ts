@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
   const timeoutId = setTimeout(() => controller.abort(), 28000)
   
   try {
-    let backendUrl = `${BACKEND_URL}/api/cloudtrail/events?limit=${limit}&days=${days}`
+    // Backend endpoint is /api/traffic/cloudtrail (not /api/cloudtrail/events)
+    let backendUrl = `${BACKEND_URL}/api/traffic/cloudtrail?days=${days}`
     if (roleName) {
       backendUrl += `&roleName=${encodeURIComponent(roleName)}`
     }
@@ -48,7 +49,13 @@ export async function GET(req: NextRequest) {
     const data = await response.json()
     console.log(`[proxy] Got ${data.events?.length || 0} CloudTrail events`)
     
-    return NextResponse.json(data, {
+    // Backend returns { status: "success", events: [...], total: ... }
+    // Transform to match frontend expectations
+    return NextResponse.json({
+      events: data.events || [],
+      total: data.total || 0,
+      ...data
+    }, {
       headers: {
         'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120'
       }

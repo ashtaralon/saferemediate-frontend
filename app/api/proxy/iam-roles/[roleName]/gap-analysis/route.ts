@@ -80,10 +80,16 @@ export async function GET(
         })
       }
       
-      return NextResponse.json(
-        { error: `Backend error: ${res.status}`, detail: errorText },
-        { status: res.status }
-      )
+      // Return 200 with empty data instead of error to prevent UI crashes
+      return NextResponse.json({
+        role_name: roleName,
+        allowed_count: 0,
+        used_count: 0,
+        unused_count: 0,
+        summary: { allowed_count: 0, used_count: 0, unused_count: 0, lp_score: 0 },
+        error: `Backend returned ${res.status}`,
+        detail: errorText.substring(0, 200)
+      }, { status: 200 })
     }
 
     const data = await res.json()
