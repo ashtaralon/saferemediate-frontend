@@ -4,6 +4,13 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import cytoscape, { Core } from 'cytoscape'
 // @ts-ignore - no types available for cytoscape-cose-bilkent
 import coseBilkent from 'cytoscape-cose-bilkent'
+// @ts-ignore - no types available for cytoscape-dagre
+let cytoscapeDagre: any = null
+try {
+  cytoscapeDagre = require('cytoscape-dagre')
+} catch (e) {
+  // cytoscape-dagre not installed, will use fallback layout
+}
 import { 
   Shield, Database, Key, Globe, 
   RefreshCw, ZoomIn, ZoomOut, Maximize2,
@@ -14,6 +21,9 @@ import {
 
 if (typeof window !== 'undefined') {
   try { cytoscape.use(coseBilkent) } catch (e) {}
+  if (cytoscapeDagre) {
+    try { cytoscape.use(cytoscapeDagre) } catch (e) {}
+  }
 }
 
 // AWS-style colors matching official AWS icons
@@ -138,9 +148,10 @@ interface Props {
   isLoading: boolean
   onNodeClick: (nodeId: string, nodeType: string, nodeName: string) => void
   onRefresh: () => void
+  highlightPath?: { source: string; target: string; port?: string } // For highlighting specific paths from Security Posture
 }
 
-export default function GraphView({ systemName, graphData, isLoading, onNodeClick, onRefresh }: Props) {
+export default function GraphView({ systemName, graphData, isLoading, onNodeClick, onRefresh, highlightPath }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const animationRef = useRef<number | null>(null)
@@ -549,7 +560,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       }
     })
     
-    // Create VPC parent nodes
+    // Create VPC parent nodes - TRUE CONTAINERS (large, semi-transparent boxes)
     vpcMap.forEach((vpc, vpcId) => {
       const subnetCount = vpcToSubnets.get(vpcId)?.size || 0
       const label = `${vpc.name || vpcId}\nVPC${subnetCount > 0 ? ` (${subnetCount} subnets)` : ''}`
@@ -561,13 +572,14 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           type: 'VPC',
           name: vpc.name || vpcId,
           isParent: true,
+          isContainer: true, // Mark as true container
           ...vpc
         }
       })
       nodeIds.add(`vpc-${vpcId}`)
     })
     
-    // Create Subnet parent nodes (nested in VPCs)
+    // Create Subnet parent nodes (nested in VPCs) - TRUE CONTAINERS
     subnetMap.forEach((subnet, subnetId) => {
       const vpcId = subnet.vpc_id || subnet.vpcId || (graphData.edges || []).find((e: any) => 
         e.target === subnetId && (e.type === 'IN_VPC' || e.relationship_type === 'IN_VPC')
@@ -586,6 +598,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           type: 'Subnet',
           name: subnet.name || subnetId,
           isParent: true,
+          isContainer: true, // Mark as true container
           parent: parentVpcId,
           subnetType: subnetType,
           ...subnet
@@ -619,6 +632,18 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         }
       }
       
+      // Categorize by functional lane (for left-to-right layout)
+      let functionalLane: 'inbound' | 'compute' | 'data' | 'outbound' = 'compute'
+      if (n.type === 'EC2' || n.type === 'Lambda' || n.type === 'ECS') {
+        functionalLane = 'compute'
+      } else if (n.type === 'RDS' || n.type === 'DynamoDB' || n.type === 'S3Bucket' || n.type === 'S3') {
+        functionalLane = 'data'
+      } else if (n.type === 'SecurityGroup' || n.type === 'ALB' || n.type === 'LoadBalancer') {
+        functionalLane = 'inbound'
+      } else if (n.type === 'Internet' || n.type === 'External') {
+        functionalLane = 'inbound'
+      }
+      
       elements.push({
         group: 'nodes',
         data: { 
@@ -629,6 +654,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           name: n.name || n.id,
           serviceType: serviceType,
           parent: parent,
+          functionalLane: functionalLane, // For left-to-right layout
           ...n 
         }
       })
@@ -709,6 +735,12 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         label = 'Internet'
       }
       
+      // Check if this edge matches the highlightPath
+      const isHighlighted = highlightPath && (
+        (sourceId === highlightPath.source && targetId === highlightPath.target) ||
+        (sourceId === highlightPath.target && targetId === highlightPath.source)
+      ) && (!highlightPath.port || port === highlightPath.port)
+      
       elements.push({
         group: 'edges',
         data: { 
@@ -721,6 +753,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           port,
           last_seen: e.last_seen,
           hit_count: e.hit_count,
+          isHighlighted: isHighlighted, // Mark for highlighting
           ...e 
         }
       })
@@ -786,40 +819,52 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           'text-background-shape': 'roundrectangle',
           'line-height': '1.2',
         }},
-        // Compound node styling (parent nodes)
-        { selector: 'node[isParent="true"]', style: {
-          'width': 'label',
-          'height': 'label',
-          'padding': '20px',
-          'background-color': '#f0f9ff',
+        // TRUE CONTAINER styling - Large, semi-transparent boxes that visually contain children
+        { selector: 'node[isContainer="true"]', style: {
+          'width': 400, // Large container width
+          'height': 300, // Large container height
+          'padding': '30px',
+          'background-color': 'rgba(240, 249, 255, 0.3)', // Semi-transparent
           'border-color': '#7B2FBE',
-          'border-width': 3,
+          'border-width': 4,
           'border-style': 'dashed',
           'shape': 'round-rectangle',
           'text-valign': 'top',
           'text-halign': 'center',
-          'text-margin-y': -10,
+          'text-margin-y': -15,
+          'text-wrap': 'wrap',
+          'text-max-width': 350,
+          'min-width': 300,
+          'min-height': 200,
         }},
-        { selector: 'node[type="VPC"][isParent="true"]', style: {
-          'background-color': 'rgba(34, 197, 94, 0.1)',
+        { selector: 'node[type="VPC"][isContainer="true"]', style: {
+          'background-color': 'rgba(34, 197, 94, 0.15)', // Semi-transparent green
           'border-color': '#22c55e',
-          'border-width': 2,
+          'border-width': 3,
+          'width': 500,
+          'height': 400,
+          'min-width': 400,
+          'min-height': 300,
         }},
-        { selector: 'node[type="Subnet"][isParent="true"]', style: {
-          'background-color': 'rgba(59, 130, 246, 0.1)',
+        { selector: 'node[type="Subnet"][isContainer="true"]', style: {
+          'background-color': 'rgba(59, 130, 246, 0.2)', // Semi-transparent blue
           'border-color': '#3b82f6',
-          'border-width': 2,
+          'border-width': 3,
+          'width': 350,
+          'height': 250,
+          'min-width': 250,
+          'min-height': 180,
         }},
-        { selector: 'node[subnetType="public"][isParent="true"]', style: {
-          'background-color': 'rgba(34, 197, 94, 0.15)',
+        { selector: 'node[subnetType="public"][isContainer="true"]', style: {
+          'background-color': 'rgba(34, 197, 94, 0.2)',
           'border-color': '#22c55e',
         }},
-        { selector: 'node[subnetType="private"][isParent="true"]', style: {
-          'background-color': 'rgba(234, 179, 8, 0.15)',
+        { selector: 'node[subnetType="private"][isContainer="true"]', style: {
+          'background-color': 'rgba(234, 179, 8, 0.2)',
           'border-color': '#eab308',
         }},
-        { selector: 'node[subnetType="database"][isParent="true"]', style: {
-          'background-color': 'rgba(59, 130, 246, 0.15)',
+        { selector: 'node[subnetType="database"][isContainer="true"]', style: {
+          'background-color': 'rgba(59, 130, 246, 0.2)',
           'border-color': '#3b82f6',
         }},
         { selector: 'node[isBadge="true"]', style: {
@@ -862,6 +907,15 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           'line-style': 'solid',
           'z-index': 100,
         }},
+        // Highlighted path edges (from Security Posture click)
+        { selector: 'edge[isHighlighted="true"]', style: {
+          'line-color': '#fbbf24',
+          'target-arrow-color': '#fbbf24',
+          'width': 6,
+          'line-style': 'solid',
+          'z-index': 200,
+          'opacity': 1,
+        }},
         ...edgeStyles,
         { selector: '.highlighted', style: { 'border-width': 5, 'border-color': '#fbbf24', 'z-index': 999 }},
         { selector: 'edge.highlighted', style: { 'width': 5, 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24' }},
@@ -873,7 +927,20 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         { selector: 'edge.traffic-highlight', style: { 'width': 6, 'line-color': '#10b981', 'target-arrow-color': '#10b981' }},
         { selector: '.traffic-dimmed', style: { 'opacity': 0.15 }},
       ],
-      layout: { 
+      layout: viewMode === 'grouped' && cytoscapeDagre ? {
+        // Hierarchical layout for grouped mode - Left-to-Right functional lanes
+        name: 'dagre',
+        animate: true,
+        nodeDimensionsIncludeLabels: true,
+        rankDir: 'LR', // Left to Right
+        spacingFactor: 1.5,
+        rankSep: 200, // Separation between functional lanes
+        nodeSep: 100,
+        edgeSep: 50,
+        // Respect parent/child relationships
+        nestingFactor: 0.1,
+      } as any : {
+        // Default layout for "All" mode
         name: 'cose-bilkent', 
         animate: true, 
         nodeDimensionsIncludeLabels: true, 
@@ -882,7 +949,6 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         gravity: 0.25,
         numIter: 2500,
         tile: true,
-        // Compound node support
         nestingFactor: 0.1,
       } as any,
       minZoom: 0.2, maxZoom: 3,
@@ -913,9 +979,40 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     cy.on('tap', (e) => {
       if (e.target === cy) { cy.elements().removeClass('dimmed highlighted'); setSelectedNode(null); setSelectedEdge(null) }
     })
+    
+    // Highlight path if provided (from Security Posture dashboard)
+    if (highlightPath && cy) {
+      setTimeout(() => {
+        const sourceNode = cy.getElementById(highlightPath.source)
+        const targetNode = cy.getElementById(highlightPath.target)
+        
+        if (sourceNode.length > 0 && targetNode.length > 0) {
+          // Find the edge between them
+          const edge = sourceNode.edgesTo(targetNode).filter((e: any) => {
+            if (highlightPath.port) {
+              return e.data('port') === highlightPath.port
+            }
+            return true
+          })
+          
+          if (edge.length > 0) {
+            // Highlight the path
+            cy.elements().addClass('dimmed')
+            sourceNode.removeClass('dimmed').addClass('highlighted')
+            targetNode.removeClass('dimmed').addClass('highlighted')
+            edge.removeClass('dimmed').addClass('highlighted')
+            
+            // Center on the highlighted path - combine collections properly
+            const pathElements = sourceNode.union(targetNode).union(edge)
+            cy.fit(pathElements, 100)
+          }
+        }
+      }, 500) // Wait for layout to complete
+    }
+    
     cyRef.current = cy
     return () => cy.destroy()
-  }, [graphData, isLoading, searchQuery, viewMode, fetchEdgeTrafficData, onNodeClick])
+  }, [graphData, isLoading, searchQuery, viewMode, highlightPath, fetchEdgeTrafficData, onNodeClick])
 
   const zoom = (d: number) => cyRef.current?.zoom(cyRef.current.zoom() * (d > 0 ? 1.2 : 0.8))
   const fit = () => cyRef.current?.fit(undefined, 50)
