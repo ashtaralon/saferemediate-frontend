@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Shield, Lock, Globe, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, RefreshCw, X, ChevronRight, Key, FileWarning, Zap } from "lucide-react"
+import { Shield, Lock, Globe, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, RefreshCw, X, ChevronRight, Key, FileWarning, Zap, Map } from "lucide-react"
 
 interface Resource {
   id: string
@@ -211,7 +211,12 @@ interface ConnectionDetail {
   all_rules_count?: number
 }
 
-export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemName?: string }) {
+interface SystemSecurityOverviewProps {
+  systemName?: string
+  onViewOnMap?: (highlightPath: { source: string; target: string; port?: string }) => void
+}
+
+export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }: SystemSecurityOverviewProps) {
   const [loading, setLoading] = useState(true)
   const [resources, setResources] = useState<Resource[]>([])
   const [connections, setConnections] = useState<Connection[]>([])
@@ -2040,26 +2045,47 @@ export function SystemSecurityOverview({ systemName = "alon-prod" }: { systemNam
             ) : connections.map((conn, idx) => (
               <div 
                 key={idx} 
-                className="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 cursor-pointer transition-colors active:bg-blue-100"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  console.log("[Click] Network Connection clicked:", conn)
-                  setSelectedConnection(conn)
-                }}
-                role="button"
-                tabIndex={0}
+                className="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition-colors group"
               >
-                <span className={`w-2 h-2 rounded-full ${conn.type === 'internet' ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
-                <span className="font-medium truncate max-w-[70px]">{conn.source}</span>
-                <ArrowRight className="w-3 h-3 text-gray-400" />
-                <span className="truncate max-w-[70px]">{conn.target}</span>
-                {conn.port && <span className="text-xs text-gray-400">:{conn.port}</span>}
-                <span className={`ml-auto text-xs px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                  conn.type === 'internet' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                }`}>
-                  {conn.type}
-                  <ChevronRight className="w-3 h-3" />
-                </span>
+                <div 
+                  className="flex items-center gap-2 flex-1 cursor-pointer active:bg-blue-100"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    console.log("[Click] Network Connection clicked:", conn)
+                    setSelectedConnection(conn)
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <span className={`w-2 h-2 rounded-full ${conn.type === 'internet' ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
+                  <span className="font-medium truncate max-w-[70px]">{conn.source}</span>
+                  <ArrowRight className="w-3 h-3 text-gray-400" />
+                  <span className="truncate max-w-[70px]">{conn.target}</span>
+                  {conn.port && <span className="text-xs text-gray-400">:{conn.port}</span>}
+                  <span className={`ml-auto text-xs px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                    conn.type === 'internet' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {conn.type}
+                    <ChevronRight className="w-3 h-3" />
+                  </span>
+                </div>
+                {onViewOnMap && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onViewOnMap({
+                        source: conn.source,
+                        target: conn.target,
+                        port: conn.port?.toString(),
+                      })
+                    }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
+                    title="View on Map"
+                  >
+                    <Map className="w-3 h-3" />
+                    Map
+                  </button>
+                )}
               </div>
             ))}
           </div>

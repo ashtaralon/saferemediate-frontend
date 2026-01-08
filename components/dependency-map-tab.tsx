@@ -15,13 +15,48 @@ interface Resource {
 
 interface Props {
   systemName: string
+  highlightPath?: { source: string; target: string; port?: string }
+  defaultGraphEngine?: 'logical' | 'architectural'
+  onGraphEngineChange?: (engine: 'logical' | 'architectural') => void
+  onHighlightPathClear?: () => void
 }
 
 type ViewType = 'graph' | 'resource'
 
-export default function DependencyMapTab({ systemName }: Props) {
+export default function DependencyMapTab({ 
+  systemName, 
+  highlightPath,
+  defaultGraphEngine = 'architectural',
+  onGraphEngineChange,
+  onHighlightPathClear
+}: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>('architectural')
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>(defaultGraphEngine)
+  
+  // Update graph engine when prop changes
+  useEffect(() => {
+    if (defaultGraphEngine) {
+      setGraphEngine(defaultGraphEngine)
+    }
+  }, [defaultGraphEngine])
+  
+  // Clear highlight path when switching views
+  useEffect(() => {
+    if (highlightPath && onHighlightPathClear) {
+      // Clear after a delay to allow the graph to render
+      const timer = setTimeout(() => {
+        onHighlightPathClear()
+      }, 5000) // Clear after 5 seconds
+      return () => clearTimeout(timer)
+    }
+  }, [highlightPath, onHighlightPathClear])
+  
+  const handleGraphEngineChange = (engine: 'logical' | 'architectural') => {
+    setGraphEngine(engine)
+    if (onGraphEngineChange) {
+      onGraphEngineChange(engine)
+    }
+  }
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
   const [graphData, setGraphData] = useState<any>(null)
   const [resources, setResources] = useState<Resource[]>([])
@@ -189,7 +224,7 @@ export default function DependencyMapTab({ systemName }: Props) {
           {activeView === 'graph' && (
             <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
               <button
-                onClick={() => setGraphEngine('logical')}
+                onClick={() => handleGraphEngineChange('logical')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   graphEngine === 'logical'
                     ? 'bg-white text-slate-900 shadow-sm'
@@ -201,7 +236,7 @@ export default function DependencyMapTab({ systemName }: Props) {
                 Logical
               </button>
               <button
-                onClick={() => setGraphEngine('architectural')}
+                onClick={() => handleGraphEngineChange('architectural')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   graphEngine === 'architectural'
                     ? 'bg-white text-slate-900 shadow-sm'
@@ -240,6 +275,7 @@ export default function DependencyMapTab({ systemName }: Props) {
               isLoading={isLoading}
               onNodeClick={handleNodeClick}
               onRefresh={fetchGraphData}
+              highlightPath={highlightPath}
             />
           ) : (
             <GraphView

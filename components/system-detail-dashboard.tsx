@@ -122,6 +122,8 @@ const ENVIRONMENT_OPTIONS = [
 
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
   const [activeTab, setActiveTab] = useState("overview")
+  const [highlightPath, setHighlightPath] = useState<{ source: string; target: string; port?: string } | null>(null)
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>('architectural')
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // Initialize severityCounts with default values
@@ -1393,7 +1395,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab systemName={systemName} />
+          <DependencyMapTab 
+            systemName={systemName}
+            highlightPath={highlightPath || undefined}
+            defaultGraphEngine={graphEngine}
+            onGraphEngineChange={setGraphEngine}
+            onHighlightPathClear={() => setHighlightPath(null)}
+          />
         </div>
       )}
 
@@ -1405,7 +1413,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "security-posture" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SystemSecurityOverview systemName={systemName} />
+          <SystemSecurityOverview 
+            systemName={systemName}
+            onViewOnMap={(highlightPath) => {
+              setActiveTab('dependency-map')
+              // Store highlightPath in state to pass to dependency-map-tab
+              setHighlightPath(highlightPath)
+              setGraphEngine('architectural')
+            }}
+          />
         </div>
       )}
 
