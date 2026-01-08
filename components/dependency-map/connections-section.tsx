@@ -58,10 +58,27 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
         
         // PRIMARY: Use new Resource View API (A7 Patent - Neo4j connections)
         try {
+          console.log('[ConnectionsSection] Fetching Resource View API for:', resourceId, resourceName)
           const resourceViewRes = await fetch(`/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`)
-          if (resourceViewRes.ok) {
-            const viewData = await resourceViewRes.json()
-            const connections = viewData.connections || {}
+          
+          if (!resourceViewRes.ok) {
+            const errorText = await resourceViewRes.text()
+            console.warn('[ConnectionsSection] Resource View API returned error:', resourceViewRes.status, errorText)
+            throw new Error(`Resource View API returned ${resourceViewRes.status}: ${errorText}`)
+          }
+          
+          const viewData = await resourceViewRes.json()
+          console.log('[ConnectionsSection] Resource View API response:', {
+            success: viewData.success,
+            inbound_count: viewData.inbound_count,
+            outbound_count: viewData.outbound_count,
+            connections: viewData.connections ? {
+              inbound: viewData.connections.inbound?.length || 0,
+              outbound: viewData.connections.outbound?.length || 0
+            } : null
+          })
+          
+          const connections = viewData.connections || {}
             
             // Process inbound connections
             (connections.inbound || []).forEach((conn: any) => {
