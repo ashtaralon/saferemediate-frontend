@@ -56,164 +56,204 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
         const networkConnections: NetworkConnection[] = []
         const inboundInvocations: InboundInvocation[] = []
         
-        // Fetch CloudTrail events for this resource
+        // PRIMARY: Use new Resource View API (A7 Patent - Neo4j connections)
         try {
-          const ctRes = await fetch(`/api/proxy/cloudtrail/events?roleName=${encodeURIComponent(resourceName)}&lookbackDays=30&limit=1000`)
-          if (ctRes.ok) {
-            const ctData = await ctRes.json()
-            const events = ctData.events || []
+          const resourceViewRes = await fetch(`/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`)
+          if (resourceViewRes.ok) {
+            const viewData = await resourceViewRes.json()
+            const connections = viewData.connections || {}
             
-            // Group events by service and resource
-            const groupedByService: Record<string, Record<string, Record<string, number>>> = {}
-            
-            events.forEach((e: any) => {
-              const eventSource = e.eventSource || ''
-              const eventName = e.eventName || ''
-              const requestParams = e.requestParameters || {}
+            // Process inbound connections
+            (connections.inbound || []).forEach((conn: any) => {
+              const rel = conn.relationship || {}
+              const source = conn.source || {}
               
-              // Extract service name
-              const service = eventSource.replace('.amazonaws.com', '').toUpperCase()
-              
-              // Extract resource name
-              let resourceTarget = ''
-              if (service === 'DYNAMODB') {
-                resourceTarget = requestParams.tableName || 'Unknown Table'
-              } else if (service === 'S3') {
-                resourceTarget = requestParams.bucketName || 'Unknown Bucket'
-              } else if (service === 'SECRETSMANAGER') {
-                resourceTarget = requestParams.secretId || 'Unknown Secret'
-              } else if (service === 'KMS') {
-                resourceTarget = requestParams.keyId || 'Unknown Key'
-              } else {
-                resourceTarget = service
-              }
-              
-              if (!groupedByService[service]) {
-                groupedByService[service] = {}
-              }
-              if (!groupedByService[service][resourceTarget]) {
-                groupedByService[service][resourceTarget] = {}
-              }
-              if (!groupedByService[service][resourceTarget][eventName]) {
-                groupedByService[service][resourceTarget][eventName] = 0
-              }
-              groupedByService[service][resourceTarget][eventName]++
-            })
-            
-            // Convert to array format
-            Object.entries(groupedByService).forEach(([service, resources]) => {
-              Object.entries(resources).forEach(([resourceTarget, actions]) => {
-                const actionsList = Object.entries(actions).map(([action, count]) => ({
-                  action,
-                  count
-                })).sort((a, b) => b.count - a.count)
-                
-                cloudtrailOutbound.push({
-                  service,
-                  resource_name: resourceTarget,
-                  actions: actionsList,
-                  total_calls: actionsList.reduce((sum, a) => sum + a.count, 0)
-                })
-              })
-            })
-            
-            // Sort by total calls
-            cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
-          }
-        } catch (e) {
-          console.error('CloudTrail fetch error:', e)
-        }
-        
-        // Fetch VPC Flow Logs / Traffic Graph
-        try {
-          const trafficRes = await fetch('/api/proxy/traffic-graph/full')
-          if (trafficRes.ok) {
-            const trafficData = await trafficRes.json()
-            const edges = trafficData.edges || []
-            
-            // Filter edges related to this resource
-            edges.forEach((e: any) => {
-              const sourceName = e.source_name || e.source
-              const targetName = e.target_name || e.target
-              
-              // Check if this resource is involved
-              if (sourceName?.toLowerCase().includes(resourceName.toLowerCase()) ||
-                  targetName?.toLowerCase().includes(resourceName.toLowerCase()) ||
-                  e.source === resourceId ||
-                  e.target === resourceId) {
+              // Network connections (ACTUAL_TRAFFIC)
+              if (rel.type === 'ACTUAL_TRAFFIC') {
                 networkConnections.push({
-                  source_ip: e.source_ip || sourceName,
-                  dest_ip: e.target_ip || targetName,
-                  port: e.port || 0,
-                  protocol: e.protocol || 'tcp',
-                  hits: e.connection_count || e.hits || 0,
-                  bytes: e.bytes_transferred || 0,
-                  resource_type: e.target_type || e.source_type,
-                  resource_name: targetName
+                  source_ip: source.name || source.id || '',
+                  dest_ip: resourceName,
+                  port: rel.port || 0,
+                  protocol: (rel.protocol || 'tcp').toLowerCase(),
+                  hits: rel.hit_count || 0,
+                  bytes: 0,
+                  resource_type: source.type || 'Unknown',
+                  resource_name: source.name || source.id || ''
                 })
               }
-            })
-          }
-        } catch (e) {
-          console.error('Traffic graph fetch error:', e)
-        }
-        
-        // If it's a Security Group, get observed traffic
-        if (resourceType === 'SecurityGroup') {
-          const sgId = resourceId.startsWith('sg-') ? resourceId : resourceName
-          try {
-            const obsRes = await fetch(`/api/proxy/least-privilege/debug/observed-traffic/${sgId}`)
-            if (obsRes.ok) {
-              const obsData = await obsRes.json()
-              const traffic = obsData.traffic || obsData.observed_traffic || []
               
-              traffic.forEach((t: any) => {
-                const existing = networkConnections.find(c => 
-                  c.port === t.port && c.source_ip === t.source_ip
-                )
+              // API calls (ACTUAL_API_CALL)
+              if (rel.type === 'ACTUAL_API_CALL') {
+                const service = rel.service || 'Unknown'
+                const action = rel.action || 'Unknown'
+                
+                let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === service)
                 if (!existing) {
-                  networkConnections.push({
-                    source_ip: t.source_ip,
-                    dest_ip: t.dest_ip || resourceName,
-                    port: t.port,
-                    protocol: t.protocol || 'tcp',
-                    hits: t.connection_count || t.packets || 0,
-                    bytes: t.bytes || 0
+                  existing = {
+                    service,
+                    resource_name: service,
+                    actions: [],
+                    total_calls: 0
+                  }
+                  cloudtrailOutbound.push(existing)
+                }
+                
+                const actionEntry = existing.actions.find(a => a.action === action)
+                if (actionEntry) {
+                  actionEntry.count += rel.hit_count || 1
+                } else {
+                  existing.actions.push({
+                    action,
+                    count: rel.hit_count || 1
                   })
                 }
-              })
-            }
-          } catch {
-            // Optional data
-          }
-        }
-        
-        // Try to get inbound invocations (for Lambda, etc.)
-        try {
-          const graphRes = await fetch('/api/proxy/dependency-map/graph')
-          if (graphRes.ok) {
-            const graphData = await graphRes.json()
-            const edges = graphData.edges || []
-            
-            // Find edges where this resource is the target (inbound)
-            edges.forEach((e: any) => {
-              if (e.target === resourceId || 
-                  e.target_name?.toLowerCase().includes(resourceName.toLowerCase())) {
-                const existing = inboundInvocations.find(i => i.source_name === e.source_name)
+                existing.total_calls += rel.hit_count || 1
+              }
+              
+              // Inbound invocations (CALLS, INVOKES)
+              if (rel.type === 'CALLS' || rel.type === 'INVOKES') {
+                const existing = inboundInvocations.find(i => i.source_name === source.name)
                 if (existing) {
-                  existing.invocations += e.invocations || 1
+                  existing.invocations += rel.call_count || rel.hit_count || 1
                 } else {
                   inboundInvocations.push({
-                    source_type: e.source_type || 'Unknown',
-                    source_name: e.source_name || e.source,
-                    invocations: e.invocations || e.connection_count || 1
+                    source_type: source.type || 'Unknown',
+                    source_name: source.name || source.id || '',
+                    invocations: rel.call_count || rel.hit_count || 1
                   })
                 }
               }
             })
+            
+            // Process outbound connections
+            (connections.outbound || []).forEach((conn: any) => {
+              const rel = conn.relationship || {}
+              const target = conn.target || {}
+              
+              // Network connections (ACTUAL_TRAFFIC)
+              if (rel.type === 'ACTUAL_TRAFFIC') {
+                networkConnections.push({
+                  source_ip: resourceName,
+                  dest_ip: target.name || target.id || '',
+                  port: rel.port || 0,
+                  protocol: (rel.protocol || 'tcp').toLowerCase(),
+                  hits: rel.hit_count || 0,
+                  bytes: 0,
+                  resource_type: target.type || 'Unknown',
+                  resource_name: target.name || target.id || ''
+                })
+              }
+              
+              // API calls (ACTUAL_API_CALL)
+              if (rel.type === 'ACTUAL_API_CALL') {
+                const service = rel.service || target.type || 'Unknown'
+                const action = rel.action || 'Unknown'
+                
+                let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === target.name)
+                if (!existing) {
+                  existing = {
+                    service,
+                    resource_name: target.name || service,
+                    actions: [],
+                    total_calls: 0
+                  }
+                  cloudtrailOutbound.push(existing)
+                }
+                
+                const actionEntry = existing.actions.find(a => a.action === action)
+                if (actionEntry) {
+                  actionEntry.count += rel.hit_count || 1
+                } else {
+                  existing.actions.push({
+                    action,
+                    count: rel.hit_count || 1
+                  })
+                }
+                existing.total_calls += rel.hit_count || 1
+              }
+            })
+            
+            // Sort CloudTrail outbound by total calls
+            cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+            
+            console.log('[ConnectionsSection] Resource View API data loaded:', {
+              inbound: connections.inbound?.length || 0,
+              outbound: connections.outbound?.length || 0
+            })
           }
-        } catch {
-          // Optional data
+        } catch (e) {
+          console.warn('[ConnectionsSection] Resource View API failed, falling back to legacy endpoints:', e)
+        }
+        
+        // FALLBACK: Legacy endpoints (if Resource View API didn't return enough data)
+        if (networkConnections.length === 0 && cloudtrailOutbound.length === 0) {
+          // Fetch CloudTrail events for this resource
+          try {
+            const ctRes = await fetch(`/api/proxy/cloudtrail/events?roleName=${encodeURIComponent(resourceName)}&lookbackDays=30&limit=1000`)
+            if (ctRes.ok) {
+              const ctData = await ctRes.json()
+              const events = ctData.events || []
+              
+              // Group events by service and resource
+              const groupedByService: Record<string, Record<string, Record<string, number>>> = {}
+              
+              events.forEach((e: any) => {
+                const eventSource = e.eventSource || ''
+                const eventName = e.eventName || ''
+                const requestParams = e.requestParameters || {}
+                
+                // Extract service name
+                const service = eventSource.replace('.amazonaws.com', '').toUpperCase()
+                
+                // Extract resource name
+                let resourceTarget = ''
+                if (service === 'DYNAMODB') {
+                  resourceTarget = requestParams.tableName || 'Unknown Table'
+                } else if (service === 'S3') {
+                  resourceTarget = requestParams.bucketName || 'Unknown Bucket'
+                } else if (service === 'SECRETSMANAGER') {
+                  resourceTarget = requestParams.secretId || 'Unknown Secret'
+                } else if (service === 'KMS') {
+                  resourceTarget = requestParams.keyId || 'Unknown Key'
+                } else {
+                  resourceTarget = service
+                }
+                
+                if (!groupedByService[service]) {
+                  groupedByService[service] = {}
+                }
+                if (!groupedByService[service][resourceTarget]) {
+                  groupedByService[service][resourceTarget] = {}
+                }
+                if (!groupedByService[service][resourceTarget][eventName]) {
+                  groupedByService[service][resourceTarget][eventName] = 0
+                }
+                groupedByService[service][resourceTarget][eventName]++
+              })
+              
+              // Convert to array format
+              Object.entries(groupedByService).forEach(([service, resources]) => {
+                Object.entries(resources).forEach(([resourceTarget, actions]) => {
+                  const actionsList = Object.entries(actions).map(([action, count]) => ({
+                    action,
+                    count
+                  })).sort((a, b) => b.count - a.count)
+                  
+                  cloudtrailOutbound.push({
+                    service,
+                    resource_name: resourceTarget,
+                    actions: actionsList,
+                    total_calls: actionsList.reduce((sum, a) => sum + a.count, 0)
+                  })
+                })
+              })
+              
+              // Sort by total calls
+              cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+            }
+          } catch (e) {
+            console.error('CloudTrail fetch error:', e)
+          }
         }
         
         setData({
