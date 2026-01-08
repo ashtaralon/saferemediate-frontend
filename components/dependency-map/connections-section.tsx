@@ -17,6 +17,7 @@ interface Connection {
   traffic_bytes?: number
   last_seen?: string
   edge_type?: string
+  hit_count?: number
 }
 
 interface ConnectionsSectionProps {
@@ -37,65 +38,94 @@ function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProp
       try {
         console.log("[ConnectionsSection] Fetching connections for:", resourceId)
 
+        // CORRECT fetch syntax with template literal
         const response = await fetch(
-          "/api/proxy/resource-view/" + encodeURIComponent(resourceId) + "/connections"
+          `/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`
         )
 
         if (!response.ok) {
-          throw new Error("Failed to fetch connections: " + response.status)
+          throw new Error(`Failed to fetch connections: ${response.status}`)
         }
 
         const data = await response.json()
         console.log("[ConnectionsSection] Raw response:", data)
 
+        // Process the nested structure: data.connections.inbound and data.connections.outbound
+        const connections = data.connections || {}
+        console.log("[ConnectionsSection] Processing connections:", {
+          hasConnections: !!data.connections,
+          inboundCount: connections.inbound?.length || 0,
+          outboundCount: connections.outbound?.length || 0,
+          sampleInbound: connections.inbound?.[0] || null,
+          sampleOutbound: connections.outbound?.[0] || null
+        })
+
         const processedConnections: Connection[] = []
-        const connectionsData = data.connections || data
-        const inboundRaw = connectionsData.inbound || []
-        const outboundRaw = connectionsData.outbound || []
 
-        console.log("[ConnectionsSection] Found " + inboundRaw.length + " inbound, " + outboundRaw.length + " outbound raw")
+        // Process inbound connections
+        ;(connections.inbound || []).forEach((conn: any) => {
+          const rel = conn.relationship || {}
+          const source = conn.source || {}
+          const relType = rel.type || rel.relationship_type || ""
+          
+          console.log("[ConnectionsSection] Processing inbound connection:", {
+            relType,
+            source: source.name || source.id,
+            port: rel.port,
+            protocol: rel.protocol
+          })
 
-        inboundRaw.forEach((item: any) => {
-          const rel = item.relationship || item
-          const source = item.source || {}
-
-          if (rel.type === "ACTUAL_TRAFFIC") {
+          if (relType === "ACTUAL_TRAFFIC") {
             processedConnections.push({
               source_id: source.id || source.arn || "",
               source_name: source.name || source.id || "Unknown",
               target_id: resourceId,
               target_name: resourceName,
-              port: rel.port || 0,
-              protocol: rel.protocol || "TCP",
+              port: parseInt(rel.port) || 0,
+              protocol: (rel.protocol || "TCP").toUpperCase(),
               direction: "inbound",
-              traffic_bytes: rel.traffic_bytes || 0,
+              traffic_bytes: rel.traffic_bytes || rel.bytes_transferred || 0,
               last_seen: rel.last_seen,
-              edge_type: rel.type || "ACTUAL_TRAFFIC"
+              edge_type: "ACTUAL_TRAFFIC",
+              hit_count: rel.hit_count || 0
             })
           }
         })
 
-        outboundRaw.forEach((item: any) => {
-          const rel = item.relationship || item
-          const target = item.target || {}
+        // Process outbound connections
+        ;(connections.outbound || []).forEach((conn: any) => {
+          const rel = conn.relationship || {}
+          const target = conn.target || {}
+          const relType = rel.type || rel.relationship_type || ""
+          
+          console.log("[ConnectionsSection] Processing outbound connection:", {
+            relType,
+            target: target.name || target.id,
+            port: rel.port,
+            protocol: rel.protocol
+          })
 
-          if (rel.type === "ACTUAL_TRAFFIC") {
+          if (relType === "ACTUAL_TRAFFIC") {
             processedConnections.push({
               source_id: resourceId,
               source_name: resourceName,
               target_id: target.id || target.arn || "",
               target_name: target.name || target.id || "Unknown",
-              port: rel.port || 0,
-              protocol: rel.protocol || "TCP",
+              port: parseInt(rel.port) || 0,
+              protocol: (rel.protocol || "TCP").toUpperCase(),
               direction: "outbound",
-              traffic_bytes: rel.traffic_bytes || 0,
+              traffic_bytes: rel.traffic_bytes || rel.bytes_transferred || 0,
               last_seen: rel.last_seen,
-              edge_type: rel.type || "ACTUAL_TRAFFIC"
+              edge_type: "ACTUAL_TRAFFIC",
+              hit_count: rel.hit_count || 0
             })
           }
         })
 
-        console.log("[ConnectionsSection] Processed " + processedConnections.length + " ACTUAL_TRAFFIC connections:", processedConnections)
+        console.log(
+          `[ConnectionsSection] Processed ${processedConnections.length} ACTUAL_TRAFFIC connections:`,
+          processedConnections
+        )
         setConnections(processedConnections)
 
       } catch (err) {
@@ -217,7 +247,7 @@ function ConnectionList({ connections }: { connections: Connection[] }) {
     <div className="space-y-2">
       {connections.map((conn, index) => (
         <div
-          key={conn.source_id + "-" + conn.target_id + "-" + conn.port + "-" + index}
+          key={`${conn.source_id}-${conn.target_id}-${conn.port}-${index}`}
           className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
         >
           <div className="flex items-center gap-3">
@@ -232,12 +262,17 @@ function ConnectionList({ connections }: { connections: Connection[] }) {
               </div>
               <div className="text-sm text-muted-foreground">
                 {conn.direction === "inbound"
-                  ? "From: " + conn.source_id.substring(0, 50) + (conn.source_id.length > 50 ? "..." : "")
-                  : "To: " + conn.target_id.substring(0, 50) + (conn.target_id.length > 50 ? "..." : "")}
+                  ? `From: ${conn.source_id.substring(0, 50)}${conn.source_id.length > 50 ? "..." : ""}`
+                  : `To: ${conn.target_id.substring(0, 50)}${conn.target_id.length > 50 ? "..." : ""}`}
               </div>
               {conn.last_seen && (
                 <div className="text-xs text-muted-foreground">
                   Last seen: {new Date(conn.last_seen).toLocaleString()}
+                </div>
+              )}
+              {conn.hit_count !== undefined && conn.hit_count > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  {conn.hit_count.toLocaleString()} connections observed
                 </div>
               )}
             </div>
