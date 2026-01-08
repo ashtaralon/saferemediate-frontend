@@ -1,10 +1,25 @@
 'use client'
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { Graph } from '@antv/x6'
-// @ts-ignore - x6-react-shape exports
-import { register } from '@antv/x6-react-shape'
+import dynamic from 'next/dynamic'
 import dagre from 'dagre'
+
+// Dynamic imports for browser-only libraries
+let Graph: any = null
+let register: any = null
+
+if (typeof window !== 'undefined') {
+  // Only import on client side
+  const x6Module = require('@antv/x6')
+  Graph = x6Module.Graph
+  
+  try {
+    const reactShapeModule = require('@antv/x6-react-shape')
+    register = reactShapeModule.register
+  } catch (e) {
+    console.warn('x6-react-shape not available:', e)
+  }
+}
 // Import AWS icons - handle different export styles
 let AWSIconComponents: any = {}
 try {
@@ -188,13 +203,15 @@ const ReactNodeComponent: React.FC<{ data: any }> = ({ data }) => {
   )
 }
 
-// Register React Shape after component definition
-register({
-  shape: 'react-node',
-  component: ReactNodeComponent,
-  width: 120,
-  height: 100,
-})
+// Register React Shape after component definition (only on client)
+if (typeof window !== 'undefined' && register && Graph) {
+  register({
+    shape: 'react-node',
+    component: ReactNodeComponent,
+    width: 120,
+    height: 100,
+  })
+}
 
 export default function GraphViewX6({
   systemName,
@@ -204,16 +221,22 @@ export default function GraphViewX6({
   onRefresh,
   highlightPath,
 }: Props) {
+  const [isClient, setIsClient] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const graphRef = useRef<Graph | null>(null)
+  const graphRef = useRef<any>(null)
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [selectedEdge, setSelectedEdge] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
 
+  // Only render on client
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
   // Initialize graph
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!containerRef.current || typeof window === 'undefined' || !Graph) return
 
     const graph = new Graph({
       container: containerRef.current,
@@ -623,6 +646,15 @@ export default function GraphViewX6({
 
   const fit = () => {
     graphRef.current?.centerContent({ padding: 50 })
+  }
+
+  // Don't render on server
+  if (!isClient || typeof window === 'undefined' || !Graph) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    )
   }
 
   if (isLoading) {
