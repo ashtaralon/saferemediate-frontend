@@ -6,6 +6,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Fix Geist font CORS issue
+  transpilePackages: ['geist'],
 }
 
 export default nextConfig
