@@ -5,12 +5,7 @@ import cytoscape, { Core } from 'cytoscape'
 // @ts-ignore - no types available for cytoscape-cose-bilkent
 import coseBilkent from 'cytoscape-cose-bilkent'
 // @ts-ignore - no types available for cytoscape-dagre
-let cytoscapeDagre: any = null
-try {
-  cytoscapeDagre = require('cytoscape-dagre')
-} catch (e) {
-  // cytoscape-dagre not installed, will use fallback layout
-}
+import cytoscapeDagre from 'cytoscape-dagre'
 import { 
   Shield, Database, Key, Globe, 
   RefreshCw, ZoomIn, ZoomOut, Maximize2,
@@ -21,9 +16,7 @@ import {
 
 if (typeof window !== 'undefined') {
   try { cytoscape.use(coseBilkent) } catch (e) {}
-  if (cytoscapeDagre) {
-    try { cytoscape.use(cytoscapeDagre) } catch (e) {}
-  }
+  try { cytoscape.use(cytoscapeDagre) } catch (e) {}
 }
 
 // AWS-style colors matching official AWS icons
@@ -927,7 +920,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         { selector: 'edge.traffic-highlight', style: { 'width': 6, 'line-color': '#10b981', 'target-arrow-color': '#10b981' }},
         { selector: '.traffic-dimmed', style: { 'opacity': 0.15 }},
       ],
-      layout: viewMode === 'grouped' && cytoscapeDagre ? {
+      layout: viewMode === 'grouped' ? {
         // Hierarchical layout for grouped mode - Left-to-Right functional lanes
         name: 'dagre',
         animate: true,
