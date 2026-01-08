@@ -855,3 +855,62 @@ function GraphViewX6Component({
   )
 }
 
+// Export with error boundary to prevent app crashes
+export default function GraphViewX6(props: Props) {
+  const [hasError, setHasError] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  useEffect(() => {
+    // Reset error state when props change
+    setHasError(false)
+    setError(null)
+  }, [props.graphData, props.systemName])
+
+  if (hasError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl p-8">
+        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+        <h3 className="text-lg font-semibold text-slate-900 mb-2">Graph View Error</h3>
+        <p className="text-sm text-slate-600 mb-4">
+          {error?.message || 'Failed to load graph view. Please try the Logical view instead.'}
+        </p>
+        <button
+          onClick={() => {
+            setHasError(false)
+            setError(null)
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  try {
+    return <GraphViewX6Component {...props} />
+  } catch (err) {
+    console.error('[GraphViewX6] Component error:', err)
+    setHasError(true)
+    setError(err instanceof Error ? err : new Error('Unknown error'))
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl p-8">
+        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+        <h3 className="text-lg font-semibold text-slate-900 mb-2">Graph View Error</h3>
+        <p className="text-sm text-slate-600 mb-4">
+          {err instanceof Error ? err.message : 'Failed to load graph view. Please try the Logical view instead.'}
+        </p>
+        <button
+          onClick={() => {
+            setHasError(false)
+            setError(null)
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+}
+
