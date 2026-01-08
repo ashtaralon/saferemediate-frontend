@@ -368,14 +368,28 @@ function GraphViewX6Component({
   useEffect(() => {
     if (!isClient) return
 
-    if (!graphRef.current || !graphData || isLoading || !Graph) {
-      console.log('[GraphViewX6] Skipping graph update:', {
+    // Don't render if still loading or no graph instance
+    if (isLoading || !Graph || !graphRef.current) {
+      console.log('[GraphViewX6] Skipping graph update - not ready:', {
         hasGraph: !!graphRef.current,
         hasData: !!graphData,
         isLoading,
         isClient,
         hasGraphClass: !!Graph
       })
+      return
+    }
+
+    // Handle empty or null graphData gracefully
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+      console.log('[GraphViewX6] No graph data available, clearing graph')
+      try {
+        if (graphRef.current) {
+          graphRef.current.clearCells()
+        }
+      } catch (e) {
+        console.warn('[GraphViewX6] Error clearing empty graph:', e)
+      }
       return
     }
 
@@ -727,6 +741,23 @@ function GraphViewX6Component({
     return (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    )
+  }
+
+  // Show empty state if no data
+  if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <AlertTriangle className="w-12 h-12 text-amber-500 mb-4" />
+        <h3 className="text-lg font-semibold text-slate-700 mb-2">No Graph Data Available</h3>
+        <p className="text-sm text-slate-500 mb-4">Unable to load dependency map data for {systemName}</p>
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+        >
+          <RefreshCw className="w-4 h-4" /> Retry
+        </button>
       </div>
     )
   }

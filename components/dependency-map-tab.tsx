@@ -79,6 +79,7 @@ export default function DependencyMapTab({
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
     setIsLoading(true)
+    setResourcesLoading(true)
     try {
       console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
       const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`)
@@ -92,10 +93,17 @@ export default function DependencyMapTab({
           hasEdges: !!data.edges,
           dataKeys: Object.keys(data)
         })
-        setGraphData(data)
+        
+        // Ensure we have valid data structure
+        const validData = {
+          nodes: data.nodes || [],
+          edges: data.edges || [],
+          ...data
+        }
+        setGraphData(validData)
         
         // Extract resources from graph nodes
-        const resourceList: Resource[] = (data.nodes || []).map((n: any) => ({
+        const resourceList: Resource[] = (validData.nodes || []).map((n: any) => ({
           id: n.id,
           name: n.name || n.id,
           type: n.type,
@@ -107,6 +115,11 @@ export default function DependencyMapTab({
       } else {
         const errorText = await res.text()
         console.error('[DependencyMapTab] Response not OK:', res.status, errorText)
+        
+        // Set empty data structure to prevent infinite loading
+        setGraphData({ nodes: [], edges: [] })
+        setResources([])
+        setResourcesLoading(false)
       }
     } catch (e) {
       console.error('[DependencyMapTab] Failed to fetch graph data:', e)
@@ -138,12 +151,23 @@ export default function DependencyMapTab({
             arn: n.arn
           })))
           setResourcesLoading(false)
+        } else {
+          // Fallback also failed - set empty data
+          setGraphData({ nodes: [], edges: [] })
+          setResources([])
+          setResourcesLoading(false)
         }
       } catch (fallbackErr) {
         console.error('Fallback also failed:', fallbackErr)
+        // Set empty data structure to prevent infinite loading
+        setGraphData({ nodes: [], edges: [] })
+        setResources([])
+        setResourcesLoading(false)
       }
     } finally {
+      // Always set loading to false, even on error
       setIsLoading(false)
+      setResourcesLoading(false)
     }
   }, [systemName])
 
