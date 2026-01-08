@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import dynamic from "next/dynamic"
 import {
   ArrowLeft,
   Download,
@@ -31,21 +32,120 @@ import {
   ExternalLink,
   Wrench,
 } from "lucide-react"
-import { CloudGraphTab } from "./cloud-graph-tab" // Import CloudGraphTab for the graph tab
-import LeastPrivilegeTab from "./LeastPrivilegeTab" // Import comprehensive LeastPrivilegeTab
-import DependencyMapTab from "./dependency-map-tab" // Import new DependencyMapTab with CloudTrail
-import SystemDependencyMap from "./system-dependency-map" // Import new system architecture visualization
-import DynamicAWSArchitecture from "./dynamic-aws-architecture" // Import animated architecture view
-import RealDataArchitectureMap from "./real-data-architecture-map" // Import real-data architecture
-import AWSTopologyMapLive from "./aws-topology-map-live" // Import AWS architecture flow visualization
-import { AllServicesTab } from "./all-services-tab"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
-import SnapshotsRecoveryTab from "./snapshots-recovery-tab"
-import { SystemSecurityOverview } from "./system-security-overview" // Security Posture tab
+// Lazy load heavy components with dynamic imports for better performance
+const CloudGraphTab = dynamic(
+  () => import("./cloud-graph-tab").then((mod) => ({ default: mod.CloudGraphTab })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">טוען גרף ענן...</span>
+      </div>
+    ),
+  }
+)
+
+const LeastPrivilegeTab = dynamic(() => import("./LeastPrivilegeTab"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען ניתוח הרשאות...</span>
+    </div>
+  ),
+})
+
+const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען מפת קשרים...</span>
+    </div>
+  ),
+})
+
+const SystemDependencyMap = dynamic(() => import("./system-dependency-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען מפת תלויות...</span>
+    </div>
+  ),
+})
+
+const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען ארכיטקטורה...</span>
+    </div>
+  ),
+})
+
+const RealDataArchitectureMap = dynamic(() => import("./real-data-architecture-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען מפת ארכיטקטורה...</span>
+    </div>
+  ),
+})
+
+const AWSTopologyMapLive = dynamic(() => import("./aws-topology-map-live"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען טופולוגיית AWS...</span>
+    </div>
+  ),
+})
+
+const AllServicesTab = dynamic(
+  () => import("./all-services-tab").then((mod) => ({ default: mod.AllServicesTab })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">טוען רשימת שירותים...</span>
+      </div>
+    ),
+  }
+)
+
+const SnapshotsRecoveryTab = dynamic(() => import("./snapshots-recovery-tab"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">טוען גיבויים ושחזור...</span>
+    </div>
+  ),
+})
+
+const SystemSecurityOverview = dynamic(
+  () => import("./system-security-overview").then((mod) => ({ default: mod.SystemSecurityOverview })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">טוען סקירת אבטחה...</span>
+      </div>
+    ),
+  }
+)
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
