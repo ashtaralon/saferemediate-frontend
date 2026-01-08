@@ -216,72 +216,72 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
         // FALLBACK: Legacy endpoints (if Resource View API didn't return enough data)
         if (networkConnections.length === 0 && cloudtrailOutbound.length === 0) {
           // Fetch CloudTrail events for this resource
-        try {
-          const ctRes = await fetch(`/api/proxy/cloudtrail/events?roleName=${encodeURIComponent(resourceName)}&lookbackDays=30&limit=1000`)
-          if (ctRes.ok) {
-            const ctData = await ctRes.json()
-            const events = ctData.events || []
-            
-            // Group events by service and resource
-            const groupedByService: Record<string, Record<string, Record<string, number>>> = {}
-            
-            events.forEach((e: any) => {
-              const eventSource = e.eventSource || ''
-              const eventName = e.eventName || ''
-              const requestParams = e.requestParameters || {}
+          try {
+            const ctRes = await fetch(`/api/proxy/cloudtrail/events?roleName=${encodeURIComponent(resourceName)}&lookbackDays=30&limit=1000`)
+            if (ctRes.ok) {
+              const ctData = await ctRes.json()
+              const events = ctData.events || []
               
-              // Extract service name
-              const service = eventSource.replace('.amazonaws.com', '').toUpperCase()
+              // Group events by service and resource
+              const groupedByService: Record<string, Record<string, Record<string, number>>> = {}
               
-              // Extract resource name
-              let resourceTarget = ''
-              if (service === 'DYNAMODB') {
-                resourceTarget = requestParams.tableName || 'Unknown Table'
-              } else if (service === 'S3') {
-                resourceTarget = requestParams.bucketName || 'Unknown Bucket'
-              } else if (service === 'SECRETSMANAGER') {
-                resourceTarget = requestParams.secretId || 'Unknown Secret'
-              } else if (service === 'KMS') {
-                resourceTarget = requestParams.keyId || 'Unknown Key'
-              } else {
-                resourceTarget = service
-              }
-              
-              if (!groupedByService[service]) {
-                groupedByService[service] = {}
-              }
-              if (!groupedByService[service][resourceTarget]) {
-                groupedByService[service][resourceTarget] = {}
-              }
-              if (!groupedByService[service][resourceTarget][eventName]) {
-                groupedByService[service][resourceTarget][eventName] = 0
-              }
-              groupedByService[service][resourceTarget][eventName]++
-            })
-            
-            // Convert to array format
-            Object.entries(groupedByService).forEach(([service, resources]) => {
-              Object.entries(resources).forEach(([resourceTarget, actions]) => {
-                const actionsList = Object.entries(actions).map(([action, count]) => ({
-                  action,
-                  count
-                })).sort((a, b) => b.count - a.count)
+              events.forEach((e: any) => {
+                const eventSource = e.eventSource || ''
+                const eventName = e.eventName || ''
+                const requestParams = e.requestParameters || {}
                 
-                cloudtrailOutbound.push({
-                  service,
-                  resource_name: resourceTarget,
-                  actions: actionsList,
-                  total_calls: actionsList.reduce((sum, a) => sum + a.count, 0)
+                // Extract service name
+                const service = eventSource.replace('.amazonaws.com', '').toUpperCase()
+                
+                // Extract resource name
+                let resourceTarget = ''
+                if (service === 'DYNAMODB') {
+                  resourceTarget = requestParams.tableName || 'Unknown Table'
+                } else if (service === 'S3') {
+                  resourceTarget = requestParams.bucketName || 'Unknown Bucket'
+                } else if (service === 'SECRETSMANAGER') {
+                  resourceTarget = requestParams.secretId || 'Unknown Secret'
+                } else if (service === 'KMS') {
+                  resourceTarget = requestParams.keyId || 'Unknown Key'
+                } else {
+                  resourceTarget = service
+                }
+                
+                if (!groupedByService[service]) {
+                  groupedByService[service] = {}
+                }
+                if (!groupedByService[service][resourceTarget]) {
+                  groupedByService[service][resourceTarget] = {}
+                }
+                if (!groupedByService[service][resourceTarget][eventName]) {
+                  groupedByService[service][resourceTarget][eventName] = 0
+                }
+                groupedByService[service][resourceTarget][eventName]++
+              })
+              
+              // Convert to array format
+              Object.entries(groupedByService).forEach(([service, resources]) => {
+                Object.entries(resources).forEach(([resourceTarget, actions]) => {
+                  const actionsList = Object.entries(actions).map(([action, count]) => ({
+                    action,
+                    count
+                  })).sort((a, b) => b.count - a.count)
+                  
+                  cloudtrailOutbound.push({
+                    service,
+                    resource_name: resourceTarget,
+                    actions: actionsList,
+                    total_calls: actionsList.reduce((sum, a) => sum + a.count, 0)
+                  })
                 })
               })
-            })
-            
-            // Sort by total calls
-            cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+              
+              // Sort by total calls
+              cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+            }
+          } catch (e) {
+            console.error('CloudTrail fetch error:', e)
           }
-        } catch (e) {
-          console.error('CloudTrail fetch error:', e)
-        }
         }
         
         setData({
