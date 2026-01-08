@@ -80,131 +80,128 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
           
           const connections = viewData.connections || {}
             
-            // Process inbound connections
-            (connections.inbound || []).forEach((conn: any) => {
-              const rel = conn.relationship || {}
-              const source = conn.source || {}
+          // Process inbound connections
+          (connections.inbound || []).forEach((conn: any) => {
+            const rel = conn.relationship || {}
+            const source = conn.source || {}
+            
+            // Network connections (ACTUAL_TRAFFIC)
+            const relType = rel.type || rel.relationship_type || ''
+            if (relType === 'ACTUAL_TRAFFIC') {
+              networkConnections.push({
+                source_ip: source.name || source.id || '',
+                dest_ip: resourceName,
+                port: parseInt(rel.port) || 0,
+                protocol: (rel.protocol || 'tcp').toLowerCase(),
+                hits: rel.hit_count || 0,
+                bytes: 0,
+                resource_type: source.type || 'Unknown',
+                resource_name: source.name || source.id || ''
+              })
+            }
+            
+            // API calls (ACTUAL_API_CALL)
+            if (relType === 'ACTUAL_API_CALL') {
+              const service = rel.service || 'Unknown'
+              const action = rel.action || 'Unknown'
               
-              // Network connections (ACTUAL_TRAFFIC)
-              // Backend returns relationship_type, not type
-              const relType = rel.type || rel.relationship_type || ''
-              if (relType === 'ACTUAL_TRAFFIC') {
-                networkConnections.push({
-                  source_ip: source.name || source.id || '',
-                  dest_ip: resourceName,
-                  port: rel.port || 0,
-                  protocol: (rel.protocol || 'tcp').toLowerCase(),
-                  hits: rel.hit_count || 0,
-                  bytes: 0,
-                  resource_type: source.type || 'Unknown',
-                  resource_name: source.name || source.id || ''
+              let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === service)
+              if (!existing) {
+                existing = {
+                  service,
+                  resource_name: service,
+                  actions: [],
+                  total_calls: 0
+                }
+                cloudtrailOutbound.push(existing)
+              }
+              
+              const actionEntry = existing.actions.find(a => a.action === action)
+              if (actionEntry) {
+                actionEntry.count += rel.hit_count || 1
+              } else {
+                existing.actions.push({
+                  action,
+                  count: rel.hit_count || 1
                 })
               }
-              
-              // API calls (ACTUAL_API_CALL)
-              if (relType === 'ACTUAL_API_CALL') {
-                const service = rel.service || 'Unknown'
-                const action = rel.action || 'Unknown'
-                
-                let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === service)
-                if (!existing) {
-                  existing = {
-                    service,
-                    resource_name: service,
-                    actions: [],
-                    total_calls: 0
-                  }
-                  cloudtrailOutbound.push(existing)
-                }
-                
-                const actionEntry = existing.actions.find(a => a.action === action)
-                if (actionEntry) {
-                  actionEntry.count += rel.hit_count || 1
-                } else {
-                  existing.actions.push({
-                    action,
-                    count: rel.hit_count || 1
-                  })
-                }
-                existing.total_calls += rel.hit_count || 1
-              }
-              
-              // Inbound invocations (CALLS, INVOKES)
-              if (relType === 'CALLS' || relType === 'INVOKES') {
-                const existing = inboundInvocations.find(i => i.source_name === source.name)
-                if (existing) {
-                  existing.invocations += rel.call_count || rel.hit_count || 1
-                } else {
-                  inboundInvocations.push({
-                    source_type: source.type || 'Unknown',
-                    source_name: source.name || source.id || '',
-                    invocations: rel.call_count || rel.hit_count || 1
-                  })
-                }
-              }
-            })
+              existing.total_calls += rel.hit_count || 1
+            }
             
-            // Process outbound connections
-            (connections.outbound || []).forEach((conn: any) => {
-              const rel = conn.relationship || {}
-              const target = conn.target || {}
-              
-              // Network connections (ACTUAL_TRAFFIC)
-              // Backend returns relationship_type, not type
-              const relType = rel.type || rel.relationship_type || ''
-              if (relType === 'ACTUAL_TRAFFIC') {
-                networkConnections.push({
-                  source_ip: resourceName,
-                  dest_ip: target.name || target.id || '',
-                  port: rel.port || 0,
-                  protocol: (rel.protocol || 'tcp').toLowerCase(),
-                  hits: rel.hit_count || 0,
-                  bytes: 0,
-                  resource_type: target.type || 'Unknown',
-                  resource_name: target.name || target.id || ''
+            // Inbound invocations (CALLS, INVOKES)
+            if (relType === 'CALLS' || relType === 'INVOKES') {
+              const existing = inboundInvocations.find(i => i.source_name === source.name)
+              if (existing) {
+                existing.invocations += rel.call_count || rel.hit_count || 1
+              } else {
+                inboundInvocations.push({
+                  source_type: source.type || 'Unknown',
+                  source_name: source.name || source.id || '',
+                  invocations: rel.call_count || rel.hit_count || 1
                 })
               }
+            }
+          })
+          
+          // Process outbound connections
+          (connections.outbound || []).forEach((conn: any) => {
+            const rel = conn.relationship || {}
+            const target = conn.target || {}
+            
+            // Network connections (ACTUAL_TRAFFIC)
+            const relType = rel.type || rel.relationship_type || ''
+            if (relType === 'ACTUAL_TRAFFIC') {
+              networkConnections.push({
+                source_ip: resourceName,
+                dest_ip: target.name || target.id || '',
+                port: parseInt(rel.port) || 0,
+                protocol: (rel.protocol || 'tcp').toLowerCase(),
+                hits: rel.hit_count || 0,
+                bytes: 0,
+                resource_type: target.type || 'Unknown',
+                resource_name: target.name || target.id || ''
+              })
+            }
+            
+            // API calls (ACTUAL_API_CALL)
+            if (relType === 'ACTUAL_API_CALL') {
+              const service = rel.service || target.type || 'Unknown'
+              const action = rel.action || 'Unknown'
               
-              // API calls (ACTUAL_API_CALL)
-              if (relType === 'ACTUAL_API_CALL') {
-                const service = rel.service || target.type || 'Unknown'
-                const action = rel.action || 'Unknown'
-                
-                let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === target.name)
-                if (!existing) {
-                  existing = {
-                    service,
-                    resource_name: target.name || service,
-                    actions: [],
-                    total_calls: 0
-                  }
-                  cloudtrailOutbound.push(existing)
+              let existing = cloudtrailOutbound.find(c => c.service === service && c.resource_name === target.name)
+              if (!existing) {
+                existing = {
+                  service,
+                  resource_name: target.name || service,
+                  actions: [],
+                  total_calls: 0
                 }
-                
-                const actionEntry = existing.actions.find(a => a.action === action)
-                if (actionEntry) {
-                  actionEntry.count += rel.hit_count || 1
-                } else {
-                  existing.actions.push({
-                    action,
-                    count: rel.hit_count || 1
-                  })
-                }
-                existing.total_calls += rel.hit_count || 1
+                cloudtrailOutbound.push(existing)
               }
-            })
-            
-            // Sort CloudTrail outbound by total calls
-            cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
-            
-            console.log('[ConnectionsSection] Resource View API data loaded:', {
-              inbound: connections.inbound?.length || 0,
-              outbound: connections.outbound?.length || 0,
-              networkConnections: networkConnections.length,
-              cloudtrailOutbound: cloudtrailOutbound.length,
-              inboundInvocations: inboundInvocations.length,
-              rawConnections: connections
-            })
+              
+              const actionEntry = existing.actions.find(a => a.action === action)
+              if (actionEntry) {
+                actionEntry.count += rel.hit_count || 1
+              } else {
+                existing.actions.push({
+                  action,
+                  count: rel.hit_count || 1
+                })
+              }
+              existing.total_calls += rel.hit_count || 1
+            }
+          })
+          
+          // Sort CloudTrail outbound by total calls
+          cloudtrailOutbound.sort((a, b) => b.total_calls - a.total_calls)
+          
+          console.log('[ConnectionsSection] Resource View API data loaded:', {
+            inbound: connections.inbound?.length || 0,
+            outbound: connections.outbound?.length || 0,
+            networkConnections: networkConnections.length,
+            cloudtrailOutbound: cloudtrailOutbound.length,
+            inboundInvocations: inboundInvocations.length
+          })
         } catch (e) {
           console.error('[ConnectionsSection] Resource View API failed, falling back to legacy endpoints:', e)
           console.error('[ConnectionsSection] Error details:', {
@@ -482,12 +479,12 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
             </div>
           )}
 
-          {/* Network Connections (VPC Flow Logs) */}
+          {/* Network Connections (VPC Flow Logs / ACTUAL_TRAFFIC) */}
           {activeTab === 'network' && (
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
               <div className="text-xs text-slate-500 mb-3 flex items-center gap-2">
                 <Activity className="w-3 h-3" />
-                From VPC Flow Logs
+                From VPC Flow Logs & Actual Traffic Analysis
               </div>
               {data?.network_connections.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 text-sm">
@@ -511,26 +508,29 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
                       
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 text-sm">
-                          <span className="font-mono text-xs truncate max-w-[120px]">{conn.source_ip}</span>
+                          <span className="font-mono text-xs truncate max-w-[150px]" title={conn.source_ip}>{conn.source_ip}</span>
                           <ArrowRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                          <span className="font-mono text-xs truncate max-w-[120px]">{conn.dest_ip}</span>
+                          <span className="font-mono text-xs truncate max-w-[150px]" title={conn.dest_ip}>{conn.dest_ip}</span>
                           {conn.port > 0 && (
-                            <span className="text-xs text-slate-500">:{conn.port}</span>
+                            <span className="text-xs text-slate-500 font-semibold">:{conn.port}</span>
                           )}
                         </div>
-                        {conn.resource_name && (
+                        {conn.protocol && conn.protocol !== 'tcp' && (
                           <div className="text-xs text-slate-500 mt-1">
-                            └── {conn.resource_name}
+                            Protocol: {conn.protocol.toUpperCase()}
                           </div>
                         )}
                       </div>
                       
                       <div className="text-right text-xs">
                         {conn.hits > 0 && (
-                          <div className="text-green-600 font-semibold">{conn.hits.toLocaleString()} connections</div>
+                          <div className="text-green-600 font-semibold">{conn.hits.toLocaleString()} hits</div>
                         )}
                         {conn.bytes > 0 && (
                           <div className="text-slate-400">{formatBytes(conn.bytes)}</div>
+                        )}
+                        {conn.protocol && (
+                          <div className="text-blue-500 font-medium">{conn.protocol.toUpperCase()}</div>
                         )}
                       </div>
                     </div>
