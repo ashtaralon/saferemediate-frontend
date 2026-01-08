@@ -69,7 +69,9 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
               const source = conn.source || {}
               
               // Network connections (ACTUAL_TRAFFIC)
-              if (rel.type === 'ACTUAL_TRAFFIC') {
+              // Backend returns relationship_type, not type
+              const relType = rel.type || rel.relationship_type || ''
+              if (relType === 'ACTUAL_TRAFFIC') {
                 networkConnections.push({
                   source_ip: source.name || source.id || '',
                   dest_ip: resourceName,
@@ -111,7 +113,7 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
               }
               
               // Inbound invocations (CALLS, INVOKES)
-              if (rel.type === 'CALLS' || rel.type === 'INVOKES') {
+              if (relType === 'CALLS' || relType === 'INVOKES') {
                 const existing = inboundInvocations.find(i => i.source_name === source.name)
                 if (existing) {
                   existing.invocations += rel.call_count || rel.hit_count || 1
@@ -131,7 +133,9 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
               const target = conn.target || {}
               
               // Network connections (ACTUAL_TRAFFIC)
-              if (rel.type === 'ACTUAL_TRAFFIC') {
+              // Backend returns relationship_type, not type
+              const relType = rel.type || rel.relationship_type || ''
+              if (relType === 'ACTUAL_TRAFFIC') {
                 networkConnections.push({
                   source_ip: resourceName,
                   dest_ip: target.name || target.id || '',
@@ -178,11 +182,19 @@ export default function ConnectionsSection({ resourceId, resourceType, resourceN
             
             console.log('[ConnectionsSection] Resource View API data loaded:', {
               inbound: connections.inbound?.length || 0,
-              outbound: connections.outbound?.length || 0
+              outbound: connections.outbound?.length || 0,
+              networkConnections: networkConnections.length,
+              cloudtrailOutbound: cloudtrailOutbound.length,
+              inboundInvocations: inboundInvocations.length,
+              rawConnections: connections
             })
           }
         } catch (e) {
-          console.warn('[ConnectionsSection] Resource View API failed, falling back to legacy endpoints:', e)
+          console.error('[ConnectionsSection] Resource View API failed, falling back to legacy endpoints:', e)
+          console.error('[ConnectionsSection] Error details:', {
+            message: e instanceof Error ? e.message : String(e),
+            stack: e instanceof Error ? e.stack : undefined
+          })
         }
         
         // FALLBACK: Legacy endpoints (if Resource View API didn't return enough data)
