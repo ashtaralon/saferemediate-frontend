@@ -11,6 +11,8 @@
     "verify-next": "node -e \"const pkg=require('./package.json'); console.log('Next.js version:', pkg.dependencies.next); if(pkg.dependencies.next !== '16.0.7') { console.error('ERROR: Next.js must be exactly 16.0.7'); process.exit(1); } else { console.log('✅ Next.js version is secure (16.0.7)'); }\""
   },
   "dependencies": {
+    "@antv/x6": "3.1.4",
+    "@antv/x6-react-shape": "3.0.1",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
@@ -56,6 +58,7 @@
     "next": "16.0.7",
     "next-themes": "^0.4.6",
     "react": "19.2.0",
+    "react-aws-icons": "1.2.1",
     "react-day-picker": "9.8.0",
     "react-dom": "19.2.0",
     "react-hook-form": "^7.60.0",
