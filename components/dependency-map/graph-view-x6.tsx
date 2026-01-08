@@ -2,7 +2,8 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Graph } from '@antv/x6'
-import { ReactShape } from '@antv/x6-react-shape'
+// @ts-ignore - x6-react-shape has different export structure
+import * as ReactShapeModule from '@antv/x6-react-shape'
 import dagre from 'dagre'
 // Import AWS icons - handle different export styles
 let AWSIconComponents: any = {}
@@ -32,9 +33,6 @@ import {
   Clock,
   Info,
 } from 'lucide-react'
-
-// Register React Shape
-Graph.registerReactComponent('react-node', ReactShape, true)
 
 // AWS Icon mapping with fallback
 const getAWSIcon = (type: string): React.ComponentType<any> | null => {
@@ -188,6 +186,31 @@ const ReactNodeComponent: React.FC<{ data: any }> = ({ data }) => {
       </div>
     </div>
   )
+}
+
+// Register React Shape after component definition
+// Try different registration methods
+if (ReactShapeModule.register) {
+  ReactShapeModule.register({
+    shape: 'react-node',
+    component: ReactNodeComponent,
+    width: 120,
+    height: 100,
+  })
+} else if (ReactShapeModule.default) {
+  Graph.registerNode('react-node', {
+    inherit: 'rect',
+    width: 120,
+    height: 100,
+    component: ReactNodeComponent,
+  })
+} else {
+  // Fallback: use standard node with custom render
+  Graph.registerNode('react-node', {
+    inherit: 'rect',
+    width: 120,
+    height: 100,
+  })
 }
 
 export default function GraphViewX6({
