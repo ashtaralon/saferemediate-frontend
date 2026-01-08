@@ -1,11 +1,11 @@
 'use client'
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import dagre from 'dagre'
 
 // Dynamic imports for browser-only libraries - loaded on component mount
 let Graph: any = null
 let register: any = null
+let dagre: any = null
 
 // Load libraries when component mounts (client-side only)
 const loadLibraries = () => {
@@ -22,20 +22,26 @@ const loadLibraries = () => {
       register = reactShapeModule.register
     }
     
+    if (!dagre) {
+      dagre = require('dagre')
+    }
+    
     return true
   } catch (e) {
     console.error('[GraphViewX6] Failed to load libraries:', e)
     return false
   }
 }
-// Import AWS icons - handle different export styles
+
+// Import AWS icons - handle different export styles (only on client)
 let AWSIconComponents: any = {}
-try {
-  const awsIcons = require('react-aws-icons')
-  // Try different import styles
-  AWSIconComponents = awsIcons.default || awsIcons
-} catch (e) {
-  console.warn('react-aws-icons not available, using fallback icons')
+if (typeof window !== 'undefined') {
+  try {
+    const awsIcons = require('react-aws-icons')
+    AWSIconComponents = awsIcons.default || awsIcons
+  } catch (e) {
+    console.warn('react-aws-icons not available, using fallback icons')
+  }
 }
 import {
   Shield,
@@ -240,7 +246,21 @@ export default function GraphViewX6({
   // Only render on client and load libraries
   useEffect(() => {
     setIsClient(true)
-    loadLibraries()
+    const loaded = loadLibraries()
+    
+    // Register React Shape after libraries are loaded
+    if (loaded && register && Graph) {
+      try {
+        register({
+          shape: 'react-node',
+          component: ReactNodeComponent,
+          width: 120,
+          height: 100,
+        })
+      } catch (e) {
+        console.error('[GraphViewX6] Failed to register React shape:', e)
+      }
+    }
   }, [])
 
   // Initialize graph
@@ -592,7 +612,7 @@ export default function GraphViewX6({
     graph.addEdges(edges)
 
     // Apply Dagre layout for left-to-right flow
-    if (viewMode === 'grouped') {
+    if (viewMode === 'grouped' && dagre) {
       const g = new dagre.graphlib.Graph()
       g.setDefaultEdgeLabel(() => ({}))
       g.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 200, align: 'UL' })
