@@ -24,7 +24,7 @@ interface ConnectionsSectionProps {
   resourceName: string
 }
 
-export function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProps) {
+function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProps) {
   const [connections, setConnections] = useState<Connection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -248,3 +248,9 @@ function ConnectionList({ connections }: { connections: Connection[] }) {
     </div>
   )
 }
+
+// Default export for compatibility with resource-view.tsx
+export default ConnectionsSection
+
+// Also export as named export for flexibility
+export { ConnectionsSection }
