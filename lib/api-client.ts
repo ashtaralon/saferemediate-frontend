@@ -121,10 +121,10 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     }
 
     // Use unified issues endpoint for stable counts
+    // Only fetch graph-data if we actually need it (not just for typeCounts)
     // Client timeout must be longer than proxy timeout (28s) to allow proxy to complete
-    const [issuesSummaryResponse, nodesResponse] = await Promise.allSettled([
+    const [issuesSummaryResponse] = await Promise.allSettled([
       fetchWithTimeout("/api/proxy/issues-summary", 30000).catch(() => null), // 30s timeout (proxy has 28s)
-      fetchWithTimeout("/api/proxy/graph-data", 30000).catch(() => null), // 30s timeout (proxy has 28s)
     ])
 
     let issuesSummary: any = null
@@ -160,22 +160,13 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       }
     }
 
-    // Handle nodes response
-    if (nodesResponse.status === 'fulfilled' && nodesResponse.value && nodesResponse.value.ok) {
-      try {
-        const nodesData = await nodesResponse.value.json()
-        // graph-data returns { nodes: [...], relationships: [...] }
-        nodes = nodesData.nodes || nodesData || []
-        console.log("[v0] Successfully loaded nodes from backend:", nodes.length)
-      } catch (e) {
-        console.warn("[v0] Failed to parse nodes:", e)
-      }
-    } else {
-      console.warn("[v0] Nodes endpoint failed or timed out")
-    }
+    // NOTE: We no longer fetch graph-data here just for typeCounts
+    // Graph data should only be loaded when user navigates to graph tabs
+    // Use infrastructure stats from metrics/issuesSummary instead
+    console.log("[v0] Skipping graph-data fetch - using metrics for infrastructure stats")
 
-    // If no nodes from backend and no issues summary, return empty structure
-    if (nodes.length === 0 && !issuesSummary && Object.keys(metrics).length === 0) {
+    // If no issues summary and no metrics, return empty structure
+    if (!issuesSummary && Object.keys(metrics).length === 0) {
       console.warn("[v0] No data from backend")
       return {
         resources: [],
@@ -216,24 +207,25 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       }
     }
 
-    // Map backend data to our InfrastructureData format
-    const resources = nodes.map((node: any) => ({
-      id: node.id || node.nodeId || "",
-      name: node.name || node.label || "",
-      type: node.type || node.resourceType || "Resource",
-      provider: "AWS",
-      region: node.region || "us-east-1",
-      status: node.status || "active",
-      healthScore: node.healthScore || 100,
-      tags: node.tags || {},
-    }))
-
-    // Count resource types for infrastructure stats
-    const typeCounts: Record<string, number> = {}
-    nodes.forEach((node: any) => {
-      const type = (node.type || "").toLowerCase()
-      typeCounts[type] = (typeCounts[type] || 0) + 1
-    })
+    // Use infrastructure stats from metrics/issuesSummary instead of counting nodes
+    // This avoids downloading 1000+ nodes just to count types
+    const infrastructureStats = metrics?.infrastructure || metrics?.infrastructure_stats || {}
+    
+    // Map resources from metrics if available, otherwise empty array
+    // Graph data should only be loaded when user navigates to graph tabs
+    const resources: any[] = []
+    
+    // Use infrastructure stats from backend instead of counting nodes
+    const typeCounts: Record<string, number> = {
+      ecscluster: infrastructureStats.containerClusters || 0,
+      ekscluster: infrastructureStats.kubernetesWorkloads || 0,
+      ec2instance: infrastructureStats.standaloneVMs || 0,
+      autoscalinggroup: infrastructureStats.vmScalingGroups || 0,
+      rdsinstance: infrastructureStats.relationalDatabases || 0,
+      ebsvolume: infrastructureStats.blockStorage || 0,
+      efsfilesystem: infrastructureStats.fileStorage || 0,
+      s3bucket: infrastructureStats.objectStorage || 0,
+    }
 
     // Use unified issues summary if available, otherwise fallback to metrics
     const totalIssues = issuesSummary?.total ?? metrics?.total_issues ?? metrics?.totalIssues ?? metrics?.issuesCount ?? 0
