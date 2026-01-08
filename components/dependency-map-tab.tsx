@@ -282,14 +282,20 @@ export default function DependencyMapTab({
       <div className="flex-1">
         {activeView === 'graph' ? (
           graphEngine === 'architectural' ? (
-            <GraphViewX6
-              systemName={systemName}
-              graphData={graphData}
-              isLoading={isLoading}
-              onNodeClick={handleNodeClick}
-              onRefresh={fetchGraphData}
-              highlightPath={highlightPath}
-            />
+            <React.Suspense fallback={
+              <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+                <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+              </div>
+            }>
+              <GraphViewX6
+                systemName={systemName}
+                graphData={graphData}
+                isLoading={isLoading}
+                onNodeClick={handleNodeClick}
+                onRefresh={fetchGraphData}
+                highlightPath={highlightPath}
+              />
+            </React.Suspense>
           ) : (
             <GraphView
               systemName={systemName}
