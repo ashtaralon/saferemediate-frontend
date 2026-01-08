@@ -1099,7 +1099,6 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
                         <Clock className="w-3 h-3" />
                         TRAFFIC DATA
                       </div>
-                    </div>
                       <div className="flex items-center gap-1">
                         {[7, 30, 90].map(days => (
                           <button
