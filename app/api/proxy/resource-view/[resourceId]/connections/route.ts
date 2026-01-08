@@ -7,7 +7,11 @@ const BACKEND_URL =
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
-export const maxDuration = 60 // Increased to 60 seconds to allow for Render cold starts
+export const maxDuration = 60
+
+// In-memory cache: 1 minute TTL for connections
+const cache = new Map<string, { data: any; timestamp: number }>()
+const CACHE_TTL = 60 * 1000 // 1 minute
 
 async function fetchWithRetry(
   url: string,
@@ -18,12 +22,11 @@ async function fetchWithRetry(
     try {
       if (attempt > 0) {
         console.log(`[ResourceView Proxy] Retry attempt ${attempt} for: ${url}`)
-        // Wait 2 seconds before retry
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
 
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 55000) // 55 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 55000)
 
       try {
         const response = await fetch(url, {
@@ -56,20 +59,35 @@ export async function GET(
   try {
     const { resourceId } = await params
     const encodedResourceId = encodeURIComponent(resourceId)
+    const cacheKey = `connections:${resourceId}`
+    const now = Date.now()
 
-    console.log(`[ResourceView Proxy] Fetching connections for: ${resourceId}`)
+    // Check in-memory cache
+    const cached = cache.get(cacheKey)
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+      const cacheAge = Math.round((now - cached.timestamp) / 1000)
+      console.log(`[ResourceView Proxy] Cache HIT for ${resourceId} (age: ${cacheAge}s)`)
+      return NextResponse.json(cached.data, {
+        headers: {
+          "X-Cache": "HIT",
+          "X-Cache-Age": String(cacheAge),
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+        },
+      })
+    }
+
+    console.log(`[ResourceView Proxy] Cache MISS - Fetching connections for: ${resourceId}`)
 
     // Warm-up request to wake Render if it's sleeping
     try {
       const warmupResponse = await fetch(`${BACKEND_URL}/health`, {
-        signal: AbortSignal.timeout(5000), // 5 second timeout for warmup
-      }).catch(() => null) // Ignore warmup errors
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null)
       
       if (warmupResponse?.ok) {
         console.log(`[ResourceView Proxy] Backend is awake`)
       }
     } catch (e) {
-      // Warmup failed, continue anyway
       console.log(`[ResourceView Proxy] Warmup skipped, proceeding...`)
     }
 
@@ -90,6 +108,19 @@ export async function GET(
         `[ResourceView Proxy] Backend error: ${response.status}`,
         errorText
       )
+      
+      // Return cached data if available, even if stale
+      if (cached) {
+        console.log(`[ResourceView Proxy] Returning stale cache due to backend error`)
+        return NextResponse.json(cached.data, {
+          headers: {
+            "X-Cache": "STALE",
+            "X-Cache-Age": String(Math.round((now - cached.timestamp) / 1000)),
+            "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+          },
+        })
+      }
+      
       // Return 200 with empty connections instead of propagating error
       return NextResponse.json(
         {
@@ -100,7 +131,13 @@ export async function GET(
           inbound_count: 0,
           outbound_count: 0,
         },
-        { status: 200 } // Return 200 to prevent UI crashes
+        { 
+          status: 200,
+          headers: {
+            "X-Cache": "MISS",
+            "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+          },
+        }
       )
     }
 
@@ -109,9 +146,38 @@ export async function GET(
       `[ResourceView Proxy] Success: ${data.inbound_count || 0} inbound, ${data.outbound_count || 0} outbound`
     )
 
-    return NextResponse.json(data)
+    // Store in cache
+    cache.set(cacheKey, { data, timestamp: now })
+    
+    // Clean up old cache entries (keep cache size reasonable)
+    if (cache.size > 100) {
+      const oldestKey = cache.keys().next().value
+      if (oldestKey) cache.delete(oldestKey)
+    }
+
+    return NextResponse.json(data, {
+      headers: {
+        "X-Cache": "MISS",
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+      },
+    })
   } catch (error: any) {
     console.error("[ResourceView Proxy] Error:", error)
+    
+    // Check for stale cache
+    const { resourceId } = await params
+    const cacheKey = `connections:${resourceId}`
+    const cached = cache.get(cacheKey)
+    if (cached) {
+      console.log(`[ResourceView Proxy] Returning stale cache due to error`)
+      return NextResponse.json(cached.data, {
+        headers: {
+          "X-Cache": "STALE",
+          "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+        },
+      })
+    }
     
     // Always return 200 with empty connections to prevent UI crashes
     return NextResponse.json(
@@ -123,8 +189,13 @@ export async function GET(
         inbound_count: 0,
         outbound_count: 0,
       },
-      { status: 200 } // Return 200 instead of 500 to prevent UI errors
+      { 
+        status: 200,
+        headers: {
+          "X-Cache": "MISS",
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
+        },
+      }
     )
   }
 }
-

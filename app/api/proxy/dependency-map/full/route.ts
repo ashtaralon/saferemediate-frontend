@@ -1,52 +1,129 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server"
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "https://saferemediate-backend-f.onrender.com";
+  "https://saferemediate-backend-f.onrender.com"
+
+export const dynamic = "force-dynamic"
+export const runtime = "nodejs"
+export const maxDuration = 60
+
+// In-memory cache: 2 minutes TTL for dependency map (balance freshness/speed)
+const cache = new Map<string, { data: any; timestamp: number }>()
+const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod";
-  const includeUnused = url.searchParams.get("includeUnused") ?? "true";
-  const maxNodes = url.searchParams.get("maxNodes") ?? "200";
+  const url = new URL(req.url)
+  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const includeUnused = url.searchParams.get("includeUnused") ?? "true"
+  const maxNodes = url.searchParams.get("maxNodes") ?? "200"
+  
+  const cacheKey = `dependency-map:${systemName}:${includeUnused}:${maxNodes}`
+  const now = Date.now()
+  
+  // Check in-memory cache
+  const cached = cache.get(cacheKey)
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    const cacheAge = Math.round((now - cached.timestamp) / 1000)
+    console.log(`[Dependency Map Full Proxy] Cache HIT for ${systemName} (age: ${cacheAge}s)`)
+    return NextResponse.json(cached.data, {
+      headers: {
+        "X-Cache": "HIT",
+        "X-Cache-Age": String(cacheAge),
+        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+      },
+    })
+  }
+  
+  console.log(`[Dependency Map Full Proxy] Cache MISS - Fetching for ${systemName}...`)
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 55000) // 55 second timeout
 
     const backendUrl = `${BACKEND_URL}/api/dependency-map/full?` +
       `system_name=${encodeURIComponent(systemName)}` +
       `&include_unused=${includeUnused}` +
-      `&max_nodes=${maxNodes}`;
+      `&max_nodes=${maxNodes}`
 
     const res = await fetch(backendUrl, {
       cache: "no-store",
       signal: controller.signal,
       headers: { Accept: "application/json" },
-    });
+    })
 
-    clearTimeout(timeoutId);
+    clearTimeout(timeoutId)
 
     if (!res.ok) {
-      const errorText = await res.text();
-      console.error(`[Dependency Map Full Proxy] Backend error ${res.status}: ${errorText}`);
+      const errorText = await res.text()
+      console.error(`[Dependency Map Full Proxy] Backend error ${res.status}: ${errorText}`)
+      
+      // Return cached data if available, even if stale
+      if (cached) {
+        console.log(`[Dependency Map Full Proxy] Returning stale cache due to backend error`)
+        return NextResponse.json(cached.data, {
+          headers: {
+            "X-Cache": "STALE",
+            "X-Cache-Age": String(Math.round((now - cached.timestamp) / 1000)),
+            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+          },
+        })
+      }
+      
       return NextResponse.json(
         { nodes: [], edges: [], error: errorText },
-        { status: res.status }
-      );
+        { 
+          status: 200, // Return 200 instead of error status to prevent UI crashes
+          headers: {
+            "X-Cache": "MISS",
+            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+          },
+        }
+      )
     }
 
-    const data = await res.json();
-    console.log(`[Dependency Map Full Proxy] ${data.total_nodes || 0} nodes, ${data.total_edges || 0} edges`);
+    const data = await res.json()
+    console.log(`[Dependency Map Full Proxy] Success: ${data.total_nodes || 0} nodes, ${data.total_edges || 0} edges`)
 
-    return NextResponse.json(data);
+    // Store in cache
+    cache.set(cacheKey, { data, timestamp: now })
+    
+    // Clean up old cache entries (keep cache size reasonable)
+    if (cache.size > 50) {
+      const oldestKey = cache.keys().next().value
+      if (oldestKey) cache.delete(oldestKey)
+    }
+
+    return NextResponse.json(data, {
+      headers: {
+        "X-Cache": "MISS",
+        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+      },
+    })
   } catch (error: any) {
-    console.error("[Dependency Map Full Proxy] Error:", error.message);
+    console.error("[Dependency Map Full Proxy] Error:", error.message)
+    
+    // Check for stale cache
+    if (cached) {
+      console.log(`[Dependency Map Full Proxy] Returning stale cache due to error`)
+      return NextResponse.json(cached.data, {
+        headers: {
+          "X-Cache": "STALE",
+          "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
+          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+        },
+      })
+    }
+    
     return NextResponse.json(
       { nodes: [], edges: [], error: error.message },
-      { status: 500 }
-    );
+      { 
+        status: 200, // Return 200 instead of 500 to prevent UI crashes
+        headers: {
+          "X-Cache": "MISS",
+          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+        },
+      }
+    )
   }
 }
-
-
