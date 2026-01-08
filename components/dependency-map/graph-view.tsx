@@ -155,6 +155,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
   const [pathFromInternet, setPathFromInternet] = useState<string[]>([])
   const [observationDays, setObservationDays] = useState(30)
   const [stats, setStats] = useState({ nodes: 0, edges: 0, actualTraffic: 0 })
+  const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
 
   // Animate ACTUAL_TRAFFIC edges
   const animateTrafficEdges = useCallback(() => {
@@ -463,6 +464,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       hasContainer: !!containerRef.current,
       hasGraphData: !!graphData,
       isLoading,
+      viewMode,
       graphDataNodes: graphData?.nodes?.length || 0,
       graphDataEdges: graphData?.edges?.length || 0,
       graphDataKeys: graphData ? Object.keys(graphData) : []
@@ -482,8 +484,21 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     const nodeIds = new Set<string>()
     let actualTrafficCount = 0
     
+    // Important resource types to show in grouped mode
+    const importantTypes = ['EC2', 'RDS', 'Lambda', 'SecurityGroup', 'VPC', 'Subnet', 'S3Bucket', 'S3', 'DynamoDB']
+    
+    // Filter nodes based on view mode
+    const filteredNodes = viewMode === 'grouped' 
+      ? (graphData.nodes || []).filter((n: any) => importantTypes.includes(n.type))
+      : (graphData.nodes || [])
+    
+    // Count hidden IAM items for grouped mode
+    const hiddenIamCount = viewMode === 'grouped' 
+      ? (graphData.nodes || []).filter((n: any) => n.type === 'IAMRole' || n.type === 'IAMPolicy').length
+      : 0
+    
     const hasInternetEdges = (graphData.edges || []).some((e: any) => e.type === 'internet' || e.source === 'Internet')
-    if (hasInternetEdges && !graphData.nodes?.find((n: any) => n.id === 'Internet')) {
+    if (hasInternetEdges && !filteredNodes.find((n: any) => n.id === 'Internet')) {
       elements.push({
         group: 'nodes',
         data: { id: 'Internet', label: 'Internet\nExternal', type: 'Internet', lpScore: 0 }
@@ -512,13 +527,98 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       return typeMap[type] || type
     }
     
-    console.log('[GraphView] Processing nodes:', graphData.nodes?.length || 0)
-    ;(graphData.nodes || []).forEach((n: any) => {
+    // Build VPC and Subnet parent nodes map
+    const vpcMap = new Map<string, any>()
+    const subnetMap = new Map<string, any>()
+    const vpcToSubnets = new Map<string, Set<string>>()
+    
+    // First pass: collect VPCs and Subnets
+    filteredNodes.forEach((n: any) => {
+      if (n.type === 'VPC') {
+        vpcMap.set(n.id, n)
+        vpcToSubnets.set(n.id, new Set())
+      } else if (n.type === 'Subnet') {
+        subnetMap.set(n.id, n)
+        // Find parent VPC from edges or properties
+        const vpcId = n.vpc_id || n.vpcId || (graphData.edges || []).find((e: any) => 
+          e.target === n.id && (e.type === 'IN_VPC' || e.relationship_type === 'IN_VPC')
+        )?.source
+        if (vpcId && vpcMap.has(vpcId)) {
+          vpcToSubnets.get(vpcId)?.add(n.id)
+        }
+      }
+    })
+    
+    // Create VPC parent nodes
+    vpcMap.forEach((vpc, vpcId) => {
+      const subnetCount = vpcToSubnets.get(vpcId)?.size || 0
+      const label = `${vpc.name || vpcId}\nVPC${subnetCount > 0 ? ` (${subnetCount} subnets)` : ''}`
+      elements.push({
+        group: 'nodes',
+        data: {
+          id: `vpc-${vpcId}`,
+          label: label,
+          type: 'VPC',
+          name: vpc.name || vpcId,
+          isParent: true,
+          ...vpc
+        }
+      })
+      nodeIds.add(`vpc-${vpcId}`)
+    })
+    
+    // Create Subnet parent nodes (nested in VPCs)
+    subnetMap.forEach((subnet, subnetId) => {
+      const vpcId = subnet.vpc_id || subnet.vpcId || (graphData.edges || []).find((e: any) => 
+        e.target === subnetId && (e.type === 'IN_VPC' || e.relationship_type === 'IN_VPC')
+      )?.source
+      
+      const parentVpcId = vpcId ? `vpc-${vpcId}` : null
+      const isPublic = subnet.public !== false // Default to public if not specified
+      const subnetType = subnet.type || (isPublic ? 'public' : 'private')
+      
+      const label = `${subnet.name || subnetId}\nSubnet`
+      elements.push({
+        group: 'nodes',
+        data: {
+          id: `subnet-${subnetId}`,
+          label: label,
+          type: 'Subnet',
+          name: subnet.name || subnetId,
+          isParent: true,
+          parent: parentVpcId,
+          subnetType: subnetType,
+          ...subnet
+        }
+      })
+      nodeIds.add(`subnet-${subnetId}`)
+    })
+    
+    // Process resource nodes and assign to parents
+    console.log('[GraphView] Processing nodes:', filteredNodes.length)
+    filteredNodes.forEach((n: any) => {
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
+      if (n.type === 'VPC' || n.type === 'Subnet') return // Already created as parents
+      
       nodeIds.add(n.id)
       const nodeName = (n.name || n.id)
       const serviceType = formatServiceType(n.type || 'Service')
       const label = nodeName + "\n" + serviceType
+      
+      // Find parent subnet or VPC
+      let parent: string | undefined = undefined
+      if (n.subnet_id || n.subnetId) {
+        const subnetId = n.subnet_id || n.subnetId
+        if (subnetMap.has(subnetId)) {
+          parent = `subnet-${subnetId}`
+        }
+      } else if (n.vpc_id || n.vpcId) {
+        const vpcId = n.vpc_id || n.vpcId
+        if (vpcMap.has(vpcId)) {
+          parent = `vpc-${vpcId}`
+        }
+      }
+      
       elements.push({
         group: 'nodes',
         data: { 
@@ -528,15 +628,65 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           lpScore: n.lpScore,
           name: n.name || n.id,
           serviceType: serviceType,
+          parent: parent,
           ...n 
         }
       })
     })
     
+    // Add hidden IAM count badge if in grouped mode
+    if (viewMode === 'grouped' && hiddenIamCount > 0) {
+      elements.push({
+        group: 'nodes',
+        data: {
+          id: 'hidden-iam-badge',
+          label: `IAM Roles\n(${hiddenIamCount} hidden)`,
+          type: 'IAMRole',
+          isBadge: true
+        }
+      })
+      nodeIds.add('hidden-iam-badge')
+    }
+    
+    // Helper to resolve node ID (handle parent node mappings)
+    const resolveNodeId = (nodeId: string): string => {
+      // Check if it's a VPC that we created as parent
+      if (vpcMap.has(nodeId)) {
+        return `vpc-${nodeId}`
+      }
+      
+      // Check if it's a Subnet that we created as parent
+      if (subnetMap.has(nodeId)) {
+        return `subnet-${nodeId}`
+      }
+      
+      // Check if node exists in our filtered set
+      const node = filteredNodes.find((n: any) => n.id === nodeId)
+      if (node) {
+        return nodeId
+      }
+      
+      // Node not in filtered set, return original ID (might be hidden in grouped mode)
+      return nodeId
+    }
+    
     console.log('[GraphView] Processing edges:', graphData.edges?.length || 0)
     ;(graphData.edges || []).forEach((e: any, i: number) => {
-      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) {
-        console.log('[GraphView] Skipping edge - missing node:', e.source, '->', e.target)
+      const sourceId = resolveNodeId(e.source)
+      const targetId = resolveNodeId(e.target)
+      
+      // Skip edges to/from hidden nodes in grouped mode
+      if (viewMode === 'grouped') {
+        const sourceNode = filteredNodes.find((n: any) => n.id === e.source)
+        const targetNode = filteredNodes.find((n: any) => n.id === e.target)
+        if (!sourceNode || !targetNode) {
+          // Edge connects to hidden node, skip it
+          return
+        }
+      }
+      
+      if (!nodeIds.has(sourceId) || !nodeIds.has(targetId)) {
+        console.log('[GraphView] Skipping edge - missing node:', sourceId, '->', targetId)
         return
       }
       
@@ -544,7 +694,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       const edgeType = e.type || e.edge_type || e.relationship_type || 'default'
       if (edgeType === 'ACTUAL_TRAFFIC') {
         actualTrafficCount++
-        console.log('[GraphView] Found ACTUAL_TRAFFIC edge:', e.source, '->', e.target)
+        console.log('[GraphView] Found ACTUAL_TRAFFIC edge:', sourceId, '->', targetId)
       }
       
       const protocol = e.protocol || 'TCP'
@@ -563,8 +713,8 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         group: 'edges',
         data: { 
           id: e.id || ("e" + i), 
-          source: e.source, 
-          target: e.target, 
+          source: sourceId, 
+          target: targetId, 
           label, 
           type: edgeType, 
           protocol, 
@@ -586,6 +736,14 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
       nodes: elements.filter(e => e.group === 'nodes').length,
       edges: elements.filter(e => e.group === 'edges').length,
       actualTraffic: actualTrafficCount
+    })
+    
+    console.log('[GraphView] Stats:', {
+      totalNodes: elements.filter(e => e.group === 'nodes').length,
+      totalEdges: elements.filter(e => e.group === 'edges').length,
+      actualTraffic: actualTrafficCount,
+      viewMode,
+      hiddenIamCount: viewMode === 'grouped' ? hiddenIamCount : 0
     })
 
     // Build dynamic edge styles
@@ -627,6 +785,48 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           'text-background-padding': '3px',
           'text-background-shape': 'roundrectangle',
           'line-height': '1.2',
+        }},
+        // Compound node styling (parent nodes)
+        { selector: 'node[isParent="true"]', style: {
+          'width': 'label',
+          'height': 'label',
+          'padding': '20px',
+          'background-color': '#f0f9ff',
+          'border-color': '#7B2FBE',
+          'border-width': 3,
+          'border-style': 'dashed',
+          'shape': 'round-rectangle',
+          'text-valign': 'top',
+          'text-halign': 'center',
+          'text-margin-y': -10,
+        }},
+        { selector: 'node[type="VPC"][isParent="true"]', style: {
+          'background-color': 'rgba(34, 197, 94, 0.1)',
+          'border-color': '#22c55e',
+          'border-width': 2,
+        }},
+        { selector: 'node[type="Subnet"][isParent="true"]', style: {
+          'background-color': 'rgba(59, 130, 246, 0.1)',
+          'border-color': '#3b82f6',
+          'border-width': 2,
+        }},
+        { selector: 'node[subnetType="public"][isParent="true"]', style: {
+          'background-color': 'rgba(34, 197, 94, 0.15)',
+          'border-color': '#22c55e',
+        }},
+        { selector: 'node[subnetType="private"][isParent="true"]', style: {
+          'background-color': 'rgba(234, 179, 8, 0.15)',
+          'border-color': '#eab308',
+        }},
+        { selector: 'node[subnetType="database"][isParent="true"]', style: {
+          'background-color': 'rgba(59, 130, 246, 0.15)',
+          'border-color': '#3b82f6',
+        }},
+        { selector: 'node[isBadge="true"]', style: {
+          'opacity': 0.6,
+          'background-color': '#f1f5f9',
+          'border-color': '#cbd5e1',
+          'border-style': 'dashed',
         }},
         ...Object.entries(COLORS).map(([t, c]) => {
           const icon = AWS_ICONS[t] || AWS_ICONS.Service
@@ -682,6 +882,8 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         gravity: 0.25,
         numIter: 2500,
         tile: true,
+        // Compound node support
+        nestingFactor: 0.1,
       } as any,
       minZoom: 0.2, maxZoom: 3,
     })
@@ -713,7 +915,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
     })
     cyRef.current = cy
     return () => cy.destroy()
-  }, [graphData, isLoading, searchQuery, fetchEdgeTrafficData, onNodeClick])
+  }, [graphData, isLoading, searchQuery, viewMode, fetchEdgeTrafficData, onNodeClick])
 
   const zoom = (d: number) => cyRef.current?.zoom(cyRef.current.zoom() * (d > 0 ? 1.2 : 0.8))
   const fit = () => cyRef.current?.fit(undefined, 50)
@@ -742,6 +944,15 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
           <button 
+            onClick={() => setViewMode(viewMode === 'grouped' ? 'all' : 'grouped')}
+            className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
+              viewMode === 'grouped' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+            )}
+          >
+            <Layers className="w-4 h-4" />
+            {viewMode === 'grouped' ? 'Grouped' : 'All'}
+          </button>
+          <button 
             onClick={toggleHighlightTraffic} 
             className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
               highlightTraffic ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700 hover:bg-green-200'
@@ -768,8 +979,13 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             <Download className="w-4 h-4" /> Export
           </button>
           <span className="text-sm text-slate-500">
-            <strong>{graphData?.summary?.totalNodes || graphData?.nodes?.length || 0}</strong> nodes • 
-            <strong>{graphData?.summary?.totalEdges || graphData?.edges?.length || 0}</strong> connections
+            <strong>{stats.nodes}</strong> nodes • 
+            <strong>{stats.edges}</strong> connections
+            {viewMode === 'grouped' && (graphData?.nodes || []).filter((n: any) => n.type === 'IAMRole' || n.type === 'IAMPolicy').length > 0 && (
+              <span className="ml-2 text-xs text-slate-400">
+                ({((graphData?.nodes || []).filter((n: any) => n.type === 'IAMRole' || n.type === 'IAMPolicy').length)} IAM hidden)
+              </span>
+            )}
           </span>
         </div>
         <div className="flex items-center gap-2">
