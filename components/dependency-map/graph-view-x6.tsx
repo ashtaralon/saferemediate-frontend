@@ -603,65 +603,78 @@ function GraphViewX6Component({
     graph.addNodes(nodes)
     graph.addEdges(edges)
 
-    // Apply Dagre layout for left-to-right flow
-    if (viewMode === 'grouped' && dagre) {
-      const g = new dagre.graphlib.Graph()
-      g.setDefaultEdgeLabel(() => ({}))
-      g.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 200, align: 'UL' })
+      // Apply Dagre layout for left-to-right flow
+      if (viewMode === 'grouped' && dagre) {
+        const g = new dagre.graphlib.Graph()
+        g.setDefaultEdgeLabel(() => ({}))
+        g.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 200, align: 'UL' })
 
-      // Add nodes to dagre
-      nodes.forEach((node) => {
-        g.setNode(node.id, {
-          width: node.width || 120,
-          height: node.height || 100,
+        // Add nodes to dagre
+        nodes.forEach((node) => {
+          g.setNode(node.id, {
+            width: node.width || 120,
+            height: node.height || 100,
+          })
         })
-      })
 
-      // Add edges to dagre
-      edges.forEach((edge) => {
-        g.setEdge(edge.source, edge.target)
-      })
+        // Add edges to dagre
+        edges.forEach((edge) => {
+          g.setEdge(edge.source, edge.target)
+        })
 
-      dagre.layout(g)
+        dagre.layout(g)
 
-      // Update node positions
-      g.nodes().forEach((nodeId) => {
-        const node = graph.getCellById(nodeId) as any
-        if (node) {
-          const dagreNode = g.node(nodeId)
-          node.setPosition(dagreNode.x - (node.width || 120) / 2, dagreNode.y - (node.height || 100) / 2)
-        }
-      })
-    } else {
-      // Use force-directed layout for "All" mode
-      graph.layout({
-        type: 'force',
-        preventOverlap: true,
-        nodeSize: 120,
-        nodeSpacing: 100,
-        edgeLength: 150,
-      })
-    }
-
-    // Highlight path if provided
-    if (highlightPath) {
-      setTimeout(() => {
-        const sourceNode = graph.getCellById(highlightPath.source)
-        const targetNode = graph.getCellById(highlightPath.target)
-        if (sourceNode && targetNode) {
-          const edge = graph.getEdges().find((e: any) => 
-            (e.getSourceCell().id === highlightPath.source && e.getTargetCell().id === highlightPath.target) ||
-            (e.getSourceCell().id === highlightPath.target && e.getTargetCell().id === highlightPath.source)
-          )
-          if (edge) {
-            graph.centerContent({ padding: 100 })
-            sourceNode.setAttrByPath('body/stroke', '#fbbf24')
-            sourceNode.setAttrByPath('body/strokeWidth', 4)
-            targetNode.setAttrByPath('body/stroke', '#fbbf24')
-            targetNode.setAttrByPath('body/strokeWidth', 4)
+        // Update node positions
+        g.nodes().forEach((nodeId) => {
+          const node = graph.getCellById(nodeId) as any
+          if (node) {
+            const dagreNode = g.node(nodeId)
+            node.setPosition(dagreNode.x - (node.width || 120) / 2, dagreNode.y - (node.height || 100) / 2)
           }
+        })
+      } else {
+        // Use force-directed layout for "All" mode
+        graph.layout({
+          type: 'force',
+          preventOverlap: true,
+          nodeSize: 120,
+          nodeSpacing: 100,
+          edgeLength: 150,
+        })
+      }
+
+      // Highlight path if provided
+      let highlightTimer: NodeJS.Timeout | null = null
+      if (highlightPath) {
+        highlightTimer = setTimeout(() => {
+          try {
+            const sourceNode = graph.getCellById(highlightPath.source)
+            const targetNode = graph.getCellById(highlightPath.target)
+            if (sourceNode && targetNode) {
+              const edge = graph.getEdges().find((e: any) => 
+                (e.getSourceCell().id === highlightPath.source && e.getTargetCell().id === highlightPath.target) ||
+                (e.getSourceCell().id === highlightPath.target && e.getTargetCell().id === highlightPath.source)
+              )
+              if (edge) {
+                graph.centerContent({ padding: 100 })
+                sourceNode.setAttrByPath('body/stroke', '#fbbf24')
+                sourceNode.setAttrByPath('body/strokeWidth', 4)
+                targetNode.setAttrByPath('body/stroke', '#fbbf24')
+                targetNode.setAttrByPath('body/strokeWidth', 4)
+              }
+            }
+          } catch (err) {
+            console.warn('[GraphViewX6] Error highlighting path:', err)
+          }
+        }, 500)
+      }
+
+      // Return cleanup function to clear timeout
+      return () => {
+        if (highlightTimer) {
+          clearTimeout(highlightTimer)
         }
-      }, 500)
+      }
     } catch (error) {
       console.error('[GraphViewX6] Error updating graph:', error)
     }
