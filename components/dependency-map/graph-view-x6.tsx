@@ -63,11 +63,12 @@ const AWS_COLORS: Record<string, { bg: string; border: string; gradient: string;
 };
 
 const LANE_ORDER: Record<string, number> = {
-  'InternetGateway': 0, 'NATGateway': 0, 'WAF': 0,
-  'SecurityGroup': 1, 'ALB': 1, 'ELB': 1, 'VPC': 1, 'Subnet': 1,
-  'EC2': 2, 'Lambda': 2, 'ECS': 2, 'IAMRole': 2, 'IAMPolicy': 2,
-  
-  'RDS': 3, 'DynamoDB': 3, 'S3': 3, 'Aurora': 3
+  'SecurityGroup': 0,
+  'IAMRole': 1, 'IAMPolicy': 1,
+  'EC2': 2, 'Lambda': 2, 'ECS': 2,
+  'RDS': 3, 'DynamoDB': 3, 'Aurora': 3,
+  'S3': 4,
+  'InternetGateway': 5, 'NATGateway': 5, 'VPC': 5, 'Subnet': 5, 'ALB': 5, 'ELB': 5
 };
 
 const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 }) => {
