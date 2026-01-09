@@ -21,6 +21,9 @@ import {
   Info,
   Eye,
   EyeOff,
+  FileJson,
+  AlertCircle,
+  Shield,
 } from 'lucide-react'
 import { useArchitectureData } from '@/hooks/useArchitectureData'
 
@@ -106,52 +109,79 @@ interface SVGEdge {
   data: any
 }
 
-// Simple force-directed layout
+// Improved layout: Left-to-right flow by resource type
 function calculateLayout(nodes: SVGNode[], edges: SVGEdge[], width: number, height: number): Map<string, NodePosition> {
   const positions = new Map<string, NodePosition>()
-  const nodeMap = new Map(nodes.map(n => [n.id, n]))
   
-  // Initialize positions
-  nodes.forEach((node, i) => {
-    positions.set(node.id, {
-      x: width / 2 + (Math.random() - 0.5) * 200,
-      y: height / 2 + (Math.random() - 0.5) * 200,
-      width: node.width || 120,
-      height: node.height || 100,
+  // Define functional lanes (left to right)
+  const laneOrder: Record<string, number> = {
+    'Internet': 0,
+    'External': 0,
+    'ALB': 1,
+    'LoadBalancer': 1,
+    'SecurityGroup': 2,
+    'EC2': 3,
+    'Lambda': 3,
+    'ECS': 3,
+    'RDS': 4,
+    'DynamoDB': 4,
+    'S3Bucket': 4,
+    'S3': 4,
+    'VPC': 0.5, // Containers in middle
+    'Subnet': 0.5,
+  }
+  
+  // Group nodes by lane
+  const lanes: Record<number, SVGNode[]> = {}
+  const defaultLane = 2.5 // Default for unknown types
+  
+  nodes.forEach(node => {
+    const lane = laneOrder[node.type] ?? defaultLane
+    if (!lanes[lane]) lanes[lane] = []
+    lanes[lane].push(node)
+  })
+  
+  // Calculate positions by lane
+  const laneCount = Object.keys(lanes).length
+  const laneWidth = (width - 200) / Math.max(laneCount, 1)
+  const startX = 100
+  
+  Object.entries(lanes).forEach(([laneStr, laneNodes]) => {
+    const lane = parseFloat(laneStr)
+    const x = startX + lane * laneWidth
+    const nodeHeight = 120
+    const spacing = 20
+    const totalHeight = laneNodes.length * (nodeHeight + spacing)
+    const startY = (height - totalHeight) / 2
+    
+    laneNodes.forEach((node, i) => {
+      // For containers (VPC/Subnet), use different sizing
+      if (node.data.isContainer) {
+        positions.set(node.id, {
+          x: x - (node.width || 400) / 2,
+          y: startY + i * (nodeHeight + spacing),
+          width: node.width || 400,
+          height: node.height || 300,
+        })
+      } else {
+        positions.set(node.id, {
+          x: x - (node.width || 120) / 2,
+          y: startY + i * (nodeHeight + spacing),
+          width: node.width || 120,
+          height: node.height || 100,
+        })
+      }
     })
   })
   
-  // Simple force-directed iterations
-  for (let iter = 0; iter < 100; iter++) {
+  // Fine-tune with force-directed for better edge routing
+  for (let iter = 0; iter < 50; iter++) {
     const forces = new Map<string, { x: number; y: number }>()
-    
-    // Initialize forces
     nodes.forEach(node => {
       forces.set(node.id, { x: 0, y: 0 })
     })
     
-    // Repulsion between all nodes
-    nodes.forEach((node1, i) => {
-      nodes.slice(i + 1).forEach(node2 => {
-        const pos1 = positions.get(node1.id)!
-        const pos2 = positions.get(node2.id)!
-        const dx = pos2.x - pos1.x
-        const dy = pos2.y - pos1.y
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = 10000 / (dist * dist)
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        
-        const f1 = forces.get(node1.id)!
-        const f2 = forces.get(node2.id)!
-        f1.x -= fx
-        f1.y -= fy
-        f2.x += fx
-        f2.y += fy
-      })
-    })
-    
-    // Attraction along edges
+    // Attraction along edges (keep connected nodes close)
     edges.forEach(edge => {
       const sourcePos = positions.get(edge.source)
       const targetPos = positions.get(edge.target)
@@ -160,7 +190,8 @@ function calculateLayout(nodes: SVGNode[], edges: SVGEdge[], width: number, heig
       const dx = targetPos.x - sourcePos.x
       const dy = targetPos.y - sourcePos.y
       const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const force = dist * 0.1
+      const idealDist = 200 // Ideal distance between connected nodes
+      const force = (dist - idealDist) * 0.01
       const fx = (dx / dist) * force
       const fy = (dy / dist) * force
       
@@ -172,8 +203,8 @@ function calculateLayout(nodes: SVGNode[], edges: SVGEdge[], width: number, heig
       fTarget.y -= fy
     })
     
-    // Apply forces with damping
-    const damping = 0.1
+    // Apply forces (light damping to preserve lane structure)
+    const damping = 0.05
     nodes.forEach(node => {
       const pos = positions.get(node.id)!
       const force = forces.get(node.id)!
@@ -205,6 +236,8 @@ function GraphViewX6Component({
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
   const [showAllowedPaths, setShowAllowedPaths] = useState(true)
   const [showEmptyState, setShowEmptyState] = useState(false)
+  const [showRiskPanel, setShowRiskPanel] = useState(false)
+  const [riskAnalysis, setRiskAnalysis] = useState<any>(null)
   
   // Pan and zoom state
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -249,9 +282,14 @@ function GraphViewX6Component({
     const width = containerRef.current?.offsetWidth || 1200
     const height = containerRef.current?.offsetHeight || 800
 
-    // Filter nodes by search
+    // Filter nodes: Remove IAMPolicy noise, keep only important resources
     const filteredNodes = (graphData.nodes || []).filter((n: any) => {
+      // Filter out IAMPolicy nodes (too noisy, show only IAMRole)
+      if (n.type === 'IAMPolicy') return false
+      
+      // Filter by search query
       if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return false
+      
       return true
     })
 
@@ -399,6 +437,143 @@ function GraphViewX6Component({
     setPan({ x: 0, y: 0 })
     setZoom(1)
   }, [])
+
+  // Export graph to JSON for Cynto analysis
+  const handleExportJSON = useCallback(() => {
+    if (!graphData) return
+    
+    const exportData = {
+      systemName,
+      timestamp: new Date().toISOString(),
+      nodes: graphData.nodes || [],
+      edges: graphData.edges || [],
+      stats: {
+        totalNodes: graphData.nodes?.length || 0,
+        totalEdges: graphData.edges?.length || 0,
+        nodeTypes: (graphData.nodes || []).reduce((acc: Record<string, number>, n: any) => {
+          acc[n.type] = (acc[n.type] || 0) + 1
+          return acc
+        }, {}),
+        edgeTypes: (graphData.edges || []).reduce((acc: Record<string, number>, e: any) => {
+          const type = e.type || e.edge_type || 'unknown'
+          acc[type] = (acc[type] || 0) + 1
+          return acc
+        }, {}),
+      },
+    }
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cynto-graph-${systemName}-${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [graphData, systemName])
+
+  // Analyze risks in the graph
+  const analyzeRisks = useCallback(() => {
+    if (!graphData || !graphData.nodes || !graphData.edges) return null
+
+    const risks: any[] = []
+    const nodes = graphData.nodes || []
+    const edges = graphData.edges || []
+
+    // Risk 1: Internet → EC2 → FullAccess → S3
+    const internetNodes = nodes.filter((n: any) => n.type === 'Internet' || n.name?.toLowerCase().includes('internet'))
+    const ec2Nodes = nodes.filter((n: any) => n.type === 'EC2')
+    const s3Nodes = nodes.filter((n: any) => n.type === 'S3Bucket' || n.type === 'S3')
+    
+    internetNodes.forEach((internet: any) => {
+      edges.forEach((e: any) => {
+        if (e.source === internet.id && ec2Nodes.some((ec2: any) => ec2.id === e.target)) {
+          const ec2 = ec2Nodes.find((ec2: any) => ec2.id === e.target)
+          edges.forEach((e2: any) => {
+            if (e2.source === ec2.id && s3Nodes.some((s3: any) => s3.id === e2.target)) {
+              const s3 = s3Nodes.find((s3: any) => s3.id === e2.target)
+              risks.push({
+                type: 'internet_to_s3',
+                severity: 'high',
+                path: [internet.name || internet.id, ec2.name || ec2.id, s3.name || s3.id],
+                description: `Internet → EC2 → S3: Public access to S3 bucket via EC2 instance`,
+                remediation: 'Move EC2 to private subnet, restrict S3 bucket policy',
+              })
+            }
+          })
+        }
+      })
+    })
+
+    // Risk 2: Public subnets with sensitive resources
+    const publicSubnets = nodes.filter((n: any) => 
+      n.type === 'Subnet' && (n.subnet_type === 'public' || n.subnetType === 'public')
+    )
+    publicSubnets.forEach((subnet: any) => {
+      const resourcesInSubnet = nodes.filter((n: any) => 
+        (n.subnet_id === subnet.id || n.subnetId === subnet.id) && 
+        (n.type === 'RDS' || n.type === 'DynamoDB')
+      )
+      if (resourcesInSubnet.length > 0) {
+        risks.push({
+          type: 'public_subnet_sensitive',
+          severity: 'high',
+          path: [subnet.name || subnet.id, ...resourcesInSubnet.map((r: any) => r.name || r.id)],
+          description: `Sensitive resources (${resourcesInSubnet.map((r: any) => r.type).join(', ')}) in public subnet`,
+          remediation: 'Move resources to private subnet',
+        })
+      }
+    })
+
+    // Risk 3: IAM roles with wildcard permissions
+    const iamRoles = nodes.filter((n: any) => n.type === 'IAMRole')
+    iamRoles.forEach((role: any) => {
+      if (role.data?.policy?.includes('*') || role.name?.toLowerCase().includes('fullaccess')) {
+        risks.push({
+          type: 'wildcard_permissions',
+          severity: 'medium',
+          path: [role.name || role.id],
+          description: `IAM Role with wildcard permissions: ${role.name || role.id}`,
+          remediation: 'Apply least-privilege policy based on CloudTrail usage',
+        })
+      }
+    })
+
+    // Risk 4: Security Groups with open ports
+    const securityGroups = nodes.filter((n: any) => n.type === 'SecurityGroup')
+    securityGroups.forEach((sg: any) => {
+      const openPorts = edges.filter((e: any) => 
+        (e.source === sg.id || e.target === sg.id) && 
+        e.type === 'ALLOWED' && 
+        (e.port === '0.0.0.0/0' || e.port === '*')
+      )
+      if (openPorts.length > 0) {
+        risks.push({
+          type: 'open_security_group',
+          severity: 'medium',
+          path: [sg.name || sg.id],
+          description: `Security Group with open ports: ${sg.name || sg.id}`,
+          remediation: 'Restrict to specific IPs/CIDRs based on ACTUAL_TRAFFIC',
+        })
+      }
+    })
+
+    return {
+      totalRisks: risks.length,
+      highSeverity: risks.filter((r: any) => r.severity === 'high').length,
+      mediumSeverity: risks.filter((r: any) => r.severity === 'medium').length,
+      risks: risks.slice(0, 10), // Top 10 risks
+    }
+  }, [graphData])
+
+  // Calculate risk analysis when graph data changes
+  useEffect(() => {
+    if (graphData && showRiskPanel) {
+      const analysis = analyzeRisks()
+      setRiskAnalysis(analysis)
+    }
+  }, [graphData, showRiskPanel, analyzeRisks])
 
   // Render node
   const renderNode = useCallback((node: SVGNode) => {
@@ -624,6 +799,29 @@ function GraphViewX6Component({
             {showAllowedPaths ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             {showAllowedPaths ? ' Hide Allowed' : ' Show Allowed'}
           </button>
+          <button
+            onClick={handleExportJSON}
+            className="px-3 py-1 text-sm rounded bg-green-500 text-white hover:bg-green-600 flex items-center gap-2"
+            title="Export graph to JSON for Cynto analysis"
+          >
+            <FileJson className="w-4 h-4" />
+            Export JSON
+          </button>
+          <button
+            onClick={() => setShowRiskPanel(!showRiskPanel)}
+            className={`px-3 py-1 text-sm rounded flex items-center gap-2 ${
+              showRiskPanel ? 'bg-red-500 text-white' : 'bg-gray-200 hover:bg-gray-300'
+            }`}
+            title="Show risk analysis panel"
+          >
+            <Shield className="w-4 h-4" />
+            Risk Analysis
+            {riskAnalysis && riskAnalysis.totalRisks > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-red-600 rounded-full text-xs">
+                {riskAnalysis.totalRisks}
+              </span>
+            )}
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleZoomOut} className="p-2 hover:bg-gray-100 rounded">
@@ -643,6 +841,92 @@ function GraphViewX6Component({
           )}
         </div>
       </div>
+
+      {/* Risk Analysis Panel */}
+      {showRiskPanel && (
+        <div className="absolute top-20 right-4 w-96 max-h-[600px] bg-white border border-gray-300 rounded-lg shadow-xl z-50 overflow-y-auto">
+          <div className="p-4 border-b bg-red-50">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <Shield className="w-5 h-5 text-red-600" />
+                Risk Analysis
+              </h3>
+              <button
+                onClick={() => setShowRiskPanel(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {riskAnalysis && (
+              <div className="mt-2 text-sm">
+                <div className="flex gap-4">
+                  <span className="text-red-600 font-semibold">
+                    {riskAnalysis.highSeverity} High
+                  </span>
+                  <span className="text-yellow-600 font-semibold">
+                    {riskAnalysis.mediumSeverity} Medium
+                  </span>
+                  <span className="text-gray-600">
+                    {riskAnalysis.totalRisks} Total
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="p-4">
+            {riskAnalysis && riskAnalysis.risks && riskAnalysis.risks.length > 0 ? (
+              <div className="space-y-3">
+                {riskAnalysis.risks.map((risk: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded border-l-4 ${
+                      risk.severity === 'high'
+                        ? 'bg-red-50 border-red-500'
+                        : 'bg-yellow-50 border-yellow-500'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <AlertCircle
+                            className={`w-4 h-4 ${
+                              risk.severity === 'high' ? 'text-red-600' : 'text-yellow-600'
+                            }`}
+                          />
+                          <span
+                            className={`text-xs font-semibold uppercase ${
+                              risk.severity === 'high' ? 'text-red-600' : 'text-yellow-600'
+                            }`}
+                          >
+                            {risk.severity}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-gray-800 mb-1">
+                          {risk.description}
+                        </p>
+                        <div className="text-xs text-gray-600 mb-2">
+                          <span className="font-semibold">Path:</span>{' '}
+                          {risk.path.join(' → ')}
+                        </div>
+                        <div className="text-xs bg-blue-50 p-2 rounded">
+                          <span className="font-semibold text-blue-800">Remediation:</span>
+                          <p className="text-blue-700 mt-1">{risk.remediation}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
+                <p>No risks detected</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Graph Area */}
       <div
