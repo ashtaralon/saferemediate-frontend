@@ -448,8 +448,8 @@ export default function GraphViewX6({
       {/* Graph Container */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden relative"
-        style={{ cursor: dragging ? 'grabbing' : 'grab', height: '550px', minHeight: '550px', width: '100%' }}
+        className="flex-1 overflow-hidden relative h-[550px]"
+        style={{ cursor: dragging ? 'grabbing' : 'grab', width: '100%' }}
         onMouseDown={e => { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
         onMouseMove={e => { if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
         onMouseUp={() => setDragging(false)}
