@@ -996,6 +996,11 @@ function GraphViewX6Component({
           <div className="font-bold mb-2">✅ SVG Graph View</div>
           <div>Nodes: {svgNodes.length}</div>
           <div>Edges: {svgEdges.length}</div>
+          {graphData && graphData.nodes && (
+            <div className="text-gray-600 mt-1">
+              Filtered: {graphData.nodes.filter((n: any) => n.type === 'IAMPolicy').length} IAMPolicy hidden
+            </div>
+          )}
           <div>Zoom: {Math.round(zoom * 100)}%</div>
           <div>Pan: ({Math.round(pan.x)}, {Math.round(pan.y)})</div>
         </div>
