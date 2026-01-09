@@ -127,6 +127,7 @@ export default function DependencyMapTab({
         }))
         console.log('[DependencyMapTab] Extracted resources:', resourceList.length)
         setResources(resourceList)
+        setIsLoading(false) // Explicitly set loading to false on success
         setResourcesLoading(false)
       } else {
         const errorText = await res.text()
