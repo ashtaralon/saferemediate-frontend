@@ -176,8 +176,8 @@ export default function GraphViewX6({
         id: e.id || `${e.source}-${e.target}`,
         source: e.source,
         target: e.target,
-        type: e.type,
-        is_used: e.is_used || e.type === 'ACTUAL_TRAFFIC',
+        type: e.edge_type,
+        is_used: e.is_used || e.edge_type === 'ACTUAL_TRAFFIC',
         traffic_bytes: e.traffic_bytes
       }));
       setData({ nodes, edges });
