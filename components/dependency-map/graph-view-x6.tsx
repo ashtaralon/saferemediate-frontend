@@ -412,16 +412,35 @@ function GraphViewX6Component({
       const subnetMap = new Map<string, any>()
       const vpcToSubnets = new Map<string, Set<string>>()
 
+      // First pass: Build VPC and Subnet maps from actual data
       filteredNodes.forEach((n: any) => {
-        if (n.type === 'VPC') {
+        if (n.type === 'VPC' || n.type === 'vpc') {
           vpcMap.set(n.id, n)
           vpcToSubnets.set(n.id, new Set())
-        } else if (n.type === 'Subnet') {
+        } else if (n.type === 'Subnet' || n.type === 'subnet') {
           subnetMap.set(n.id, n)
-          const vpcId = n.vpc_id || n.vpcId
-          if (vpcId && vpcMap.has(vpcId)) {
+          // Get VPC ID from node's vpc_id property or relationship
+          const vpcId = n.vpc_id || n.vpcId || n.vpcId
+          if (vpcId) {
+            // Ensure VPC exists in map (might be in filteredNodes)
+            const vpcNode = filteredNodes.find((node: any) => 
+              (node.type === 'VPC' || node.type === 'vpc') && 
+              (node.id === vpcId || node.arn === vpcId)
+            )
+            if (vpcNode) {
+              vpcMap.set(vpcNode.id, vpcNode)
+              vpcToSubnets.set(vpcNode.id, new Set())
+            }
             vpcToSubnets.get(vpcId)?.add(n.id)
           }
+        }
+      })
+      
+      // Second pass: Link subnets to VPCs if we found them
+      subnetMap.forEach((subnet, subnetId) => {
+        const vpcId = subnet.vpc_id || subnet.vpcId
+        if (vpcId && vpcMap.has(vpcId)) {
+          vpcToSubnets.get(vpcId)?.add(subnetId)
         }
       })
 
@@ -507,16 +526,29 @@ function GraphViewX6Component({
 
         if (searchQuery && !n.name?.toLowerCase().includes(searchQuery.toLowerCase())) return
 
+        // Determine parent container (Subnet or VPC) from real data
         let parent: string | undefined = undefined
-        if (n.subnet_id || n.subnetId) {
-          const subnetId = n.subnet_id || n.subnetId
-          if (subnetMap.has(subnetId)) {
-            parent = `subnet-${subnetId}`
+        const subnetId = n.subnet_id || n.subnetId
+        const vpcId = n.vpc_id || n.vpcId
+        
+        // Prefer Subnet containment over VPC (more specific)
+        if (subnetId) {
+          // Check if subnet exists in our map
+          const subnetExists = subnetMap.has(subnetId) || 
+                             Array.from(subnetMap.keys()).some(id => id === subnetId || id.includes(subnetId))
+          if (subnetExists) {
+            const actualSubnetId = Array.from(subnetMap.keys()).find(id => id === subnetId || id.includes(subnetId)) || subnetId
+            parent = `subnet-${actualSubnetId}`
           }
-        } else if (n.vpc_id || n.vpcId) {
-          const vpcId = n.vpc_id || n.vpcId
-          if (vpcMap.has(vpcId)) {
-            parent = `vpc-${vpcId}`
+        }
+        
+        // Fallback to VPC if no subnet
+        if (!parent && vpcId) {
+          const vpcExists = vpcMap.has(vpcId) || 
+                           Array.from(vpcMap.keys()).some(id => id === vpcId || id.includes(vpcId))
+          if (vpcExists) {
+            const actualVpcId = Array.from(vpcMap.keys()).find(id => id === vpcId || id.includes(vpcId)) || vpcId
+            parent = `vpc-${actualVpcId}`
           }
         }
 
