@@ -6,30 +6,42 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 let Graph: any = null
 let register: any = null
 let dagre: any = null
+let libraryLoadAttempted = false
+let libraryLoadError: string | null = null
 
 // Load libraries when component mounts (client-side only)
-const loadLibraries = () => {
-  if (typeof window === 'undefined') return false
-  
+const loadLibraries = (): { success: boolean; error: string | null } => {
+  if (typeof window === 'undefined') return { success: false, error: 'Server-side rendering' }
+
+  // Don't retry if we already attempted and failed
+  if (libraryLoadAttempted && libraryLoadError) {
+    return { success: false, error: libraryLoadError }
+  }
+
+  libraryLoadAttempted = true
+
   try {
     if (!Graph) {
       const x6Module = require('@antv/x6')
       Graph = x6Module.Graph
     }
-    
+
     if (!register) {
       const reactShapeModule = require('@antv/x6-react-shape')
       register = reactShapeModule.register
     }
-    
+
     if (!dagre) {
       dagre = require('dagre')
     }
-    
-    return true
-  } catch (e) {
-    console.error('[GraphViewX6] Failed to load libraries:', e)
-    return false
+
+    libraryLoadError = null
+    return { success: true, error: null }
+  } catch (e: any) {
+    const errorMsg = e?.message || 'Failed to load graph libraries'
+    console.error('[GraphViewX6] Failed to load libraries:', errorMsg)
+    libraryLoadError = errorMsg
+    return { success: false, error: errorMsg }
   }
 }
 
@@ -228,6 +240,8 @@ function GraphViewX6Component({
   highlightPath,
 }: Props) {
   const [isClient, setIsClient] = useState(false)
+  const [librariesReady, setLibrariesReady] = useState(false)
+  const [libError, setLibError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const graphRef = useRef<any>(null)
   const [selectedNode, setSelectedNode] = useState<any>(null)
@@ -238,29 +252,37 @@ function GraphViewX6Component({
   // Only render on client and load libraries
   useEffect(() => {
     setIsClient(true)
-    const loaded = loadLibraries()
-    
-    // Register React Shape after libraries are loaded
-    if (loaded && register && Graph) {
-      try {
-        register({
-          shape: 'react-node',
-          component: ReactNodeComponent,
-          width: 120,
-          height: 100,
-        })
-      } catch (e) {
-        console.error('[GraphViewX6] Failed to register React shape:', e)
+    const result = loadLibraries()
+
+    if (result.success) {
+      setLibrariesReady(true)
+      setLibError(null)
+      // Register React Shape after libraries are loaded
+      if (register && Graph) {
+        try {
+          register({
+            shape: 'react-node',
+            component: ReactNodeComponent,
+            width: 120,
+            height: 100,
+          })
+        } catch (e) {
+          console.error('[GraphViewX6] Failed to register React shape:', e)
+        }
       }
+    } else {
+      setLibrariesReady(false)
+      setLibError(result.error)
     }
   }, [])
 
   // Initialize graph
   useEffect(() => {
-    if (!containerRef.current || typeof window === 'undefined' || !Graph) {
+    if (!containerRef.current || !isClient || !librariesReady || !Graph) {
       console.warn('[GraphViewX6] Skipping graph init - not ready:', {
         hasContainer: !!containerRef.current,
-        isClient: typeof window !== 'undefined',
+        isClient,
+        librariesReady,
         hasGraph: !!Graph
       })
       return
@@ -362,11 +384,11 @@ function GraphViewX6Component({
     } catch (error) {
       console.error('[GraphViewX6] Error initializing graph:', error)
     }
-  }, [onNodeClick, isClient])
+  }, [onNodeClick, isClient, librariesReady])
 
   // Update graph data
   useEffect(() => {
-    if (!isClient) return
+    if (!isClient || !librariesReady) return
 
     // Don't render if still loading or no graph instance
     if (isLoading || !Graph || !graphRef.current) {
@@ -375,6 +397,7 @@ function GraphViewX6Component({
         hasData: !!graphData,
         isLoading,
         isClient,
+        librariesReady,
         hasGraphClass: !!Graph
       })
       return
@@ -695,7 +718,7 @@ function GraphViewX6Component({
         clearTimeout(highlightTimer)
       }
     }
-  }, [graphData, isLoading, searchQuery, viewMode, highlightPath, isClient])
+  }, [graphData, isLoading, searchQuery, viewMode, highlightPath, isClient, librariesReady])
 
   // Add CSS animation for flowing traffic
   useEffect(() => {
@@ -728,11 +751,40 @@ function GraphViewX6Component({
     graphRef.current?.centerContent({ padding: 50 })
   }
 
-  // Don't render on server
-  if (!isClient || typeof window === 'undefined' || !Graph) {
+  // Don't render on server - show brief loading only during initial client hydration
+  if (!isClient) {
     return (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    )
+  }
+
+  // Show error state if libraries failed to load
+  if (libError || (!librariesReady && !Graph)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <AlertTriangle className="w-12 h-12 text-amber-500 mb-4" />
+        <h3 className="text-lg font-semibold text-slate-700 mb-2">Graph Libraries Unavailable</h3>
+        <p className="text-sm text-slate-500 mb-4">
+          {libError || 'Unable to load graph visualization libraries'}
+        </p>
+        <p className="text-xs text-slate-400 mb-4">Try switching to the "Logical" view instead</p>
+        <button
+          onClick={() => {
+            // Reset library loading state and retry
+            libraryLoadAttempted = false
+            libraryLoadError = null
+            const result = loadLibraries()
+            if (result.success) {
+              setLibrariesReady(true)
+              setLibError(null)
+            }
+          }}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+        >
+          <RefreshCw className="w-4 h-4" /> Retry Loading Libraries
+        </button>
       </div>
     )
   }
