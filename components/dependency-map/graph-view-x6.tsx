@@ -202,6 +202,13 @@ export default function GraphViewX6({
 
   // Process graph data from props
   useEffect(() => {
+    console.log('[GraphViewX6] Processing graphData:', {
+      hasGraphData: !!graphData,
+      nodesCount: graphData?.nodes?.length || 0,
+      edgesCount: graphData?.edges?.length || 0,
+      isLoading
+    });
+    
     if (graphData?.nodes && graphData?.edges) {
       const nodes = graphData.nodes.map((n: any) => ({
         id: n.id,
@@ -220,9 +227,13 @@ export default function GraphViewX6({
         is_used: e.is_used || e.type === 'ACTUAL_TRAFFIC',
         traffic_bytes: e.traffic_bytes
       }));
+      console.log('[GraphViewX6] Mapped data:', { nodes: nodes.length, edges: edges.length });
       setData({ nodes, edges });
+    } else {
+      console.warn('[GraphViewX6] No graphData or missing nodes/edges');
+      setData({ nodes: [], edges: [] });
     }
-  }, [graphData]);
+  }, [graphData, isLoading]);
 
   // Filter data
   const filtered = useMemo(() => {
@@ -423,7 +434,7 @@ export default function GraphViewX6({
       <div
         ref={containerRef}
         className="flex-1 overflow-hidden relative"
-        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: dragging ? 'grabbing' : 'grab', height: '550px', minHeight: '550px' }}
         onMouseDown={e => { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
         onMouseMove={e => { if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
         onMouseUp={() => setDragging(false)}
