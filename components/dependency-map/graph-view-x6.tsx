@@ -239,6 +239,8 @@ function GraphViewX6Component({
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
   const [showAllowedPaths, setShowAllowedPaths] = useState(true)
   const [showEmptyState, setShowEmptyState] = useState(false) // Grace period before showing empty state
+  const [librariesLoaded, setLibrariesLoaded] = useState(false) // Track library loading state
+  const [debugState, setDebugState] = useState<string>('Initializing...') // Current debug state message
   
   // =========================================================================
   // FETCH REAL DATA - Use hook ONLY if graphData not provided
@@ -261,19 +263,48 @@ function GraphViewX6Component({
   
   const onRefresh = propOnRefresh || refetch
 
-  // Debug logging
+  // Comprehensive debug logging with state tracking
   useEffect(() => {
-    console.log('[GraphViewX6] Data state:', {
+    let state = 'Initializing...'
+    
+    if (!isClient) {
+      state = '⏳ Waiting for client-side render...'
+    } else if (!librariesLoaded || !Graph) {
+      state = '⏳ Loading X6 libraries...'
+    } else if (isLoading) {
+      state = '⏳ Data loading...'
+    } else if (!graphData) {
+      state = '❌ No graphData received'
+    } else if (!graphData.nodes) {
+      state = '❌ graphData.nodes is null/undefined'
+    } else if (graphData.nodes.length === 0) {
+      state = '⚠️ Empty nodes array'
+    } else if (!graphRef.current) {
+      state = '⏳ Graph instance not created yet'
+    } else {
+      state = '✅ Ready to render'
+    }
+    
+    setDebugState(state)
+    
+    console.log('[GraphViewX6] Complete state:', {
+      isClient,
+      librariesLoaded,
+      hasGraphClass: !!Graph,
+      hasGraphInstance: !!graphRef.current,
       hasPropData: !!propGraphData,
       hasHookData: !!architectureData,
       hasGraphData: !!graphData,
       nodeCount: graphData?.nodes?.length || 0,
       edgeCount: graphData?.edges?.length || 0,
-      isLoading,
-      isClient,
-      systemName
+      propIsLoading,
+      hookIsLoading,
+      finalIsLoading: isLoading,
+      shouldUseHook,
+      systemName,
+      currentState: state
     })
-  }, [graphData, isLoading, isClient, systemName, propGraphData, architectureData])
+  }, [graphData, isLoading, isClient, systemName, propGraphData, architectureData, librariesLoaded, propIsLoading, hookIsLoading, shouldUseHook])
 
   // Grace period before showing empty state (prevents race condition)
   useEffect(() => {
@@ -298,6 +329,7 @@ function GraphViewX6Component({
   useEffect(() => {
     setIsClient(true)
     const loaded = loadLibraries()
+    setLibrariesLoaded(loaded && !!Graph && !!register)
     
     // Register React Shape after libraries are loaded
     if (loaded && register && Graph) {
@@ -308,9 +340,17 @@ function GraphViewX6Component({
           width: 120,
           height: 100,
         })
+        console.log('[GraphViewX6] ✅ Libraries loaded and React shape registered')
       } catch (e) {
         console.error('[GraphViewX6] Failed to register React shape:', e)
+        setLibrariesLoaded(false)
       }
+    } else {
+      console.warn('[GraphViewX6] ⚠️ Libraries not fully loaded:', {
+        loaded,
+        hasRegister: !!register,
+        hasGraph: !!Graph
+      })
     }
   }, [])
 
@@ -828,8 +868,14 @@ function GraphViewX6Component({
   // Don't render on server
   if (!isClient || typeof window === 'undefined' || !Graph) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
+        <div className="text-sm text-slate-600 space-y-1">
+          <div>⏳ Waiting for client-side libraries...</div>
+          <div className="text-xs text-slate-400">
+            isClient: {isClient ? '✅' : '❌'} | Graph: {Graph ? '✅' : '❌'} | Window: {typeof window !== 'undefined' ? '✅' : '❌'}
+          </div>
+        </div>
       </div>
     )
   }
@@ -839,11 +885,14 @@ function GraphViewX6Component({
   // =========================================================================
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
-        <div className="flex flex-col items-center gap-3">
-          <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-          <span className="text-slate-500">Loading real infrastructure data...</span>
-          <span className="text-xs text-slate-400">Querying VPC Flow Logs, CloudTrail, EC2 API</span>
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
+        <div className="text-sm text-slate-600 space-y-1 text-center">
+          <div>⏳ Loading real infrastructure data...</div>
+          <div className="text-xs text-slate-400">Querying VPC Flow Logs, CloudTrail, EC2 API</div>
+          <div className="text-xs text-amber-600 mt-2">
+            Debug: propIsLoading={String(propIsLoading)}, hookIsLoading={String(hookIsLoading)}, shouldUseHook={String(shouldUseHook)}
+          </div>
         </div>
       </div>
     )
@@ -959,16 +1008,29 @@ function GraphViewX6Component({
     <div className="flex flex-col h-full bg-white rounded-xl border overflow-hidden">
       {/* Debug Panel - Always show for troubleshooting */}
       <div className="bg-yellow-100 border-b border-yellow-300 px-4 py-2 text-xs">
-        <div className="flex items-center gap-4 flex-wrap">
-          <span className="font-semibold">DEBUG:</span>
-          <span>Nodes: {graphData?.nodes?.length || 0}</span>
-          <span>Edges: {graphData?.edges?.length || 0}</span>
-          <span>Loading: {isLoading ? 'Yes' : 'No'}</span>
-          <span>Client: {isClient ? 'Yes' : 'No'}</span>
-          <span>Graph: {graphRef.current ? 'Ready' : 'Not Ready'}</span>
-          <span>ShowEmpty: {showEmptyState ? 'Yes' : 'No'}</span>
-          <span>HasPropData: {propGraphData ? 'Yes' : 'No'}</span>
-          <span>HasHookData: {architectureData ? 'Yes' : 'No'}</span>
+        <div className="space-y-2">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="font-semibold text-yellow-900">🔍 DEBUG PANEL:</span>
+            <span className="font-bold text-yellow-800">{debugState}</span>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap text-yellow-700">
+            <span><strong>Nodes:</strong> {graphData?.nodes?.length || 0}</span>
+            <span><strong>Edges:</strong> {graphData?.edges?.length || 0}</span>
+            <span><strong>Loading:</strong> {isLoading ? 'Yes ⏳' : 'No ✅'}</span>
+            <span><strong>Client:</strong> {isClient ? 'Yes ✅' : 'No ❌'}</span>
+            <span><strong>Libraries:</strong> {librariesLoaded ? 'Loaded ✅' : 'Loading... ⏳'}</span>
+            <span><strong>Graph Class:</strong> {Graph ? 'Yes ✅' : 'No ❌'}</span>
+            <span><strong>Graph Instance:</strong> {graphRef.current ? 'Ready ✅' : 'Not Ready ❌'}</span>
+            <span><strong>ShowEmpty:</strong> {showEmptyState ? 'Yes' : 'No'}</span>
+          </div>
+          <div className="flex items-center gap-4 flex-wrap text-yellow-600">
+            <span><strong>HasPropData:</strong> {propGraphData ? 'Yes ✅' : 'No ❌'}</span>
+            <span><strong>HasHookData:</strong> {architectureData ? 'Yes ✅' : 'No ❌'}</span>
+            <span><strong>PropIsLoading:</strong> {propIsLoading !== undefined ? String(propIsLoading) : 'undefined'}</span>
+            <span><strong>HookIsLoading:</strong> {hookIsLoading ? 'Yes' : 'No'}</span>
+            <span><strong>ShouldUseHook:</strong> {shouldUseHook ? 'Yes' : 'No'}</span>
+            <span><strong>SystemName:</strong> {systemName}</span>
+          </div>
         </div>
       </div>
       
