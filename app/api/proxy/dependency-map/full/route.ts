@@ -39,13 +39,16 @@ export async function GET(req: NextRequest) {
 
   try {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 55000) // 55 second timeout
+    // Reduced timeout to 25 seconds to prevent long waits
+    const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
 
     const backendUrl = `${BACKEND_URL}/api/dependency-map/full?` +
       `system_name=${encodeURIComponent(systemName)}` +
       `&include_unused=${includeUnused}` +
       `&max_nodes=${maxNodes}`
 
+    console.log(`[Dependency Map Full Proxy] Fetching from: ${backendUrl}`)
+    
     const res = await fetch(backendUrl, {
       cache: "no-store",
       signal: controller.signal,
@@ -101,26 +104,35 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error: any) {
-    console.error("[Dependency Map Full Proxy] Error:", error.message)
+    const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout')
+    console.error(`[Dependency Map Full Proxy] Error${isTimeout ? ' (timeout)' : ''}:`, error.message)
     
-    // Check for stale cache
+    // Check for stale cache first
     if (cached) {
-      console.log(`[Dependency Map Full Proxy] Returning stale cache due to error`)
+      console.log(`[Dependency Map Full Proxy] Returning stale cache due to ${isTimeout ? 'timeout' : 'error'}`)
       return NextResponse.json(cached.data, {
         headers: {
           "X-Cache": "STALE",
           "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
+          "X-Timeout": isTimeout ? "true" : "false",
           "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
         },
       })
     }
     
+    // Return empty data with 200 status to prevent UI crash
     return NextResponse.json(
-      { nodes: [], edges: [], error: error.message },
+      { 
+        nodes: [], 
+        edges: [], 
+        error: isTimeout ? "Request timed out" : error.message,
+        timeout: isTimeout,
+      },
       { 
         status: 200, // Return 200 instead of 500 to prevent UI crashes
         headers: {
           "X-Cache": "MISS",
+          "X-Timeout": isTimeout ? "true" : "false",
           "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
         },
       }

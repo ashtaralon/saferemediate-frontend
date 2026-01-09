@@ -82,7 +82,17 @@ export default function DependencyMapTab({
     setResourcesLoading(true)
     try {
       console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
-      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`)
+      
+      // Add client-side timeout to prevent infinite loading
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second client timeout
+      
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`, {
+        signal: controller.signal,
+        cache: 'no-store',
+      })
+      
+      clearTimeout(timeoutId)
       console.log('[DependencyMapTab] Response status:', res.status, res.ok)
       if (res.ok) {
         const data = await res.json()
@@ -121,12 +131,29 @@ export default function DependencyMapTab({
         setResources([])
         setResourcesLoading(false)
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('[DependencyMapTab] Failed to fetch graph data:', e)
+      
+      // Check if it's a timeout
+      if (e.name === 'AbortError' || e.message?.includes('timeout')) {
+        console.warn('[DependencyMapTab] Request timed out, using empty data')
+        setGraphData({ nodes: [], edges: [] })
+        setResources([])
+        setIsLoading(false)
+        setResourcesLoading(false)
+        return
+      }
       
       // Fallback to system resources endpoint
       try {
-        const fallbackRes = await fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`)
+        const fallbackController = new AbortController()
+        const fallbackTimeout = setTimeout(() => fallbackController.abort(), 10000) // 10s for fallback
+        
+        const fallbackRes = await fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`, {
+          signal: fallbackController.signal,
+        })
+        
+        clearTimeout(fallbackTimeout)
         if (fallbackRes.ok) {
           const fallbackData = await fallbackRes.json()
           
