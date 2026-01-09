@@ -241,13 +241,24 @@ function GraphViewX6Component({
   const [showEmptyState, setShowEmptyState] = useState(false) // Grace period before showing empty state
   
   // =========================================================================
-  // FETCH REAL DATA - Use hook if graphData not provided
+  // FETCH REAL DATA - Use hook ONLY if graphData not provided
   // =========================================================================
-  const { data: architectureData, isLoading: hookIsLoading, error, refetch, dataSources } = useArchitectureData(systemName)
+  // Only use hook if props are not provided - prevents duplicate fetching and loading state conflicts
+  const shouldUseHook = !propGraphData
+  
+  const { data: architectureData, isLoading: hookIsLoading, error, refetch, dataSources } = useArchitectureData(
+    shouldUseHook ? systemName : ''  // Empty string = hook won't fetch
+  )
   
   // Use prop data if provided, otherwise use hook data
   const graphData = propGraphData || architectureData
-  const isLoading = propIsLoading !== undefined ? propIsLoading : hookIsLoading
+  
+  // Prioritize prop isLoading: if props provided, use prop value (default to false if not explicitly set)
+  // If using hook, use hook's loading state
+  const isLoading = propIsLoading !== undefined 
+    ? propIsLoading 
+    : (shouldUseHook ? hookIsLoading : false)  // If props provided but isLoading not set, assume false
+  
   const onRefresh = propOnRefresh || refetch
 
   // Debug logging

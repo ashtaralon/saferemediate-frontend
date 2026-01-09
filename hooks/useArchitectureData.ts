@@ -110,9 +110,11 @@ export function useArchitectureData(systemName: string): UseArchitectureDataResu
   const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
-    if (!systemName) {
-      setError('No system name provided')
+    // If no systemName provided (empty string), don't fetch - this allows component to skip hook when props are provided
+    if (!systemName || systemName === '') {
       setIsLoading(false)
+      setError(null)
+      setData(null)
       return
     }
 
