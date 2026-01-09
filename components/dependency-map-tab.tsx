@@ -75,11 +75,38 @@ export default function DependencyMapTab({
   const [resources, setResources] = useState<Resource[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [resourcesLoading, setResourcesLoading] = useState(true)
+  const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null)
+  const [isSlowLoading, setIsSlowLoading] = useState(false)
+
+  // Track slow loading state
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingStartTime(null)
+      setIsSlowLoading(false)
+      return
+    }
+
+    // Set start time if not already set
+    if (!loadingStartTime) {
+      setLoadingStartTime(Date.now())
+    }
+
+    // Check for slow loading every second
+    const interval = setInterval(() => {
+      if (loadingStartTime && Date.now() - loadingStartTime > 8000) {
+        setIsSlowLoading(true)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isLoading, loadingStartTime])
 
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
     setIsLoading(true)
     setResourcesLoading(true)
+    setLoadingStartTime(Date.now())
+    setIsSlowLoading(false)
     try {
       console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
       
@@ -342,6 +369,7 @@ export default function DependencyMapTab({
                 systemName={systemName}
                 graphData={graphData}
                 isLoading={isLoading}
+                isSlowLoading={isSlowLoading}
                 onNodeClick={handleNodeClick}
                 onRefresh={fetchGraphData}
                 highlightPath={highlightPath}
@@ -352,6 +380,7 @@ export default function DependencyMapTab({
               systemName={systemName}
               graphData={graphData}
               isLoading={isLoading}
+              isSlowLoading={isSlowLoading}
               onNodeClick={handleNodeClick}
               onRefresh={fetchGraphData}
             />

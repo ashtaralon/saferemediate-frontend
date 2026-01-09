@@ -117,6 +117,7 @@ interface Props {
   systemName: string
   graphData: any
   isLoading: boolean
+  isSlowLoading?: boolean
   onNodeClick: (nodeId: string, nodeType: string, nodeName: string) => void
   onRefresh: () => void
   highlightPath?: { source: string; target: string; port?: string }
@@ -235,6 +236,7 @@ function GraphViewX6Component({
   systemName,
   graphData,
   isLoading,
+  isSlowLoading,
   onNodeClick,
   onRefresh,
   highlightPath,
@@ -791,8 +793,20 @@ function GraphViewX6Component({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        {isSlowLoading && (
+          <div className="mt-4 text-center">
+            <p className="text-sm text-slate-600 font-medium">Loading is taking longer than expected...</p>
+            <p className="text-xs text-slate-500 mt-1">The backend may be slow or waking up from sleep</p>
+            <button
+              onClick={onRefresh}
+              className="mt-3 px-4 py-2 text-sm bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors"
+            >
+              Cancel and Retry
+            </button>
+          </div>
+        )}
       </div>
     )
   }
