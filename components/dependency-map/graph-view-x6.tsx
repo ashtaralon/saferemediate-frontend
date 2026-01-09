@@ -95,7 +95,7 @@ const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 })
 
 const getColors = (t: string) => AWS_COLORS[t] || AWS_COLORS.Default;
 const getLane = (t: string) => LANE_ORDER[t] ?? 3;
-const truncate = (s: string, m = 12) => !s ? 'Unknown' : s.length <= m ? s : s.slice(0, m - 2) + '..';
+const truncate = (s: string, m = 20) => !s ? 'Unknown' : s.length <= m ? s : s.slice(0, m - 2) + '..';
 const formatType = (t: string) => ({ SecurityGroup: "Security Group", IAMRole: "IAM Role", InternetGateway: "Internet Gateway", NATGateway: "NAT GW" }[t] || t);
 
 // ============================================================================
