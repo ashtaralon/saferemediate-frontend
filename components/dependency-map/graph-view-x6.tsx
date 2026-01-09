@@ -50,6 +50,8 @@ const AWS_COLORS: Record<string, { bg: string; border: string; gradient: string;
   DynamoDB: { bg: '#3B48CC', border: '#2E3AB5', gradient: 'linear-gradient(135deg, #527FFF 0%, #3B48CC 100%)', label: 'DYNAMODB' },
   Aurora: { bg: '#3B48CC', border: '#2E3AB5', gradient: 'linear-gradient(135deg, #527FFF 0%, #3B48CC 100%)', label: 'AURORA' },
   S3: { bg: '#3F8624', border: '#2D6B19', gradient: 'linear-gradient(135deg, #6AAF35 0%, #3F8624 100%)', label: 'S3' },
+  S3Bucket: { bg: '#3F8624', border: '#2D6B19', gradient: 'linear-gradient(135deg, #6AAF35 0%, #3F8624 100%)', label: 'S3' },
+  S3Bucket: { bg: '#3F8624', border: '#2D6B19', gradient: 'linear-gradient(135deg, #6AAF35 0%, #3F8624 100%)', label: 'S3' },
   SecurityGroup: { bg: '#DD344C', border: '#C42D42', gradient: 'linear-gradient(135deg, #FF5C5C 0%, #DD344C 100%)', label: 'SG' },
   IAMRole: { bg: '#7B68EE', border: '#6A5ACD', gradient: 'linear-gradient(135deg, #9683EC 0%, #7B68EE 100%)', label: 'IAM' },
   IAMPolicy: { bg: '#7B68EE', border: '#6A5ACD', gradient: 'linear-gradient(135deg, #9683EC 0%, #7B68EE 100%)', label: 'POLICY' },
@@ -69,7 +71,7 @@ const LANE_ORDER: Record<string, number> = {
   'IAMRole': 3, 'IAMPolicy': 3,
   'EC2': 4, 'ECS': 4,
   'RDS': 5, 'DynamoDB': 5, 'Aurora': 5,
-  'S3': 6
+  'S3': 6, 'S3Bucket': 6
 };
 
 const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 }) => {
