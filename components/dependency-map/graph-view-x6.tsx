@@ -376,7 +376,7 @@ export default function GraphViewX6({
             const p = layout.positions.get(nodes[0]?.id);
             if (!p) return null;
             return (
-              <div key={`lane-${lane}`} className="absolute text-white text-base font-extrabold uppercase tracking-wider"
+              <div key={`lane-${lane}`} className="absolute text-cyan-400 text-2xl font-black uppercase tracking-wide"
                 style={{ left: p.x, top: 8, width: layout.NODE_WIDTH, textAlign: 'center' }}>
                 {nodes[0]?.type} ({nodes.length})
               </div>
