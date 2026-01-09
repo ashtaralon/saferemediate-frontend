@@ -946,20 +946,20 @@ function GraphViewX6Component({
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl border overflow-hidden">
-      {/* Debug Panel - Remove in production */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="bg-yellow-100 border-b border-yellow-300 px-4 py-2 text-xs">
-          <div className="flex items-center gap-4">
-            <span className="font-semibold">DEBUG:</span>
-            <span>Nodes: {graphData?.nodes?.length || 0}</span>
-            <span>Edges: {graphData?.edges?.length || 0}</span>
-            <span>Loading: {isLoading ? 'Yes' : 'No'}</span>
-            <span>Client: {isClient ? 'Yes' : 'No'}</span>
-            <span>Graph: {graphRef.current ? 'Ready' : 'Not Ready'}</span>
-            <span>ShowEmpty: {showEmptyState ? 'Yes' : 'No'}</span>
-          </div>
+      {/* Debug Panel - Always show for troubleshooting */}
+      <div className="bg-yellow-100 border-b border-yellow-300 px-4 py-2 text-xs">
+        <div className="flex items-center gap-4 flex-wrap">
+          <span className="font-semibold">DEBUG:</span>
+          <span>Nodes: {graphData?.nodes?.length || 0}</span>
+          <span>Edges: {graphData?.edges?.length || 0}</span>
+          <span>Loading: {isLoading ? 'Yes' : 'No'}</span>
+          <span>Client: {isClient ? 'Yes' : 'No'}</span>
+          <span>Graph: {graphRef.current ? 'Ready' : 'Not Ready'}</span>
+          <span>ShowEmpty: {showEmptyState ? 'Yes' : 'No'}</span>
+          <span>HasPropData: {propGraphData ? 'Yes' : 'No'}</span>
+          <span>HasHookData: {architectureData ? 'Yes' : 'No'}</span>
         </div>
-      )}
+      </div>
       
       {/* Toolbar with data source indicators */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b">
