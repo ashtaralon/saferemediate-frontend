@@ -207,8 +207,8 @@ export default function GraphViewX6({
     const sorted = Array.from(lanes.entries()).sort((a, b) => a[0] - b[0]);
     let maxY = 0;
     
-    const NODE_WIDTH = 110;
-    const NODE_HEIGHT = 75;
+    const NODE_WIDTH = 130;
+    const NODE_HEIGHT = 90;
     const LANE_GAP = 180;
     const NODE_GAP = 90;
     const PADDING = 40;
@@ -403,7 +403,7 @@ export default function GraphViewX6({
                   </div>
                   
                   <AWSIcon type={n.type} size={32} />
-                  <div className="text-sm text-white font-bold truncate w-full text-center px-1 mt-1" title={n.name}>
+                  <div className="text-base text-white font-bold truncate w-full text-center px-1 mt-1" title={n.name}>
                     {truncate(n.name)}
                   </div>
                 </div>
