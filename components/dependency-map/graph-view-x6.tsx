@@ -278,7 +278,7 @@ export default function GraphViewX6({
   useEffect(() => {
     if (!containerRef.current || !layout.width) return;
     const c = containerRef.current;
-    const z = Math.min(c.clientWidth / layout.width, c.clientHeight / layout.height, 1) * 0.85;
+    const z = Math.max(0.3, Math.min(c.clientWidth / layout.width, c.clientHeight / layout.height, 1) * 0.85);
     setZoom(z);
     setPan({ x: (c.clientWidth - layout.width * z) / 2, y: 20 });
   }, [layout, isFullscreen]);
