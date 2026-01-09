@@ -326,8 +326,23 @@ export default function GraphViewX6({
 
   if (isLoading) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-slate-900">
+      <div className="w-full h-full flex items-center justify-center bg-slate-900" style={{ minHeight: '550px' }}>
         <RefreshCw className="w-12 h-12 text-blue-400 animate-spin" />
+      </div>
+    );
+  }
+
+  // Empty state
+  if (!data.nodes || data.nodes.length === 0) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-300" style={{ minHeight: '550px' }}>
+        <div className="text-lg mb-4">No graph data available</div>
+        <div className="text-sm mb-4">Nodes: {data.nodes?.length || 0}, Edges: {data.edges?.length || 0}</div>
+        {onRefresh && (
+          <button onClick={onRefresh} className="px-4 py-2 bg-blue-600 rounded text-white hover:bg-blue-700">
+            Refresh
+          </button>
+        )}
       </div>
     );
   }
