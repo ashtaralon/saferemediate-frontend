@@ -61,7 +61,10 @@ import {
   Play,
   Clock,
   Info,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
+import { useArchitectureData } from '@/hooks/useArchitectureData'
 
 // AWS Icon mapping with fallback
 const getAWSIcon = (type: string): React.ComponentType<any> | null => {
@@ -103,10 +106,10 @@ const AWS_COLORS: Record<string, string> = {
 
 interface Props {
   systemName: string
-  graphData: any
-  isLoading: boolean
+  graphData?: any  // Optional - will use useArchitectureData if not provided
+  isLoading?: boolean
   onNodeClick: (nodeId: string, nodeType: string, nodeName: string) => void
-  onRefresh: () => void
+  onRefresh?: () => void
   highlightPath?: { source: string; target: string; port?: string }
 }
 
@@ -221,10 +224,10 @@ const ReactNodeComponent: React.FC<{ data: any }> = ({ data }) => {
 
 function GraphViewX6Component({
   systemName,
-  graphData,
-  isLoading,
+  graphData: propGraphData,
+  isLoading: propIsLoading,
   onNodeClick,
-  onRefresh,
+  onRefresh: propOnRefresh,
   highlightPath,
 }: Props) {
   const [isClient, setIsClient] = useState(false)
@@ -234,6 +237,17 @@ function GraphViewX6Component({
   const [selectedEdge, setSelectedEdge] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
+  const [showAllowedPaths, setShowAllowedPaths] = useState(true)
+  
+  // =========================================================================
+  // FETCH REAL DATA - Use hook if graphData not provided
+  // =========================================================================
+  const { data: architectureData, isLoading: hookIsLoading, error, refetch, dataSources } = useArchitectureData(systemName)
+  
+  // Use prop data if provided, otherwise use hook data
+  const graphData = propGraphData || architectureData
+  const isLoading = propIsLoading !== undefined ? propIsLoading : hookIsLoading
+  const onRefresh = propOnRefresh || refetch
 
   // Only render on client and load libraries
   useEffect(() => {
@@ -579,6 +593,13 @@ function GraphViewX6Component({
 
       // Create edges
       ;(graphData.edges || []).forEach((e: any, i: number) => {
+        const edgeType = e.type || e.edge_type || e.relationship_type || 'default'
+        
+        // Filter ALLOWED edges based on toggle
+        if (edgeType === 'ALLOWED' && !showAllowedPaths) {
+          return
+        }
+        
         const sourceId = vpcMap.has(e.source) ? `vpc-${e.source}` : 
                         subnetMap.has(e.source) ? `subnet-${e.source}` : e.source
         const targetId = vpcMap.has(e.target) ? `vpc-${e.target}` : 
@@ -591,7 +612,6 @@ function GraphViewX6Component({
           if (!sourceNode || !targetNode) return
         }
 
-        const edgeType = e.type || e.edge_type || e.relationship_type || 'default'
         const isActualTraffic = edgeType === 'ACTUAL_TRAFFIC'
         const isHighlighted = highlightPath && (
           (sourceId === highlightPath.source && targetId === highlightPath.target) ||
@@ -727,7 +747,7 @@ function GraphViewX6Component({
         clearTimeout(highlightTimer)
       }
     }
-  }, [graphData, isLoading, searchQuery, viewMode, highlightPath, isClient])
+  }, [graphData, isLoading, searchQuery, viewMode, highlightPath, isClient, showAllowedPaths])
 
   // Add CSS animation for flowing traffic
   useEffect(() => {
@@ -769,39 +789,136 @@ function GraphViewX6Component({
     )
   }
 
+  // =========================================================================
+  // LOADING STATE
+  // =========================================================================
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+          <span className="text-slate-500">Loading real infrastructure data...</span>
+          <span className="text-xs text-slate-400">Querying VPC Flow Logs, CloudTrail, EC2 API</span>
+        </div>
       </div>
     )
   }
-
-  // Show empty state if no data
+  
+  // =========================================================================
+  // ERROR STATE
+  // =========================================================================
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-red-50 rounded-xl border border-red-200">
+        <div className="flex flex-col items-center gap-3 text-center max-w-md">
+          <AlertTriangle className="w-12 h-12 text-red-500" />
+          <h3 className="text-lg font-medium text-red-700">Failed to Load Data</h3>
+          <p className="text-red-600">{error}</p>
+          <button
+            onClick={onRefresh}
+            className="mt-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+  
+  // =========================================================================
+  // EMPTY STATE - Real but no data
+  // =========================================================================
   if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-        <AlertTriangle className="w-12 h-12 text-amber-500 mb-4" />
-        <h3 className="text-lg font-semibold text-slate-700 mb-2">No Graph Data Available</h3>
-        <p className="text-sm text-slate-500 mb-4">Unable to load dependency map data for {systemName}</p>
-        <button
-          onClick={onRefresh}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-        >
-          <RefreshCw className="w-4 h-4" /> Retry
-        </button>
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
+        <div className="flex flex-col items-center gap-3 text-center max-w-md">
+          <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center">
+            <span className="text-3xl">🔍</span>
+          </div>
+          <h3 className="text-lg font-medium text-slate-700">No Resources Found</h3>
+          <p className="text-slate-500">
+            System "{systemName}" has no tagged resources in Neo4j.
+            <br />
+            Run discovery or tag resources with SystemName="{systemName}"
+          </p>
+          <button
+            onClick={onRefresh}
+            className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
     )
   }
+  
+  // =========================================================================
+  // STATISTICS FROM REAL DATA
+  // =========================================================================
+  const stats = graphData ? {
+    totalNodes: graphData.nodes.length,
+    totalEdges: graphData.edges.length,
+    activeConnections: graphData.edges.filter((e: any) => {
+      const edgeType = e.type || e.edge_type || ''
+      return edgeType === 'ACTUAL_TRAFFIC'
+    }).length,
+    unusedRules: graphData.edges.filter((e: any) => {
+      const edgeType = e.type || e.edge_type || ''
+      return edgeType === 'ALLOWED' && (e.isActive === false || e.is_used === false)
+    }).length,
+    totalBytesTransferred: graphData.edges
+      .filter((e: any) => {
+        const edgeType = e.type || e.edge_type || ''
+        return edgeType === 'ACTUAL_TRAFFIC'
+      })
+      .reduce((sum: number, e: any) => sum + (e.bytesTransferred || e.traffic_bytes || 0), 0),
+  } : null
+  
+  // =========================================================================
+  // DATA SOURCE BADGES
+  // =========================================================================
+  const DataSourceBadge = () => (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-slate-500">Data from:</span>
+      {dataSources.vpcFlowLogs && (
+        <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded">Flow Logs ✓</span>
+      )}
+      {dataSources.cloudTrail && (
+        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded">CloudTrail ✓</span>
+      )}
+      {dataSources.ec2Api && (
+        <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded">EC2 API ✓</span>
+      )}
+      {!dataSources.vpcFlowLogs && !dataSources.cloudTrail && (
+        <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" />
+          Limited data - enable VPC Flow Logs
+        </span>
+      )}
+    </div>
+  )
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl border overflow-hidden">
-      {/* Toolbar */}
+      {/* Toolbar with data source indicators */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b">
-        <div className="flex items-center gap-3">
-          <button onClick={onRefresh} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">
-            <RefreshCw className="w-4 h-4" /> Refresh
+        <div className="flex items-center gap-4">
+          <DataSourceBadge />
+          
+          <div className="h-4 w-px bg-slate-200" />
+          
+          <button
+            onClick={() => setShowAllowedPaths(!showAllowedPaths)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${
+              showAllowedPaths 
+                ? 'bg-purple-100 text-purple-700' 
+                : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            {showAllowedPaths ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            Allowed (no traffic)
           </button>
+          
           <button
             onClick={() => setViewMode(viewMode === 'grouped' ? 'all' : 'grouped')}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium ${
@@ -832,6 +949,49 @@ function GraphViewX6Component({
           <button onClick={fit} className="p-1.5 hover:bg-slate-200 rounded">
             <Maximize2 className="w-4 h-4" />
           </button>
+        </div>
+      </div>
+      
+      {/* Real-time stats */}
+      {stats && (
+        <div className="flex items-center gap-6 px-4 py-2 bg-slate-50/50 border-b text-xs">
+          <span className="text-slate-600">
+            <strong>{stats.totalNodes}</strong> resources
+          </span>
+          <span className="text-green-600">
+            <strong>{stats.activeConnections}</strong> active connections
+          </span>
+          <span className="text-purple-600">
+            <strong>{stats.unusedRules}</strong> unused rules
+          </span>
+          <span className="text-slate-600">
+            <strong>{formatBytes(stats.totalBytesTransferred)}</strong> transferred
+          </span>
+          <span className="text-slate-400 ml-auto">
+            Last updated: {graphData?.last_updated ? new Date(graphData.last_updated).toLocaleTimeString() : 'N/A'}
+          </span>
+        </div>
+      )}
+      
+      {/* Legend */}
+      <div className="flex items-center gap-6 px-4 py-2 bg-white border-b text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-0.5 bg-green-500 rounded" />
+          <span className="text-slate-600">Active Traffic (Flow Logs)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-0.5 border-t-2 border-dashed border-purple-400" />
+          <span className="text-slate-600">Allowed (no traffic seen)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+          <span className="text-slate-600">Has traffic</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+            <span className="text-[8px] font-bold text-white">3</span>
+          </div>
+          <span className="text-slate-600">Gap count</span>
         </div>
       </div>
 
@@ -932,6 +1092,15 @@ function GraphViewX6Component({
       </div>
     </div>
   )
+}
+
+// Helper function
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
 // Export with error boundary to prevent app crashes
