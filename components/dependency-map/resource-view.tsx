@@ -77,25 +77,25 @@ export default function ResourceView({
   // Determine which sections to show based on resource type
   const showIAM = useMemo(() => {
     if (!selectedResource) return false
-    const t = selectedResource.type.toLowerCase()
+    const t = selectedResource.type?.toLowerCase() || ""
     return t === 'iamrole' || t === 'lambda' || t === 'ec2' || t.includes('role')
   }, [selectedResource])
 
   const showNetwork = useMemo(() => {
     if (!selectedResource) return false
-    const t = selectedResource.type.toLowerCase()
+    const t = selectedResource.type?.toLowerCase() || ""
     return t === 'securitygroup' || t === 'ec2' || t === 'lambda' || t === 'rds' || t.includes('sg')
   }, [selectedResource])
 
   const showSecrets = useMemo(() => {
     if (!selectedResource) return false
-    const t = selectedResource.type.toLowerCase()
+    const t = selectedResource.type?.toLowerCase() || ""
     return t === 'lambda' || t === 'ec2' || t === 'rds'
   }, [selectedResource])
 
   const showStorage = useMemo(() => {
     if (!selectedResource) return false
-    const t = selectedResource.type.toLowerCase()
+    const t = selectedResource.type?.toLowerCase() || ""
     return t === 'lambda' || t === 'ec2' || t === 's3bucket' || t === 'dynamodb'
   }, [selectedResource])
 
