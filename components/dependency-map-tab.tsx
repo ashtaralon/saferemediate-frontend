@@ -337,7 +337,7 @@ export default function DependencyMapTab({
       </div>
 
       {/* View Content */}
-      <div className="flex-1 min-h-[600px]">
+      <div className="flex-1 h-[600px]">
         {activeView === 'graph' ? (
           graphEngine === 'architectural' ? (
             <React.Suspense fallback={
