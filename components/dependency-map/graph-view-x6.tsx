@@ -398,12 +398,12 @@ export default function GraphViewX6({
                   style={{ background: c.gradient, borderColor: c.border }}>
                   
                   {/* TYPE LABEL - EMPHASIZED ON TOP */}
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-black/70 rounded text-[10px] font-bold text-white tracking-wider border border-white/20">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-black/70 rounded text-[12px] font-bold text-white tracking-wider border border-white/20">
                     {c.label}
                   </div>
                   
                   <AWSIcon type={n.type} size={28} />
-                  <div className="text-[10px] text-white font-medium truncate w-full text-center px-1 mt-1" title={n.name}>
+                  <div className="text-[11px] text-white font-semibold truncate w-full text-center px-1 mt-1" title={n.name}>
                     {truncate(n.name)}
                   </div>
                 </div>
