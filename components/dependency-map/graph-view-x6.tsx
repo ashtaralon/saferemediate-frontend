@@ -79,7 +79,7 @@ const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 })
   switch (type) {
     case 'EC2': case 'ECS': return <Server {...p} />;
     case 'RDS': case 'DynamoDB': case 'Aurora': return <Database {...p} />;
-    case 'S3': return <HardDrive {...p} />;
+    case 'S3': case 'S3Bucket': return <HardDrive {...p} />;
     case 'Lambda': return <Layers {...p} />;
     case 'SecurityGroup': return <Shield {...p} />;
     case 'IAMRole': case 'IAMPolicy': return <Key {...p} />;
