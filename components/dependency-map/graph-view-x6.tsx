@@ -529,14 +529,7 @@ function GraphViewX6Component({
                         isActualTraffic ? '#10b981' : '#94a3b8'
     const strokeWidth = (isHighlighted ? 6 : isActualTraffic ? 4 : 2) * zoom
     const strokeDasharray = isActualTraffic ? '0' : `${5 * zoom} ${5 * zoom}`
-
-    // Arrow marker
-    const dx = x2 - x1
-    const dy = y2 - y1
-    const angle = Math.atan2(dy, dx) * 180 / Math.PI
-    const arrowLength = 10 * zoom
-    const arrowX = x2 - Math.cos(angle * Math.PI / 180) * arrowLength
-    const arrowY = y2 - Math.sin(angle * Math.PI / 180) * arrowLength
+    const markerId = `arrowhead-${strokeColor.replace('#', '')}`
 
     return (
       <g key={edge.id}>
@@ -548,7 +541,7 @@ function GraphViewX6Component({
           stroke={strokeColor}
           strokeWidth={strokeWidth}
           strokeDasharray={strokeDasharray}
-          markerEnd="url(#arrowhead)"
+          markerEnd={`url(#${markerId})`}
           style={isActualTraffic ? {
             animation: 'flowing 2s linear infinite',
           } : undefined}
@@ -560,6 +553,7 @@ function GraphViewX6Component({
             fontSize={10 * zoom}
             fill="#333"
             textAnchor="middle"
+            style={{ pointerEvents: 'none', userSelect: 'none' }}
           >
             {edge.protocol || 'TCP'}/{edge.port}
           </text>
@@ -667,8 +661,29 @@ function GraphViewX6Component({
           style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
         >
           <defs>
+            {/* Arrow markers for different edge colors */}
             <marker
-              id="arrowhead"
+              id="arrowhead-fbbf24"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3, 0 6" fill="#fbbf24" />
+            </marker>
+            <marker
+              id="arrowhead-10b981"
+              markerWidth="10"
+              markerHeight="10"
+              refX="9"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3, 0 6" fill="#10b981" />
+            </marker>
+            <marker
+              id="arrowhead-94a3b8"
               markerWidth="10"
               markerHeight="10"
               refX="9"
