@@ -94,7 +94,7 @@ const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 })
 const getColors = (t: string) => AWS_COLORS[t] || AWS_COLORS.Default;
 const getLane = (t: string) => LANE_ORDER[t] ?? 3;
 const truncate = (s: string, m = 12) => !s ? 'Unknown' : s.length <= m ? s : s.slice(0, m - 2) + '..';
-const formatType = (t: string) => ({ SecurityGroup: "Security Group", IAMRole: "IAM Role", InternetGateway: "Internet GW", NATGateway: "NAT GW" }[t] || t);
+const formatType = (t: string) => ({ SecurityGroup: "Security Group", IAMRole: "IAM Role", InternetGateway: "Internet Gateway", NATGateway: "NAT GW" }[t] || t);
 
 // ============================================================================
 // ANIMATED EDGE COMPONENT
@@ -212,7 +212,7 @@ export default function GraphViewX6({
     
     const NODE_WIDTH = 130;
     const NODE_HEIGHT = 90;
-    const LANE_GAP = 180;
+    const LANE_GAP = 200;
     const NODE_GAP = 120;
     const PADDING = 40;
     
@@ -379,7 +379,7 @@ export default function GraphViewX6({
             const p = layout.positions.get(nodes[0]?.id);
             if (!p) return null;
             return (
-              <div key={`lane-${lane}`} className="absolute text-cyan-400 text-2xl font-black uppercase tracking-wide"
+              <div key={`lane-${lane}`} className="absolute text-cyan-400 text-2xl font-black tracking-wide"
                 style={{ left: p.x, top: 8, width: layout.NODE_WIDTH, textAlign: 'center' }}>
                 {formatType(nodes[0]?.type)} ({nodes.length})
               </div>
