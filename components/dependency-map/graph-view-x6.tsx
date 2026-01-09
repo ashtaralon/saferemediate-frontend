@@ -6,29 +6,82 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 let Graph: any = null
 let register: any = null
 let dagre: any = null
+let loadError: string | null = null
 
 // Load libraries when component mounts (client-side only)
-const loadLibraries = () => {
-  if (typeof window === 'undefined') return false
+const loadLibraries = (): boolean => {
+  if (typeof window === 'undefined') {
+    console.warn('[GraphViewX6] Cannot load libraries on server')
+    return false
+  }
   
   try {
+    // Try to load @antv/x6
     if (!Graph) {
-      const x6Module = require('@antv/x6')
-      Graph = x6Module.Graph
+      console.log('[GraphViewX6] Attempting to load @antv/x6...')
+      try {
+        const x6Module = require('@antv/x6')
+        Graph = x6Module.Graph || x6Module.default?.Graph || x6Module
+        console.log('[GraphViewX6] ✅ @antv/x6 loaded:', {
+          hasGraph: !!Graph,
+          moduleKeys: Object.keys(x6Module || {}),
+          hasDefault: !!x6Module.default
+        })
+      } catch (e: any) {
+        loadError = `Failed to load @antv/x6: ${e.message || e}`
+        console.error('[GraphViewX6] ❌', loadError)
+        throw e
+      }
     }
     
+    // Try to load @antv/x6-react-shape
     if (!register) {
-      const reactShapeModule = require('@antv/x6-react-shape')
-      register = reactShapeModule.register
+      console.log('[GraphViewX6] Attempting to load @antv/x6-react-shape...')
+      try {
+        const reactShapeModule = require('@antv/x6-react-shape')
+        register = reactShapeModule.register || reactShapeModule.default?.register || reactShapeModule.default
+        console.log('[GraphViewX6] ✅ @antv/x6-react-shape loaded:', {
+          hasRegister: !!register,
+          moduleKeys: Object.keys(reactShapeModule || {}),
+          hasDefault: !!reactShapeModule.default
+        })
+      } catch (e: any) {
+        loadError = `Failed to load @antv/x6-react-shape: ${e.message || e}`
+        console.error('[GraphViewX6] ❌', loadError)
+        throw e
+      }
     }
     
+    // Try to load dagre
     if (!dagre) {
-      dagre = require('dagre')
+      console.log('[GraphViewX6] Attempting to load dagre...')
+      try {
+        dagre = require('dagre')
+        console.log('[GraphViewX6] ✅ dagre loaded:', {
+          hasDagre: !!dagre,
+          hasGraphlib: !!dagre.graphlib
+        })
+      } catch (e: any) {
+        console.warn('[GraphViewX6] ⚠️ dagre not loaded (optional):', e.message)
+        // dagre is optional, don't fail if it's missing
+      }
     }
     
-    return true
-  } catch (e) {
-    console.error('[GraphViewX6] Failed to load libraries:', e)
+    const allLoaded = !!(Graph && register)
+    console.log('[GraphViewX6] Library loading result:', {
+      Graph: !!Graph,
+      register: !!register,
+      dagre: !!dagre,
+      allLoaded
+    })
+    
+    return allLoaded
+  } catch (e: any) {
+    loadError = e.message || String(e)
+    console.error('[GraphViewX6] ❌ Failed to load libraries:', {
+      error: loadError,
+      stack: e.stack
+    })
     return false
   }
 }
@@ -240,6 +293,7 @@ function GraphViewX6Component({
   const [showAllowedPaths, setShowAllowedPaths] = useState(true)
   const [showEmptyState, setShowEmptyState] = useState(false) // Grace period before showing empty state
   const [librariesLoaded, setLibrariesLoaded] = useState(false) // Track library loading state
+  const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null) // Track library loading errors
   const [debugState, setDebugState] = useState<string>('Initializing...') // Current debug state message
   
   // =========================================================================
@@ -269,6 +323,8 @@ function GraphViewX6Component({
     
     if (!isClient) {
       state = '⏳ Waiting for client-side render...'
+    } else if (libraryLoadError) {
+      state = `❌ Library Error: ${libraryLoadError.substring(0, 50)}...`
     } else if (!librariesLoaded || !Graph) {
       state = '⏳ Loading X6 libraries...'
     } else if (isLoading) {
@@ -290,7 +346,9 @@ function GraphViewX6Component({
     console.log('[GraphViewX6] Complete state:', {
       isClient,
       librariesLoaded,
+      libraryLoadError,
       hasGraphClass: !!Graph,
+      hasRegister: !!register,
       hasGraphInstance: !!graphRef.current,
       hasPropData: !!propGraphData,
       hasHookData: !!architectureData,
@@ -304,7 +362,7 @@ function GraphViewX6Component({
       systemName,
       currentState: state
     })
-  }, [graphData, isLoading, isClient, systemName, propGraphData, architectureData, librariesLoaded, propIsLoading, hookIsLoading, shouldUseHook])
+  }, [graphData, isLoading, isClient, systemName, propGraphData, architectureData, librariesLoaded, propIsLoading, hookIsLoading, shouldUseHook, libraryLoadError])
 
   // Grace period before showing empty state (prevents race condition)
   useEffect(() => {
@@ -328,29 +386,66 @@ function GraphViewX6Component({
   // Only render on client and load libraries
   useEffect(() => {
     setIsClient(true)
-    const loaded = loadLibraries()
-    setLibrariesLoaded(loaded && !!Graph && !!register)
     
-    // Register React Shape after libraries are loaded
-    if (loaded && register && Graph) {
+    // Retry loading libraries with a small delay to ensure window is ready
+    const attemptLoad = () => {
       try {
-        register({
-          shape: 'react-node',
-          component: ReactNodeComponent,
-          width: 120,
-          height: 100,
-        })
-        console.log('[GraphViewX6] ✅ Libraries loaded and React shape registered')
-      } catch (e) {
-        console.error('[GraphViewX6] Failed to register React shape:', e)
+        const loaded = loadLibraries()
+        const success = loaded && !!Graph && !!register
+        setLibrariesLoaded(success)
+        
+        if (loadError) {
+          setLibraryLoadError(loadError)
+        }
+        
+        // Register React Shape after libraries are loaded
+        if (success && register && Graph) {
+          try {
+            register({
+              shape: 'react-node',
+              component: ReactNodeComponent,
+              width: 120,
+              height: 100,
+            })
+            console.log('[GraphViewX6] ✅ Libraries loaded and React shape registered')
+            setLibraryLoadError(null)
+          } catch (e: any) {
+            const errorMsg = `Failed to register React shape: ${e.message || e}`
+            console.error('[GraphViewX6] ❌', errorMsg)
+            setLibraryLoadError(errorMsg)
+            setLibrariesLoaded(false)
+          }
+        } else {
+          const errorDetails = {
+            loaded,
+            hasRegister: !!register,
+            hasGraph: !!Graph,
+            loadError
+          }
+          console.warn('[GraphViewX6] ⚠️ Libraries not fully loaded:', errorDetails)
+          if (!loadError) {
+            setLibraryLoadError('Libraries loaded but Graph or register is missing')
+          }
+        }
+      } catch (e: any) {
+        const errorMsg = `Library loading failed: ${e.message || e}`
+        console.error('[GraphViewX6] ❌', errorMsg)
+        setLibraryLoadError(errorMsg)
         setLibrariesLoaded(false)
       }
-    } else {
-      console.warn('[GraphViewX6] ⚠️ Libraries not fully loaded:', {
-        loaded,
-        hasRegister: !!register,
-        hasGraph: !!Graph
-      })
+    }
+    
+    // Try immediately
+    attemptLoad()
+    
+    // Retry after a short delay if first attempt failed
+    if (!Graph || !register) {
+      const retryTimer = setTimeout(() => {
+        console.log('[GraphViewX6] Retrying library load...')
+        attemptLoad()
+      }, 500)
+      
+      return () => clearTimeout(retryTimer)
     }
   }, [])
 
@@ -870,11 +965,21 @@ function GraphViewX6Component({
     return (
       <div className="flex flex-col items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-        <div className="text-sm text-slate-600 space-y-1">
-          <div>⏳ Waiting for client-side libraries...</div>
-          <div className="text-xs text-slate-400">
-            isClient: {isClient ? '✅' : '❌'} | Graph: {Graph ? '✅' : '❌'} | Window: {typeof window !== 'undefined' ? '✅' : '❌'}
+        <div className="text-sm text-slate-600 space-y-2 text-center max-w-md">
+          <div>⏳ Waiting for X6 Graph library...</div>
+          <div className="text-xs text-slate-400 space-y-1">
+            <div>isClient: {isClient ? '✅' : '❌'} | Graph: {Graph ? '✅' : '❌'} | Window: {typeof window !== 'undefined' ? '✅' : '❌'}</div>
+            <div>Libraries Loaded: {librariesLoaded ? '✅' : '❌'} | Register: {register ? '✅' : '❌'}</div>
           </div>
+          {libraryLoadError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+              <div className="font-semibold mb-1">Library Loading Error:</div>
+              <div className="font-mono break-all">{libraryLoadError}</div>
+              <div className="mt-2 text-red-600">
+                Check browser console (F12) for details. Try refreshing the page.
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -1020,9 +1125,16 @@ function GraphViewX6Component({
             <span><strong>Client:</strong> {isClient ? 'Yes ✅' : 'No ❌'}</span>
             <span><strong>Libraries:</strong> {librariesLoaded ? 'Loaded ✅' : 'Loading... ⏳'}</span>
             <span><strong>Graph Class:</strong> {Graph ? 'Yes ✅' : 'No ❌'}</span>
+            <span><strong>Register:</strong> {register ? 'Yes ✅' : 'No ❌'}</span>
             <span><strong>Graph Instance:</strong> {graphRef.current ? 'Ready ✅' : 'Not Ready ❌'}</span>
             <span><strong>ShowEmpty:</strong> {showEmptyState ? 'Yes' : 'No'}</span>
           </div>
+          {libraryLoadError && (
+            <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded text-xs text-red-800">
+              <div className="font-semibold">❌ Library Error:</div>
+              <div className="font-mono break-all">{libraryLoadError}</div>
+            </div>
+          )}
           <div className="flex items-center gap-4 flex-wrap text-yellow-600">
             <span><strong>HasPropData:</strong> {propGraphData ? 'Yes ✅' : 'No ❌'}</span>
             <span><strong>HasHookData:</strong> {architectureData ? 'Yes ✅' : 'No ❌'}</span>
