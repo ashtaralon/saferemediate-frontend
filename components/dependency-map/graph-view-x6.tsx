@@ -7,83 +7,98 @@ let Graph: any = null
 let register: any = null
 let dagre: any = null
 let loadError: string | null = null
+let loadingPromise: Promise<boolean> | null = null
 
-// Load libraries when component mounts (client-side only)
-const loadLibraries = (): boolean => {
+// Load libraries using async dynamic imports (Next.js compatible)
+const loadLibraries = async (): Promise<boolean> => {
   if (typeof window === 'undefined') {
     console.warn('[GraphViewX6] Cannot load libraries on server')
     return false
   }
   
-  try {
-    // Try to load @antv/x6
-    if (!Graph) {
-      console.log('[GraphViewX6] Attempting to load @antv/x6...')
-      try {
-        const x6Module = require('@antv/x6')
-        Graph = x6Module.Graph || x6Module.default?.Graph || x6Module
-        console.log('[GraphViewX6] ✅ @antv/x6 loaded:', {
-          hasGraph: !!Graph,
-          moduleKeys: Object.keys(x6Module || {}),
-          hasDefault: !!x6Module.default
-        })
-      } catch (e: any) {
-        loadError = `Failed to load @antv/x6: ${e.message || e}`
-        console.error('[GraphViewX6] ❌', loadError)
-        throw e
-      }
-    }
-    
-    // Try to load @antv/x6-react-shape
-    if (!register) {
-      console.log('[GraphViewX6] Attempting to load @antv/x6-react-shape...')
-      try {
-        const reactShapeModule = require('@antv/x6-react-shape')
-        register = reactShapeModule.register || reactShapeModule.default?.register || reactShapeModule.default
-        console.log('[GraphViewX6] ✅ @antv/x6-react-shape loaded:', {
-          hasRegister: !!register,
-          moduleKeys: Object.keys(reactShapeModule || {}),
-          hasDefault: !!reactShapeModule.default
-        })
-      } catch (e: any) {
-        loadError = `Failed to load @antv/x6-react-shape: ${e.message || e}`
-        console.error('[GraphViewX6] ❌', loadError)
-        throw e
-      }
-    }
-    
-    // Try to load dagre
-    if (!dagre) {
-      console.log('[GraphViewX6] Attempting to load dagre...')
-      try {
-        dagre = require('dagre')
-        console.log('[GraphViewX6] ✅ dagre loaded:', {
-          hasDagre: !!dagre,
-          hasGraphlib: !!dagre.graphlib
-        })
-      } catch (e: any) {
-        console.warn('[GraphViewX6] ⚠️ dagre not loaded (optional):', e.message)
-        // dagre is optional, don't fail if it's missing
-      }
-    }
-    
-    const allLoaded = !!(Graph && register)
-    console.log('[GraphViewX6] Library loading result:', {
-      Graph: !!Graph,
-      register: !!register,
-      dagre: !!dagre,
-      allLoaded
-    })
-    
-    return allLoaded
-  } catch (e: any) {
-    loadError = e.message || String(e)
-    console.error('[GraphViewX6] ❌ Failed to load libraries:', {
-      error: loadError,
-      stack: e.stack
-    })
-    return false
+  // Return cached promise if already loading
+  if (loadingPromise) {
+    return loadingPromise
   }
+  
+  // Create loading promise
+  loadingPromise = (async () => {
+    try {
+      // Try to load @antv/x6 using dynamic import
+      if (!Graph) {
+        console.log('[GraphViewX6] Attempting to load @antv/x6 with dynamic import...')
+        try {
+          const x6Module = await import('@antv/x6')
+          Graph = x6Module.Graph || x6Module.default?.Graph || x6Module.default || x6Module
+          console.log('[GraphViewX6] ✅ @antv/x6 loaded:', {
+            hasGraph: !!Graph,
+            moduleKeys: Object.keys(x6Module || {}),
+            hasDefault: !!x6Module.default,
+            GraphType: typeof Graph
+          })
+        } catch (e: any) {
+          loadError = `Failed to load @antv/x6: ${e.message || e}`
+          console.error('[GraphViewX6] ❌', loadError, e)
+          throw e
+        }
+      }
+      
+      // Try to load @antv/x6-react-shape using dynamic import
+      if (!register) {
+        console.log('[GraphViewX6] Attempting to load @antv/x6-react-shape with dynamic import...')
+        try {
+          const reactShapeModule = await import('@antv/x6-react-shape')
+          register = reactShapeModule.register || reactShapeModule.default?.register || reactShapeModule.default
+          console.log('[GraphViewX6] ✅ @antv/x6-react-shape loaded:', {
+            hasRegister: !!register,
+            moduleKeys: Object.keys(reactShapeModule || {}),
+            hasDefault: !!reactShapeModule.default,
+            RegisterType: typeof register
+          })
+        } catch (e: any) {
+          loadError = `Failed to load @antv/x6-react-shape: ${e.message || e}`
+          console.error('[GraphViewX6] ❌', loadError, e)
+          throw e
+        }
+      }
+      
+      // Try to load dagre using dynamic import (optional)
+      if (!dagre) {
+        console.log('[GraphViewX6] Attempting to load dagre with dynamic import...')
+        try {
+          const dagreModule = await import('dagre')
+          dagre = dagreModule.default || dagreModule
+          console.log('[GraphViewX6] ✅ dagre loaded:', {
+            hasDagre: !!dagre,
+            hasGraphlib: !!dagre?.graphlib
+          })
+        } catch (e: any) {
+          console.warn('[GraphViewX6] ⚠️ dagre not loaded (optional):', e.message)
+          // dagre is optional, don't fail if it's missing
+        }
+      }
+      
+      const allLoaded = !!(Graph && register)
+      console.log('[GraphViewX6] ✅ Library loading complete:', {
+        Graph: !!Graph,
+        register: !!register,
+        dagre: !!dagre,
+        allLoaded
+      })
+      
+      loadError = null
+      return allLoaded
+    } catch (e: any) {
+      loadError = e.message || String(e)
+      console.error('[GraphViewX6] ❌ Failed to load libraries:', {
+        error: loadError,
+        stack: e.stack
+      })
+      return false
+    }
+  })()
+  
+  return loadingPromise
 }
 
 // Import AWS icons - handle different export styles (only on client)
@@ -383,14 +398,15 @@ function GraphViewX6Component({
     }
   }, [graphData, isLoading])
 
-  // Only render on client and load libraries
+  // Only render on client and load libraries using async dynamic imports
   useEffect(() => {
     setIsClient(true)
     
-    // Retry loading libraries with a small delay to ensure window is ready
-    const attemptLoad = () => {
+    // Load libraries asynchronously using dynamic imports
+    const loadLibrariesAsync = async () => {
       try {
-        const loaded = loadLibraries()
+        console.log('[GraphViewX6] Starting async library load...')
+        const loaded = await loadLibraries()
         const success = loaded && !!Graph && !!register
         setLibrariesLoaded(success)
         
@@ -411,7 +427,7 @@ function GraphViewX6Component({
             setLibraryLoadError(null)
           } catch (e: any) {
             const errorMsg = `Failed to register React shape: ${e.message || e}`
-            console.error('[GraphViewX6] ❌', errorMsg)
+            console.error('[GraphViewX6] ❌', errorMsg, e)
             setLibraryLoadError(errorMsg)
             setLibrariesLoaded(false)
           }
@@ -429,24 +445,14 @@ function GraphViewX6Component({
         }
       } catch (e: any) {
         const errorMsg = `Library loading failed: ${e.message || e}`
-        console.error('[GraphViewX6] ❌', errorMsg)
+        console.error('[GraphViewX6] ❌', errorMsg, e)
         setLibraryLoadError(errorMsg)
         setLibrariesLoaded(false)
       }
     }
     
-    // Try immediately
-    attemptLoad()
-    
-    // Retry after a short delay if first attempt failed
-    if (!Graph || !register) {
-      const retryTimer = setTimeout(() => {
-        console.log('[GraphViewX6] Retrying library load...')
-        attemptLoad()
-      }, 500)
-      
-      return () => clearTimeout(retryTimer)
-    }
+    // Start loading immediately
+    loadLibrariesAsync()
   }, [])
 
   // Initialize graph
