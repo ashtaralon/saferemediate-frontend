@@ -23,7 +23,6 @@ import {
   EyeOff,
   FileJson,
   AlertCircle,
-  Shield,
 } from 'lucide-react'
 import { useArchitectureData } from '@/hooks/useArchitectureData'
 
