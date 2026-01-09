@@ -403,8 +403,8 @@ export default function GraphViewX6({
                   </div>
                   
                   <AWSIcon type={n.type} size={32} />
-                  <div className="text-base text-white font-bold truncate w-full text-center px-1 mt-1" title={n.name}>
-                    {truncate(n.name)}
+                  <div className="text-lg text-white font-bold truncate w-full text-center px-1 mt-1" title={n.name}>
+                    {truncate(n.name, 18)}
                   </div>
                 </div>
                 
