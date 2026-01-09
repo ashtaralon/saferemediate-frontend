@@ -111,6 +111,12 @@ export default function DependencyMapTab({
           ...data
         }
         setGraphData(validData)
+        console.log('[DependencyMapTab] ✅ Graph data set:', {
+          nodes: validData.nodes?.length || 0,
+          edges: validData.edges?.length || 0,
+          systemName: validData.system_name,
+          dataSources: validData.data_sources
+        })
         
         // Extract resources from graph nodes
         const resourceList: Resource[] = (validData.nodes || []).map((n: any) => ({

@@ -238,6 +238,7 @@ function GraphViewX6Component({
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
   const [showAllowedPaths, setShowAllowedPaths] = useState(true)
+  const [showEmptyState, setShowEmptyState] = useState(false) // Grace period before showing empty state
   
   // =========================================================================
   // FETCH REAL DATA - Use hook if graphData not provided
@@ -248,6 +249,39 @@ function GraphViewX6Component({
   const graphData = propGraphData || architectureData
   const isLoading = propIsLoading !== undefined ? propIsLoading : hookIsLoading
   const onRefresh = propOnRefresh || refetch
+
+  // Debug logging
+  useEffect(() => {
+    console.log('[GraphViewX6] Data state:', {
+      hasPropData: !!propGraphData,
+      hasHookData: !!architectureData,
+      hasGraphData: !!graphData,
+      nodeCount: graphData?.nodes?.length || 0,
+      edgeCount: graphData?.edges?.length || 0,
+      isLoading,
+      isClient,
+      systemName
+    })
+  }, [graphData, isLoading, isClient, systemName, propGraphData, architectureData])
+
+  // Grace period before showing empty state (prevents race condition)
+  useEffect(() => {
+    if (isLoading) {
+      setShowEmptyState(false)
+      return
+    }
+
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+      // Wait 2 seconds before showing empty state
+      const timer = setTimeout(() => {
+        setShowEmptyState(true)
+      }, 2000)
+      return () => clearTimeout(timer)
+    } else {
+      // Data is available, don't show empty state
+      setShowEmptyState(false)
+    }
+  }, [graphData, isLoading])
 
   // Only render on client and load libraries
   useEffect(() => {
@@ -826,9 +860,9 @@ function GraphViewX6Component({
   }
   
   // =========================================================================
-  // EMPTY STATE - Real but no data
+  // EMPTY STATE - Real but no data (with grace period)
   // =========================================================================
-  if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+  if ((!graphData || !graphData.nodes || graphData.nodes.length === 0) && showEmptyState) {
     return (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
         <div className="flex flex-col items-center gap-3 text-center max-w-md">
@@ -847,6 +881,18 @@ function GraphViewX6Component({
           >
             Refresh
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading during grace period if data is not yet available
+  if ((!graphData || !graphData.nodes || graphData.nodes.length === 0) && !showEmptyState && !isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl border">
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+          <span className="text-slate-500">Processing data...</span>
         </div>
       </div>
     )
@@ -900,6 +946,21 @@ function GraphViewX6Component({
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl border overflow-hidden">
+      {/* Debug Panel - Remove in production */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-100 border-b border-yellow-300 px-4 py-2 text-xs">
+          <div className="flex items-center gap-4">
+            <span className="font-semibold">DEBUG:</span>
+            <span>Nodes: {graphData?.nodes?.length || 0}</span>
+            <span>Edges: {graphData?.edges?.length || 0}</span>
+            <span>Loading: {isLoading ? 'Yes' : 'No'}</span>
+            <span>Client: {isClient ? 'Yes' : 'No'}</span>
+            <span>Graph: {graphRef.current ? 'Ready' : 'Not Ready'}</span>
+            <span>ShowEmpty: {showEmptyState ? 'Yes' : 'No'}</span>
+          </div>
+        </div>
+      )}
+      
       {/* Toolbar with data source indicators */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b">
         <div className="flex items-center gap-4">
