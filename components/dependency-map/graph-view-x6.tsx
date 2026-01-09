@@ -92,6 +92,7 @@ const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 })
 const getColors = (t: string) => AWS_COLORS[t] || AWS_COLORS.Default;
 const getLane = (t: string) => LANE_ORDER[t] ?? 3;
 const truncate = (s: string, m = 12) => !s ? 'Unknown' : s.length <= m ? s : s.slice(0, m - 2) + '..';
+const formatType = (t: string) => ({ SecurityGroup: "Security Group", IAMRole: "IAM Role", InternetGateway: "Internet GW", NATGateway: "NAT GW" }[t] || t);
 
 // ============================================================================
 // ANIMATED EDGE COMPONENT
@@ -378,7 +379,7 @@ export default function GraphViewX6({
             return (
               <div key={`lane-${lane}`} className="absolute text-cyan-400 text-2xl font-black uppercase tracking-wide"
                 style={{ left: p.x, top: 8, width: layout.NODE_WIDTH, textAlign: 'center' }}>
-                {nodes[0]?.type} ({nodes.length})
+                {formatType(nodes[0]?.type)} ({nodes.length})
               </div>
             );
           })}
