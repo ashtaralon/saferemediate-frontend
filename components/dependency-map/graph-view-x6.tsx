@@ -63,12 +63,13 @@ const AWS_COLORS: Record<string, { bg: string; border: string; gradient: string;
 };
 
 const LANE_ORDER: Record<string, number> = {
-  'SecurityGroup': 0,
-  'IAMRole': 1, 'IAMPolicy': 1,
-  'EC2': 2, 'Lambda': 2, 'ECS': 2,
-  'RDS': 3, 'DynamoDB': 3, 'Aurora': 3,
-  'S3': 4,
-  'InternetGateway': 5, 'NATGateway': 5, 'VPC': 5, 'Subnet': 5, 'ALB': 5, 'ELB': 5
+  'InternetGateway': 0, 'NATGateway': 0,
+  'VPC': 1, 'Subnet': 1,
+  'SecurityGroup': 2,
+  'IAMRole': 3, 'IAMPolicy': 3,
+  'EC2': 4, 'ECS': 4,
+  'RDS': 5, 'DynamoDB': 5, 'Aurora': 5,
+  'S3': 6
 };
 
 const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 32 }) => {
@@ -187,7 +188,7 @@ export default function GraphViewX6({
   // Filter data
   const filtered = useMemo(() => {
     let nodes = data.nodes;
-    if (coreOnly) nodes = nodes.filter(n => !['IAMPolicy', 'Subnet'].includes(n.type));
+    if (coreOnly) nodes = nodes.filter(n => !['IAMPolicy', 'Subnet', 'Lambda', 'LambdaFunction'].includes(n.type));
     if (search) {
       const t = search.toLowerCase();
       nodes = nodes.filter(n => n.name?.toLowerCase().includes(t) || n.type?.toLowerCase().includes(t));
