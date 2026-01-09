@@ -29,8 +29,9 @@ const AWS_COLORS: Record<string, {bg: string; border: string; gradient: string}>
 };
 
 const LANE_ORDER: Record<string, number> = {
-  'InternetGateway': 0, 'SecurityGroup': 1, 'EC2': 2, 'Lambda': 2,
-  'IAMRole': 3, 'RDS': 4, 'DynamoDB': 4, 'S3': 4
+  'InternetGateway': 0, 'NATGateway': 0, 'VPC': 0, 'Subnet': 1, 'SecurityGroup': 1, 'ALB': 1, 'ELB': 1,
+  'EC2': 2, 'Lambda': 2, 'ECS': 2, 'IAMRole': 3, 'IAMPolicy': 3,
+  'RDS': 4, 'DynamoDB': 4, 'S3': 4, 'Aurora': 4
 };
 
 const AWSIcon: React.FC<{ type: string; size?: number }> = ({ type, size = 48 }) => {
@@ -70,7 +71,6 @@ export default function GraphViewX6({
 }: GraphViewX6Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<GraphData>({ nodes: [], edges: [] });
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -83,6 +83,10 @@ export default function GraphViewX6({
   // Use graphData from props instead of fetching
   useEffect(() => {
     if (graphData && graphData.nodes && graphData.edges) {
+      console.log('[GraphViewX6] Processing graphData:', {
+        nodesCount: graphData.nodes?.length,
+        edgesCount: graphData.edges?.length
+      });
       const nodes = (graphData.nodes || []).map((n: any) => ({
         id: n.id, type: n.type || 'Unknown', name: n.name || n.id,
         lp_score: n.lp_score, internet_exposed: n.is_internet_exposed || n.internet_exposed,
@@ -92,23 +96,30 @@ export default function GraphViewX6({
         id: e.id || `${e.source}-${e.target}`, source: e.source, target: e.target,
         type: e.edge_type || e.type, is_used: e.is_used, traffic_bytes: e.traffic_bytes
       }));
+      console.log('[GraphViewX6] Mapped data:', { nodes: nodes.length, edges: edges.length });
       setData({ nodes, edges });
-      setLoading(false);
-    } else if (!isLoading) {
+      setError(null);
+    } else if (!isLoading && (!graphData || !graphData.nodes || graphData.nodes.length === 0)) {
+      console.log('[GraphViewX6] No graphData available');
       setData({ nodes: [], edges: [] });
     }
   }, [graphData, isLoading]);
 
   const filtered = useMemo(() => {
-    let nodes = data.nodes;
+    let nodes = data.nodes || [];
     if (coreOnly) nodes = nodes.filter(n => n.type !== 'IAMPolicy');
     if (search) { const t = search.toLowerCase(); nodes = nodes.filter(n => n.name?.toLowerCase().includes(t) || n.type?.toLowerCase().includes(t)); }
     const ids = new Set(nodes.map(n => n.id));
-    const edges = data.edges.filter(e => ids.has(e.source) && ids.has(e.target));
+    const edges = (data.edges || []).filter(e => ids.has(e.source) && ids.has(e.target));
+    console.log('[GraphViewX6] Filtered:', { nodes: nodes.length, edges: edges.length, coreOnly, search });
     return { nodes, edges };
   }, [data, coreOnly, search]);
 
   const layout = useMemo(() => {
+    if (filtered.nodes.length === 0) {
+      console.log('[GraphViewX6] No nodes to layout');
+      return { positions: new Map(), width: 0, height: 0, lanes: [] };
+    }
     const lanes = new Map<number, GraphNode[]>();
     filtered.nodes.forEach(n => { const l = getLane(n.type); if (!lanes.has(l)) lanes.set(l, []); lanes.get(l)!.push(n); });
     const positions = new Map<string, { x: number; y: number }>();
@@ -117,19 +128,51 @@ export default function GraphViewX6({
     sorted.forEach(([_, nodes], i) => {
       nodes.forEach((n, j) => { const x = 80 + i * 250, y = 80 + j * 120; positions.set(n.id, { x, y }); maxY = Math.max(maxY, y); });
     });
+    console.log('[GraphViewX6] Layout calculated:', { 
+      nodes: filtered.nodes.length, 
+      lanes: sorted.length, 
+      positions: positions.size,
+      width: 80 * 2 + sorted.length * 250,
+      height: maxY + 180
+    });
     return { positions, width: 80 * 2 + sorted.length * 250, height: maxY + 180, lanes: sorted };
   }, [filtered]);
 
   useEffect(() => {
-    if (!containerRef.current || !layout.width) return;
+    if (!containerRef.current || !layout.width || layout.width === 0) {
+      console.log('[GraphViewX6] Skipping zoom calculation:', { hasContainer: !!containerRef.current, width: layout.width });
+      return;
+    }
     const c = containerRef.current;
     const z = Math.min(c.clientWidth / layout.width, c.clientHeight / layout.height, 1) * 0.9;
     setZoom(z);
     setPan({ x: (c.clientWidth - layout.width * z) / 2, y: (c.clientHeight - layout.height * z) / 2 });
+    console.log('[GraphViewX6] Zoom calculated:', { zoom: z, pan: { x: (c.clientWidth - layout.width * z) / 2, y: (c.clientHeight - layout.height * z) / 2 } });
   }, [layout]);
 
   if (isLoading) return <div className="w-full h-full flex items-center justify-center bg-slate-900"><RefreshCw className="w-12 h-12 text-blue-400 animate-spin" /></div>;
   if (error) return <div className="w-full h-full flex items-center justify-center bg-slate-900 text-red-400">{error}<button onClick={onRefresh} className="ml-4 px-4 py-2 bg-blue-600 rounded">Retry</button></div>;
+  if (!data.nodes || data.nodes.length === 0) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-300">
+        <div className="text-lg mb-4">No graph data available</div>
+        <div className="text-sm mb-4">Nodes: {data.nodes?.length || 0}, Edges: {data.edges?.length || 0}</div>
+        <button onClick={onRefresh} className="px-4 py-2 bg-blue-600 rounded text-white">Refresh</button>
+      </div>
+    );
+  }
+
+  console.log('[GraphViewX6] Render:', {
+    isLoading,
+    hasGraphData: !!graphData,
+    dataNodes: data.nodes?.length || 0,
+    dataEdges: data.edges?.length || 0,
+    filteredNodes: filtered.nodes.length,
+    filteredEdges: filtered.edges.length,
+    layoutWidth: layout.width,
+    layoutHeight: layout.height,
+    positions: layout.positions.size
+  });
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-900">
@@ -138,6 +181,9 @@ export default function GraphViewX6({
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
           <span className="text-white font-semibold">AWS Architecture</span>
           <span className="text-slate-400 text-sm">Nodes: {filtered.nodes.length} | Edges: {filtered.edges.length}</span>
+          {data.nodes && data.nodes.length > 0 && (
+            <span className="text-xs text-slate-500">(Data: {data.nodes.length} nodes, {data.edges.length} edges)</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -150,7 +196,7 @@ export default function GraphViewX6({
           <button onClick={() => setZoom(z => Math.min(3, z * 1.2))} className="p-1 bg-slate-700 rounded"><ZoomIn className="w-4 h-4 text-white" /></button>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1 overflow-hidden relative" style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+      <div ref={containerRef} className="flex-1 overflow-hidden relative bg-slate-900" style={{ cursor: dragging ? 'grabbing' : 'grab', minHeight: '400px' }}
         onMouseDown={e => { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
         onMouseMove={e => { if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
         onMouseUp={() => setDragging(false)} onMouseLeave={() => setDragging(false)}
@@ -172,16 +218,19 @@ export default function GraphViewX6({
             </g>;
           })}
         </svg>
-        <div className="absolute inset-0" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+        <div className="absolute inset-0" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', pointerEvents: 'none' }}>
           {layout.lanes.map(([lane, nodes], i) => {
             const p = layout.positions.get(nodes[0]?.id);
-            return p && <div key={lane} className="absolute text-slate-400 text-sm uppercase" style={{ left: p.x, top: 30, width: 140, textAlign: 'center' }}>{nodes[0]?.type} ({nodes.length})</div>;
+            return p && <div key={lane} className="absolute text-slate-400 text-sm uppercase pointer-events-none" style={{ left: p.x, top: 30, width: 140, textAlign: 'center' }}>{nodes[0]?.type} ({nodes.length})</div>;
           })}
           {filtered.nodes.map(n => {
             const p = layout.positions.get(n.id);
-            if (!p) return null;
+            if (!p) {
+              console.warn('[GraphViewX6] No position for node:', n.id, n.type);
+              return null;
+            }
             const c = getColors(n.type);
-            return <div key={n.id} className="absolute cursor-pointer" style={{ left: p.x, top: p.y, width: 140, height: 100 }}
+            return <div key={n.id} className="absolute cursor-pointer pointer-events-auto" style={{ left: p.x, top: p.y, width: 140, height: 100, zIndex: 10 }}
               onClick={() => { 
                 setSelected(n); 
                 onNodeClick(n.id, n.type, n.name);
