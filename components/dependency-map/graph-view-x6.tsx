@@ -402,8 +402,8 @@ export default function GraphViewX6({
                 <div className={`w-full h-full rounded-lg border-2 flex flex-col items-center justify-center shadow-lg ${selected?.id === n.id ? 'ring-2 ring-white/60 scale-105' : ''}`}
                   style={{ background: c.gradient, borderColor: c.border }}>
                   <AWSIcon type={n.type} size={32} />
-                  <div className="text-lg text-white font-bold truncate w-full text-center px-1 mt-1" title={n.name}>
-                    {truncate(n.name, 18)}
+                  <div className="text-sm text-white font-bold w-full text-center px-1 mt-1 leading-tight" style={{wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'}} title={n.name}>
+                    {n.name || 'Unknown'}
                   </div>
                 </div>
                 
