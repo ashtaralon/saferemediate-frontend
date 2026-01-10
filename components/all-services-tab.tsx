@@ -147,11 +147,54 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
   const [servicePolicies, setServicePolicies] = useState<any>(null)
   const [policiesLoading, setPoliciesLoading] = useState(false)
   const [policiesError, setPoliciesError] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
     fetchServices()
     fetchGapData()
   }, [systemName])  // Re-fetch when systemName changes
+
+  // Sync from AWS - fetches latest data from AWS and updates Neo4j
+  const handleSyncFromAWS = async () => {
+    setSyncing(true)
+    setSyncMessage(null)
+    try {
+      const response = await fetch('/api/proxy/collectors/sync-all?days=7', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(120000), // 2 minute timeout
+      })
+
+      if (!response.ok) {
+        throw new Error(`Sync failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      console.log('[AllServices] Sync complete:', data)
+
+      setSyncMessage({
+        type: 'success',
+        text: `Synced: ${data.results?.flow_logs?.relationships_created || 0} traffic, ${data.results?.cloudtrail?.relationships_created || 0} API calls`
+      })
+
+      // Refresh the services list
+      setTimeout(() => {
+        fetchServices()
+        fetchGapData()
+      }, 1000)
+
+    } catch (error) {
+      console.error('[AllServices] Sync failed:', error)
+      setSyncMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Sync failed'
+      })
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncMessage(null), 5000)
+    }
+  }
 
   const fetchServices = async () => {
     setLoading(true)
@@ -792,6 +835,29 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           <RefreshCw className="w-4 h-4" />
           Refresh
         </Button>
+        <Button
+          variant="default"
+          onClick={handleSyncFromAWS}
+          disabled={syncing}
+          className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+        >
+          {syncing ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Syncing...
+            </>
+          ) : (
+            <>
+              <Cloud className="w-4 h-4" />
+              Sync from AWS
+            </>
+          )}
+        </Button>
+        {syncMessage && (
+          <span className={`text-sm ${syncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+            {syncMessage.text}
+          </span>
+        )}
       </div>
 
       {/* SECTION 1: COMPUTE & DATA */}
