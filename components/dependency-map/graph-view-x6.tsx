@@ -180,7 +180,7 @@ export default function GraphViewX6({
         source: e.source,
         target: e.target,
         type: e.edge_type,
-        is_used: e.is_used || e.edge_type === 'ACTUAL_TRAFFIC',
+        is_used: e.is_used || e.edge_type === 'ACTUAL_TRAFFIC' || e.edge_type === 'ACTUAL_API_CALL',
         traffic_bytes: e.traffic_bytes
       }));
       setData({ nodes, edges });
