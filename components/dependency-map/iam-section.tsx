@@ -47,7 +47,7 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
         
         // If it's not already an IAM role, try to find associated role
         if (resourceType !== 'IAMRole') {
-          roleName = resourceName.includes('-Role') || resourceName.includes('Role') 
+          roleName = resourceName?.includes('-Role') || resourceName?.includes('Role') 
             ? resourceName 
             : `${resourceName}-Role`
         }
