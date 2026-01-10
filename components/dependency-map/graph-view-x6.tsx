@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { 
-  RefreshCw, ZoomIn, ZoomOut, Search, Shield, Server, Database, Globe, 
+import {
+  RefreshCw, ZoomIn, ZoomOut, Search, Shield, Server, Database, Globe,
   Key, HardDrive, Lock, Layers, Activity, Maximize2, Minimize2, X
 } from 'lucide-react';
+import { isEdgeActive } from '@/lib/edge-types';
 
 // ============================================================================
 // TYPES
@@ -180,7 +181,7 @@ export default function GraphViewX6({
         source: e.source,
         target: e.target,
         type: e.edge_type,
-        is_used: e.is_used || e.edge_type === 'ACTUAL_TRAFFIC' || e.edge_type === 'ACTUAL_API_CALL',
+        is_used: isEdgeActive(e),
         traffic_bytes: e.traffic_bytes
       }));
       setData({ nodes, edges });

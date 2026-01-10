@@ -1,6 +1,7 @@
 // lib/transform-to-containment.ts
 
 import type { ArchitectureNode, ArchitectureEdge } from '@/hooks/useArchitectureData'
+import { ACTIVE_EDGE_TYPES, getEdgeType } from '@/lib/edge-types'
 
 export interface ContainedResource {
   id: string
@@ -52,8 +53,8 @@ export function transformToContainment(
   const activeTrafficResources = new Set<string>()
   edges
     .filter(e => {
-      const edgeType = e.type || e.edge_type || ''
-      return edgeType === 'ACTUAL_TRAFFIC' && (e.isActive !== false)
+      const edgeType = getEdgeType(e)
+      return ACTIVE_EDGE_TYPES.includes(edgeType as any) && (e.isActive !== false)
     })
     .forEach(e => {
       activeTrafficResources.add(e.source)
@@ -64,7 +65,7 @@ export function transformToContainment(
   const gapCounts = new Map<string, number>()
   edges
     .filter(e => {
-      const edgeType = e.type || e.edge_type || ''
+      const edgeType = getEdgeType(e)
       return edgeType === 'ALLOWED' && (e.isActive === false || e.is_used === false)
     })
     .forEach(e => {
