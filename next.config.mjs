@@ -6,8 +6,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Fix Geist font CORS issue and ensure X6 libraries are transpiled
-  transpilePackages: ['geist', '@antv/x6', '@antv/x6-react-shape'],
+  // Fix Geist font CORS issue
+  transpilePackages: ['geist'],
 }
 
 export default nextConfig
