@@ -535,7 +535,7 @@ export default function ResourceView({
   const totalConnections = dependencies.inbound.length + dependencies.outbound.length
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 rounded-xl border overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-50 rounded-xl border">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b">
         <div className="flex items-center gap-3">
