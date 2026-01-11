@@ -6,13 +6,14 @@ import cytoscape, { Core } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 // @ts-ignore - no types available for cytoscape-dagre
 import cytoscapeDagre from 'cytoscape-dagre'
-import { 
-  Shield, Database, Key, Globe, 
+import {
+  Shield, Database, Key, Globe,
   RefreshCw, ZoomIn, ZoomOut, Maximize2,
   ChevronRight, AlertTriangle, CheckCircle, X,
   Layers, Search, ArrowRight, Download,
-  Play, FileText, Clock, Info, Activity
+  Play, FileText, Clock, Info, Activity, GitBranch
 } from 'lucide-react'
+import { SankeyView } from './sankey'
 
 if (typeof window !== 'undefined') {
   try { cytoscape.use(coseBilkent) } catch (e) {}
@@ -160,6 +161,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
   const [observationDays, setObservationDays] = useState(30)
   const [stats, setStats] = useState({ nodes: 0, edges: 0, actualTraffic: 0 })
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
+  const [viewType, setViewType] = useState<'graph' | 'sankey'>('graph')
 
   // Animate ACTUAL_TRAFFIC edges
   const animateTrafficEdges = useCallback(() => {
@@ -1033,7 +1035,16 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           <button onClick={onRefresh} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
-          <button 
+          <button
+            onClick={() => setViewType(viewType === 'graph' ? 'sankey' : 'graph')}
+            className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
+              viewType === 'sankey' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+            )}
+          >
+            <GitBranch className="w-4 h-4" />
+            {viewType === 'sankey' ? 'Graph View' : 'Traffic Flow'}
+          </button>
+          <button
             onClick={() => setViewMode(viewMode === 'grouped' ? 'all' : 'grouped')}
             className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
               viewMode === 'grouped' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
@@ -1095,7 +1106,17 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         </div>
       </div>
 
-      {/* Graph Canvas + Side Panel */}
+      {/* Graph Canvas + Side Panel or Sankey View */}
+      {viewType === 'sankey' ? (
+        <SankeyView
+          graphData={graphData}
+          isLoading={isLoading}
+          onNodeClick={onNodeClick}
+          onRefresh={onRefresh}
+          showIAM={false}
+          height={600}
+        />
+      ) : (
       <div className="flex-1 flex relative">
         <div ref={containerRef} className="flex-1 bg-slate-50" style={{ minHeight: '500px' }} />
         
@@ -1489,6 +1510,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           </div>
         )}
       </div>
+      )}
 
       {/* Footer */}
       <div className="px-4 py-2 border-t bg-slate-50 text-xs text-slate-500 flex justify-between">
