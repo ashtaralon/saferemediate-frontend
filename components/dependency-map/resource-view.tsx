@@ -438,10 +438,7 @@ function BucketCard({
     <div className={`rounded-xl border-2 ${bucket.borderColor} overflow-hidden`}>
       {/* Bucket Header */}
       <button
-        onClick={() => {
-          console.log('[BucketCard] Click on bucket:', bucket.type, 'expanded:', expanded)
-          onToggle()
-        }}
+        onClick={onToggle}
         className={`w-full ${bucket.bgColor} px-4 py-3 flex items-center justify-between hover:opacity-90 transition-opacity cursor-pointer`}
       >
         <div className="flex items-center gap-3">
@@ -700,7 +697,6 @@ export default function ResourceView({
 
   // Toggle bucket expansion
   const toggleBucket = (type: BucketType) => {
-    console.log('[ResourceView] Toggle bucket:', type)
     setExpandedBuckets(prev => {
       const next = new Set(prev)
       if (next.has(type)) {
@@ -708,7 +704,6 @@ export default function ResourceView({
       } else {
         next.add(type)
       }
-      console.log('[ResourceView] Expanded buckets:', Array.from(next))
       return next
     })
   }

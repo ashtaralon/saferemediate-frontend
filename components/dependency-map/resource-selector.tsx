@@ -45,13 +45,38 @@ export default function ResourceSelector({
     r.type.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
+  // Priority order for resource types (lower = higher priority)
+  const TYPE_PRIORITY: Record<string, number> = {
+    EC2: 1,
+    RDS: 2,
+    Lambda: 3,
+    S3Bucket: 4,
+    S3: 4,
+    DynamoDB: 5,
+    SecurityGroup: 6,
+    Subnet: 7,
+    VPC: 8,
+    IAMRole: 10,
+    IAMPolicy: 11,
+    Principal: 12,
+  }
+
   // Group resources by type
-  const groupedResources = filteredResources.reduce((acc, r) => {
+  const grouped = filteredResources.reduce((acc, r) => {
     const type = r.type || 'Other'
     if (!acc[type]) acc[type] = []
     acc[type].push(r)
     return acc
   }, {} as Record<string, Resource[]>)
+
+  // Sort groups by priority (compute resources first, then IAM)
+  const groupedResources = Object.fromEntries(
+    Object.entries(grouped).sort(([typeA], [typeB]) => {
+      const priorityA = TYPE_PRIORITY[typeA] ?? 50
+      const priorityB = TYPE_PRIORITY[typeB] ?? 50
+      return priorityA - priorityB
+    })
+  )
 
   const IconComponent = selectedResource 
     ? RESOURCE_ICONS[selectedResource.type] || RESOURCE_ICONS.default
