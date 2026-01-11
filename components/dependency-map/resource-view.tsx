@@ -1,20 +1,9 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import ReactFlow, {
-  Node,
-  Edge,
-  Background,
-  Controls,
-  useNodesState,
-  useEdgesState,
-  Position,
-  MarkerType,
-} from 'reactflow'
-import 'reactflow/dist/style.css'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft, Server, Database, Key, Shield, Globe, Cloud, Layers,
-  RefreshCw, CheckCircle, AlertTriangle, Network, ExternalLink
+  RefreshCw, CheckCircle, AlertTriangle, Search, ArrowRight, ChevronDown, ChevronUp
 } from 'lucide-react'
 import ResourceSelector from './resource-selector'
 
@@ -82,131 +71,66 @@ const RESOURCE_ICONS: Record<string, any> = {
   default: Layers,
 }
 
-// Custom node for the central resource
-function CentralResourceNode({ data }: { data: any }) {
-  const Icon = RESOURCE_ICONS[data.type] || RESOURCE_ICONS.default
-  const color = RESOURCE_COLORS[data.type] || RESOURCE_COLORS.default
-  const score = data.permissionScore || 0
-  const scoreColor = score < 20 ? '#ef4444' : score < 50 ? '#f59e0b' : '#22c55e'
+// Connection Card Component
+function ConnectionCard({ conn, direction }: { conn: Connection; direction: 'inbound' | 'outbound' }) {
+  const Icon = RESOURCE_ICONS[conn.type] || RESOURCE_ICONS.default
+  const color = RESOURCE_COLORS[conn.type] || RESOURCE_COLORS.default
+  const borderColor = direction === 'inbound' ? 'border-green-200' : 'border-blue-200'
+  const hoverBorder = direction === 'inbound' ? 'hover:border-green-400' : 'hover:border-blue-400'
 
   return (
-    <div className="relative">
-      {/* Permission score ring */}
-      <svg className="absolute -inset-3 w-[calc(100%+24px)] h-[calc(100%+24px)]" viewBox="0 0 120 120">
-        {/* Background ring */}
-        <circle
-          cx="60" cy="60" r="54"
-          fill="none"
-          stroke="#e2e8f0"
-          strokeWidth="6"
-        />
-        {/* Score ring */}
-        <circle
-          cx="60" cy="60" r="54"
-          fill="none"
-          stroke={scoreColor}
-          strokeWidth="6"
-          strokeDasharray={`${(score / 100) * 339.3} 339.3`}
-          strokeLinecap="round"
-          transform="rotate(-90 60 60)"
-          style={{ filter: score < 20 ? 'drop-shadow(0 0 6px #ef4444)' : 'none' }}
-        />
-      </svg>
-
-      {/* Main node */}
-      <div
-        className="relative w-24 h-24 rounded-2xl flex flex-col items-center justify-center shadow-lg border-2 z-10"
-        style={{ backgroundColor: color, borderColor: scoreColor }}
-      >
-        <Icon className="w-8 h-8 text-white mb-1" />
-        <div className="text-[10px] text-white font-medium text-center px-1 truncate max-w-[80px]">
-          {data.label}
-        </div>
-        <div className="text-[8px] text-white/80">{data.type}</div>
-      </div>
-
-      {/* Score badge */}
-      <div
-        className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[10px] font-bold text-white z-20"
-        style={{ backgroundColor: scoreColor }}
-      >
-        {score}% LP
-      </div>
-    </div>
-  )
-}
-
-// Custom node for dependency nodes
-function DependencyNode({ data }: { data: any }) {
-  const Icon = RESOURCE_ICONS[data.type] || RESOURCE_ICONS.default
-  const color = RESOURCE_COLORS[data.type] || RESOURCE_COLORS.default
-  const isInbound = data.direction === 'inbound'
-
-  return (
-    <div
-      className={`px-3 py-2 rounded-lg shadow-md border-2 min-w-[100px] max-w-[140px] ${
-        data.verified ? 'bg-white' : 'bg-slate-50'
-      }`}
-      style={{ borderColor: isInbound ? '#22c55e' : '#3b82f6' }}
-    >
-      <div className="flex items-center gap-2">
+    <div className={`bg-white rounded-lg border ${borderColor} ${hoverBorder} p-3 transition-all hover:shadow-sm`}>
+      <div className="flex items-start gap-2">
         <div
-          className="w-6 h-6 rounded flex items-center justify-center"
+          className="w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0"
           style={{ backgroundColor: color }}
         >
-          <Icon className="w-3.5 h-3.5 text-white" />
+          <Icon className="w-4 h-4 text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[11px] font-medium text-slate-800 truncate">
-            {data.label}
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-sm text-slate-800 truncate" title={conn.name}>
+              {conn.name}
+            </span>
+            {conn.verified && (
+              <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+            )}
           </div>
-          <div className="text-[9px] text-slate-500">{data.type}</div>
-        </div>
-      </div>
-
-      {data.port && (
-        <div className="mt-1.5 flex items-center justify-between">
-          <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 rounded font-mono">
-            :{data.port}
-          </span>
-          <span className="text-[9px] text-slate-400">{data.protocol}</span>
-          {data.verified && (
-            <CheckCircle className="w-3 h-3 text-green-500" />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Custom node for IAM role nodes
-function IAMNode({ data }: { data: any }) {
-  return (
-    <div className="px-3 py-2 rounded-lg shadow-md border-2 border-purple-400 bg-purple-50 min-w-[90px]">
-      <div className="flex items-center gap-2">
-        <Key className="w-4 h-4 text-purple-600" />
-        <div className="text-[10px] font-medium text-purple-800 truncate max-w-[80px]">
-          {data.label}
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs px-1.5 py-0.5 bg-slate-100 rounded font-mono text-slate-600">
+              :{conn.port || '-'}
+            </span>
+            <span className="text-xs text-slate-400">{conn.protocol}</span>
+            <span className="text-xs px-1.5 py-0.5 bg-slate-50 rounded text-slate-500">
+              {conn.type}
+            </span>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-// Custom node for group labels
-function GroupLabelNode({ data }: { data: any }) {
+// Stats Badge Component
+function StatBadge({ count, label, color }: { count: number; label: string; color: 'green' | 'blue' | 'purple' }) {
+  const colors = {
+    green: 'bg-green-100 text-green-700',
+    blue: 'bg-blue-100 text-blue-700',
+    purple: 'bg-purple-100 text-purple-700',
+  }
+  const dotColors = {
+    green: 'bg-green-500',
+    blue: 'bg-blue-500',
+    purple: 'bg-purple-500',
+  }
+
   return (
-    <div className={`px-3 py-1.5 rounded-full text-[11px] font-semibold ${data.className}`}>
-      {data.label} ({data.count})
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${colors[color]}`}>
+      <div className={`w-2 h-2 rounded-full ${dotColors[color]}`} />
+      <span className="font-semibold">{count}</span>
+      <span className="text-xs opacity-80">{label}</span>
     </div>
   )
-}
-
-const nodeTypes = {
-  centralResource: CentralResourceNode,
-  dependency: DependencyNode,
-  iam: IAMNode,
-  groupLabel: GroupLabelNode,
 }
 
 export default function ResourceView({
@@ -226,10 +150,10 @@ export default function ResourceView({
     loading: true
   })
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showIamDetails, setShowIamDetails] = useState(false)
 
-  // Fetch dependency data
+  // Fetch dependency data - show ALL connections, not just ACTUAL_TRAFFIC
   useEffect(() => {
     if (!selectedResource) return
 
@@ -249,42 +173,42 @@ export default function ResourceView({
           const data = await connectionsRes.json()
           const connections = data.connections || {}
 
-          // Process inbound
+          // Process inbound - show ALL connections
           ;(connections.inbound || []).forEach((conn: any) => {
             const rel = conn.relationship || {}
             const source = conn.source || {}
-            if (rel.type === 'ACTUAL_TRAFFIC' || rel.relationship_type === 'ACTUAL_TRAFFIC') {
-              inbound.push({
-                id: source.id || source.arn || `inbound-${Math.random()}`,
-                name: source.name || source.id || 'Unknown',
-                type: source.type || 'IP',
-                port: rel.port || 0,
-                protocol: (rel.protocol || 'TCP').toUpperCase(),
-                direction: 'inbound',
-                verified: true,
-                lastSeen: rel.last_seen,
-                hitCount: rel.hit_count || 0
-              })
-            }
+            const relType = rel.type || rel.relationship_type || ''
+
+            inbound.push({
+              id: source.id || source.arn || `inbound-${Math.random()}`,
+              name: source.name || source.id || 'Unknown',
+              type: source.type || 'IP',
+              port: rel.port || 0,
+              protocol: (rel.protocol || 'TCP').toUpperCase(),
+              direction: 'inbound',
+              verified: relType === 'ACTUAL_TRAFFIC',
+              lastSeen: rel.last_seen,
+              hitCount: rel.hit_count || 0
+            })
           })
 
-          // Process outbound
+          // Process outbound - show ALL connections
           ;(connections.outbound || []).forEach((conn: any) => {
             const rel = conn.relationship || {}
             const target = conn.target || {}
-            if (rel.type === 'ACTUAL_TRAFFIC' || rel.relationship_type === 'ACTUAL_TRAFFIC') {
-              outbound.push({
-                id: target.id || target.arn || `outbound-${Math.random()}`,
-                name: target.name || target.id || 'Unknown',
-                type: target.type || 'IP',
-                port: rel.port || 0,
-                protocol: (rel.protocol || 'TCP').toUpperCase(),
-                direction: 'outbound',
-                verified: true,
-                lastSeen: rel.last_seen,
-                hitCount: rel.hit_count || 0
-              })
-            }
+            const relType = rel.type || rel.relationship_type || ''
+
+            outbound.push({
+              id: target.id || target.arn || `outbound-${Math.random()}`,
+              name: target.name || target.id || 'Unknown',
+              type: target.type || 'IP',
+              port: rel.port || 0,
+              protocol: (rel.protocol || 'TCP').toUpperCase(),
+              direction: 'outbound',
+              verified: relType === 'ACTUAL_TRAFFIC',
+              lastSeen: rel.last_seen,
+              hitCount: rel.hit_count || 0
+            })
           })
         }
 
@@ -324,218 +248,38 @@ export default function ResourceView({
     fetchDependencies()
   }, [selectedResource])
 
-  // Generate orbital layout
-  useEffect(() => {
-    if (!selectedResource || dependencies.loading) return
+  // Filtered connections for table
+  const allConnections = useMemo(() => {
+    const all = [
+      ...dependencies.inbound.map(c => ({ ...c, direction: 'inbound' as const })),
+      ...dependencies.outbound.map(c => ({ ...c, direction: 'outbound' as const }))
+    ]
 
-    const newNodes: Node[] = []
-    const newEdges: Edge[] = []
+    if (!searchQuery) return all
 
-    const centerX = 400
-    const centerY = 300
+    const query = searchQuery.toLowerCase()
+    return all.filter(c =>
+      c.name.toLowerCase().includes(query) ||
+      c.type.toLowerCase().includes(query) ||
+      String(c.port).includes(query) ||
+      c.protocol.toLowerCase().includes(query)
+    )
+  }, [dependencies.inbound, dependencies.outbound, searchQuery])
 
-    // Central resource node
-    newNodes.push({
-      id: 'center',
-      type: 'centralResource',
-      position: { x: centerX - 48, y: centerY - 48 },
-      data: {
-        label: selectedResource.name,
-        type: selectedResource.type,
-        permissionScore: dependencies.permissionScore,
-      },
-      draggable: false,
-    })
-
-    // Group inbound by type for clustering
-    const inboundGroups = dependencies.inbound.reduce((acc, conn) => {
-      const key = conn.type || 'Other'
-      if (!acc[key]) acc[key] = []
-      acc[key].push(conn)
-      return acc
-    }, {} as Record<string, Connection[]>)
-
-    // Group outbound by type
-    const outboundGroups = dependencies.outbound.reduce((acc, conn) => {
-      const key = conn.type || 'Other'
-      if (!acc[key]) acc[key] = []
-      acc[key].push(conn)
-      return acc
-    }, {} as Record<string, Connection[]>)
-
-    // Place inbound nodes on the left (spread in arc)
-    const inboundRadius = 250
-    const inboundConnections = dependencies.inbound.slice(0, 15) // Limit for visibility
-    const inboundAngleStep = Math.PI / Math.max(inboundConnections.length + 1, 2)
-    const inboundStartAngle = Math.PI / 2 + Math.PI / 4
-
-    // Inbound group label
-    if (dependencies.inbound.length > 0) {
-      newNodes.push({
-        id: 'inbound-label',
-        type: 'groupLabel',
-        position: { x: centerX - inboundRadius - 60, y: centerY - 180 },
-        data: {
-          label: 'Inbound',
-          count: dependencies.inbound.length,
-          className: 'bg-green-100 text-green-700 border border-green-300'
-        },
-        draggable: false,
-      })
+  const handleRefresh = () => {
+    if (selectedResource) {
+      setDependencies(prev => ({ ...prev, loading: true }))
+      // Re-trigger fetch by updating a key or forcing re-render
+      const currentResource = selectedResource
+      onSelectResource({ ...currentResource })
     }
+  }
 
-    inboundConnections.forEach((conn, i) => {
-      const angle = inboundStartAngle + (i + 1) * inboundAngleStep
-      const x = centerX + Math.cos(angle) * inboundRadius - 50
-      const y = centerY - Math.sin(angle) * inboundRadius - 20
-
-      const nodeId = `inbound-${i}`
-      newNodes.push({
-        id: nodeId,
-        type: 'dependency',
-        position: { x, y },
-        data: {
-          label: conn.name,
-          type: conn.type,
-          port: conn.port,
-          protocol: conn.protocol,
-          verified: conn.verified,
-          direction: 'inbound',
-        },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-      })
-
-      newEdges.push({
-        id: `edge-${nodeId}`,
-        source: nodeId,
-        target: 'center',
-        type: 'smoothstep',
-        animated: conn.verified,
-        style: { stroke: '#22c55e', strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#22c55e' },
-      })
-    })
-
-    // Show "+X more" indicator for inbound
-    if (dependencies.inbound.length > 15) {
-      newNodes.push({
-        id: 'inbound-more',
-        type: 'groupLabel',
-        position: { x: centerX - inboundRadius - 40, y: centerY + 120 },
-        data: {
-          label: `+${dependencies.inbound.length - 15} more`,
-          count: '',
-          className: 'bg-slate-100 text-slate-600 border border-slate-300'
-        },
-        draggable: false,
-      })
-    }
-
-    // Place outbound nodes on the right (spread in arc)
-    const outboundRadius = 250
-    const outboundConnections = dependencies.outbound.slice(0, 15)
-    const outboundAngleStep = Math.PI / Math.max(outboundConnections.length + 1, 2)
-    const outboundStartAngle = -Math.PI / 4
-
-    // Outbound group label
-    if (dependencies.outbound.length > 0) {
-      newNodes.push({
-        id: 'outbound-label',
-        type: 'groupLabel',
-        position: { x: centerX + outboundRadius - 20, y: centerY - 180 },
-        data: {
-          label: 'Outbound',
-          count: dependencies.outbound.length,
-          className: 'bg-blue-100 text-blue-700 border border-blue-300'
-        },
-        draggable: false,
-      })
-    }
-
-    outboundConnections.forEach((conn, i) => {
-      const angle = outboundStartAngle + (i + 1) * outboundAngleStep
-      const x = centerX + Math.cos(angle) * outboundRadius - 50
-      const y = centerY - Math.sin(angle) * outboundRadius - 20
-
-      const nodeId = `outbound-${i}`
-      newNodes.push({
-        id: nodeId,
-        type: 'dependency',
-        position: { x, y },
-        data: {
-          label: conn.name,
-          type: conn.type,
-          port: conn.port,
-          protocol: conn.protocol,
-          verified: conn.verified,
-          direction: 'outbound',
-        },
-        sourcePosition: Position.Left,
-        targetPosition: Position.Right,
-      })
-
-      newEdges.push({
-        id: `edge-${nodeId}`,
-        source: 'center',
-        target: nodeId,
-        type: 'smoothstep',
-        animated: conn.verified,
-        style: { stroke: '#3b82f6', strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
-      })
-    })
-
-    // Show "+X more" indicator for outbound
-    if (dependencies.outbound.length > 15) {
-      newNodes.push({
-        id: 'outbound-more',
-        type: 'groupLabel',
-        position: { x: centerX + outboundRadius - 20, y: centerY + 120 },
-        data: {
-          label: `+${dependencies.outbound.length - 15} more`,
-          count: '',
-          className: 'bg-slate-100 text-slate-600 border border-slate-300'
-        },
-        draggable: false,
-      })
-    }
-
-    // Place IAM roles above
-    const iamRadius = 150
-    const iamRoles = dependencies.iamRoles.slice(0, 5)
-    const iamAngleStep = Math.PI / Math.max(iamRoles.length + 1, 2)
-
-    iamRoles.forEach((role, i) => {
-      const angle = Math.PI / 2 + (i - (iamRoles.length - 1) / 2) * 0.4
-      const x = centerX + Math.cos(angle) * iamRadius - 45
-      const y = centerY - Math.sin(angle) * iamRadius - 20
-
-      const nodeId = `iam-${i}`
-      newNodes.push({
-        id: nodeId,
-        type: 'iam',
-        position: { x, y },
-        data: { label: role.name },
-      })
-
-      newEdges.push({
-        id: `edge-${nodeId}`,
-        source: 'center',
-        target: nodeId,
-        type: 'smoothstep',
-        style: { stroke: '#a855f7', strokeWidth: 1, strokeDasharray: '5,5' },
-      })
-    })
-
-    setNodes(newNodes)
-    setEdges(newEdges)
-  }, [selectedResource, dependencies, setNodes, setEdges])
-
-  const totalConnections = dependencies.inbound.length + dependencies.outbound.length
+  const Icon = selectedResource ? (RESOURCE_ICONS[selectedResource.type] || RESOURCE_ICONS.default) : Layers
+  const resourceColor = selectedResource ? (RESOURCE_COLORS[selectedResource.type] || RESOURCE_COLORS.default) : '#64748b'
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 rounded-xl border">
+    <div className="flex flex-col h-full bg-slate-50 rounded-xl border overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b">
         <div className="flex items-center gap-3">
@@ -544,7 +288,7 @@ export default function ResourceView({
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg text-sm transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to Graph
+            Back
           </button>
 
           <div className="h-6 w-px bg-slate-200" />
@@ -560,105 +304,258 @@ export default function ResourceView({
           </div>
         </div>
 
-        {/* Stats Summary */}
-        {selectedResource && !dependencies.loading && (
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-slate-600">{dependencies.inbound.length} inbound</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-slate-600">{dependencies.outbound.length} outbound</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-purple-500" />
-              <span className="text-slate-600">{dependencies.iamRoles.length} IAM</span>
-            </div>
-          </div>
-        )}
-
         <button
-          onClick={() => setDependencies(prev => ({ ...prev, loading: true }))}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+          onClick={handleRefresh}
+          disabled={dependencies.loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
         >
-          <RefreshCw className="w-3.5 h-3.5" />
+          <RefreshCw className={`w-3.5 h-3.5 ${dependencies.loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
       {/* Content */}
-      <div className="flex-1 relative">
-        {!selectedResource ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-14 h-14 rounded-full bg-slate-200 flex items-center justify-center mb-3">
-              <Layers className="w-7 h-7 text-slate-400" />
+      {!selectedResource ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+          <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center mb-4">
+            <Layers className="w-8 h-8 text-slate-400" />
+          </div>
+          <h3 className="text-lg font-medium text-slate-700 mb-2">Select a Resource</h3>
+          <p className="text-sm text-slate-500 max-w-sm">
+            Choose a resource from the dropdown above to view its inbound and outbound connections
+          </p>
+        </div>
+      ) : dependencies.loading ? (
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <RefreshCw className="w-10 h-10 text-blue-500 animate-spin mb-4" />
+          <p className="text-sm text-slate-500">Loading connections...</p>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Resource Info Bar */}
+          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-100 to-white border-b">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center shadow-sm"
+                style={{ backgroundColor: resourceColor }}
+              >
+                <Icon className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-slate-800 text-lg">{selectedResource.name}</h2>
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <span className="px-2 py-0.5 bg-slate-200 rounded text-xs font-medium">
+                    {selectedResource.type}
+                  </span>
+                  <span>{systemName}</span>
+                </div>
+              </div>
             </div>
-            <h3 className="text-base font-medium text-slate-700 mb-1">Select a Resource</h3>
-            <p className="text-sm text-slate-500">Choose a resource to view its dependencies</p>
+
+            <div className="flex items-center gap-3">
+              <StatBadge count={dependencies.inbound.length} label="Inbound" color="green" />
+              <StatBadge count={dependencies.outbound.length} label="Outbound" color="blue" />
+              <StatBadge count={dependencies.iamRoles.length} label="IAM" color="purple" />
+            </div>
           </div>
-        ) : dependencies.loading ? (
-          <div className="flex flex-col items-center justify-center h-full">
-            <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-3" />
-            <p className="text-sm text-slate-500">Loading dependencies...</p>
+
+          {/* Three-Column Flow View */}
+          <div className="flex-1 flex gap-4 p-4 min-h-0 overflow-hidden">
+            {/* Inbound Column */}
+            <div className="flex-1 flex flex-col border-2 border-green-400 rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="bg-green-50 px-4 py-2.5 border-b border-green-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ArrowRight className="w-4 h-4 text-green-600 rotate-180" />
+                  <span className="font-semibold text-green-700">INBOUND</span>
+                </div>
+                <span className="text-sm text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                  {dependencies.inbound.length}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {dependencies.inbound.length === 0 ? (
+                  <div className="text-center text-slate-400 py-8">
+                    <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No inbound connections</p>
+                  </div>
+                ) : (
+                  dependencies.inbound.map((conn, idx) => (
+                    <ConnectionCard key={conn.id + '-' + idx} conn={conn} direction="inbound" />
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Central Resource */}
+            <div className="flex flex-col items-center justify-center px-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-8 border-t-2 border-dashed border-green-400" />
+                <ArrowRight className="w-5 h-5 text-green-500" />
+              </div>
+
+              <div
+                className="w-28 h-28 rounded-2xl flex flex-col items-center justify-center shadow-lg border-4 border-white"
+                style={{ backgroundColor: resourceColor }}
+              >
+                <Icon className="w-10 h-10 text-white mb-1" />
+                <span className="text-xs text-white/90 font-medium">{selectedResource.type}</span>
+              </div>
+
+              <div className="mt-3 text-center max-w-[140px]">
+                <div className="font-medium text-slate-800 text-sm truncate" title={selectedResource.name}>
+                  {selectedResource.name}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 mt-4">
+                <ArrowRight className="w-5 h-5 text-blue-500" />
+                <div className="w-8 border-t-2 border-dashed border-blue-400" />
+              </div>
+            </div>
+
+            {/* Outbound Column */}
+            <div className="flex-1 flex flex-col border-2 border-blue-400 rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="bg-blue-50 px-4 py-2.5 border-b border-blue-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ArrowRight className="w-4 h-4 text-blue-600" />
+                  <span className="font-semibold text-blue-700">OUTBOUND</span>
+                </div>
+                <span className="text-sm text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                  {dependencies.outbound.length}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {dependencies.outbound.length === 0 ? (
+                  <div className="text-center text-slate-400 py-8">
+                    <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No outbound connections</p>
+                  </div>
+                ) : (
+                  dependencies.outbound.map((conn, idx) => (
+                    <ConnectionCard key={conn.id + '-' + idx} conn={conn} direction="outbound" />
+                  ))
+                )}
+              </div>
+            </div>
           </div>
-        ) : (
-          <>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              nodeTypes={nodeTypes}
-              fitView
-              fitViewOptions={{ padding: 0.3 }}
-              minZoom={0.3}
-              maxZoom={1.5}
-              defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-              proOptions={{ hideAttribution: true }}
+
+          {/* Quick Stats Tabs */}
+          <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border-t border-b">
+            <button
+              onClick={() => setShowIamDetails(!showIamDetails)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                showIamDetails ? 'bg-purple-100 text-purple-700' : 'bg-white text-slate-600 hover:bg-slate-50'
+              } border`}
             >
-              <Background color="#e2e8f0" gap={20} />
-              <Controls showInteractive={false} />
-            </ReactFlow>
+              <Key className="w-4 h-4" />
+              IAM Roles: {dependencies.iamRoles.length}
+              {showIamDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-white text-slate-600 border hover:bg-slate-50">
+              <Shield className="w-4 h-4" />
+              Security Groups: {dependencies.securityGroups.length}
+            </button>
+          </div>
 
-            {/* Legend */}
-            <div className="absolute bottom-4 left-4 bg-white/95 rounded-lg p-3 text-xs shadow-lg border">
-              <div className="font-medium mb-2 text-slate-700">Legend</div>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-0.5 bg-green-500" />
-                  <span className="text-slate-600">Inbound Traffic</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-0.5 bg-blue-500" />
-                  <span className="text-slate-600">Outbound Traffic</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-0.5 bg-purple-500 border-dashed" style={{ borderTopWidth: 2, height: 0 }} />
-                  <span className="text-slate-600">IAM Role</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full border-2 border-red-500" />
-                  <span className="text-slate-600">Low Permission Score</span>
-                </div>
+          {/* IAM Details Panel (collapsible) */}
+          {showIamDetails && dependencies.iamRoles.length > 0 && (
+            <div className="px-4 py-3 bg-purple-50 border-b">
+              <div className="flex flex-wrap gap-2">
+                {dependencies.iamRoles.map((role, idx) => (
+                  <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-purple-200">
+                    <Key className="w-4 h-4 text-purple-500" />
+                    <span className="text-sm text-slate-700">{role.name}</span>
+                    {role.score !== undefined && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                        role.score < 20 ? 'bg-red-100 text-red-600' :
+                        role.score < 50 ? 'bg-yellow-100 text-yellow-600' :
+                        'bg-green-100 text-green-600'
+                      }`}>
+                        {role.score}% LP
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
+          )}
 
-            {/* Empty state overlay */}
-            {totalConnections === 0 && dependencies.iamRoles.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/80">
-                <div className="text-center">
-                  <AlertTriangle className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <h3 className="text-base font-medium text-slate-700 mb-1">No Dependencies Found</h3>
-                  <p className="text-sm text-slate-500">
-                    No verified traffic or IAM dependencies detected
-                  </p>
-                </div>
+          {/* Connections Table */}
+          <div className="border-t bg-white">
+            <div className="px-4 py-2 flex items-center justify-between bg-slate-50 border-b">
+              <span className="font-medium text-slate-700">All Connections ({allConnections.length})</span>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search connections..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-            )}
-          </>
-        )}
-      </div>
+            </div>
+            <div className="max-h-[200px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium text-slate-600">Direction</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-600">Resource</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-600">Type</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-600">Port</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-600">Protocol</th>
+                    <th className="px-4 py-2 text-left font-medium text-slate-600">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {allConnections.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                        {searchQuery ? 'No connections match your search' : 'No connections found'}
+                      </td>
+                    </tr>
+                  ) : (
+                    allConnections.map((conn, idx) => (
+                      <tr key={conn.id + '-table-' + idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                            conn.direction === 'inbound'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            <ArrowRight className={`w-3 h-3 ${conn.direction === 'inbound' ? 'rotate-180' : ''}`} />
+                            {conn.direction}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 font-medium text-slate-800 max-w-[200px] truncate" title={conn.name}>
+                          {conn.name}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">
+                            {conn.type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 font-mono text-slate-600">{conn.port || '-'}</td>
+                        <td className="px-4 py-2 text-slate-600">{conn.protocol}</td>
+                        <td className="px-4 py-2">
+                          {conn.verified ? (
+                            <span className="flex items-center gap-1 text-green-600">
+                              <CheckCircle className="w-4 h-4" />
+                              Verified
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
