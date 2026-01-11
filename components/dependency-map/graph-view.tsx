@@ -11,9 +11,8 @@ import {
   RefreshCw, ZoomIn, ZoomOut, Maximize2,
   ChevronRight, AlertTriangle, CheckCircle, X,
   Layers, Search, ArrowRight, Download,
-  Play, FileText, Clock, Info, Activity, GitBranch
+  Play, FileText, Clock, Info, Activity
 } from 'lucide-react'
-import { SankeyView } from './sankey'
 
 if (typeof window !== 'undefined') {
   try { cytoscape.use(coseBilkent) } catch (e) {}
@@ -161,7 +160,6 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
   const [observationDays, setObservationDays] = useState(30)
   const [stats, setStats] = useState({ nodes: 0, edges: 0, actualTraffic: 0 })
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
-  const [viewType, setViewType] = useState<'graph' | 'sankey'>('sankey')
 
   // Animate ACTUAL_TRAFFIC edges
   const animateTrafficEdges = useCallback(() => {
@@ -1036,15 +1034,6 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
           <button
-            onClick={() => setViewType(viewType === 'graph' ? 'sankey' : 'graph')}
-            className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
-              viewType === 'sankey' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-            )}
-          >
-            <GitBranch className="w-4 h-4" />
-            {viewType === 'sankey' ? 'Graph View' : 'Traffic Flow'}
-          </button>
-          <button
             onClick={() => setViewMode(viewMode === 'grouped' ? 'all' : 'grouped')}
             className={"flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium " + (
               viewMode === 'grouped' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
@@ -1106,17 +1095,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
         </div>
       </div>
 
-      {/* Graph Canvas + Side Panel or Sankey View */}
-      {viewType === 'sankey' ? (
-        <SankeyView
-          graphData={graphData}
-          isLoading={isLoading}
-          onNodeClick={onNodeClick}
-          onRefresh={onRefresh}
-          showIAM={false}
-          height={600}
-        />
-      ) : (
+      {/* Graph Canvas + Side Panel */}
       <div className="flex-1 flex relative">
         <div ref={containerRef} className="flex-1 bg-slate-50" style={{ minHeight: '500px' }} />
         
@@ -1510,7 +1489,6 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           </div>
         )}
       </div>
-      )}
 
       {/* Footer */}
       <div className="px-4 py-2 border-t bg-slate-50 text-xs text-slate-500 flex justify-between">

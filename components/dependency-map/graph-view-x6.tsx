@@ -119,10 +119,10 @@ const AnimatedEdge: React.FC<{
       <path
         d={path}
         fill="none"
-        stroke={isActive ? '#10B981' : '#64748B'}
-        strokeWidth={isActive ? 2.5 : 1}
-        strokeDasharray={isActive ? 'none' : '4 3'}
-        strokeOpacity={isActive ? 1 : 0.4}
+        stroke={isActive ? '#10B981' : '#94A3B8'}
+        strokeWidth={isActive ? 2.5 : 1.5}
+        strokeDasharray={isActive ? 'none' : '6 4'}
+        strokeOpacity={isActive ? 1 : 0.75}
         markerEnd={isActive ? 'url(#arrow-active)' : 'url(#arrow-inactive)'}
       />
       
