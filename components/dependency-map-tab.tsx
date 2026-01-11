@@ -1,23 +1,10 @@
 'use client'
 
 import React, { useState, useCallback, useEffect } from 'react'
-import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch } from 'lucide-react'
+import { Map, Search, RefreshCw, Network, Layers } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
-
-// Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
-const SankeyView = dynamic(
-  () => import('./dependency-map/sankey').then(mod => mod.SankeyView),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex items-center justify-center h-[550px] bg-slate-900 rounded-xl">
-        <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
-      </div>
-    )
-  }
-)
 
 // Lazy load GraphViewX6 with SSR disabled to prevent build errors
 const GraphViewX6 = dynamic(
@@ -47,10 +34,10 @@ interface Props {
   onHighlightPathClear?: () => void
 }
 
-type ViewType = 'graph' | 'resource' | 'sankey'
+type ViewType = 'graph' | 'resource'
 
-export default function DependencyMapTab({
-  systemName,
+export default function DependencyMapTab({ 
+  systemName, 
   highlightPath,
   defaultGraphEngine = 'architectural',
   onGraphEngineChange,
@@ -88,13 +75,38 @@ export default function DependencyMapTab({
   const [resources, setResources] = useState<Resource[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [resourcesLoading, setResourcesLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null)
+  const [isSlowLoading, setIsSlowLoading] = useState(false)
+
+  // Track slow loading state
+  useEffect(() => {
+    if (!isLoading) {
+      setLoadingStartTime(null)
+      setIsSlowLoading(false)
+      return
+    }
+
+    // Set start time if not already set
+    if (!loadingStartTime) {
+      setLoadingStartTime(Date.now())
+    }
+
+    // Check for slow loading every second
+    const interval = setInterval(() => {
+      if (loadingStartTime && Date.now() - loadingStartTime > 8000) {
+        setIsSlowLoading(true)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isLoading, loadingStartTime])
 
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
     setIsLoading(true)
     setResourcesLoading(true)
+    setLoadingStartTime(Date.now())
+    setIsSlowLoading(false)
     try {
       console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
       
@@ -126,12 +138,6 @@ export default function DependencyMapTab({
           ...data
         }
         setGraphData(validData)
-        console.log('[DependencyMapTab] ✅ Graph data set:', {
-          nodes: validData.nodes?.length || 0,
-          edges: validData.edges?.length || 0,
-          systemName: validData.system_name,
-          dataSources: validData.data_sources
-        })
         
         // Extract resources from graph nodes
         const resourceList: Resource[] = (validData.nodes || []).map((n: any) => ({
@@ -142,7 +148,6 @@ export default function DependencyMapTab({
         }))
         console.log('[DependencyMapTab] Extracted resources:', resourceList.length)
         setResources(resourceList)
-        setIsLoading(false) // Explicitly set loading to false on success
         setResourcesLoading(false)
       } else {
         const errorText = await res.text()
@@ -275,46 +280,6 @@ export default function DependencyMapTab({
     setActiveView('graph')
   }, [])
 
-  // Sync from AWS - fetches latest data from AWS and updates Neo4j
-  const handleSyncFromAWS = useCallback(async () => {
-    setSyncing(true)
-    setSyncMessage(null)
-    try {
-      const response = await fetch('/api/proxy/collectors/sync-all?days=7', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(120000), // 2 minute timeout
-      })
-
-      if (!response.ok) {
-        throw new Error(`Sync failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      console.log('[DependencyMapTab] Sync complete:', data)
-
-      setSyncMessage({
-        type: 'success',
-        text: `Synced: ${data.results?.flow_logs?.relationships_created || 0} traffic, ${data.results?.cloudtrail?.relationships_created || 0} API calls`
-      })
-
-      // Refresh the graph data
-      setTimeout(() => {
-        fetchGraphData()
-      }, 1000)
-
-    } catch (error) {
-      console.error('[DependencyMapTab] Sync failed:', error)
-      setSyncMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Sync failed'
-      })
-    } finally {
-      setSyncing(false)
-      setTimeout(() => setSyncMessage(null), 5000)
-    }
-  }, [fetchGraphData])
-
   return (
     <div className="flex flex-col h-full min-h-[700px]">
       {/* View Switcher Header */}
@@ -322,17 +287,6 @@ export default function DependencyMapTab({
         <div className="flex items-center gap-3">
           {/* Main View Toggle */}
           <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-            <button
-              onClick={() => setActiveView('sankey')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeView === 'sankey'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <GitBranch className="w-4 h-4" />
-              Traffic Flow
-            </button>
             <button
               onClick={() => setActiveView('graph')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -388,61 +342,23 @@ export default function DependencyMapTab({
           )}
         </div>
 
-        {/* Right side: Description + Sync button */}
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-slate-500">
-            {activeView === 'sankey' ? (
-              <span>Professional traffic flow visualization • Based on actual VPC Flow Logs</span>
-            ) : activeView === 'graph' ? (
-              <span>
-                {graphEngine === 'architectural'
-                  ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
-                  : 'Graph theory view with all connections • Double-click a node for details'}
-              </span>
-            ) : (
-              <span>Detailed dependency breakdown of a single resource</span>
-            )}
-          </div>
-
-          {/* Sync from AWS button */}
-          <button
-            onClick={handleSyncFromAWS}
-            disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-          >
-            {syncing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Syncing...
-              </>
-            ) : (
-              <>
-                <Cloud className="w-4 h-4" />
-                Sync from AWS
-              </>
-            )}
-          </button>
-
-          {syncMessage && (
-            <span className={`text-sm ${syncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-              {syncMessage.text}
+        {/* View description */}
+        <div className="text-sm text-slate-500">
+          {activeView === 'graph' ? (
+            <span>
+              {graphEngine === 'architectural' 
+                ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
+                : 'Graph theory view with all connections • Double-click a node for details'}
             </span>
+          ) : (
+            <span>Detailed dependency breakdown of a single resource</span>
           )}
         </div>
       </div>
 
       {/* View Content */}
-      <div className="flex-1 h-[550px]">
-        {activeView === 'sankey' ? (
-          <SankeyView
-            graphData={graphData}
-            isLoading={isLoading}
-            onNodeClick={handleNodeClick}
-            onRefresh={fetchGraphData}
-            showIAM={false}
-            height={550}
-          />
-        ) : activeView === 'graph' ? (
+      <div className="flex-1">
+        {activeView === 'graph' ? (
           graphEngine === 'architectural' ? (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
@@ -453,6 +369,7 @@ export default function DependencyMapTab({
                 systemName={systemName}
                 graphData={graphData}
                 isLoading={isLoading}
+                isSlowLoading={isSlowLoading}
                 onNodeClick={handleNodeClick}
                 onRefresh={fetchGraphData}
                 highlightPath={highlightPath}
@@ -463,6 +380,7 @@ export default function DependencyMapTab({
               systemName={systemName}
               graphData={graphData}
               isLoading={isLoading}
+              isSlowLoading={isSlowLoading}
               onNodeClick={handleNodeClick}
               onRefresh={fetchGraphData}
             />
