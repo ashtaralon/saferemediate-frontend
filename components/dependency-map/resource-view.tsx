@@ -125,12 +125,13 @@ function CentralResourceNode({ data }: { data: any }) {
         <div className="text-[8px] text-white/80">{data.type}</div>
       </div>
 
-      {/* Score badge */}
+      {/* Remediation confidence badge */}
       <div
         className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[10px] font-bold text-white z-20"
         style={{ backgroundColor: scoreColor }}
+        title={score >= 70 ? 'High confidence - safe to remove unused permissions' : score >= 40 ? 'Medium confidence - review before removing' : 'Low confidence - removal may break the system'}
       >
-        {score}% LP
+        {score}% RC
       </div>
     </div>
   )
@@ -638,8 +639,12 @@ export default function ResourceView({
                   <span className="text-slate-600">IAM Role</span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full border-2 border-green-500" />
+                  <span className="text-slate-600">High RC = Safe to remediate</span>
+                </div>
+                <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full border-2 border-red-500" />
-                  <span className="text-slate-600">Low Permission Score</span>
+                  <span className="text-slate-600">Low RC = May break system</span>
                 </div>
               </div>
             </div>
