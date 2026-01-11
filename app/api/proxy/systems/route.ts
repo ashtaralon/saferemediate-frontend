@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 10
+export const maxDuration = 60 // Increased for Render cold starts
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || 
@@ -37,7 +37,7 @@ export async function GET() {
       headers: {
         "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(8000), // 8 second timeout
+      signal: AbortSignal.timeout(55000), // 55 second timeout (Render cold start can take 50s)
     })
 
     if (!response.ok) {
