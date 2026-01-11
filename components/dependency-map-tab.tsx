@@ -1,10 +1,11 @@
 'use client'
 
 import React, { useState, useCallback, useEffect } from 'react'
-import { Map, Search, RefreshCw, Network, Layers, Cloud } from 'lucide-react'
+import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
+import { SankeyView } from './dependency-map/sankey'
 
 // Lazy load GraphViewX6 with SSR disabled to prevent build errors
 const GraphViewX6 = dynamic(
@@ -34,16 +35,16 @@ interface Props {
   onHighlightPathClear?: () => void
 }
 
-type ViewType = 'graph' | 'resource'
+type ViewType = 'graph' | 'resource' | 'sankey'
 
-export default function DependencyMapTab({ 
-  systemName, 
+export default function DependencyMapTab({
+  systemName,
   highlightPath,
   defaultGraphEngine = 'architectural',
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
-  const [activeView, setActiveView] = useState<ViewType>('graph')
+  const [activeView, setActiveView] = useState<ViewType>('sankey')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>(defaultGraphEngine)
   
   // Update graph engine when prop changes
@@ -310,6 +311,17 @@ export default function DependencyMapTab({
           {/* Main View Toggle */}
           <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
             <button
+              onClick={() => setActiveView('sankey')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeView === 'sankey'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <GitBranch className="w-4 h-4" />
+              Traffic Flow
+            </button>
+            <button
               onClick={() => setActiveView('graph')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeView === 'graph'
@@ -367,7 +379,9 @@ export default function DependencyMapTab({
         {/* Right side: Description + Sync button */}
         <div className="flex items-center gap-4">
           <div className="text-sm text-slate-500">
-            {activeView === 'graph' ? (
+            {activeView === 'sankey' ? (
+              <span>Professional traffic flow visualization • Based on actual VPC Flow Logs</span>
+            ) : activeView === 'graph' ? (
               <span>
                 {graphEngine === 'architectural'
                   ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
@@ -407,7 +421,16 @@ export default function DependencyMapTab({
 
       {/* View Content */}
       <div className="flex-1 h-[550px]">
-        {activeView === 'graph' ? (
+        {activeView === 'sankey' ? (
+          <SankeyView
+            graphData={graphData}
+            isLoading={isLoading}
+            onNodeClick={handleNodeClick}
+            onRefresh={fetchGraphData}
+            showIAM={false}
+            height={550}
+          />
+        ) : activeView === 'graph' ? (
           graphEngine === 'architectural' ? (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
