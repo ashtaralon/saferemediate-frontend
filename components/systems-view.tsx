@@ -118,14 +118,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
     try {
       // Fetch systems from /api/proxy/systems (correct endpoint!)
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000)
-      
       const systemsRes = await fetch("/api/proxy/systems", {
-        signal: controller.signal,
+        signal: AbortSignal.timeout(30000),
+        cache: 'no-store',
       })
-      
-      clearTimeout(timeoutId)
 
       if (systemsRes.ok) {
         const systemsData = await systemsRes.json()
@@ -189,7 +185,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
         setBackendStatus("offline")
       }
     } catch (fetchErr: any) {
-      console.error("[systems-view] Failed to fetch systems:", fetchErr.message)
+      // Ignore abort errors (timeout or unmount) - they're expected
+      if (fetchErr.name === 'AbortError' || fetchErr.name === 'TimeoutError') {
+        console.warn("[systems-view] Request timed out or aborted")
+      } else {
+        console.error("[systems-view] Failed to fetch systems:", fetchErr.message)
+      }
       setLocalSystems([])
       setBackendStatus("offline")
     } finally {
