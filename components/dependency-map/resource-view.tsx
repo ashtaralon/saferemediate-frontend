@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft, Server, Database, Key, Shield, Globe, Cloud, Layers,
-  RefreshCw, CheckCircle, AlertTriangle, Search, ArrowRight, ChevronDown, ChevronUp
+  RefreshCw, CheckCircle, Search, ArrowRight, ChevronDown, ChevronUp,
+  Activity, Clock, Zap, Network, Eye, Filter
 } from 'lucide-react'
 import ResourceSelector from './resource-selector'
 
@@ -21,8 +22,10 @@ interface Connection {
   port: number | string
   protocol: string
   direction: 'inbound' | 'outbound'
+  relationshipType: string // ACTUAL_TRAFFIC, ACCESSES_RESOURCE, IN_VPC, etc.
   verified: boolean
   lastSeen?: string
+  firstSeen?: string
   hitCount?: number
 }
 
@@ -54,6 +57,8 @@ const RESOURCE_COLORS: Record<string, string> = {
   IAMRole: '#759C3E',
   Internet: '#D13212',
   IP: '#64748b',
+  NetworkEndpoint: '#64748b',
+  Principal: '#8B5CF6',
   default: '#64748b',
 }
 
@@ -67,15 +72,49 @@ const RESOURCE_ICONS: Record<string, any> = {
   SecurityGroup: Shield,
   IAMRole: Key,
   Internet: Globe,
+  NetworkEndpoint: Globe,
+  Principal: Key,
   default: Layers,
 }
 
-// Connection Card Component
+// Relationship type categories
+const RELATIONSHIP_CATEGORIES = {
+  traffic: ['ACTUAL_TRAFFIC'],
+  access: ['ACCESSES_RESOURCE'],
+  infrastructure: ['IN_VPC', 'IN_SUBNET', 'HAS_SECURITY_GROUP', 'CONTAINS', 'BELONGS_TO_SYSTEM'],
+}
+
+// Format relative time
+function formatRelativeTime(dateString?: string): string {
+  if (!dateString) return '-'
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  if (diffHours < 24) return `${diffHours}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}
+
+// Get category color for relationship type
+function getRelationshipColor(relType: string): string {
+  if (RELATIONSHIP_CATEGORIES.traffic.includes(relType)) return 'emerald'
+  if (RELATIONSHIP_CATEGORIES.access.includes(relType)) return 'violet'
+  return 'slate'
+}
+
+// Connection Card Component with behavioral data
 function ConnectionCard({ conn, direction }: { conn: Connection; direction: 'inbound' | 'outbound' }) {
   const Icon = RESOURCE_ICONS[conn.type] || RESOURCE_ICONS.default
   const color = RESOURCE_COLORS[conn.type] || RESOURCE_COLORS.default
   const borderColor = direction === 'inbound' ? 'border-green-200' : 'border-blue-200'
   const hoverBorder = direction === 'inbound' ? 'hover:border-green-400' : 'hover:border-blue-400'
+  const relColor = getRelationshipColor(conn.relationshipType)
 
   return (
     <div className={`bg-white rounded-lg border ${borderColor} ${hoverBorder} p-3 transition-all hover:shadow-sm`}>
@@ -95,32 +134,87 @@ function ConnectionCard({ conn, direction }: { conn: Connection; direction: 'inb
               <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
             )}
           </div>
+
+          {/* Port & Protocol */}
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs px-1.5 py-0.5 bg-slate-100 rounded font-mono text-slate-600">
-              :{conn.port || '-'}
-            </span>
-            <span className="text-xs text-slate-400">{conn.protocol}</span>
-            <span className="text-xs px-1.5 py-0.5 bg-slate-50 rounded text-slate-500">
-              {conn.type}
+            {conn.port ? (
+              <span className="text-xs px-1.5 py-0.5 bg-slate-100 rounded font-mono text-slate-600">
+                :{conn.port}
+              </span>
+            ) : null}
+            {conn.protocol && conn.protocol !== 'TCP' && (
+              <span className="text-xs text-slate-400">{conn.protocol}</span>
+            )}
+            <span className={`text-xs px-1.5 py-0.5 rounded bg-${relColor}-50 text-${relColor}-600`}>
+              {conn.relationshipType.replace(/_/g, ' ')}
             </span>
           </div>
+
+          {/* Behavioral data */}
+          {(conn.hitCount || conn.lastSeen) && (
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+              {conn.hitCount ? (
+                <span className="flex items-center gap-1">
+                  <Zap className="w-3 h-3" />
+                  {conn.hitCount} hits
+                </span>
+              ) : null}
+              {conn.lastSeen ? (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatRelativeTime(conn.lastSeen)}
+                </span>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
+// Behavioral Insights Card
+function InsightCard({ icon: IconComp, label, value, subtext, color }: {
+  icon: any; label: string; value: string | number; subtext?: string; color: string
+}) {
+  const bgColors: Record<string, string> = {
+    emerald: 'bg-emerald-50 border-emerald-200',
+    blue: 'bg-blue-50 border-blue-200',
+    violet: 'bg-violet-50 border-violet-200',
+    amber: 'bg-amber-50 border-amber-200',
+  }
+  const textColors: Record<string, string> = {
+    emerald: 'text-emerald-600',
+    blue: 'text-blue-600',
+    violet: 'text-violet-600',
+    amber: 'text-amber-600',
+  }
+
+  return (
+    <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${bgColors[color]}`}>
+      <IconComp className={`w-5 h-5 ${textColors[color]}`} />
+      <div>
+        <div className="text-lg font-semibold text-slate-800">{value}</div>
+        <div className="text-xs text-slate-500">{label}</div>
+        {subtext && <div className="text-xs text-slate-400">{subtext}</div>}
+      </div>
+    </div>
+  )
+}
+
 // Stats Badge Component
-function StatBadge({ count, label, color }: { count: number; label: string; color: 'green' | 'blue' | 'purple' }) {
+function StatBadge({ count, label, color }: { count: number; label: string; color: 'green' | 'blue' | 'purple' | 'amber' }) {
   const colors = {
     green: 'bg-green-100 text-green-700',
     blue: 'bg-blue-100 text-blue-700',
     purple: 'bg-purple-100 text-purple-700',
+    amber: 'bg-amber-100 text-amber-700',
   }
   const dotColors = {
     green: 'bg-green-500',
     blue: 'bg-blue-500',
     purple: 'bg-purple-500',
+    amber: 'bg-amber-500',
   }
 
   return (
@@ -131,6 +225,8 @@ function StatBadge({ count, label, color }: { count: number; label: string; colo
     </div>
   )
 }
+
+type FilterType = 'all' | 'traffic' | 'access' | 'infrastructure'
 
 export default function ResourceView({
   systemName,
@@ -149,9 +245,9 @@ export default function ResourceView({
   })
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [showIamDetails, setShowIamDetails] = useState(false)
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all')
 
-  // Fetch dependency data - show ALL connections, not just ACTUAL_TRAFFIC
+  // Fetch dependency data - show ALL connections with full behavioral data
   useEffect(() => {
     if (!selectedResource) return
 
@@ -159,7 +255,6 @@ export default function ResourceView({
       setDependencies(prev => ({ ...prev, loading: true }))
 
       try {
-        // Fetch connections
         const connectionsRes = await fetch(
           `/api/proxy/resource-view/${encodeURIComponent(selectedResource.id)}/connections`
         )
@@ -171,53 +266,53 @@ export default function ResourceView({
           const data = await connectionsRes.json()
           const connections = data.connections || {}
 
-          // Process inbound - show ALL connections
+          // Process inbound
           ;(connections.inbound || []).forEach((conn: any) => {
             const rel = conn.relationship || {}
             const source = conn.source || {}
-            const relType = rel.type || rel.relationship_type || ''
+            const relType = rel.type || rel.relationship_type || 'UNKNOWN'
 
             inbound.push({
               id: source.id || source.arn || `inbound-${Math.random()}`,
-              name: source.name || source.id || 'Unknown',
-              type: source.type || 'IP',
+              name: source.name || source.arn?.split(':').pop() || source.id || 'Unknown',
+              type: source.type || 'NetworkEndpoint',
               port: rel.port || 0,
-              protocol: (rel.protocol || 'TCP').toUpperCase(),
+              protocol: (rel.protocol || '').toUpperCase(),
               direction: 'inbound',
+              relationshipType: relType,
               verified: relType === 'ACTUAL_TRAFFIC',
               lastSeen: rel.last_seen,
+              firstSeen: rel.first_seen,
               hitCount: rel.hit_count || 0
             })
           })
 
-          // Process outbound - show ALL connections
+          // Process outbound
           ;(connections.outbound || []).forEach((conn: any) => {
             const rel = conn.relationship || {}
             const target = conn.target || {}
-            const relType = rel.type || rel.relationship_type || ''
+            const relType = rel.type || rel.relationship_type || 'UNKNOWN'
 
             outbound.push({
               id: target.id || target.arn || `outbound-${Math.random()}`,
-              name: target.name || target.id || 'Unknown',
-              type: target.type || 'IP',
+              name: target.name || target.arn?.split(':').pop() || target.id || 'Unknown',
+              type: target.type || 'NetworkEndpoint',
               port: rel.port || 0,
-              protocol: (rel.protocol || 'TCP').toUpperCase(),
+              protocol: (rel.protocol || '').toUpperCase(),
               direction: 'outbound',
+              relationshipType: relType,
               verified: relType === 'ACTUAL_TRAFFIC',
               lastSeen: rel.last_seen,
+              firstSeen: rel.first_seen,
               hitCount: rel.hit_count || 0
             })
           })
         }
 
-        // IAM data - currently not available from backend
-        // TODO: Add IAM endpoint to backend when needed
-        const iamRoles: { name: string }[] = []
-
         setDependencies({
           inbound,
           outbound,
-          iamRoles,
+          iamRoles: [],
           securityGroups: [],
           loading: false
         })
@@ -230,11 +325,47 @@ export default function ResourceView({
     fetchDependencies()
   }, [selectedResource])
 
-  // Filtered connections for table
+  // Compute behavioral insights
+  const insights = useMemo(() => {
+    const all = [...dependencies.inbound, ...dependencies.outbound]
+    const trafficConns = all.filter(c => c.relationshipType === 'ACTUAL_TRAFFIC')
+    const accessConns = all.filter(c => c.relationshipType === 'ACCESSES_RESOURCE')
+
+    const totalHits = all.reduce((sum, c) => sum + (c.hitCount || 0), 0)
+    const uniquePorts = new Set(all.filter(c => c.port).map(c => c.port)).size
+    const uniqueEndpoints = new Set(all.map(c => c.name)).size
+
+    // Find most recent activity
+    const recentActivity = all
+      .filter(c => c.lastSeen)
+      .sort((a, b) => new Date(b.lastSeen!).getTime() - new Date(a.lastSeen!).getTime())[0]
+
+    return {
+      totalConnections: all.length,
+      trafficConnections: trafficConns.length,
+      accessConnections: accessConns.length,
+      totalHits,
+      uniquePorts,
+      uniqueEndpoints,
+      recentActivity: recentActivity?.lastSeen,
+    }
+  }, [dependencies])
+
+  // Filter connections by type
+  const filterConnections = (conns: Connection[]): Connection[] => {
+    if (activeFilter === 'all') return conns
+    const types = RELATIONSHIP_CATEGORIES[activeFilter] || []
+    return conns.filter(c => types.includes(c.relationshipType))
+  }
+
+  const filteredInbound = useMemo(() => filterConnections(dependencies.inbound), [dependencies.inbound, activeFilter])
+  const filteredOutbound = useMemo(() => filterConnections(dependencies.outbound), [dependencies.outbound, activeFilter])
+
+  // All connections for table
   const allConnections = useMemo(() => {
     const all = [
-      ...dependencies.inbound.map(c => ({ ...c, direction: 'inbound' as const })),
-      ...dependencies.outbound.map(c => ({ ...c, direction: 'outbound' as const }))
+      ...filteredInbound.map(c => ({ ...c, direction: 'inbound' as const })),
+      ...filteredOutbound.map(c => ({ ...c, direction: 'outbound' as const }))
     ]
 
     if (!searchQuery) return all
@@ -244,14 +375,14 @@ export default function ResourceView({
       c.name.toLowerCase().includes(query) ||
       c.type.toLowerCase().includes(query) ||
       String(c.port).includes(query) ||
-      c.protocol.toLowerCase().includes(query)
+      c.protocol.toLowerCase().includes(query) ||
+      c.relationshipType.toLowerCase().includes(query)
     )
-  }, [dependencies.inbound, dependencies.outbound, searchQuery])
+  }, [filteredInbound, filteredOutbound, searchQuery])
 
   const handleRefresh = () => {
     if (selectedResource) {
       setDependencies(prev => ({ ...prev, loading: true }))
-      // Re-trigger fetch by updating a key or forcing re-render
       const currentResource = selectedResource
       onSelectResource({ ...currentResource })
     }
@@ -304,7 +435,7 @@ export default function ResourceView({
           </div>
           <h3 className="text-lg font-medium text-slate-700 mb-2">Select a Resource</h3>
           <p className="text-sm text-slate-500 max-w-sm">
-            Choose a resource from the dropdown above to view its inbound and outbound connections
+            Choose a resource to view its connections, dependencies, and behavioral insights
           </p>
         </div>
       ) : dependencies.loading ? (
@@ -314,7 +445,7 @@ export default function ResourceView({
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Resource Info Bar */}
+          {/* Resource Info Bar with Stats */}
           <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-100 to-white border-b">
             <div className="flex items-center gap-3">
               <div
@@ -337,7 +468,70 @@ export default function ResourceView({
             <div className="flex items-center gap-3">
               <StatBadge count={dependencies.inbound.length} label="Inbound" color="green" />
               <StatBadge count={dependencies.outbound.length} label="Outbound" color="blue" />
-              <StatBadge count={dependencies.iamRoles.length} label="IAM" color="purple" />
+              <StatBadge count={insights.trafficConnections} label="Traffic" color="amber" />
+            </div>
+          </div>
+
+          {/* Behavioral Insights Section */}
+          <div className="px-4 py-3 bg-white border-b">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity className="w-4 h-4 text-slate-500" />
+              <span className="text-sm font-medium text-slate-700">Behavioral Insights</span>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <InsightCard
+                icon={Zap}
+                label="Total Hits"
+                value={insights.totalHits.toLocaleString()}
+                subtext="Observed connections"
+                color="emerald"
+              />
+              <InsightCard
+                icon={Network}
+                label="Unique Endpoints"
+                value={insights.uniqueEndpoints}
+                subtext="IPs & resources"
+                color="blue"
+              />
+              <InsightCard
+                icon={Shield}
+                label="Unique Ports"
+                value={insights.uniquePorts}
+                subtext="Network ports used"
+                color="violet"
+              />
+              <InsightCard
+                icon={Clock}
+                label="Last Activity"
+                value={formatRelativeTime(insights.recentActivity)}
+                subtext="Most recent traffic"
+                color="amber"
+              />
+            </div>
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border-b">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <div className="flex gap-1">
+              {[
+                { key: 'all', label: 'All', count: dependencies.inbound.length + dependencies.outbound.length },
+                { key: 'traffic', label: 'Traffic', count: insights.trafficConnections },
+                { key: 'access', label: 'IAM Access', count: insights.accessConnections },
+                { key: 'infrastructure', label: 'Infrastructure', count: dependencies.inbound.length + dependencies.outbound.length - insights.trafficConnections - insights.accessConnections },
+              ].map(({ key, label, count }) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveFilter(key as FilterType)}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                    activeFilter === key
+                      ? 'bg-white text-slate-900 shadow-sm font-medium'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {label} ({count})
+                </button>
+              ))}
             </div>
           </div>
 
@@ -351,17 +545,17 @@ export default function ResourceView({
                   <span className="font-semibold text-green-700">INBOUND</span>
                 </div>
                 <span className="text-sm text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
-                  {dependencies.inbound.length}
+                  {filteredInbound.length}
                 </span>
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {dependencies.inbound.length === 0 ? (
+                {filteredInbound.length === 0 ? (
                   <div className="text-center text-slate-400 py-8">
                     <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">No inbound connections</p>
                   </div>
                 ) : (
-                  dependencies.inbound.map((conn, idx) => (
+                  filteredInbound.map((conn, idx) => (
                     <ConnectionCard key={conn.id + '-' + idx} conn={conn} direction="inbound" />
                   ))
                 )}
@@ -369,29 +563,29 @@ export default function ResourceView({
             </div>
 
             {/* Central Resource */}
-            <div className="flex flex-col items-center justify-center px-6">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-8 border-t-2 border-dashed border-green-400" />
+            <div className="flex flex-col items-center justify-center px-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-6 border-t-2 border-dashed border-green-400" />
                 <ArrowRight className="w-5 h-5 text-green-500" />
               </div>
 
               <div
-                className="w-28 h-28 rounded-2xl flex flex-col items-center justify-center shadow-lg border-4 border-white"
+                className="w-24 h-24 rounded-2xl flex flex-col items-center justify-center shadow-lg border-4 border-white"
                 style={{ backgroundColor: resourceColor }}
               >
-                <Icon className="w-10 h-10 text-white mb-1" />
-                <span className="text-xs text-white/90 font-medium">{selectedResource.type}</span>
+                <Icon className="w-8 h-8 text-white mb-1" />
+                <span className="text-[10px] text-white/90 font-medium">{selectedResource.type}</span>
               </div>
 
-              <div className="mt-3 text-center max-w-[140px]">
-                <div className="font-medium text-slate-800 text-sm truncate" title={selectedResource.name}>
+              <div className="mt-2 text-center max-w-[120px]">
+                <div className="font-medium text-slate-800 text-xs truncate" title={selectedResource.name}>
                   {selectedResource.name}
                 </div>
               </div>
 
-              <div className="flex items-center gap-4 mt-4">
+              <div className="flex items-center gap-3 mt-4">
                 <ArrowRight className="w-5 h-5 text-blue-500" />
-                <div className="w-8 border-t-2 border-dashed border-blue-400" />
+                <div className="w-6 border-t-2 border-dashed border-blue-400" />
               </div>
             </div>
 
@@ -403,55 +597,23 @@ export default function ResourceView({
                   <span className="font-semibold text-blue-700">OUTBOUND</span>
                 </div>
                 <span className="text-sm text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                  {dependencies.outbound.length}
+                  {filteredOutbound.length}
                 </span>
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {dependencies.outbound.length === 0 ? (
+                {filteredOutbound.length === 0 ? (
                   <div className="text-center text-slate-400 py-8">
                     <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">No outbound connections</p>
                   </div>
                 ) : (
-                  dependencies.outbound.map((conn, idx) => (
+                  filteredOutbound.map((conn, idx) => (
                     <ConnectionCard key={conn.id + '-' + idx} conn={conn} direction="outbound" />
                   ))
                 )}
               </div>
             </div>
           </div>
-
-          {/* Quick Stats Tabs */}
-          <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border-t border-b">
-            <button
-              onClick={() => setShowIamDetails(!showIamDetails)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                showIamDetails ? 'bg-purple-100 text-purple-700' : 'bg-white text-slate-600 hover:bg-slate-50'
-              } border`}
-            >
-              <Key className="w-4 h-4" />
-              IAM Roles: {dependencies.iamRoles.length}
-              {showIamDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-            <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-white text-slate-600 border hover:bg-slate-50">
-              <Shield className="w-4 h-4" />
-              Security Groups: {dependencies.securityGroups.length}
-            </button>
-          </div>
-
-          {/* IAM Details Panel (collapsible) */}
-          {showIamDetails && dependencies.iamRoles.length > 0 && (
-            <div className="px-4 py-3 bg-purple-50 border-b">
-              <div className="flex flex-wrap gap-2">
-                {dependencies.iamRoles.map((role, idx) => (
-                  <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-purple-200">
-                    <Key className="w-4 h-4 text-purple-500" />
-                    <span className="text-sm text-slate-700">{role.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Connections Table */}
           <div className="border-t bg-white">
@@ -468,29 +630,30 @@ export default function ResourceView({
                 />
               </div>
             </div>
-            <div className="max-h-[200px] overflow-y-auto">
+            <div className="max-h-[180px] overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-100 sticky top-0">
                   <tr>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Direction</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Resource</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Type</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Port</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Protocol</th>
-                    <th className="px-4 py-2 text-left font-medium text-slate-600">Status</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Direction</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Resource</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Type</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Port</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Relationship</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Hits</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Last Seen</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {allConnections.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                         {searchQuery ? 'No connections match your search' : 'No connections found'}
                       </td>
                     </tr>
                   ) : (
                     allConnections.map((conn, idx) => (
                       <tr key={conn.id + '-table-' + idx} className="hover:bg-slate-50">
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-2">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                             conn.direction === 'inbound'
                               ? 'bg-green-100 text-green-700'
@@ -500,25 +663,36 @@ export default function ResourceView({
                             {conn.direction}
                           </span>
                         </td>
-                        <td className="px-4 py-2 font-medium text-slate-800 max-w-[200px] truncate" title={conn.name}>
+                        <td className="px-3 py-2 font-medium text-slate-800 max-w-[150px] truncate" title={conn.name}>
                           {conn.name}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-3 py-2">
                           <span className="px-2 py-0.5 bg-slate-100 rounded text-xs text-slate-600">
                             {conn.type}
                           </span>
                         </td>
-                        <td className="px-4 py-2 font-mono text-slate-600">{conn.port || '-'}</td>
-                        <td className="px-4 py-2 text-slate-600">{conn.protocol}</td>
-                        <td className="px-4 py-2">
-                          {conn.verified ? (
-                            <span className="flex items-center gap-1 text-green-600">
-                              <CheckCircle className="w-4 h-4" />
-                              Verified
+                        <td className="px-3 py-2 font-mono text-slate-600">{conn.port || '-'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            conn.relationshipType === 'ACTUAL_TRAFFIC'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : conn.relationshipType === 'ACCESSES_RESOURCE'
+                              ? 'bg-violet-100 text-violet-700'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {conn.relationshipType.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">
+                          {conn.hitCount ? (
+                            <span className="flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-amber-500" />
+                              {conn.hitCount}
                             </span>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
+                          ) : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 text-xs">
+                          {formatRelativeTime(conn.lastSeen)}
                         </td>
                       </tr>
                     ))
