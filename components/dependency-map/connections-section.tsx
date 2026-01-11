@@ -36,11 +36,19 @@ function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProp
       setError(null)
 
       try {
-        console.log("[ConnectionsSection] Fetching connections for:", resourceId)
+        // Defensive: ensure resourceId is a string, not an object
+        let safeResourceId = resourceId
+        if (typeof resourceId === 'object' && resourceId !== null) {
+          // Try to extract id from object if it's passed incorrectly
+          safeResourceId = (resourceId as any).id || (resourceId as any).arn || String(resourceId)
+          console.warn("[ConnectionsSection] resourceId was an object, extracted:", safeResourceId)
+        }
+
+        console.log("[ConnectionsSection] Fetching connections for:", safeResourceId)
 
         // CORRECT fetch syntax with template literal
         const response = await fetch(
-          `/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`
+          `/api/proxy/resource-view/${encodeURIComponent(safeResourceId)}/connections`
         )
 
         if (!response.ok) {
