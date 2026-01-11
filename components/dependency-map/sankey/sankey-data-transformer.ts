@@ -141,8 +141,10 @@ export function transformToSankey(
   })
 
   // 5. Build Sankey links (only between valid nodes)
+  // IMPORTANT: Filter out self-links (source === target) - Sankey doesn't support them
   let sankeyLinks: SankeyLink[] = trafficEdges
     .filter(e => validNodeIds.has(e.source) && validNodeIds.has(e.target))
+    .filter(e => e.source !== e.target) // Remove self-links
     .filter(e => (e.traffic_bytes || 0) >= minTrafficBytes)
     .map(e => ({
       source: e.source,
@@ -167,7 +169,30 @@ export function transformToSankey(
   })
   sankeyLinks = Array.from(linkMap.values())
 
-  // 7. Sort by traffic value and limit if needed
+  // 7. Remove circular/bidirectional links (A→B and B→A creates cycle)
+  // Keep only the link with higher traffic, or by tier order (lower tier → higher tier)
+  const seenPairs = new Set<string>()
+  const nonCircularLinks: SankeyLink[] = []
+
+  // Sort by value descending so we keep higher traffic links
+  sankeyLinks.sort((a, b) => b.value - a.value)
+
+  for (const link of sankeyLinks) {
+    const forwardKey = `${link.source}|${link.target}`
+    const reverseKey = `${link.target}|${link.source}`
+
+    // If we've already seen this pair (in either direction), skip
+    if (seenPairs.has(forwardKey) || seenPairs.has(reverseKey)) {
+      continue
+    }
+
+    seenPairs.add(forwardKey)
+    nonCircularLinks.push(link)
+  }
+
+  sankeyLinks = nonCircularLinks
+
+  // 8. Sort by traffic value and limit if needed
   sankeyLinks.sort((a, b) => b.value - a.value)
   if (sankeyLinks.length > maxLinks) {
     sankeyLinks = sankeyLinks.slice(0, maxLinks)
