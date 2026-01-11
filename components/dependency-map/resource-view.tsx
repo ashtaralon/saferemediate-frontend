@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft, Server, Database, Key, Shield, Globe, Cloud, Layers,
   RefreshCw, CheckCircle, Search, ArrowRight, ChevronDown, ChevronUp,
-  Activity, Clock, Zap, Network, Eye, Filter
+  Activity, Clock, Zap, Network, Eye, Filter, AlertTriangle, Lock,
+  Radio, Wifi, Building2, ExternalLink
 } from 'lucide-react'
 import ResourceSelector from './resource-selector'
 
@@ -35,6 +36,33 @@ interface DependencyData {
   iamRoles: { name: string }[]
   securityGroups: string[]
   loading: boolean
+}
+
+// Behavioral bucket types for traffic aggregation
+type BucketType = 'internal' | 'external_api' | 'anomalous' | 'maintenance'
+
+interface BehavioralBucket {
+  type: BucketType
+  label: string
+  description: string
+  icon: any
+  color: string
+  bgColor: string
+  borderColor: string
+  connections: Connection[]
+  totalHits: number
+  uniquePorts: Set<number | string>
+  riskLevel: 'low' | 'medium' | 'high'
+}
+
+interface AggregatedConnection {
+  name: string
+  type: string
+  ports: (number | string)[]
+  protocols: string[]
+  totalHits: number
+  lastSeen?: string
+  connections: Connection[]
 }
 
 interface Props {
@@ -106,6 +134,189 @@ function getRelationshipColor(relType: string): string {
   if (RELATIONSHIP_CATEGORIES.traffic.includes(relType)) return 'emerald'
   if (RELATIONSHIP_CATEGORIES.access.includes(relType)) return 'violet'
   return 'slate'
+}
+
+// Check if IP is internal (private RFC1918 ranges)
+function isInternalIP(name: string): boolean {
+  // Match 10.x.x.x, 172.16-31.x.x, 192.168.x.x patterns
+  const privateIPPatterns = [
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$/,
+    /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  ]
+  return privateIPPatterns.some(pattern => pattern.test(name))
+}
+
+// Check if IP/host is AWS service
+function isAWSService(name: string): boolean {
+  const awsPatterns = [
+    /\.amazonaws\.com$/i,
+    /\.aws\.amazon\.com$/i,
+    /^ec2-\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3}/,
+    /^ip-\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3}/,
+    /^3\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // AWS IP range
+    /^52\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // AWS IP range
+    /^54\.\d{1,3}\.\d{1,3}\.\d{1,3}$/, // AWS IP range
+  ]
+  return awsPatterns.some(pattern => pattern.test(name))
+}
+
+// Classify a connection into a behavioral bucket
+function classifyConnection(conn: Connection): BucketType {
+  const port = Number(conn.port) || 0
+  const protocol = (conn.protocol || '').toUpperCase()
+  const name = conn.name || ''
+
+  // UDP/NTP Maintenance - Port 123 or UDP protocol with time sync
+  if (port === 123 || (protocol === 'UDP' && port > 0)) {
+    return 'maintenance'
+  }
+
+  // Internal infrastructure - private IPs
+  if (isInternalIP(name)) {
+    return 'internal'
+  }
+
+  // External API Services - HTTPS (443) to AWS or known API endpoints
+  if (port === 443 && (isAWSService(name) || conn.verified)) {
+    return 'external_api'
+  }
+
+  // Anomalous - unverified, unusual ports, or mixed traffic
+  const anomalousPorts = [80, 3306, 5432, 6379, 27017] // HTTP, MySQL, PostgreSQL, Redis, MongoDB
+  if (!conn.verified || anomalousPorts.includes(port) || (port !== 443 && port > 0)) {
+    return 'anomalous'
+  }
+
+  // Default to external API for verified HTTPS
+  return 'external_api'
+}
+
+// Aggregate connections by endpoint (group same destinations)
+function aggregateConnections(connections: Connection[]): AggregatedConnection[] {
+  const groups = new Map<string, AggregatedConnection>()
+
+  for (const conn of connections) {
+    const key = conn.name.toLowerCase()
+
+    if (groups.has(key)) {
+      const group = groups.get(key)!
+      if (conn.port && !group.ports.includes(conn.port)) {
+        group.ports.push(conn.port)
+      }
+      if (conn.protocol && !group.protocols.includes(conn.protocol)) {
+        group.protocols.push(conn.protocol)
+      }
+      group.totalHits += conn.hitCount || 0
+      group.connections.push(conn)
+      // Update lastSeen if newer
+      if (conn.lastSeen && (!group.lastSeen || new Date(conn.lastSeen) > new Date(group.lastSeen))) {
+        group.lastSeen = conn.lastSeen
+      }
+    } else {
+      groups.set(key, {
+        name: conn.name,
+        type: conn.type,
+        ports: conn.port ? [conn.port] : [],
+        protocols: conn.protocol ? [conn.protocol] : [],
+        totalHits: conn.hitCount || 0,
+        lastSeen: conn.lastSeen,
+        connections: [conn]
+      })
+    }
+  }
+
+  // Sort by total hits descending
+  return Array.from(groups.values()).sort((a, b) => b.totalHits - a.totalHits)
+}
+
+// Create behavioral buckets from connections
+function createBehavioralBuckets(connections: Connection[]): BehavioralBucket[] {
+  const bucketDefs: Omit<BehavioralBucket, 'connections' | 'totalHits' | 'uniquePorts'>[] = [
+    {
+      type: 'internal',
+      label: 'System Infrastructure',
+      description: 'Internal VPC traffic (10.0.x.x)',
+      icon: Building2,
+      color: 'text-slate-600',
+      bgColor: 'bg-slate-50',
+      borderColor: 'border-slate-300',
+      riskLevel: 'low',
+    },
+    {
+      type: 'external_api',
+      label: 'External API Services',
+      description: 'Verified HTTPS to AWS/APIs',
+      icon: Lock,
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-50',
+      borderColor: 'border-emerald-300',
+      riskLevel: 'low',
+    },
+    {
+      type: 'anomalous',
+      label: 'Anomalous / Unverified',
+      description: 'Unusual ports or unverified traffic',
+      icon: AlertTriangle,
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-50',
+      borderColor: 'border-amber-300',
+      riskLevel: 'medium',
+    },
+    {
+      type: 'maintenance',
+      label: 'UDP / NTP Maintenance',
+      description: 'Time sync and UDP services',
+      icon: Radio,
+      color: 'text-slate-500',
+      bgColor: 'bg-slate-50',
+      borderColor: 'border-slate-200',
+      riskLevel: 'low',
+    },
+  ]
+
+  // Group connections by bucket type
+  const grouped = new Map<BucketType, Connection[]>()
+  for (const conn of connections) {
+    const bucketType = classifyConnection(conn)
+    if (!grouped.has(bucketType)) {
+      grouped.set(bucketType, [])
+    }
+    grouped.get(bucketType)!.push(conn)
+  }
+
+  // Build buckets with metrics
+  return bucketDefs.map(def => {
+    const conns = grouped.get(def.type) || []
+    const totalHits = conns.reduce((sum, c) => sum + (c.hitCount || 0), 0)
+    const uniquePorts = new Set(conns.filter(c => c.port).map(c => c.port))
+
+    // Adjust risk level based on hit counts and unverified traffic
+    let riskLevel = def.riskLevel
+    if (def.type === 'anomalous') {
+      const unverifiedHits = conns.filter(c => !c.verified).reduce((sum, c) => sum + (c.hitCount || 0), 0)
+      if (unverifiedHits > 1000) riskLevel = 'high'
+      else if (unverifiedHits > 100) riskLevel = 'medium'
+    }
+
+    return {
+      ...def,
+      connections: conns,
+      totalHits,
+      uniquePorts,
+      riskLevel,
+    }
+  }).filter(bucket => bucket.connections.length > 0) // Only show non-empty buckets
+}
+
+// Get heat map color based on hit count relative to max
+function getHeatColor(hits: number, maxHits: number): string {
+  if (maxHits === 0) return 'bg-slate-100'
+  const ratio = hits / maxHits
+  if (ratio > 0.75) return 'bg-red-100'
+  if (ratio > 0.5) return 'bg-orange-100'
+  if (ratio > 0.25) return 'bg-yellow-100'
+  return 'bg-slate-50'
 }
 
 // Connection Card Component with behavioral data
@@ -202,6 +413,125 @@ function InsightCard({ icon: IconComp, label, value, subtext, color }: {
   )
 }
 
+// Behavioral Bucket Card Component
+function BucketCard({
+  bucket,
+  maxHits,
+  expanded,
+  onToggle
+}: {
+  bucket: BehavioralBucket
+  maxHits: number
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const IconComp = bucket.icon
+  const aggregated = aggregateConnections(bucket.connections)
+
+  const riskColors = {
+    low: 'bg-green-500',
+    medium: 'bg-amber-500',
+    high: 'bg-red-500',
+  }
+
+  return (
+    <div className={`rounded-xl border-2 ${bucket.borderColor} overflow-hidden`}>
+      {/* Bucket Header */}
+      <button
+        onClick={onToggle}
+        className={`w-full ${bucket.bgColor} px-4 py-3 flex items-center justify-between hover:opacity-90 transition-opacity`}
+      >
+        <div className="flex items-center gap-3">
+          <IconComp className={`w-5 h-5 ${bucket.color}`} />
+          <div className="text-left">
+            <div className="font-semibold text-slate-800">{bucket.label}</div>
+            <div className="text-xs text-slate-500">{bucket.description}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="font-bold text-slate-800">{bucket.connections.length}</div>
+            <div className="text-xs text-slate-500">connections</div>
+          </div>
+          <div className="text-right">
+            <div className="font-bold text-slate-800">{bucket.totalHits.toLocaleString()}</div>
+            <div className="text-xs text-slate-500">hits</div>
+          </div>
+          <div className={`w-2 h-2 rounded-full ${riskColors[bucket.riskLevel]}`} title={`${bucket.riskLevel} risk`} />
+          {expanded ? (
+            <ChevronUp className="w-5 h-5 text-slate-400" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-slate-400" />
+          )}
+        </div>
+      </button>
+
+      {/* Expanded Content */}
+      {expanded && (
+        <div className="bg-white max-h-[300px] overflow-y-auto">
+          {aggregated.length === 0 ? (
+            <div className="text-center text-slate-400 py-6">
+              <p className="text-sm">No connections in this bucket</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {aggregated.map((agg, idx) => {
+                const heatColor = getHeatColor(agg.totalHits, maxHits)
+                const Icon = RESOURCE_ICONS[agg.type] || RESOURCE_ICONS.default
+                const iconColor = RESOURCE_COLORS[agg.type] || RESOURCE_COLORS.default
+
+                return (
+                  <div
+                    key={agg.name + '-' + idx}
+                    className={`flex items-center justify-between px-4 py-2.5 ${heatColor} hover:bg-opacity-80`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div
+                        className="w-7 h-7 rounded flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: iconColor }}
+                      >
+                        <Icon className="w-3.5 h-3.5 text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-sm text-slate-800 truncate" title={agg.name}>
+                          {agg.name}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                          {agg.ports.length > 0 && (
+                            <span className="font-mono">
+                              {agg.ports.length <= 3
+                                ? agg.ports.map(p => `:${p}`).join(', ')
+                                : `:${agg.ports[0]}, +${agg.ports.length - 1} more`}
+                            </span>
+                          )}
+                          {agg.protocols.length > 0 && (
+                            <span className="text-slate-400">{agg.protocols.join('/')}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                      <div className="text-right">
+                        <div className="flex items-center gap-1 text-sm font-semibold text-slate-700">
+                          <Zap className="w-3 h-3 text-amber-500" />
+                          {agg.totalHits.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-400 w-16 text-right">
+                        {formatRelativeTime(agg.lastSeen)}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Stats Badge Component
 function StatBadge({ count, label, color }: { count: number; label: string; color: 'green' | 'blue' | 'purple' | 'amber' }) {
   const colors = {
@@ -246,6 +576,8 @@ export default function ResourceView({
 
   const [searchQuery, setSearchQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState<FilterType>('all')
+  const [viewMode, setViewMode] = useState<'buckets' | 'columns'>('buckets')
+  const [expandedBuckets, setExpandedBuckets] = useState<Set<BucketType>>(new Set(['anomalous']))
 
   // Fetch dependency data - show ALL connections with full behavioral data
   useEffect(() => {
@@ -350,6 +682,31 @@ export default function ResourceView({
       recentActivity: recentActivity?.lastSeen,
     }
   }, [dependencies])
+
+  // Create behavioral buckets
+  const behavioralBuckets = useMemo(() => {
+    const allConns = [...dependencies.inbound, ...dependencies.outbound]
+    return createBehavioralBuckets(allConns)
+  }, [dependencies])
+
+  // Get max hits for heat map coloring
+  const maxHitsForHeatMap = useMemo(() => {
+    const allConns = [...dependencies.inbound, ...dependencies.outbound]
+    return Math.max(...allConns.map(c => c.hitCount || 0), 1)
+  }, [dependencies])
+
+  // Toggle bucket expansion
+  const toggleBucket = (type: BucketType) => {
+    setExpandedBuckets(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) {
+        next.delete(type)
+      } else {
+        next.add(type)
+      }
+      return next
+    })
+  }
 
   // Filter connections by type
   const filterConnections = (conns: Connection[]): Connection[] => {
@@ -510,33 +867,106 @@ export default function ResourceView({
             </div>
           </div>
 
-          {/* Filter Tabs */}
-          <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border-b">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <div className="flex gap-1">
-              {[
-                { key: 'all', label: 'All', count: dependencies.inbound.length + dependencies.outbound.length },
-                { key: 'traffic', label: 'Traffic', count: insights.trafficConnections },
-                { key: 'access', label: 'IAM Access', count: insights.accessConnections },
-                { key: 'infrastructure', label: 'Infrastructure', count: dependencies.inbound.length + dependencies.outbound.length - insights.trafficConnections - insights.accessConnections },
-              ].map(({ key, label, count }) => (
+          {/* View Mode Toggle & Filters */}
+          <div className="flex items-center justify-between px-4 py-2 bg-slate-100 border-b">
+            <div className="flex items-center gap-4">
+              {/* View Mode Toggle */}
+              <div className="flex items-center gap-1 bg-white rounded-lg p-0.5 border">
                 <button
-                  key={key}
-                  onClick={() => setActiveFilter(key as FilterType)}
-                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                    activeFilter === key
-                      ? 'bg-white text-slate-900 shadow-sm font-medium'
+                  onClick={() => setViewMode('buckets')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                    viewMode === 'buckets'
+                      ? 'bg-blue-600 text-white font-medium'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {label} ({count})
+                  <Layers className="w-3.5 h-3.5" />
+                  Behavioral Buckets
                 </button>
-              ))}
+                <button
+                  onClick={() => setViewMode('columns')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                    viewMode === 'columns'
+                      ? 'bg-blue-600 text-white font-medium'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <ArrowRight className="w-3.5 h-3.5" />
+                  Flow View
+                </button>
+              </div>
+
+              {/* Filters (only show in columns view) */}
+              {viewMode === 'columns' && (
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-slate-400" />
+                  <div className="flex gap-1">
+                    {[
+                      { key: 'all', label: 'All', count: dependencies.inbound.length + dependencies.outbound.length },
+                      { key: 'traffic', label: 'Traffic', count: insights.trafficConnections },
+                      { key: 'access', label: 'IAM Access', count: insights.accessConnections },
+                      { key: 'infrastructure', label: 'Infrastructure', count: dependencies.inbound.length + dependencies.outbound.length - insights.trafficConnections - insights.accessConnections },
+                    ].map(({ key, label, count }) => (
+                      <button
+                        key={key}
+                        onClick={() => setActiveFilter(key as FilterType)}
+                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          activeFilter === key
+                            ? 'bg-white text-slate-900 shadow-sm font-medium'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {label} ({count})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Bucket summary (only show in buckets view) */}
+            {viewMode === 'buckets' && behavioralBuckets.length > 0 && (
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>{behavioralBuckets.length} behavioral categories</span>
+                <span>•</span>
+                <span>{behavioralBuckets.filter(b => b.riskLevel === 'high').length > 0 ? (
+                  <span className="text-red-600 font-medium">
+                    {behavioralBuckets.filter(b => b.riskLevel === 'high').length} high risk
+                  </span>
+                ) : behavioralBuckets.filter(b => b.riskLevel === 'medium').length > 0 ? (
+                  <span className="text-amber-600 font-medium">
+                    {behavioralBuckets.filter(b => b.riskLevel === 'medium').length} needs attention
+                  </span>
+                ) : (
+                  <span className="text-green-600 font-medium">All normal</span>
+                )}</span>
+              </div>
+            )}
           </div>
 
-          {/* Three-Column Flow View */}
-          <div className="flex-1 flex gap-4 p-4 min-h-0 overflow-hidden">
+          {/* Behavioral Buckets View */}
+          {viewMode === 'buckets' ? (
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {behavioralBuckets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                  <Network className="w-12 h-12 mb-3 opacity-50" />
+                  <p className="text-sm">No connections to categorize</p>
+                </div>
+              ) : (
+                behavioralBuckets.map(bucket => (
+                  <BucketCard
+                    key={bucket.type}
+                    bucket={bucket}
+                    maxHits={maxHitsForHeatMap}
+                    expanded={expandedBuckets.has(bucket.type)}
+                    onToggle={() => toggleBucket(bucket.type)}
+                  />
+                ))
+              )}
+            </div>
+          ) : (
+            /* Three-Column Flow View */
+            <div className="flex-1 flex gap-4 p-4 min-h-0 overflow-hidden">
             {/* Inbound Column */}
             <div className="flex-1 flex flex-col border-2 border-green-400 rounded-xl overflow-hidden bg-white shadow-sm">
               <div className="bg-green-50 px-4 py-2.5 border-b border-green-200 flex items-center justify-between">
@@ -614,8 +1044,10 @@ export default function ResourceView({
               </div>
             </div>
           </div>
+          )}
 
-          {/* Connections Table */}
+          {/* Connections Table - only show in columns view */}
+          {viewMode === 'columns' && (
           <div className="border-t bg-white">
             <div className="px-4 py-2 flex items-center justify-between bg-slate-50 border-b">
               <span className="font-medium text-slate-700">All Connections ({allConnections.length})</span>
@@ -701,6 +1133,7 @@ export default function ResourceView({
               </table>
             </div>
           </div>
+          )}
         </div>
       )}
     </div>
