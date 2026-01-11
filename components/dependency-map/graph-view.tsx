@@ -161,7 +161,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
   const [observationDays, setObservationDays] = useState(30)
   const [stats, setStats] = useState({ nodes: 0, edges: 0, actualTraffic: 0 })
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
-  const [viewType, setViewType] = useState<'graph' | 'sankey'>('graph')
+  const [viewType, setViewType] = useState<'graph' | 'sankey'>('sankey')
 
   // Animate ACTUAL_TRAFFIC edges
   const animateTrafficEdges = useCallback(() => {
