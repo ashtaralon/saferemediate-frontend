@@ -101,12 +101,23 @@ interface IdentityConnection {
   }
 }
 
+// Risk factor from backend risk scoring
+interface RiskFactor {
+  factor: string
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  score: number
+}
+
+// Credential source types from CloudTrail
+type CredentialSourceType = 'AssumedRole' | 'IAMUser' | 'AWSService' | 'Root' | 'FederatedUser' | 'Unknown'
+
 interface IAMAccessEvent {
   principal: {
     arn: string
     name: string
     type: string
   }
+  credential_source_type?: CredentialSourceType
   action?: string
   hit_count: number
   first_seen?: string
@@ -114,6 +125,8 @@ interface IAMAccessEvent {
   insight: {
     type: 'healthy' | 'anomaly' | 'critical' | 'info'
     message: string
+    risk_score?: number
+    risk_factors?: RiskFactor[]
   }
 }
 
@@ -437,6 +450,57 @@ function IAMActionBadge({ action }: { action?: string }) {
       <Key className="w-3 h-3" />
       {action.length > 20 ? action.slice(0, 20) + '...' : action}
     </span>
+  )
+}
+
+// Credential Source Badge - shows how the principal authenticated
+function CredentialSourceBadge({ source }: { source?: CredentialSourceType }) {
+  if (!source || source === 'Unknown') return null
+
+  const configs: Record<CredentialSourceType, { bg: string; text: string; icon: any; label: string }> = {
+    'AssumedRole': { bg: 'bg-purple-100', text: 'text-purple-700', icon: Shield, label: 'Assumed Role' },
+    'IAMUser': { bg: 'bg-blue-100', text: 'text-blue-700', icon: Key, label: 'IAM User' },
+    'AWSService': { bg: 'bg-slate-100', text: 'text-slate-600', icon: Cloud, label: 'AWS Service' },
+    'Root': { bg: 'bg-red-100', text: 'text-red-700', icon: AlertTriangle, label: 'Root Account' },
+    'FederatedUser': { bg: 'bg-orange-100', text: 'text-orange-700', icon: Globe, label: 'Federated' },
+    'Unknown': { bg: 'bg-slate-100', text: 'text-slate-500', icon: Eye, label: 'Unknown' }
+  }
+
+  const config = configs[source] || configs['Unknown']
+  const IconComp = config.icon
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+      <IconComp className="w-3 h-3" />
+      {config.label}
+    </span>
+  )
+}
+
+// Risk Score Badge - shows numerical risk score with color coding
+function RiskScoreBadge({ score, factors }: { score?: number; factors?: RiskFactor[] }) {
+  if (score === undefined || score === null) return null
+
+  const color = score >= 60 ? 'red' : score >= 30 ? 'amber' : 'green'
+  const colors = {
+    red: 'bg-red-100 text-red-700 border-red-200',
+    amber: 'bg-amber-100 text-amber-700 border-amber-200',
+    green: 'bg-green-100 text-green-700 border-green-200'
+  }
+
+  // Build tooltip with risk factors
+  const tooltip = factors && factors.length > 0
+    ? factors.filter(f => f.score > 0).map(f => `${f.factor} (+${f.score})`).join('\n')
+    : undefined
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-xs font-medium ${colors[color]}`}
+      title={tooltip}
+    >
+      <span className="font-bold">{score}</span>
+      <span className="opacity-75">risk</span>
+    </div>
   )
 }
 
@@ -1170,32 +1234,53 @@ export default function ResourceView({
           {/* Identity Evidence Panel (show when overlay is enabled) */}
           {showIdentityOverlay && !identityEvidence.loading && identityEvidence.iam_access_events.length > 0 && (
             <div className="px-4 py-3 bg-violet-50 border-b border-violet-200">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-3">
                 <Key className="w-4 h-4 text-violet-600" />
                 <span className="text-sm font-medium text-violet-800">IAM Access Events</span>
                 <span className="text-xs text-violet-500">({identityEvidence.iam_access_events.length})</span>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="space-y-2">
                 {identityEvidence.iam_access_events.slice(0, 5).map((event, idx) => (
                   <div
                     key={idx}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
-                      event.insight.type === 'anomaly'
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${
+                      event.insight.type === 'critical'
+                        ? 'bg-red-50 border-red-200'
+                        : event.insight.type === 'anomaly'
                         ? 'bg-amber-50 border-amber-200'
                         : event.insight.type === 'healthy'
                         ? 'bg-green-50 border-green-200'
                         : 'bg-white border-slate-200'
                     }`}
                   >
-                    <span className="font-medium text-sm text-slate-800">{event.principal.name}</span>
-                    <span className="text-xs text-slate-500">{event.hit_count} calls</span>
+                    {/* Principal name with icon */}
+                    <div className="flex items-center gap-2 min-w-[140px]">
+                      <Key className="w-4 h-4 text-violet-500 flex-shrink-0" />
+                      <span className="font-semibold text-sm text-slate-800 truncate" title={event.principal.name}>
+                        {event.principal.name}
+                      </span>
+                    </div>
+
+                    {/* Credential Source Badge */}
+                    <CredentialSourceBadge source={event.credential_source_type} />
+
+                    {/* IAM Action */}
+                    {event.action && <IAMActionBadge action={event.action} />}
+
+                    {/* Hit count */}
+                    <span className="text-xs text-slate-500 whitespace-nowrap">{event.hit_count} calls</span>
+
+                    {/* Insight Badge */}
                     <InsightBadge type={event.insight.type} message={event.insight.message} />
+
+                    {/* Risk Score */}
+                    <RiskScoreBadge score={event.insight.risk_score} factors={event.insight.risk_factors} />
                   </div>
                 ))}
                 {identityEvidence.iam_access_events.length > 5 && (
-                  <span className="text-xs text-violet-500 self-center">
-                    +{identityEvidence.iam_access_events.length - 5} more
-                  </span>
+                  <div className="text-xs text-violet-500 text-center pt-1">
+                    +{identityEvidence.iam_access_events.length - 5} more principals
+                  </div>
                 )}
               </div>
             </div>
