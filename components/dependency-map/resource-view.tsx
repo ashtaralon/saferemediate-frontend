@@ -212,24 +212,10 @@ export default function ResourceView({
           })
         }
 
-        // Fetch IAM data
-        let iamRoles: { name: string; score?: number }[] = []
-        let permissionScore = 0
-        try {
-          const iamRes = await fetch(
-            `/api/proxy/resource-view/${encodeURIComponent(selectedResource.id)}/iam`
-          )
-          if (iamRes.ok) {
-            const iamData = await iamRes.json()
-            iamRoles = (iamData.roles || []).map((r: any) => ({
-              name: r.name || r.role_name || r.id,
-              score: r.lp_score
-            }))
-            permissionScore = iamData.permission_score || iamData.lp_score || 0
-          }
-        } catch (e) {
-          console.warn('Failed to fetch IAM data:', e)
-        }
+        // IAM data - currently not available from backend
+        // TODO: Add IAM endpoint to backend when needed
+        const iamRoles: { name: string; score?: number }[] = []
+        const permissionScore = 0
 
         setDependencies({
           inbound,
