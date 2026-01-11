@@ -166,53 +166,11 @@ export default function DependencyMapTab({
         return
       }
       
-      // Fallback to system resources endpoint
-      try {
-        const fallbackController = new AbortController()
-        const fallbackTimeout = setTimeout(() => fallbackController.abort(), 10000) // 10s for fallback
-        
-        const fallbackRes = await fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`, {
-          signal: fallbackController.signal,
-        })
-        
-        clearTimeout(fallbackTimeout)
-        if (fallbackRes.ok) {
-          const fallbackData = await fallbackRes.json()
-          
-          // Convert to graph format
-          const nodes: any[] = []
-          const edges: any[] = []
-          
-          ;(fallbackData.resources || []).forEach((r: any) => {
-            nodes.push({
-              id: r.resource_id || r.arn || r.name,
-              name: r.name || r.resource_id,
-              type: r.resource_type || r.type,
-              arn: r.arn
-            })
-          })
-          
-          setGraphData({ nodes, edges })
-          setResources(nodes.map(n => ({
-            id: n.id,
-            name: n.name,
-            type: n.type,
-            arn: n.arn
-          })))
-          setResourcesLoading(false)
-        } else {
-          // Fallback also failed - set empty data
-          setGraphData({ nodes: [], edges: [] })
-          setResources([])
-          setResourcesLoading(false)
-        }
-      } catch (fallbackErr) {
-        console.error('Fallback also failed:', fallbackErr)
-        // Set empty data structure to prevent infinite loading
-        setGraphData({ nodes: [], edges: [] })
-        setResources([])
-        setResourcesLoading(false)
-      }
+      // Set empty data to prevent infinite loading
+      console.warn('[DependencyMapTab] Graph fetch failed, setting empty data')
+      setGraphData({ nodes: [], edges: [] })
+      setResources([])
+      setResourcesLoading(false)
     } finally {
       // Always set loading to false, even on error
       setIsLoading(false)
@@ -223,26 +181,35 @@ export default function DependencyMapTab({
   // Fetch resources separately if not loaded from graph
   const fetchResources = useCallback(async () => {
     if (resources.length > 0) return
-    
+
     setResourcesLoading(true)
     try {
-      const res = await fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`)
+      // Use dependency-map endpoint to get resources (same as fetchGraphData)
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(30000),
+      })
       if (res.ok) {
         const data = await res.json()
-        const resourceList: Resource[] = (data.resources || []).map((r: any) => ({
-          id: r.resource_id || r.arn || r.name,
-          name: r.name || r.resource_id,
-          type: r.resource_type || r.type,
-          arn: r.arn
+        const resourceList: Resource[] = (data.nodes || []).map((n: any) => ({
+          id: n.id,
+          name: n.name || n.id,
+          type: n.type,
+          arn: n.arn
         }))
+        console.log('[DependencyMapTab] fetchResources got', resourceList.length, 'resources')
         setResources(resourceList)
+        // Also set graph data if not already set
+        if (!graphData || graphData.nodes?.length === 0) {
+          setGraphData({ nodes: data.nodes || [], edges: data.edges || [] })
+        }
       }
     } catch (e) {
       console.error('Failed to fetch resources:', e)
     } finally {
       setResourcesLoading(false)
     }
-  }, [systemName, resources.length])
+  }, [systemName, resources.length, graphData])
 
   useEffect(() => {
     fetchGraphData()
