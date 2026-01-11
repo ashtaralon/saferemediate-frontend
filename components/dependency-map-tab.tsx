@@ -5,7 +5,19 @@ import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch } from 'lucid
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
-import { SankeyView } from './dependency-map/sankey'
+
+// Lazy load SankeyView with SSR disabled (nivo uses browser APIs)
+const SankeyView = dynamic(
+  () => import('./dependency-map/sankey').then(mod => mod.SankeyView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[550px] bg-slate-900 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
+      </div>
+    )
+  }
+)
 
 // Lazy load GraphViewX6 with SSR disabled to prevent build errors
 const GraphViewX6 = dynamic(
