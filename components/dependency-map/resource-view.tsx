@@ -29,9 +29,8 @@ interface Connection {
 interface DependencyData {
   inbound: Connection[]
   outbound: Connection[]
-  iamRoles: { name: string; score?: number }[]
+  iamRoles: { name: string }[]
   securityGroups: string[]
-  permissionScore: number
   loading: boolean
 }
 
@@ -146,7 +145,6 @@ export default function ResourceView({
     outbound: [],
     iamRoles: [],
     securityGroups: [],
-    permissionScore: 0,
     loading: true
   })
 
@@ -214,15 +212,13 @@ export default function ResourceView({
 
         // IAM data - currently not available from backend
         // TODO: Add IAM endpoint to backend when needed
-        const iamRoles: { name: string; score?: number }[] = []
-        const permissionScore = 0
+        const iamRoles: { name: string }[] = []
 
         setDependencies({
           inbound,
           outbound,
           iamRoles,
           securityGroups: [],
-          permissionScore,
           loading: false
         })
       } catch (err) {
@@ -451,15 +447,6 @@ export default function ResourceView({
                   <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg border border-purple-200">
                     <Key className="w-4 h-4 text-purple-500" />
                     <span className="text-sm text-slate-700">{role.name}</span>
-                    {role.score !== undefined && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${
-                        role.score < 20 ? 'bg-red-100 text-red-600' :
-                        role.score < 50 ? 'bg-yellow-100 text-yellow-600' :
-                        'bg-green-100 text-green-600'
-                      }`}>
-                        {role.score}% LP
-                      </span>
-                    )}
                   </div>
                 ))}
               </div>
