@@ -63,6 +63,72 @@ interface AggregatedConnection {
   totalHits: number
   lastSeen?: string
   connections: Connection[]
+  // Identity evidence fields
+  iamPrincipal?: string
+  iamAction?: string
+  authMethod?: string
+  insightType?: 'healthy' | 'anomaly' | 'critical' | 'info'
+  insightMessage?: string
+}
+
+// Identity Evidence types
+interface IdentityConnection {
+  direction: 'inbound' | 'outbound'
+  peer: {
+    id: string
+    name: string
+    arn?: string
+    ip?: string
+    type: string
+  }
+  network: {
+    port?: number
+    protocol?: string
+    hit_count: number
+    first_seen?: string
+    last_seen?: string
+    relationship_type: string
+  }
+  identity: {
+    iam_principal?: string
+    iam_principal_arn?: string
+    iam_action?: string
+    auth_method: string
+  }
+  insight: {
+    type: 'healthy' | 'anomaly' | 'critical' | 'info'
+    message: string
+  }
+}
+
+interface IAMAccessEvent {
+  principal: {
+    arn: string
+    name: string
+    type: string
+  }
+  action?: string
+  hit_count: number
+  first_seen?: string
+  last_seen?: string
+  insight: {
+    type: 'healthy' | 'anomaly' | 'critical' | 'info'
+    message: string
+  }
+}
+
+interface IdentityEvidence {
+  connections: IdentityConnection[]
+  iam_access_events: IAMAccessEvent[]
+  summary: {
+    total_connections: number
+    healthy: number
+    anomaly: number
+    critical: number
+    iam_events: number
+    has_root_access: boolean
+  }
+  loading: boolean
 }
 
 interface Props {
@@ -317,6 +383,61 @@ function getHeatColor(hits: number, maxHits: number): string {
   if (ratio > 0.5) return 'bg-orange-100'
   if (ratio > 0.25) return 'bg-yellow-100'
   return 'bg-slate-50'
+}
+
+// Insight Badge Component for behavioral insights
+function InsightBadge({ type, message }: { type: 'healthy' | 'anomaly' | 'critical' | 'info'; message?: string }) {
+  const configs = {
+    healthy: {
+      bg: 'bg-green-100',
+      text: 'text-green-700',
+      icon: CheckCircle,
+      label: 'Healthy'
+    },
+    anomaly: {
+      bg: 'bg-amber-100',
+      text: 'text-amber-700',
+      icon: AlertTriangle,
+      label: 'Anomaly'
+    },
+    critical: {
+      bg: 'bg-red-100',
+      text: 'text-red-700',
+      icon: AlertTriangle,
+      label: 'Critical'
+    },
+    info: {
+      bg: 'bg-slate-100',
+      text: 'text-slate-600',
+      icon: Eye,
+      label: 'Info'
+    }
+  }
+
+  const config = configs[type]
+  const IconComp = config.icon
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
+      title={message}
+    >
+      <IconComp className="w-3 h-3" />
+      {config.label}
+    </div>
+  )
+}
+
+// IAM Action Badge
+function IAMActionBadge({ action }: { action?: string }) {
+  if (!action) return null
+
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-xs font-mono">
+      <Key className="w-3 h-3" />
+      {action.length > 20 ? action.slice(0, 20) + '...' : action}
+    </span>
+  )
 }
 
 // Connection Card Component with behavioral data
@@ -578,6 +699,20 @@ export default function ResourceView({
   const [activeFilter, setActiveFilter] = useState<FilterType>('all')
   const [viewMode, setViewMode] = useState<'buckets' | 'columns'>('buckets')
   const [expandedBuckets, setExpandedBuckets] = useState<Set<BucketType>>(new Set(['anomalous']))
+  const [showIdentityOverlay, setShowIdentityOverlay] = useState(false)
+  const [identityEvidence, setIdentityEvidence] = useState<IdentityEvidence>({
+    connections: [],
+    iam_access_events: [],
+    summary: {
+      total_connections: 0,
+      healthy: 0,
+      anomaly: 0,
+      critical: 0,
+      iam_events: 0,
+      has_root_access: false
+    },
+    loading: false
+  })
 
   // Fetch dependency data - show ALL connections with full behavioral data
   useEffect(() => {
@@ -656,6 +791,46 @@ export default function ResourceView({
 
     fetchDependencies()
   }, [selectedResource])
+
+  // Fetch identity evidence when overlay is enabled
+  useEffect(() => {
+    if (!selectedResource || !showIdentityOverlay) return
+
+    const fetchIdentityEvidence = async () => {
+      setIdentityEvidence(prev => ({ ...prev, loading: true }))
+
+      try {
+        const res = await fetch(
+          `/api/proxy/resource-view/${encodeURIComponent(selectedResource.id)}/identity-evidence`
+        )
+
+        if (res.ok) {
+          const data = await res.json()
+          setIdentityEvidence({
+            connections: data.connections || [],
+            iam_access_events: data.iam_access_events || [],
+            summary: data.summary || {
+              total_connections: 0,
+              healthy: 0,
+              anomaly: 0,
+              critical: 0,
+              iam_events: 0,
+              has_root_access: false
+            },
+            loading: false
+          })
+        } else {
+          console.error('Failed to fetch identity evidence:', res.status)
+          setIdentityEvidence(prev => ({ ...prev, loading: false }))
+        }
+      } catch (err) {
+        console.error('Failed to fetch identity evidence:', err)
+        setIdentityEvidence(prev => ({ ...prev, loading: false }))
+      }
+    }
+
+    fetchIdentityEvidence()
+  }, [selectedResource, showIdentityOverlay])
 
   // Compute behavioral insights
   const insights = useMemo(() => {
@@ -896,6 +1071,24 @@ export default function ResourceView({
                 </button>
               </div>
 
+              {/* Identity Overlay Toggle */}
+              <button
+                onClick={() => setShowIdentityOverlay(!showIdentityOverlay)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                  showIdentityOverlay
+                    ? 'bg-violet-600 text-white border-violet-600 font-medium'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-600'
+                }`}
+              >
+                <Key className="w-3.5 h-3.5" />
+                Identity Evidence
+                {showIdentityOverlay && identityEvidence.summary.critical > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                    {identityEvidence.summary.critical}
+                  </span>
+                )}
+              </button>
+
               {/* Filters (only show in columns view) */}
               {viewMode === 'columns' && (
                 <div className="flex items-center gap-2">
@@ -925,7 +1118,7 @@ export default function ResourceView({
             </div>
 
             {/* Bucket summary (only show in buckets view) */}
-            {viewMode === 'buckets' && behavioralBuckets.length > 0 && (
+            {viewMode === 'buckets' && behavioralBuckets.length > 0 && !showIdentityOverlay && (
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <span>{behavioralBuckets.length} behavioral categories</span>
                 <span>•</span>
@@ -942,7 +1135,71 @@ export default function ResourceView({
                 )}</span>
               </div>
             )}
+
+            {/* Identity Evidence Summary (show when overlay is enabled) */}
+            {showIdentityOverlay && (
+              <div className="flex items-center gap-3 text-xs">
+                {identityEvidence.loading ? (
+                  <span className="text-slate-500">Loading identity evidence...</span>
+                ) : (
+                  <>
+                    <span className="text-green-600 font-medium">
+                      {identityEvidence.summary.healthy} Healthy
+                    </span>
+                    {identityEvidence.summary.anomaly > 0 && (
+                      <span className="text-amber-600 font-medium">
+                        {identityEvidence.summary.anomaly} Anomaly
+                      </span>
+                    )}
+                    {identityEvidence.summary.critical > 0 && (
+                      <span className="text-red-600 font-medium">
+                        {identityEvidence.summary.critical} Critical
+                      </span>
+                    )}
+                    {identityEvidence.summary.has_root_access && (
+                      <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">
+                        Root Access Detected
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Identity Evidence Panel (show when overlay is enabled) */}
+          {showIdentityOverlay && !identityEvidence.loading && identityEvidence.iam_access_events.length > 0 && (
+            <div className="px-4 py-3 bg-violet-50 border-b border-violet-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Key className="w-4 h-4 text-violet-600" />
+                <span className="text-sm font-medium text-violet-800">IAM Access Events</span>
+                <span className="text-xs text-violet-500">({identityEvidence.iam_access_events.length})</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {identityEvidence.iam_access_events.slice(0, 5).map((event, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+                      event.insight.type === 'anomaly'
+                        ? 'bg-amber-50 border-amber-200'
+                        : event.insight.type === 'healthy'
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-white border-slate-200'
+                    }`}
+                  >
+                    <span className="font-medium text-sm text-slate-800">{event.principal.name}</span>
+                    <span className="text-xs text-slate-500">{event.hit_count} calls</span>
+                    <InsightBadge type={event.insight.type} message={event.insight.message} />
+                  </div>
+                ))}
+                {identityEvidence.iam_access_events.length > 5 && (
+                  <span className="text-xs text-violet-500 self-center">
+                    +{identityEvidence.iam_access_events.length - 5} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Behavioral Buckets View */}
           {viewMode === 'buckets' ? (
