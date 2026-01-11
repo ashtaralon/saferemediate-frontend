@@ -56,7 +56,7 @@ export default function DependencyMapTab({
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
-  const [activeView, setActiveView] = useState<ViewType>('sankey')
+  const [activeView, setActiveView] = useState<ViewType>('graph')
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>(defaultGraphEngine)
   
   // Update graph engine when prop changes
