@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect } from 'react'
-import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch } from 'lucide-react'
+import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
@@ -22,7 +22,7 @@ const SankeyView = dynamic(
 // Lazy load GraphViewX6 with SSR disabled to prevent build errors
 const GraphViewX6 = dynamic(
   () => import('./dependency-map/graph-view-x6'),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
@@ -31,6 +31,24 @@ const GraphViewX6 = dynamic(
     )
   }
 )
+
+// Lazy load GraphViewV2 (Observed-first) with SSR disabled
+const GraphViewV2 = dynamic(
+  () => import('./dependency-map/graph-view-v2'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
+      </div>
+    )
+  }
+)
+
+// Feature flag for v2 (Observed-first) dependency map
+// Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
+const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'
+console.log('[DEP-MAP] DEPENDENCY_MAP_V2_ENABLED:', DEPENDENCY_MAP_V2_ENABLED, 'env:', process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2)
 
 interface Resource {
   id: string
@@ -42,8 +60,8 @@ interface Resource {
 interface Props {
   systemName: string
   highlightPath?: { source: string; target: string; port?: string }
-  defaultGraphEngine?: 'logical' | 'architectural'
-  onGraphEngineChange?: (engine: 'logical' | 'architectural') => void
+  defaultGraphEngine?: 'logical' | 'architectural' | 'observed'
+  onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed') => void
   onHighlightPathClear?: () => void
 }
 
@@ -52,12 +70,12 @@ type ViewType = 'graph' | 'resource' | 'sankey'
 export default function DependencyMapTab({
   systemName,
   highlightPath,
-  defaultGraphEngine = 'architectural',
+  defaultGraphEngine = DEPENDENCY_MAP_V2_ENABLED ? 'observed' : 'architectural',
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>(defaultGraphEngine)
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed'>(defaultGraphEngine)
   
   // Update graph engine when prop changes
   useEffect(() => {
@@ -77,7 +95,7 @@ export default function DependencyMapTab({
     }
   }, [highlightPath, onHighlightPathClear])
   
-  const handleGraphEngineChange = (engine: 'logical' | 'architectural') => {
+  const handleGraphEngineChange = (engine: 'logical' | 'architectural' | 'observed') => {
     setGraphEngine(engine)
     if (onGraphEngineChange) {
       onGraphEngineChange(engine)
@@ -327,6 +345,20 @@ export default function DependencyMapTab({
           {/* Graph Engine Toggle (only show in graph view) */}
           {activeView === 'graph' && (
             <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
+              {DEPENDENCY_MAP_V2_ENABLED && (
+                <button
+                  onClick={() => handleGraphEngineChange('observed')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    graphEngine === 'observed'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Observed-First View - Only real traffic from VPC Flow Logs"
+                >
+                  <Activity className="w-4 h-4" />
+                  Observed
+                </button>
+              )}
               <button
                 onClick={() => handleGraphEngineChange('logical')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -362,7 +394,9 @@ export default function DependencyMapTab({
               <span>Professional traffic flow visualization • Based on actual VPC Flow Logs</span>
             ) : activeView === 'graph' ? (
               <span>
-                {graphEngine === 'architectural'
+                {graphEngine === 'observed'
+                  ? 'Observed-first view • Only real traffic from VPC Flow Logs • No SG/IAM nodes'
+                  : graphEngine === 'architectural'
                   ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
                   : 'Graph theory view with all connections • Double-click a node for details'}
               </span>
@@ -399,7 +433,7 @@ export default function DependencyMapTab({
       </div>
 
       {/* View Content */}
-      <div className="flex-1 h-[550px]">
+      <div className="flex-1 h-[650px]">
         {activeView === 'sankey' ? (
           <SankeyView
             graphData={graphData}
@@ -410,7 +444,19 @@ export default function DependencyMapTab({
             height={550}
           />
         ) : activeView === 'graph' ? (
-          graphEngine === 'architectural' ? (
+          graphEngine === 'observed' ? (
+            <React.Suspense fallback={
+              <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+                <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
+              </div>
+            }>
+              <GraphViewV2
+                systemName={systemName}
+                onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
+                onRefresh={fetchGraphData}
+              />
+            </React.Suspense>
+          ) : graphEngine === 'architectural' ? (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
                 <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
