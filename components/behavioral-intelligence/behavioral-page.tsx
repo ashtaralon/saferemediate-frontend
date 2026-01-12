@@ -86,6 +86,34 @@ interface IdentitySummary {
   top_actors: Array<{ key: string; name: string; action_count: number }>
 }
 
+// API response structure (what the backend actually returns)
+interface ApiResponse {
+  system_id: string
+  window: { start: string; end: string; days?: number }
+  coverage: any
+  confidence: Score
+  risk: Score
+  critical_paths: CriticalPath[]
+  drift_items: DriftItem[]
+  timeline: Array<{
+    timestamp: string
+    event_type: string
+    summary: string
+    severity: string
+    plane: string
+    details?: Record<string, any>
+  }>
+  network: NetworkSummary
+  identity: IdentitySummary
+  anomalies: Array<{
+    type: string
+    severity: string
+    description: string
+    details?: Record<string, any>
+  }>
+}
+
+// Normalized structure for the component
 interface BehavioralSummary {
   system_id: string
   window: { start: string; end: string }
@@ -109,6 +137,40 @@ interface BehavioralSummary {
 
 interface BehavioralPageProps {
   systemName: string
+}
+
+// ============================================================================
+// Transform API response to normalized structure
+// ============================================================================
+
+function transformApiResponse(api: ApiResponse): BehavioralSummary {
+  return {
+    system_id: api.system_id,
+    window: { start: api.window.start, end: api.window.end },
+    coverage: {
+      flow_logs: api.coverage?.flow_logs || { present: false },
+      cloudtrail: api.coverage?.cloudtrail || { present: false },
+      config: api.coverage?.config || { present: false },
+      iam: api.coverage?.iam || { present: false },
+    },
+    scores: {
+      confidence: api.confidence || { value: 0, level: 'LOW', reasons: [] },
+      risk: api.risk || { value: 0, level: 'LOW', reasons: [] },
+    },
+    critical_paths: api.critical_paths || [],
+    drift_items: api.drift_items || [],
+    timeline: (api.timeline || []).map(event => ({
+      ts: event.timestamp,
+      type: event.event_type,
+      summary: event.summary,
+      severity: event.severity,
+      plane: event.plane,
+      details: event.details,
+    })),
+    network_summary: api.network || { total_edges: 0, external_edges: 0, internal_edges: 0, top_talkers: [] },
+    identity_summary: api.identity || { principals_count: 0, roles_with_activity: 0, high_risk_actions: 0, top_actors: [] },
+    anomalies: api.anomalies || [],
+  }
 }
 
 // ============================================================================
@@ -149,8 +211,9 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`)
       }
 
-      const json = await res.json()
-      setData(json)
+      const json: ApiResponse = await res.json()
+      const normalized = transformApiResponse(json)
+      setData(normalized)
 
     } catch (err: any) {
       console.error('Failed to fetch behavioral summary:', err)
