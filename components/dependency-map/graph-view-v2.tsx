@@ -270,47 +270,113 @@ export default function GraphViewV2({
     }
   }, [nodes, edges, search])
 
-  // Calculate layout
+  // Calculate layout - improved for many nodes
   const layout = useMemo(() => {
+    const NODE_WIDTH = 110
+    const NODE_HEIGHT = 75
+    const LANE_GAP = 180
+    const NODE_GAP_X = 125
+    const NODE_GAP_Y = 95
+    const PADDING = 40
+    const MAX_NODES_PER_LANE = 20
+    const GRID_COLS = 3 // For lanes with many nodes
+
+    // Step 1: Find nodes that have edges (connected nodes)
+    const connectedIds = new Set<string>()
+    filtered.edges.forEach(e => {
+      connectedIds.add(e.source)
+      connectedIds.add(e.target)
+    })
+
+    // Step 2: Prioritize connected nodes, sort by edge count
+    const edgeCounts = new Map<string, number>()
+    filtered.edges.forEach(e => {
+      edgeCounts.set(e.source, (edgeCounts.get(e.source) || 0) + 1)
+      edgeCounts.set(e.target, (edgeCounts.get(e.target) || 0) + 1)
+    })
+
+    // Step 3: Group by lane and limit per lane
     const lanes = new Map<number, ComponentNode[]>()
-    filtered.nodes.forEach(n => {
+    const hiddenCounts = new Map<number, number>() // Track how many hidden per lane
+
+    // Sort nodes: connected first, then by edge count
+    const sortedNodes = [...filtered.nodes].sort((a, b) => {
+      const aConnected = connectedIds.has(a.id) ? 1 : 0
+      const bConnected = connectedIds.has(b.id) ? 1 : 0
+      if (aConnected !== bConnected) return bConnected - aConnected
+      return (edgeCounts.get(b.id) || 0) - (edgeCounts.get(a.id) || 0)
+    })
+
+    sortedNodes.forEach(n => {
       const l = getLane(n.type)
       if (!lanes.has(l)) lanes.set(l, [])
-      lanes.get(l)!.push(n)
+      const lane = lanes.get(l)!
+
+      // Only add if under limit OR if connected
+      if (lane.length < MAX_NODES_PER_LANE || connectedIds.has(n.id)) {
+        if (lane.length < MAX_NODES_PER_LANE * 2) { // Hard limit
+          lane.push(n)
+        } else {
+          hiddenCounts.set(l, (hiddenCounts.get(l) || 0) + 1)
+        }
+      } else {
+        hiddenCounts.set(l, (hiddenCounts.get(l) || 0) + 1)
+      }
     })
 
     const positions = new Map<string, { x: number; y: number }>()
     const sorted = Array.from(lanes.entries()).sort((a, b) => a[0] - b[0])
     let maxY = 0
+    let totalWidth = 0
 
-    const NODE_WIDTH = 130
-    const NODE_HEIGHT = 90
-    const LANE_GAP = 200
-    const NODE_GAP = 120
-    const PADDING = 40
+    // Position nodes in each lane
+    sorted.forEach(([lane, nodes], laneIndex) => {
+      const useManyNodes = nodes.length > 8
+      const cols = useManyNodes ? GRID_COLS : 1
+      const laneBaseX = PADDING + laneIndex * (useManyNodes ? LANE_GAP + NODE_GAP_X * (cols - 1) : LANE_GAP)
 
-    sorted.forEach(([_, nodes], i) => {
       nodes.forEach((n, j) => {
-        const x = PADDING + i * LANE_GAP
-        const y = PADDING + 30 + j * NODE_GAP
+        const col = useManyNodes ? (j % cols) : 0
+        const row = useManyNodes ? Math.floor(j / cols) : j
+        const x = laneBaseX + col * NODE_GAP_X
+        const y = PADDING + 45 + row * NODE_GAP_Y
         positions.set(n.id, { x, y })
         maxY = Math.max(maxY, y)
+        totalWidth = Math.max(totalWidth, x + NODE_WIDTH)
       })
     })
 
-    return { positions, width: PADDING * 2 + sorted.length * LANE_GAP, height: maxY + NODE_HEIGHT + PADDING * 2, lanes: sorted, NODE_WIDTH, NODE_HEIGHT }
+    return {
+      positions,
+      width: totalWidth + PADDING * 2,
+      height: maxY + NODE_HEIGHT + PADDING * 2,
+      lanes: sorted,
+      hiddenCounts,
+      NODE_WIDTH,
+      NODE_HEIGHT
+    }
   }, [filtered])
 
   // Count stats
   const stats = useMemo(() => {
-    const observedEdges = filtered.edges.filter(e => e.kind === 'OBSERVED')
-    const allowedEdges = filtered.edges.filter(e => e.kind === 'ALLOWED')
+    // Only count edges where both nodes have positions (are rendered)
+    const renderedEdges = filtered.edges.filter(e =>
+      layout.positions.has(e.source) && layout.positions.has(e.target)
+    )
+    const observedEdges = renderedEdges.filter(e => e.kind === 'OBSERVED')
+    const allowedEdges = renderedEdges.filter(e => e.kind === 'ALLOWED')
+    const renderedNodes = layout.positions.size
+    const totalHidden = Array.from(layout.hiddenCounts.values()).reduce((a, b) => a + b, 0)
+
     return {
-      total: filtered.edges.length,
+      totalNodes: filtered.nodes.length,
+      renderedNodes,
+      hiddenNodes: totalHidden,
+      total: renderedEdges.length,
       observed: observedEdges.length,
       allowed: allowedEdges.length
     }
-  }, [filtered.edges])
+  }, [filtered, layout])
 
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => setIsFullscreen(!isFullscreen), [isFullscreen])
@@ -359,7 +425,7 @@ export default function GraphViewV2({
             <span className="text-white font-semibold text-sm">Observed-First Map</span>
           </div>
           <span className="text-slate-400 text-xs">
-            Nodes: {filtered.nodes.length} | Edges: {filtered.edges.length}
+            Nodes: {stats.renderedNodes}{stats.hiddenNodes > 0 && <span className="text-amber-400/80"> (+{stats.hiddenNodes})</span>} | Edges: {stats.total}
           </span>
           {stats.observed > 0 && (
             <span className="text-green-400 text-xs flex items-center gap-1">
@@ -474,10 +540,17 @@ export default function GraphViewV2({
           {layout.lanes.map(([lane, nodes]) => {
             const p = layout.positions.get(nodes[0]?.id)
             if (!p) return null
+            const hidden = layout.hiddenCounts.get(lane) || 0
+            const totalInLane = nodes.length + hidden
             return (
-              <div key={`lane-${lane}`} className="absolute text-cyan-400 text-2xl font-black tracking-wide"
-                style={{ left: p.x, top: 8, width: layout.NODE_WIDTH, textAlign: 'center' }}>
-                {formatType(nodes[0]?.type)} ({nodes.length})
+              <div key={`lane-${lane}`} className="absolute"
+                style={{ left: p.x, top: 8, minWidth: layout.NODE_WIDTH * 2 }}>
+                <div className="text-cyan-400 text-lg font-bold tracking-wide">
+                  {formatType(nodes[0]?.type)}
+                </div>
+                <div className="text-slate-400 text-xs">
+                  {nodes.length} shown{hidden > 0 && <span className="text-amber-400"> (+{hidden} hidden)</span>}
+                </div>
               </div>
             )
           })}
@@ -502,8 +575,8 @@ export default function GraphViewV2({
               >
                 <div className={`w-full h-full rounded-lg border-2 flex flex-col items-center justify-center shadow-lg ${selected?.id === n.id ? 'ring-2 ring-white/60 scale-105' : ''}`}
                   style={{ background: c.gradient, borderColor: c.border }}>
-                  <AWSIcon type={n.type} size={32} />
-                  <div className="text-sm text-white font-bold w-full text-center px-1 mt-1 leading-tight" style={{ wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={n.name}>
+                  <AWSIcon type={n.type} size={24} />
+                  <div className="text-[11px] text-white font-semibold w-full text-center px-1 mt-0.5 leading-tight" style={{ wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={n.name}>
                     {n.name || 'Unknown'}
                   </div>
                 </div>
