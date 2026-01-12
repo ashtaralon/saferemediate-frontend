@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const backendUrl = `${BACKEND_URL}/api/dependency-map?systemId=${encodeURIComponent(systemId)}&window=${window}&mode=${mode}`
+    const backendUrl = `${BACKEND_URL}/api/dependency-map-v2?systemId=${encodeURIComponent(systemId)}&window=${window}&mode=${mode}`
 
     console.log(`[proxy] dependency-map/v2 -> ${backendUrl}`)
 
