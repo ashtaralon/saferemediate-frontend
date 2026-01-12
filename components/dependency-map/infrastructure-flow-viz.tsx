@@ -87,12 +87,27 @@ const NODE_ICONS: Record<string, string> = {
 // DATA PROCESSING
 // ============================================================================
 
-function classifyNode(id: string): { tier: Tier; label: string; type: string } {
+function classifyNode(id: string): { tier: Tier; label: string; type: string } | null {
   if (!id || id === 'external') {
     return { tier: 'external', label: 'Internet', type: 'external' }
   }
 
   const idLower = id.toLowerCase()
+
+  // FILTER OUT: Ephemeral ports (like "393650:37628") - these are NOT real nodes
+  if (id.match(/^\d+:\d+$/) || id.match(/^[\d.]+:\d+$/)) {
+    return null // Skip ephemeral port entries
+  }
+
+  // FILTER OUT: Raw IP addresses with ports
+  if (id.match(/^\d+\.\d+\.\d+\.\d+(:\d+)?$/)) {
+    return null // Skip raw IPs - aggregate to "External"
+  }
+
+  // FILTER OUT: Unknown/unresolved entries
+  if (idLower === 'unknown' || idLower.startsWith('unknown:')) {
+    return null
+  }
 
   // Internet Gateway / NAT
   if (idLower.includes('internetgateway') || id.startsWith('igw-')) {
@@ -103,37 +118,32 @@ function classifyNode(id: string): { tier: Tier; label: string; type: string } {
   }
 
   // RDS
-  if (id.startsWith('arn:aws:rds') || idLower.includes('rds')) {
+  if (id.startsWith('arn:aws:rds') || (idLower.includes('rds') && !idLower.includes('service'))) {
     const dbName = id.split(':').pop() || 'RDS'
     return { tier: 'data', label: dbName, type: 'rds' }
   }
 
   // S3
-  if (id.startsWith('arn:aws:s3') || idLower.includes('s3bucket') || idLower.includes('s3')) {
+  if (id.startsWith('arn:aws:s3') || idLower.includes('s3bucket')) {
     const bucketName = id.split(':').pop() || id.split('/').pop() || 'S3'
     return { tier: 'data', label: bucketName.length > 25 ? bucketName.slice(0, 22) + '...' : bucketName, type: 's3' }
   }
 
   // DynamoDB
-  if (idLower.includes('dynamodb')) {
+  if (idLower.includes('dynamodb') && !idLower.includes('service')) {
     return { tier: 'data', label: 'DynamoDB', type: 'dynamodb' }
   }
 
   // Lambda
-  if (idLower.includes('lambda')) {
+  if (id.startsWith('arn:aws:lambda') || (idLower.includes('lambda') && id.startsWith('arn:'))) {
     const fnName = id.split(':').pop() || 'Lambda'
     return { tier: 'app', label: fnName.length > 20 ? fnName.slice(0, 17) + '...' : fnName, type: 'lambda' }
   }
 
-  // IAM
+  // IAM Roles
   if (id.startsWith('arn:aws:iam')) {
     const roleName = id.match(/role\/(.+)$/)?.[1]?.split('/').pop() || 'IAM Role'
     return { tier: 'services', label: roleName.length > 20 ? roleName.slice(0, 17) + '...' : roleName, type: 'iam' }
-  }
-
-  // AWS Services
-  if (id.startsWith('service:')) {
-    return { tier: 'services', label: id.replace('service:', '').toUpperCase(), type: 'service' }
   }
 
   // Security Group
@@ -142,11 +152,11 @@ function classifyNode(id: string): { tier: Tier; label: string; type: string } {
   }
 
   // ALB/ELB
-  if (idLower.includes('alb') || idLower.includes('elb') || idLower.includes('loadbalancer')) {
+  if (id.startsWith('arn:aws:elasticloadbalancing') || idLower.includes('loadbalancer')) {
     return { tier: 'frontend', label: 'Load Balancer', type: 'alb' }
   }
 
-  // EC2
+  // EC2 Instances
   if (id.startsWith('i-')) {
     const name = INSTANCE_NAMES[id]
     if (name?.includes('frontend')) return { tier: 'frontend', label: name, type: 'ec2' }
@@ -154,38 +164,76 @@ function classifyNode(id: string): { tier: Tier; label: string; type: string } {
     return { tier: 'app', label: name || `EC2 ${id.slice(-6)}`, type: 'ec2' }
   }
 
-  // Default
-  return { tier: 'services', label: id.length > 15 ? id.slice(-12) : id, type: 'unknown' }
+  // VPC Endpoints
+  if (id.startsWith('vpce-')) {
+    return { tier: 'services', label: 'VPC Endpoint', type: 'vpce' }
+  }
+
+  // ENI (Network Interface) - aggregate these
+  if (id.startsWith('eni-')) {
+    return null // Skip raw ENIs
+  }
+
+  // Anything else that looks like an ARN - try to extract useful info
+  if (id.startsWith('arn:aws:')) {
+    const parts = id.split(':')
+    const service = parts[2] || 'AWS'
+    const resource = parts[parts.length - 1] || service
+    return { tier: 'services', label: resource.length > 20 ? resource.slice(0, 17) + '...' : resource, type: service }
+  }
+
+  // Skip anything else that doesn't look like a real resource
+  return null
 }
 
 function aggregateFlows(rawEdges: any[]): { nodes: ProcessedNode[]; edges: ProcessedEdge[] } {
   const edgeMap = new Map<string, ProcessedEdge>()
   const nodeMap = new Map<string, ProcessedNode>()
 
+  // Track which node IDs map to which canonical keys (for aggregation)
+  const nodeIdToKey = new Map<string, string>()
+
   for (const row of rawEdges) {
     const sourceId = row.source || 'external'
     const targetId = row.target || 'external'
     const flows = row.flows || 1
 
-    // Add nodes
-    if (!nodeMap.has(sourceId)) {
-      nodeMap.set(sourceId, { id: sourceId, ...classifyNode(sourceId) })
-    }
-    if (!nodeMap.has(targetId)) {
-      nodeMap.set(targetId, { id: targetId, ...classifyNode(targetId) })
+    // Classify source and target - skip if either returns null (ephemeral ports, raw IPs, etc.)
+    const sourceClassification = classifyNode(sourceId)
+    const targetClassification = classifyNode(targetId)
+
+    // Skip edges where source or target can't be classified (ephemeral ports, raw IPs, etc.)
+    if (!sourceClassification || !targetClassification) {
+      continue
     }
 
-    // Skip self-loops
-    if (sourceId === targetId) continue
+    // Use classification key for aggregation (same label+tier = same node)
+    const sourceKey = `${sourceClassification.tier}:${sourceClassification.label}`
+    const targetKey = `${targetClassification.tier}:${targetClassification.label}`
 
-    // Aggregate edges
-    const key = `${sourceId}→${targetId}|${row.kind || 'OBSERVED'}`
-    if (edgeMap.has(key)) {
-      edgeMap.get(key)!.count += flows
+    // Store mapping
+    nodeIdToKey.set(sourceId, sourceKey)
+    nodeIdToKey.set(targetId, targetKey)
+
+    // Add nodes (use the key for deduplication)
+    if (!nodeMap.has(sourceKey)) {
+      nodeMap.set(sourceKey, { id: sourceKey, ...sourceClassification })
+    }
+    if (!nodeMap.has(targetKey)) {
+      nodeMap.set(targetKey, { id: targetKey, ...targetClassification })
+    }
+
+    // Skip self-loops (after key mapping)
+    if (sourceKey === targetKey) continue
+
+    // Aggregate edges using canonical keys
+    const edgeKey = `${sourceKey}→${targetKey}|${row.kind || 'OBSERVED'}`
+    if (edgeMap.has(edgeKey)) {
+      edgeMap.get(edgeKey)!.count += flows
     } else {
-      edgeMap.set(key, {
-        source: sourceId,
-        target: targetId,
+      edgeMap.set(edgeKey, {
+        source: sourceKey,
+        target: targetKey,
         type: row.kind || 'OBSERVED',
         count: flows,
       })
