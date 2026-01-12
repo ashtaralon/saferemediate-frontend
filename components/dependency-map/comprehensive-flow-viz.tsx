@@ -153,10 +153,43 @@ function formatCount(count: number): string {
   return count.toString()
 }
 
-function getShortLabel(node: AnyNode): string {
+function getDisplayName(node: AnyNode): { line1: string; line2?: string } {
   const name = node.name || node.id
-  if (name.length > 20) return name.slice(0, 17) + '...'
-  return name
+
+  // If name fits in one line (under 22 chars), return as is
+  if (name.length <= 22) return { line1: name }
+
+  // Try to split at natural break points (hyphens, underscores, dots, camelCase)
+  const breakPoints = ['-', '_', '.', '/']
+
+  // Find the best break point near the middle
+  let bestBreak = -1
+  const targetPos = Math.floor(name.length / 2)
+
+  for (let i = Math.min(targetPos + 5, name.length - 3); i >= Math.max(targetPos - 10, 3); i--) {
+    if (breakPoints.includes(name[i])) {
+      bestBreak = i
+      break
+    }
+    // Also break at camelCase transitions
+    if (i < name.length - 1 && /[a-z]/.test(name[i]) && /[A-Z]/.test(name[i + 1])) {
+      bestBreak = i
+      break
+    }
+  }
+
+  // If no good break point, force break at middle
+  if (bestBreak === -1) {
+    bestBreak = Math.min(18, Math.floor(name.length / 2))
+  }
+
+  const line1 = name.slice(0, bestBreak + 1)
+  const line2 = name.slice(bestBreak + 1)
+
+  return {
+    line1: line1.length > 22 ? line1.slice(0, 20) + '..' : line1,
+    line2: line2.length > 22 ? line2.slice(0, 20) + '..' : line2
+  }
 }
 
 function getNodeIcon(node: AnyNode): string {
@@ -222,10 +255,22 @@ const NodeCard: React.FC<{
         }}
       />
 
-      {/* Node header */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">{icon}</span>
-        <span className="text-sm font-semibold text-white truncate flex-1">{getShortLabel(node)}</span>
+      {/* Node header - supports 2 lines for long names */}
+      <div className="flex items-start gap-2 mb-2">
+        <span className="text-lg flex-shrink-0">{icon}</span>
+        <div className="flex flex-col flex-1 min-w-0">
+          {(() => {
+            const displayName = getDisplayName(node)
+            return (
+              <>
+                <span className="text-sm font-semibold text-white leading-tight">{displayName.line1}</span>
+                {displayName.line2 && (
+                  <span className="text-sm font-semibold text-white leading-tight">{displayName.line2}</span>
+                )}
+              </>
+            )
+          })()}
+        </div>
       </div>
 
       {/* Node type and details */}
@@ -467,21 +512,168 @@ const AnimatedEdgePath: React.FC<{
         </g>
       )}
 
-      {/* Arrowhead at target */}
+      {/* Directional arrow at target end */}
       <defs>
         <marker
-          id={`arrow-${edge.id}`}
-          markerWidth="10"
-          markerHeight="10"
-          refX="9"
-          refY="3"
+          id={`arrow-end-${edge.id}`}
+          markerWidth="14"
+          markerHeight="14"
+          refX="7"
+          refY="7"
           orient="auto"
-          markerUnits="strokeWidth"
+          markerUnits="userSpaceOnUse"
         >
-          <path d="M0,0 L0,6 L9,3 z" fill={baseColor} opacity={baseOpacity} />
+          <path
+            d="M3,3 L11,7 L3,11 L5,7 Z"
+            fill={baseColor}
+          />
         </marker>
       </defs>
+
+      {/* Path with arrow marker at end */}
+      <path
+        d={path}
+        fill="none"
+        stroke={baseColor}
+        strokeWidth={Math.max(strokeWidth - 1, 1)}
+        strokeLinecap="round"
+        opacity={baseOpacity * 0.9}
+        markerEnd={`url(#arrow-end-${edge.id})`}
+      />
+
+      {/* Direction indicator arrow at 75% of the path */}
+      {(() => {
+        // Calculate point at 75% along the bezier curve for direction arrow
+        const t = 0.75
+        const t2 = t * t
+        const t3 = t2 * t
+        const mt = 1 - t
+        const mt2 = mt * mt
+        const mt3 = mt2 * mt
+
+        // Control points
+        const p0x = sourcePos.x
+        const p0y = sourcePos.y
+        const p1x = sourcePos.x + controlOffset
+        const p1y = sourcePos.y
+        const p2x = targetPos.x - controlOffset
+        const p2y = targetPos.y
+        const p3x = targetPos.x
+        const p3y = targetPos.y
+
+        // Point on curve
+        const px = mt3 * p0x + 3 * mt2 * t * p1x + 3 * mt * t2 * p2x + t3 * p3x
+        const py = mt3 * p0y + 3 * mt2 * t * p1y + 3 * mt * t2 * p2y + t3 * p3y
+
+        // Tangent (derivative) for rotation
+        const dPx = 3 * mt2 * (p1x - p0x) + 6 * mt * t * (p2x - p1x) + 3 * t2 * (p3x - p2x)
+        const dPy = 3 * mt2 * (p1y - p0y) + 6 * mt * t * (p2y - p1y) + 3 * t2 * (p3y - p2y)
+        const angle = Math.atan2(dPy, dPx) * 180 / Math.PI
+
+        return (
+          <g transform={`translate(${px}, ${py}) rotate(${angle})`}>
+            {/* Arrow triangle pointing in direction of flow */}
+            <path
+              d="M-6,-5 L6,0 L-6,5 Z"
+              fill={baseColor}
+              opacity={baseOpacity}
+              stroke="rgba(0,0,0,0.3)"
+              strokeWidth={0.5}
+            />
+          </g>
+        )
+      })()}
     </g>
+  )
+}
+
+// ============================================================================
+// INTER-TIER FLOW ARROW COMPONENT - Gradient line with flow badge
+// ============================================================================
+
+const InterTierArrow: React.FC<{
+  leftFlows: number
+  rightFlows: number
+  leftColor: string
+  rightColor: string
+}> = ({ leftFlows, rightFlows, leftColor, rightColor }) => {
+  const totalFlows = leftFlows + rightFlows
+  const isBidirectional = leftFlows > 0 && rightFlows > 0
+  const primaryColor = rightFlows >= leftFlows ? rightColor : leftColor
+  const hasFlows = totalFlows > 0
+
+  return (
+    <div className="flex flex-col items-center justify-center mx-2 min-w-[110px]">
+      {/* Flow count badge - only show if there are flows */}
+      {hasFlows && (
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg mb-1"
+          style={{
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: `1px solid ${primaryColor}40`,
+            boxShadow: `0 2px 8px ${primaryColor}20`
+          }}
+        >
+          <span className="text-sm font-bold" style={{ color: primaryColor }}>
+            {formatCount(totalFlows)}
+          </span>
+          <span className="text-xs text-slate-400">
+            {totalFlows === 1 ? 'flow' : 'flows'}
+          </span>
+          <span className="text-sm" style={{ color: primaryColor }}>
+            {isBidirectional ? '↔' : (rightFlows > 0 ? '→' : '←')}
+          </span>
+        </div>
+      )}
+
+      {/* Gradient arrow line */}
+      <svg width="110" height="18" viewBox="0 0 110 18" className="overflow-visible">
+        <defs>
+          <linearGradient id={`tier-arrow-grad-${leftColor.replace('#', '')}-${rightColor.replace('#', '')}`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor={leftColor} stopOpacity={hasFlows ? 0.9 : 0.3} />
+            <stop offset="100%" stopColor={rightColor} stopOpacity={hasFlows ? 0.9 : 0.3} />
+          </linearGradient>
+        </defs>
+
+        {/* Left arrow head (for leftward flow) */}
+        {leftFlows > 0 && (
+          <polygon
+            points="2,9 14,4 14,14"
+            fill={leftColor}
+          />
+        )}
+
+        {/* Main line */}
+        <line
+          x1={leftFlows > 0 ? "14" : "5"}
+          y1="9"
+          x2={rightFlows > 0 || !hasFlows ? "96" : "105"}
+          y2="9"
+          stroke={`url(#tier-arrow-grad-${leftColor.replace('#', '')}-${rightColor.replace('#', '')})`}
+          strokeWidth={hasFlows ? "4" : "2"}
+          strokeLinecap="round"
+        />
+
+        {/* Center glowing dot */}
+        <circle
+          cx="55"
+          cy="9"
+          r={hasFlows ? "6" : "4"}
+          fill={primaryColor}
+          opacity={hasFlows ? 1 : 0.5}
+          style={hasFlows ? { filter: `drop-shadow(0 0 6px ${primaryColor})` } : undefined}
+        />
+
+        {/* Right arrow head (for rightward flow) */}
+        {(rightFlows > 0 || !hasFlows) && (
+          <polygon
+            points="108,9 96,4 96,14"
+            fill={rightColor}
+            opacity={hasFlows ? 1 : 0.4}
+          />
+        )}
+      </svg>
+    </div>
   )
 }
 
@@ -561,6 +753,57 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
     }
     return counts
   }, [edges])
+
+  // Calculate inter-tier flows for flow arrows between columns
+  // This captures ALL flows crossing each tier boundary (not just direct connections)
+  const interTierFlows = useMemo(() => {
+    if (!data) return {}
+
+    // Map node IDs to their tier order
+    const nodeToTierOrder: Record<string, number> = {}
+    for (const node of data.external_nodes) nodeToTierOrder[node.id] = TIER_CONFIG.external.order
+    for (const node of data.compute_nodes) nodeToTierOrder[node.id] = TIER_CONFIG.compute.order
+    for (const node of data.security_nodes) nodeToTierOrder[node.id] = TIER_CONFIG.security.order
+    for (const node of data.identity_nodes) nodeToTierOrder[node.id] = TIER_CONFIG.identity.order
+    for (const node of data.data_nodes) nodeToTierOrder[node.id] = TIER_CONFIG.data.order
+    for (const node of data.storage_nodes) nodeToTierOrder[node.id] = TIER_CONFIG.storage.order
+
+    // Get the list of displayed tiers in order
+    const displayedTiers = (Object.entries(TIER_CONFIG) as [Tier, typeof TIER_CONFIG[Tier]][])
+      .sort(([, a], [, b]) => a.order - b.order)
+      .filter(([tierId]) => (nodesByTier[tierId] || []).length > 0)
+      .map(([tierId, config]) => ({ tierId, order: config.order }))
+
+    // For each adjacent tier pair, count flows crossing that boundary
+    const flows: Record<string, { left: number; right: number }> = {}
+
+    for (let i = 0; i < displayedTiers.length - 1; i++) {
+      const leftTier = displayedTiers[i]
+      const rightTier = displayedTiers[i + 1]
+      const key = `${leftTier.tierId}-${rightTier.tierId}`
+      flows[key] = { left: 0, right: 0 }
+
+      // Count all edges that cross this boundary
+      for (const edge of edges) {
+        const sourceOrder = nodeToTierOrder[edge.source]
+        const targetOrder = nodeToTierOrder[edge.target]
+        if (sourceOrder === undefined || targetOrder === undefined) continue
+        if (sourceOrder === targetOrder) continue
+
+        // Check if this edge crosses the boundary between leftTier and rightTier
+        const crossesRight = sourceOrder <= leftTier.order && targetOrder >= rightTier.order
+        const crossesLeft = sourceOrder >= rightTier.order && targetOrder <= leftTier.order
+
+        if (crossesRight) {
+          flows[key].right += edge.flows
+        } else if (crossesLeft) {
+          flows[key].left += edge.flows
+        }
+      }
+    }
+
+    return flows
+  }, [data, edges, nodesByTier])
 
   // Connected nodes when highlighting
   const connectedNodes = useMemo(() => {
@@ -783,59 +1026,95 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
           })}
         </svg>
 
-        {/* Tier columns */}
-        <div className="flex h-full p-4 gap-4 justify-center items-start overflow-x-auto" style={{ position: 'relative', zIndex: 2 }}>
-          {(Object.entries(TIER_CONFIG) as [Tier, typeof TIER_CONFIG[Tier]][])
-            .sort(([, a], [, b]) => a.order - b.order)
-            .map(([tierId, config]) => {
-              const tierNodes = nodesByTier[tierId] || []
-              if (tierNodes.length === 0) return null
+        {/* Tier columns with inter-tier flow arrows */}
+        <div className="flex flex-col h-full p-4" style={{ position: 'relative', zIndex: 2 }}>
+          {(() => {
+            const sortedTiers = (Object.entries(TIER_CONFIG) as [Tier, typeof TIER_CONFIG[Tier]][])
+              .sort(([, a], [, b]) => a.order - b.order)
+              .filter(([tierId]) => (nodesByTier[tierId] || []).length > 0)
 
-              return (
-                <div key={tierId} className="flex flex-col gap-2 min-w-[200px] max-w-[260px]">
-                  {/* Tier header */}
-                  <div
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl mb-2"
-                    style={{
-                      background: `linear-gradient(135deg, ${config.bgColor} 0%, rgba(15, 23, 42, 0.8) 100%)`,
-                      border: `1px solid ${config.color}40`
-                    }}
-                  >
-                    <span style={{ color: config.color }}>{config.icon}</span>
-                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: config.color }}>
-                      {config.label}
-                    </span>
-                    <span
-                      className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold"
-                      style={{ background: `${config.color}30`, color: config.color }}
-                    >
-                      {tierNodes.length}
-                    </span>
-                  </div>
+            return (
+              <>
+                {/* Row 1: Tier headers with flow arrows between them */}
+                <div className="flex justify-center items-center gap-0 mb-4">
+                  {sortedTiers.map(([tierId, config], index) => {
+                    const tierNodes = nodesByTier[tierId] || []
+                    const nextTier = sortedTiers[index + 1]
 
-                  {/* Nodes */}
-                  <div className="flex flex-col gap-3 overflow-y-auto max-h-[calc(100%-60px)] pr-1">
-                    {tierNodes.map((node) => {
-                      const flows = nodeFlowCounts[node.id] || { inbound: 0, outbound: 0 }
-                      return (
-                        <NodeCard
-                          key={node.id}
-                          node={node}
-                          tier={tierId}
-                          inboundFlows={flows.inbound}
-                          outboundFlows={flows.outbound}
-                          isHighlighted={highlightedNode === node.id}
-                          isConnected={connectedNodes.has(node.id)}
-                          hasHighlight={!!highlightedNode}
-                          onHover={setHighlightedNode}
-                          nodeRef={(el) => (nodeRefs.current[node.id] = el)}
-                        />
-                      )
-                    })}
-                  </div>
+                    // Get inter-tier flow for arrow between this tier and next
+                    let interTierFlow = { left: 0, right: 0 }
+                    if (nextTier) {
+                      const key = `${tierId}-${nextTier[0]}`
+                      interTierFlow = interTierFlows[key] || { left: 0, right: 0 }
+                    }
+
+                    return (
+                      <React.Fragment key={`header-${tierId}`}>
+                        {/* Tier header */}
+                        <div
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl min-w-[180px]"
+                          style={{
+                            background: `linear-gradient(135deg, ${config.bgColor} 0%, rgba(15, 23, 42, 0.8) 100%)`,
+                            border: `1px solid ${config.color}40`
+                          }}
+                        >
+                          <div className="w-2 h-2 rounded-full" style={{ background: config.color }} />
+                          <span className="text-xs font-bold uppercase tracking-wider" style={{ color: config.color }}>
+                            {config.label}
+                          </span>
+                          <span
+                            className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold"
+                            style={{ background: `${config.color}30`, color: config.color }}
+                          >
+                            {tierNodes.length}
+                          </span>
+                        </div>
+
+                        {/* Inter-tier flow arrow */}
+                        {nextTier && (
+                          <InterTierArrow
+                            leftFlows={interTierFlow.left}
+                            rightFlows={interTierFlow.right}
+                            leftColor={config.color}
+                            rightColor={nextTier[1].color}
+                          />
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
                 </div>
-              )
-            })}
+
+                {/* Row 2: Node columns */}
+                <div className="flex flex-1 justify-center items-start gap-4 overflow-x-auto overflow-y-auto">
+                  {sortedTiers.map(([tierId, config]) => {
+                    const tierNodes = nodesByTier[tierId] || []
+
+                    return (
+                      <div key={`nodes-${tierId}`} className="flex flex-col gap-3 min-w-[200px] max-w-[260px]">
+                        {tierNodes.map((node) => {
+                          const flows = nodeFlowCounts[node.id] || { inbound: 0, outbound: 0 }
+                          return (
+                            <NodeCard
+                              key={node.id}
+                              node={node}
+                              tier={tierId}
+                              inboundFlows={flows.inbound}
+                              outboundFlows={flows.outbound}
+                              isHighlighted={highlightedNode === node.id}
+                              isConnected={connectedNodes.has(node.id)}
+                              hasHighlight={!!highlightedNode}
+                              onHover={setHighlightedNode}
+                              nodeRef={(el) => (nodeRefs.current[node.id] = el)}
+                            />
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )
+          })()}
         </div>
       </div>
 
