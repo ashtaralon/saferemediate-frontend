@@ -45,6 +45,19 @@ const InfrastructureFlowViz = dynamic(
   }
 )
 
+// Lazy load ComprehensiveFlowViz (Full 6-tier visualization with all edge types) with SSR disabled
+const ComprehensiveFlowViz = dynamic(
+  () => import('./dependency-map/comprehensive-flow-viz'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+      </div>
+    )
+  }
+)
+
 // Feature flag for v2 (Observed-first) dependency map
 // Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
 const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'
@@ -59,8 +72,8 @@ interface Resource {
 interface Props {
   systemName: string
   highlightPath?: { source: string; target: string; port?: string }
-  defaultGraphEngine?: 'logical' | 'architectural' | 'observed'
-  onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed') => void
+  defaultGraphEngine?: 'logical' | 'architectural' | 'observed' | 'comprehensive'
+  onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive') => void
   onHighlightPathClear?: () => void
 }
 
@@ -69,12 +82,12 @@ type ViewType = 'graph' | 'resource' | 'sankey'
 export default function DependencyMapTab({
   systemName,
   highlightPath,
-  defaultGraphEngine = DEPENDENCY_MAP_V2_ENABLED ? 'observed' : 'architectural',
+  defaultGraphEngine = DEPENDENCY_MAP_V2_ENABLED ? 'comprehensive' : 'architectural',
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed'>(defaultGraphEngine)
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive'>(defaultGraphEngine)
   
   // Update graph engine when prop changes
   useEffect(() => {
@@ -94,7 +107,7 @@ export default function DependencyMapTab({
     }
   }, [highlightPath, onHighlightPathClear])
   
-  const handleGraphEngineChange = (engine: 'logical' | 'architectural' | 'observed') => {
+  const handleGraphEngineChange = (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive') => {
     setGraphEngine(engine)
     if (onGraphEngineChange) {
       onGraphEngineChange(engine)
@@ -345,18 +358,32 @@ export default function DependencyMapTab({
           {activeView === 'graph' && (
             <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
               {DEPENDENCY_MAP_V2_ENABLED && (
-                <button
-                  onClick={() => handleGraphEngineChange('observed')}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    graphEngine === 'observed'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Observed-First View - Only real traffic from VPC Flow Logs"
-                >
-                  <Activity className="w-4 h-4" />
-                  Observed
-                </button>
+                <>
+                  <button
+                    onClick={() => handleGraphEngineChange('comprehensive')}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      graphEngine === 'comprehensive'
+                        ? 'bg-cyan-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Comprehensive 6-Tier View - EC2, Security Groups, IAM, Databases, Storage with all edge types"
+                  >
+                    <Layers className="w-4 h-4" />
+                    Full Map
+                  </button>
+                  <button
+                    onClick={() => handleGraphEngineChange('observed')}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      graphEngine === 'observed'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Observed-First View - Only real traffic from VPC Flow Logs"
+                  >
+                    <Activity className="w-4 h-4" />
+                    Traffic
+                  </button>
+                </>
               )}
               <button
                 onClick={() => handleGraphEngineChange('logical')}
@@ -380,7 +407,7 @@ export default function DependencyMapTab({
                 title="Architectural View - True containment with functional lanes"
               >
                 <Layers className="w-4 h-4" />
-                Architectural
+                Arch
               </button>
             </div>
           )}
@@ -393,8 +420,10 @@ export default function DependencyMapTab({
               <span>Professional traffic flow visualization • Based on actual VPC Flow Logs</span>
             ) : activeView === 'graph' ? (
               <span>
-                {graphEngine === 'observed'
-                  ? 'Observed-first view • Only real traffic from VPC Flow Logs • No SG/IAM nodes'
+                {graphEngine === 'comprehensive'
+                  ? 'Full 6-tier map • EC2, SGs, IAM Roles, Databases, Storage with all edge types'
+                  : graphEngine === 'observed'
+                  ? 'Traffic-only view • Real network flows from VPC Flow Logs'
                   : graphEngine === 'architectural'
                   ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
                   : 'Graph theory view with all connections • Double-click a node for details'}
@@ -443,7 +472,19 @@ export default function DependencyMapTab({
             height={550}
           />
         ) : activeView === 'graph' ? (
-          graphEngine === 'observed' ? (
+          graphEngine === 'comprehensive' ? (
+            <React.Suspense fallback={
+              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+              </div>
+            }>
+              <ComprehensiveFlowViz
+                systemName={systemName}
+                onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
+                onRefresh={fetchGraphData}
+              />
+            </React.Suspense>
+          ) : graphEngine === 'observed' ? (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
                 <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
