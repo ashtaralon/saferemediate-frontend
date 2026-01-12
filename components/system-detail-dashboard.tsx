@@ -146,6 +146,19 @@ const SystemSecurityOverview = dynamic(
     ),
   }
 )
+
+const BehavioralIntelligence = dynamic(
+  () => import("./behavioral-intelligence").then((mod) => ({ default: mod.BehavioralPage })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-900 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+        <span className="ml-3 text-slate-400">Loading behavioral intelligence...</span>
+      </div>
+    ),
+  }
+)
 // =============================================================================
 // API CONFIGURATION
 // =============================================================================
@@ -751,7 +764,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setIssues(issues.map((issue) => ({ ...issue, selected: !allSelected })))
   }
 
-  // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture
+  // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture + Behavioral Intelligence
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "issues", label: "Issues", icon: AlertTriangle },
@@ -759,6 +772,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "dependency-map", label: "Dependency Map", icon: Map },
+    { id: "behavioral", label: "Behavioral", icon: Activity },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
     { id: "security-posture", label: "Security Posture", icon: Shield }, // NEW: Single pane of glass
   ]
@@ -1502,6 +1516,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             onGraphEngineChange={setGraphEngine}
             onHighlightPathClear={() => setHighlightPath(null)}
           />
+        </div>
+      )}
+
+      {activeTab === "behavioral" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6 bg-slate-950 min-h-[600px]">
+          <BehavioralIntelligence systemName={systemName} />
         </div>
       )}
 
