@@ -149,7 +149,7 @@ function formatCount(count: number): string {
 
 function getShortLabel(node: AnyNode): string {
   const name = node.name || node.id
-  if (name.length > 22) return name.slice(0, 19) + '...'
+  if (name.length > 20) return name.slice(0, 17) + '...'
   return name
 }
 
@@ -168,43 +168,23 @@ function getNodeIcon(node: AnyNode): string {
 }
 
 // ============================================================================
-// NODE CARD COMPONENT
+// NODE CARD COMPONENT - Enhanced with flow indicators
 // ============================================================================
 
 const NodeCard: React.FC<{
   node: AnyNode
   tier: Tier
+  inboundFlows: number
+  outboundFlows: number
   isHighlighted: boolean
   isConnected: boolean
   hasHighlight: boolean
   onHover: (id: string | null) => void
   nodeRef: (el: HTMLDivElement | null) => void
-}> = ({ node, tier, isHighlighted, isConnected, hasHighlight, onHover, nodeRef }) => {
+}> = ({ node, tier, inboundFlows, outboundFlows, isHighlighted, isConnected, hasHighlight, onHover, nodeRef }) => {
   const tierColor = TIER_CONFIG[tier]?.color || '#64748b'
   const icon = getNodeIcon(node)
-
-  // Get additional info based on node type
-  const getExtraInfo = () => {
-    if ('security_groups' in node && node.security_groups?.length) {
-      return <span className="text-[9px] text-amber-400/70">{node.security_groups.length} SGs</span>
-    }
-    if ('iam_role' in node && node.iam_role) {
-      return <span className="text-[9px] text-pink-400/70">IAM</span>
-    }
-    if ('ingress_rules' in node) {
-      return <span className="text-[9px] text-amber-400/70">{node.ingress_rules?.length || 0} rules</span>
-    }
-    if ('unused_permissions_count' in node && node.unused_permissions_count > 0) {
-      return <span className="text-[9px] text-red-400">{node.unused_permissions_count} unused</span>
-    }
-    if ('port' in node && node.port) {
-      return <span className="text-[9px] text-violet-400">:{node.port}</span>
-    }
-    if ('attached_resources' in node && node.attached_resources?.length) {
-      return <span className="text-[9px] text-slate-400">{node.attached_resources.length} attached</span>
-    }
-    return null
-  }
+  const hasFlows = inboundFlows > 0 || outboundFlows > 0
 
   return (
     <div
@@ -213,131 +193,221 @@ const NodeCard: React.FC<{
       style={{
         background: isHighlighted
           ? `linear-gradient(135deg, ${tierColor}22 0%, ${tierColor}11 100%)`
-          : 'rgba(30, 41, 59, 0.6)',
-        borderTop: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
-        borderRight: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
-        borderBottom: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
-        borderLeft: `3px solid ${tierColor}`,
-        borderRadius: '8px',
-        padding: '10px 12px',
-        transform: isHighlighted ? 'scale(1.02) translateX(4px)' : 'scale(1)',
-        boxShadow: isHighlighted ? `0 4px 20px ${tierColor}33` : 'none',
-        opacity: hasHighlight && !isHighlighted && !isConnected ? 0.3 : 1,
+          : 'rgba(30, 41, 59, 0.8)',
+        borderTop: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.2)'}`,
+        borderRight: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.2)'}`,
+        borderBottom: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.2)'}`,
+        borderLeft: `4px solid ${tierColor}`,
+        borderRadius: '10px',
+        padding: '12px 14px',
+        transform: isHighlighted ? 'scale(1.03)' : 'scale(1)',
+        boxShadow: isHighlighted ? `0 8px 30px ${tierColor}40` : '0 2px 8px rgba(0,0,0,0.3)',
+        opacity: hasHighlight && !isHighlighted && !isConnected ? 0.25 : 1,
       }}
       onMouseEnter={() => onHover(node.id)}
       onMouseLeave={() => onHover(null)}
     >
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-sm">{icon}</span>
-        <span className="text-xs font-semibold text-slate-100 truncate">{getShortLabel(node)}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] text-slate-500 uppercase tracking-wider">{node.type}</span>
-        {getExtraInfo()}
+      {/* Connection indicator dot */}
+      <div
+        className="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full"
+        style={{
+          background: hasFlows ? tierColor : 'rgba(100, 116, 139, 0.5)',
+          boxShadow: hasFlows ? `0 0 8px ${tierColor}` : 'none'
+        }}
+      />
+
+      {/* Node header */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg">{icon}</span>
+        <span className="text-sm font-semibold text-white truncate flex-1">{getShortLabel(node)}</span>
       </div>
 
-      {/* Flow badges */}
-      {'inbound_flows' in node && (node.inbound_flows > 0 || node.outbound_flows > 0) && (
-        <div className="absolute -top-1.5 -right-1.5 flex gap-0.5">
-          {node.inbound_flows > 0 && (
-            <div className="bg-green-500 text-black text-[8px] font-bold px-1 py-0.5 rounded-full">
-              {formatCount(node.inbound_flows)}
+      {/* Node type and details */}
+      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-2">
+        {node.type}
+        {'instance_id' in node && node.instance_id && (
+          <span className="ml-1 text-slate-500">• {node.instance_id.slice(-8)}</span>
+        )}
+      </div>
+
+      {/* Flow indicators */}
+      {hasFlows && (
+        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-700/50">
+          {inboundFlows > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-green-400 text-xs">↓</span>
+              <span className="text-green-400 text-xs font-bold">{formatCount(inboundFlows)}</span>
             </div>
           )}
-          {node.outbound_flows > 0 && (
-            <div className="bg-blue-500 text-white text-[8px] font-bold px-1 py-0.5 rounded-full">
-              {formatCount(node.outbound_flows)}
+          {outboundFlows > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-blue-400 text-xs">↑</span>
+              <span className="text-blue-400 text-xs font-bold">{formatCount(outboundFlows)}</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Port badge for data nodes */}
-      {'port' in node && node.port && (
-        <div className="absolute -top-1.5 -right-1.5 bg-violet-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
-          :{node.port}
-        </div>
-      )}
+      {/* Extra info badges */}
+      <div className="flex flex-wrap gap-1 mt-2">
+        {'security_groups' in node && node.security_groups?.length > 0 && (
+          <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">{node.security_groups.length} SGs</span>
+        )}
+        {'port' in node && node.port && (
+          <span className="text-[9px] bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded">:{node.port}</span>
+        )}
+        {'unused_permissions_count' in node && node.unused_permissions_count > 0 && (
+          <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">{node.unused_permissions_count} unused</span>
+        )}
+        {'ingress_rules' in node && (
+          <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">{node.ingress_rules?.length || 0} rules</span>
+        )}
+      </div>
     </div>
   )
 }
 
 // ============================================================================
-// EDGE PATH COMPONENT
+// ANIMATED EDGE PATH COMPONENT - With flowing particles
 // ============================================================================
 
-const EdgePath: React.FC<{
+const AnimatedEdgePath: React.FC<{
   edge: Edge
   sourcePos: { x: number; y: number } | null
   targetPos: { x: number; y: number } | null
   isHighlighted: boolean
   hasHighlight: boolean
-}> = ({ edge, sourcePos, targetPos, isHighlighted, hasHighlight }) => {
+  showAnimation: boolean
+}> = ({ edge, sourcePos, targetPos, isHighlighted, hasHighlight, showAnimation }) => {
   if (!sourcePos || !targetPos) return null
 
   const edgeStyle = EDGE_STYLES[edge.edge_type] || EDGE_STYLES.TRAFFIC
   const baseColor = edgeStyle.color
-  const opacity = isHighlighted ? 0.9 : hasHighlight ? 0.08 : 0.35
-  const strokeWidth = Math.min(Math.max(Math.log10(edge.flows + 1) * 1.5 + 1, 1.5), 5)
+  const baseOpacity = isHighlighted ? 1 : hasHighlight ? 0.1 : 0.6
+  const strokeWidth = Math.min(Math.max(Math.log10(edge.flows + 1) * 2 + 2, 2), 6)
 
-  // Bezier curve
+  // Calculate bezier curve
   const dx = targetPos.x - sourcePos.x
-  const controlOffset = Math.min(Math.abs(dx) * 0.4, 120)
+  const dy = targetPos.y - sourcePos.y
+  const controlOffset = Math.min(Math.abs(dx) * 0.5, 150)
 
-  const path = `M ${sourcePos.x} ${sourcePos.y}
-                C ${sourcePos.x + controlOffset} ${sourcePos.y},
-                  ${targetPos.x - controlOffset} ${targetPos.y},
-                  ${targetPos.x} ${targetPos.y}`
+  const path = `M ${sourcePos.x} ${sourcePos.y} C ${sourcePos.x + controlOffset} ${sourcePos.y}, ${targetPos.x - controlOffset} ${targetPos.y}, ${targetPos.x} ${targetPos.y}`
+
+  // Midpoint for label
+  const midX = (sourcePos.x + targetPos.x) / 2
+  const midY = (sourcePos.y + targetPos.y) / 2 - 5
+
+  // Animation speed based on flow count
+  const animDuration = Math.max(1.5, 4 - Math.log10(edge.flows + 1))
 
   // Dash patterns
   let strokeDasharray = 'none'
-  if (edgeStyle.style === 'dashed') strokeDasharray = '8,4'
-  if (edgeStyle.style === 'dotted') strokeDasharray = '3,3'
+  if (edgeStyle.style === 'dashed') strokeDasharray = '10,5'
+  if (edgeStyle.style === 'dotted') strokeDasharray = '4,4'
+
+  const shouldAnimate = showAnimation && edge.flows > 0
 
   return (
-    <g style={{ transition: 'opacity 0.2s ease' }}>
-      {/* Glow effect for highlighted */}
+    <g>
+      {/* Glow effect */}
       {isHighlighted && (
-        <path d={path} fill="none" stroke={baseColor} strokeWidth={strokeWidth + 6} opacity={0.15} strokeLinecap="round" />
+        <path
+          d={path}
+          fill="none"
+          stroke={baseColor}
+          strokeWidth={strokeWidth + 8}
+          opacity={0.2}
+          strokeLinecap="round"
+        />
       )}
 
-      {/* Main path */}
+      {/* Main path with gradient */}
+      <defs>
+        <linearGradient id={`grad-${edge.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={baseColor} stopOpacity={baseOpacity * 0.5} />
+          <stop offset="50%" stopColor={baseColor} stopOpacity={baseOpacity} />
+          <stop offset="100%" stopColor={baseColor} stopOpacity={baseOpacity * 0.5} />
+        </linearGradient>
+      </defs>
+
       <path
         d={path}
         fill="none"
-        stroke={baseColor}
+        stroke={`url(#grad-${edge.id})`}
         strokeWidth={strokeWidth}
-        opacity={opacity}
         strokeLinecap="round"
         strokeDasharray={strokeDasharray}
       />
 
-      {/* Animated particles for highlighted edges */}
-      {isHighlighted && edge.flows > 0 && (
+      {/* Animated flowing particles */}
+      {shouldAnimate && (
         <>
-          <circle r="3" fill={baseColor} opacity="0.9">
-            <animateMotion dur="2s" repeatCount="indefinite" path={path} />
+          {/* Forward direction particles */}
+          <circle r={strokeWidth * 0.8} fill={baseColor} opacity={0.9}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} />
           </circle>
-          <circle r="3" fill={baseColor} opacity="0.9">
-            <animateMotion dur="2s" repeatCount="indefinite" path={path} begin="0.7s" />
+          <circle r={strokeWidth * 0.6} fill="#fff" opacity={0.7}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.33}s`} />
+          </circle>
+          <circle r={strokeWidth * 0.8} fill={baseColor} opacity={0.9}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.66}s`} />
           </circle>
         </>
       )}
 
-      {/* Label for highlighted */}
-      {isHighlighted && (
-        <g transform={`translate(${(sourcePos.x + targetPos.x) / 2}, ${(sourcePos.y + targetPos.y) / 2 - 14})`}>
-          <rect x="-35" y="-12" width="70" height="24" rx="4" fill="rgba(15, 23, 42, 0.95)" stroke={baseColor} strokeWidth="1" />
-          <text textAnchor="middle" dy="2" fill="#fff" fontSize="9" fontFamily="monospace">
-            {edge.label || edge.edge_type}
+      {/* Flow count badge - always visible for edges with flows */}
+      {edge.flows > 0 && (
+        <g transform={`translate(${midX}, ${midY})`}>
+          {/* Badge background */}
+          <rect
+            x="-32"
+            y="-10"
+            width="64"
+            height="20"
+            rx="10"
+            fill="rgba(15, 23, 42, 0.95)"
+            stroke={baseColor}
+            strokeWidth={isHighlighted ? 2 : 1}
+          />
+          {/* Flow count text */}
+          <text
+            textAnchor="middle"
+            dy="4"
+            fill={baseColor}
+            fontSize="11"
+            fontFamily="system-ui, -apple-system, sans-serif"
+            fontWeight="700"
+          >
+            {formatCount(edge.flows)} {edge.flows === 1 ? 'flow' : 'flows'}
           </text>
-          {edge.flows > 0 && (
-            <text textAnchor="middle" dy="12" fill={baseColor} fontSize="10" fontFamily="monospace" fontWeight="600">
-              {formatCount(edge.flows)}
-            </text>
-          )}
+          {/* Bidirectional arrows */}
+          <text
+            textAnchor="middle"
+            dy="4"
+            dx="-38"
+            fill={baseColor}
+            fontSize="10"
+            opacity={0.7}
+          >
+            ↔
+          </text>
         </g>
       )}
+
+      {/* Arrowhead at target */}
+      <defs>
+        <marker
+          id={`arrow-${edge.id}`}
+          markerWidth="10"
+          markerHeight="10"
+          refX="9"
+          refY="3"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path d="M0,0 L0,6 L9,3 z" fill={baseColor} opacity={baseOpacity} />
+        </marker>
+      </defs>
     </g>
   )
 }
@@ -356,6 +426,7 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [search, setSearch] = useState('')
   const [edgeTypeFilter, setEdgeTypeFilter] = useState<string | null>(null)
+  const [showAnimations, setShowAnimations] = useState(true)
 
   // Fetch data
   const fetchData = useCallback(async () => {
@@ -406,6 +477,18 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
     return data.edges.filter((e) => e.edge_type === edgeTypeFilter)
   }, [data, edgeTypeFilter])
 
+  // Calculate flow counts per node
+  const nodeFlowCounts = useMemo(() => {
+    const counts: Record<string, { inbound: number; outbound: number }> = {}
+    for (const edge of edges) {
+      if (!counts[edge.source]) counts[edge.source] = { inbound: 0, outbound: 0 }
+      if (!counts[edge.target]) counts[edge.target] = { inbound: 0, outbound: 0 }
+      counts[edge.source].outbound += edge.flows
+      counts[edge.target].inbound += edge.flows
+    }
+    return counts
+  }, [edges])
+
   // Connected nodes when highlighting
   const connectedNodes = useMemo(() => {
     if (!highlightedNode) return new Set<string>()
@@ -416,15 +499,6 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
     }
     return connected
   }, [edges, highlightedNode])
-
-  // Node ID to tier mapping
-  const nodeIdToTier = useMemo(() => {
-    const map = new Map<string, Tier>()
-    Object.entries(nodesByTier).forEach(([tier, nodes]) => {
-      nodes.forEach((n) => map.set(n.id, tier as Tier))
-    })
-    return map
-  }, [nodesByTier])
 
   // Update positions
   useEffect(() => {
@@ -450,12 +524,14 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
     const timer1 = setTimeout(updatePositions, 50)
     const timer2 = setTimeout(updatePositions, 200)
     const timer3 = setTimeout(updatePositions, 500)
+    const timer4 = setTimeout(updatePositions, 1000)
     window.addEventListener('resize', updatePositions)
 
     return () => {
       clearTimeout(timer1)
       clearTimeout(timer2)
       clearTimeout(timer3)
+      clearTimeout(timer4)
       window.removeEventListener('resize', updatePositions)
     }
   }, [allNodes])
@@ -473,7 +549,10 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
   if (isLoading) {
     return (
       <div className="w-full h-[700px] flex items-center justify-center bg-slate-900 rounded-xl">
-        <RefreshCw className="w-10 h-10 text-green-400 animate-spin" />
+        <div className="flex flex-col items-center gap-4">
+          <RefreshCw className="w-12 h-12 text-green-400 animate-spin" />
+          <span className="text-slate-400">Loading infrastructure map...</span>
+        </div>
       </div>
     )
   }
@@ -495,44 +574,49 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
 
   return (
     <div ref={containerRef} className={containerClass} style={isFullscreen ? {} : { height: '700px' }}>
-      {/* Data Sources Banner */}
-      <div className="flex items-center gap-4 px-4 py-2 bg-slate-800/60 border-b border-slate-700/50 text-[10px]">
-        <span className="text-slate-500 uppercase tracking-wider">Data Sources:</span>
-        <div className="flex gap-3">
-          <span className={data.data_sources.flow_logs ? 'text-green-400' : 'text-slate-600'}>
-            {data.data_sources.flow_logs ? '✓' : '○'} VPC Flow Logs
-          </span>
-          <span className={data.data_sources.cloudtrail ? 'text-green-400' : 'text-slate-600'}>
-            {data.data_sources.cloudtrail ? '✓' : '○'} CloudTrail
-          </span>
-          <span className={data.data_sources.config ? 'text-green-400' : 'text-slate-600'}>
-            {data.data_sources.config ? '✓' : '○'} AWS Config
-          </span>
-        </div>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-800/90 border-b border-slate-700" style={{ height: '48px', flexShrink: 0 }}>
-        <div className="flex items-center gap-4">
+      {/* Header with stats */}
+      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-800 to-slate-800/80 border-b border-slate-700">
+        <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-white font-semibold text-sm">Comprehensive Infrastructure Map</span>
+            <div className="w-2.5 h-2.5 bg-green-400 rounded-full animate-pulse" />
+            <span className="text-white font-bold text-base">Infrastructure Traffic Flow</span>
           </div>
-          <div className="flex gap-4 text-xs">
-            <span className="text-green-400 font-bold">{formatCount(stats.totalFlows)} flows</span>
-            <span className="text-slate-400">{stats.nodes} nodes</span>
-            <span className="text-slate-400">{stats.edges} connections</span>
+
+          {/* Stats badges */}
+          <div className="flex gap-3">
+            <div className="bg-slate-700/50 px-3 py-1 rounded-lg">
+              <span className="text-green-400 font-bold text-lg">{formatCount(stats.totalFlows)}</span>
+              <span className="text-slate-400 text-xs ml-1">TOTAL FLOWS</span>
+            </div>
+            <div className="bg-slate-700/50 px-3 py-1 rounded-lg">
+              <span className="text-cyan-400 font-bold text-lg">{stats.nodes}</span>
+              <span className="text-slate-400 text-xs ml-1">RESOURCES</span>
+            </div>
+            <div className="bg-slate-700/50 px-3 py-1 rounded-lg">
+              <span className="text-amber-400 font-bold text-lg">{stats.edges}</span>
+              <span className="text-slate-400 text-xs ml-1">CONNECTIONS</span>
+            </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Animation toggle */}
+          <button
+            onClick={() => setShowAnimations(!showAnimations)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              showAnimations ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-400'
+            }`}
+          >
+            {showAnimations ? '● Live' : '○ Static'}
+          </button>
+
           {/* Edge type filter */}
           <select
             value={edgeTypeFilter || ''}
             onChange={(e) => setEdgeTypeFilter(e.target.value || null)}
-            className="px-2 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-xs"
+            className="px-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-xs"
           >
-            <option value="">All Edges</option>
+            <option value="">All Connections</option>
             {Object.entries(EDGE_STYLES).map(([type, config]) => (
               <option key={type} value={type}>{config.label}</option>
             ))}
@@ -544,15 +628,15 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search..."
-              className="pl-8 pr-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm w-32 focus:outline-none focus:ring-1 focus:ring-green-500"
+              className="pl-8 pr-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm w-36 focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
 
-          <button onClick={() => { fetchData(); onRefresh?.() }} className="p-2 bg-green-600 rounded-lg hover:bg-green-700">
+          <button onClick={() => { fetchData(); onRefresh?.() }} className="p-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
             <RefreshCw className="w-4 h-4 text-white" />
           </button>
 
-          <button onClick={() => setIsFullscreen(!isFullscreen)} className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600">
+          <button onClick={() => setIsFullscreen(!isFullscreen)} className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
             {isFullscreen ? <Minimize2 className="w-4 h-4 text-white" /> : <Maximize2 className="w-4 h-4 text-white" />}
           </button>
 
@@ -561,6 +645,22 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
               <X className="w-4 h-4 text-white" />
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Data Sources Banner */}
+      <div className="flex items-center gap-4 px-4 py-1.5 bg-slate-800/40 border-b border-slate-700/50 text-[10px]">
+        <span className="text-slate-500 uppercase tracking-wider">Data Sources:</span>
+        <div className="flex gap-4">
+          <span className={data.data_sources.flow_logs ? 'text-green-400 font-medium' : 'text-slate-600'}>
+            {data.data_sources.flow_logs ? '✓' : '○'} VPC Flow Logs
+          </span>
+          <span className={data.data_sources.cloudtrail ? 'text-green-400 font-medium' : 'text-slate-600'}>
+            {data.data_sources.cloudtrail ? '✓' : '○'} CloudTrail
+          </span>
+          <span className={data.data_sources.config ? 'text-green-400 font-medium' : 'text-slate-600'}>
+            {data.data_sources.config ? '✓' : '○'} AWS Config
+          </span>
         </div>
       </div>
 
@@ -579,11 +679,11 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
 
             let startX: number, endX: number
             if (sourceIsLeft) {
-              startX = sourcePos.right
-              endX = targetPos.left
+              startX = sourcePos.right + 6
+              endX = targetPos.left - 6
             } else if (targetIsLeft) {
-              startX = sourcePos.left
-              endX = targetPos.right
+              startX = sourcePos.left - 6
+              endX = targetPos.right + 6
             } else {
               startX = (sourcePos.left + sourcePos.right) / 2
               endX = (targetPos.left + targetPos.right) / 2
@@ -592,20 +692,21 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
             const isHighlighted = highlightedNode ? edge.source === highlightedNode || edge.target === highlightedNode : false
 
             return (
-              <EdgePath
+              <AnimatedEdgePath
                 key={edge.id}
                 edge={edge}
                 sourcePos={{ x: startX, y: sourcePos.centerY }}
                 targetPos={{ x: endX, y: targetPos.centerY }}
                 isHighlighted={isHighlighted}
                 hasHighlight={!!highlightedNode}
+                showAnimation={showAnimations}
               />
             )
           })}
         </svg>
 
         {/* Tier columns */}
-        <div className="flex h-full p-4 gap-6 justify-center items-start overflow-x-auto" style={{ position: 'relative', zIndex: 2 }}>
+        <div className="flex h-full p-4 gap-4 justify-center items-start overflow-x-auto" style={{ position: 'relative', zIndex: 2 }}>
           {(Object.entries(TIER_CONFIG) as [Tier, typeof TIER_CONFIG[Tier]][])
             .sort(([, a], [, b]) => a.order - b.order)
             .map(([tierId, config]) => {
@@ -613,33 +714,46 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
               if (tierNodes.length === 0) return null
 
               return (
-                <div key={tierId} className="flex flex-col gap-2 min-w-[180px] max-w-[240px]">
+                <div key={tierId} className="flex flex-col gap-2 min-w-[200px] max-w-[260px]">
                   {/* Tier header */}
                   <div
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg mb-1"
-                    style={{ background: config.bgColor, borderLeft: `3px solid ${config.color}` }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl mb-2"
+                    style={{
+                      background: `linear-gradient(135deg, ${config.bgColor} 0%, rgba(15, 23, 42, 0.8) 100%)`,
+                      border: `1px solid ${config.color}40`
+                    }}
                   >
                     <span style={{ color: config.color }}>{config.icon}</span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: config.color }}>
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color: config.color }}>
                       {config.label}
                     </span>
-                    <span className="ml-auto bg-slate-700/50 px-2 py-0.5 rounded-full text-[9px] text-slate-400">{tierNodes.length}</span>
+                    <span
+                      className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold"
+                      style={{ background: `${config.color}30`, color: config.color }}
+                    >
+                      {tierNodes.length}
+                    </span>
                   </div>
 
                   {/* Nodes */}
-                  <div className="flex flex-col gap-2 overflow-y-auto max-h-[calc(100%-50px)] pr-1">
-                    {tierNodes.map((node) => (
-                      <NodeCard
-                        key={node.id}
-                        node={node}
-                        tier={tierId}
-                        isHighlighted={highlightedNode === node.id}
-                        isConnected={connectedNodes.has(node.id)}
-                        hasHighlight={!!highlightedNode}
-                        onHover={setHighlightedNode}
-                        nodeRef={(el) => (nodeRefs.current[node.id] = el)}
-                      />
-                    ))}
+                  <div className="flex flex-col gap-3 overflow-y-auto max-h-[calc(100%-60px)] pr-1">
+                    {tierNodes.map((node) => {
+                      const flows = nodeFlowCounts[node.id] || { inbound: 0, outbound: 0 }
+                      return (
+                        <NodeCard
+                          key={node.id}
+                          node={node}
+                          tier={tierId}
+                          inboundFlows={flows.inbound}
+                          outboundFlows={flows.outbound}
+                          isHighlighted={highlightedNode === node.id}
+                          isConnected={connectedNodes.has(node.id)}
+                          hasHighlight={!!highlightedNode}
+                          onHover={setHighlightedNode}
+                          nodeRef={(el) => (nodeRefs.current[node.id] = el)}
+                        />
+                      )
+                    })}
                   </div>
                 </div>
               )
@@ -648,40 +762,55 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
       </div>
 
       {/* Legend */}
-      <div className="absolute bottom-4 left-4 bg-slate-800/95 backdrop-blur rounded-lg p-3 border border-slate-700 z-10">
-        <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Connection Types</div>
-        <div className="space-y-1.5">
+      <div className="absolute bottom-4 left-4 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-slate-700 z-10">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3">Connection Types</div>
+        <div className="space-y-2">
           {Object.entries(EDGE_STYLES).map(([type, config]) => (
-            <div key={type} className="flex items-center gap-2 text-[10px]">
-              <div
-                className="w-6 h-0.5 rounded"
-                style={{
-                  background: config.style === 'solid'
-                    ? config.color
-                    : config.style === 'dashed'
-                      ? `repeating-linear-gradient(90deg, ${config.color} 0, ${config.color} 4px, transparent 4px, transparent 6px)`
-                      : `repeating-linear-gradient(90deg, ${config.color} 0, ${config.color} 2px, transparent 2px, transparent 4px)`
-                }}
-              />
-              <span className="text-slate-400">{config.label}</span>
+            <div key={type} className="flex items-center gap-3 text-[11px]">
+              <div className="relative w-8 h-2 flex items-center">
+                <div
+                  className="w-full h-0.5 rounded"
+                  style={{
+                    background: config.style === 'solid'
+                      ? config.color
+                      : config.style === 'dashed'
+                        ? `repeating-linear-gradient(90deg, ${config.color} 0, ${config.color} 4px, transparent 4px, transparent 7px)`
+                        : `repeating-linear-gradient(90deg, ${config.color} 0, ${config.color} 2px, transparent 2px, transparent 5px)`
+                  }}
+                />
+                {showAnimations && (
+                  <div
+                    className="absolute w-1.5 h-1.5 rounded-full animate-pulse"
+                    style={{ background: config.color, left: '50%', transform: 'translateX(-50%)' }}
+                  />
+                )}
+              </div>
+              <span className="text-slate-300">{config.label}</span>
             </div>
           ))}
         </div>
+        <div className="mt-3 pt-2 border-t border-slate-700 text-[9px] text-slate-500">
+          Hover nodes to highlight paths
+        </div>
       </div>
 
-      {/* Info panel when highlighting */}
+      {/* Selected node info panel */}
       {highlightedNode && (
-        <div className="absolute bottom-4 right-4 bg-slate-800/95 backdrop-blur rounded-lg p-3 border border-slate-700 z-10 min-w-[200px]">
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Selected Resource</div>
-          <div className="text-sm font-semibold text-white mb-2">{allNodes.find((n) => n.id === highlightedNode)?.name}</div>
-          <div className="flex gap-4">
+        <div className="absolute bottom-4 right-4 bg-slate-800/95 backdrop-blur-sm rounded-xl p-4 border border-slate-700 z-10 min-w-[220px]">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Selected Resource</div>
+          <div className="text-base font-bold text-white mb-3">{allNodes.find((n) => n.id === highlightedNode)?.name}</div>
+          <div className="grid grid-cols-3 gap-3">
             <div>
-              <div className="text-base font-bold text-amber-400">{connectedNodes.size - 1}</div>
-              <div className="text-[9px] text-slate-500">Connected</div>
+              <div className="text-xl font-bold text-green-400">{formatCount(nodeFlowCounts[highlightedNode]?.inbound || 0)}</div>
+              <div className="text-[9px] text-slate-500">Inbound</div>
             </div>
             <div>
-              <div className="text-base font-bold text-cyan-400">{edges.filter((e) => e.source === highlightedNode || e.target === highlightedNode).length}</div>
-              <div className="text-[9px] text-slate-500">Edges</div>
+              <div className="text-xl font-bold text-blue-400">{formatCount(nodeFlowCounts[highlightedNode]?.outbound || 0)}</div>
+              <div className="text-[9px] text-slate-500">Outbound</div>
+            </div>
+            <div>
+              <div className="text-xl font-bold text-amber-400">{connectedNodes.size - 1}</div>
+              <div className="text-[9px] text-slate-500">Connected</div>
             </div>
           </div>
         </div>
