@@ -167,8 +167,18 @@ function transformApiResponse(api: ApiResponse): BehavioralSummary {
       plane: event.plane,
       details: event.details,
     })),
-    network_summary: api.network || { total_edges: 0, external_edges: 0, internal_edges: 0, top_talkers: [] },
-    identity_summary: api.identity || { principals_count: 0, roles_with_activity: 0, high_risk_actions: 0, top_actors: [] },
+    network_summary: {
+      total_edges: api.network?.total_edges || 0,
+      external_edges: api.network?.internet_exposed || 0,
+      internal_edges: (api.network?.total_edges || 0) - (api.network?.internet_exposed || 0),
+      top_talkers: [], // Backend doesn't provide this yet
+    },
+    identity_summary: {
+      principals_count: api.identity?.total_roles || 0,
+      roles_with_activity: (api.identity?.total_roles || 0) - (api.identity?.roles_with_unused || 0),
+      high_risk_actions: api.identity?.admin_roles || 0,
+      top_actors: [], // Backend doesn't provide this yet
+    },
     anomalies: api.anomalies || [],
   }
 }
