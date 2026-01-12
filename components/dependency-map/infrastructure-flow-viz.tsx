@@ -71,6 +71,7 @@ const TIER_CONFIG: Record<Tier, { label: string; color: string; bgColor: string;
 const NODE_ICONS: Record<string, string> = {
   ec2: '🖥️',
   rds: '🗄️',
+  dynamodb: '📊',
   s3: '📦',
   lambda: 'λ',
   sg: '🛡️',
@@ -80,6 +81,7 @@ const NODE_ICONS: Record<string, string> = {
   igw: '🌐',
   nat: '🔀',
   alb: '⚖️',
+  vpce: '🔗',
   unknown: '❓',
 }
 
@@ -93,6 +95,11 @@ function classifyNode(id: string): { tier: Tier; label: string; type: string } |
   }
 
   const idLower = id.toLowerCase()
+
+  // FILTER OUT: Neo4j internal IDs with ephemeral ports (like "4:3e79937c-e2c2-4438-82a4-698755393650:37628")
+  if (id.match(/^\d+:[a-f0-9-]+:\d+$/i)) {
+    return null // Skip Neo4j internal node IDs
+  }
 
   // FILTER OUT: Ephemeral ports (like "393650:37628") - these are NOT real nodes
   if (id.match(/^\d+:\d+$/) || id.match(/^[\d.]+:\d+$/)) {
@@ -603,7 +610,7 @@ export default function InfrastructureFlowViz({ systemName, onNodeClick, onRefre
         </svg>
 
         {/* Tier columns */}
-        <div className="flex h-full p-4 gap-4" style={{ position: 'relative', zIndex: 2 }}>
+        <div className="flex h-full p-6 gap-8 justify-center items-start" style={{ position: 'relative', zIndex: 2 }}>
           {(Object.entries(TIER_CONFIG) as [Tier, typeof TIER_CONFIG[Tier]][])
             .sort(([, a], [, b]) => a.order - b.order)
             .map(([tierId, config]) => {
@@ -611,7 +618,7 @@ export default function InfrastructureFlowViz({ systemName, onNodeClick, onRefre
               if (tierNodes.length === 0) return null
 
               return (
-                <div key={tierId} className="flex-1 flex flex-col gap-2 min-w-[160px] max-w-[220px]">
+                <div key={tierId} className="flex flex-col gap-2 min-w-[200px] max-w-[280px]">
                   {/* Tier header */}
                   <div
                     className="flex items-center gap-2 px-3 py-2 rounded-lg mb-1"
