@@ -32,9 +32,9 @@ const GraphViewX6 = dynamic(
   }
 )
 
-// Lazy load TieredLayout (Observed-first, clustered architecture view) with SSR disabled
-const TieredLayout = dynamic(
-  () => import('./dependency-map/tiered-layout'),
+// Lazy load InfrastructureFlowViz (Observed-first, tiered flow visualization) with SSR disabled
+const InfrastructureFlowViz = dynamic(
+  () => import('./dependency-map/infrastructure-flow-viz'),
   {
     ssr: false,
     loading: () => (
@@ -449,7 +449,7 @@ export default function DependencyMapTab({
                 <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
               </div>
             }>
-              <TieredLayout
+              <InfrastructureFlowViz
                 systemName={systemName}
                 onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
                 onRefresh={fetchGraphData}
