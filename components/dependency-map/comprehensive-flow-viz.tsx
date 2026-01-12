@@ -89,6 +89,12 @@ interface Edge {
   action?: string
   style: string
   color: string
+  // S3 operation details
+  iam_action?: string  // e.g., s3:PutObject
+  operation_category?: string  // READ, WRITE, DELETE, ADMIN
+  assumed_role_arn?: string  // IAM role ARN used
+  assumed_role_name?: string  // IAM role name
+  source_instance?: string  // EC2 instance ID
 }
 
 type AnyNode = ExternalNode | ComputeNode | SecurityGroupNode | IAMRoleNode | DataNode | StorageNode
@@ -372,42 +378,92 @@ const AnimatedEdgePath: React.FC<{
         </>
       )}
 
-      {/* Flow count badge - always visible for edges with flows */}
+      {/* Flow count badge - shows operation details for API calls */}
       {edge.flows > 0 && (
         <g transform={`translate(${midX}, ${midY})`}>
-          {/* Badge background */}
-          <rect
-            x="-32"
-            y="-10"
-            width="64"
-            height="20"
-            rx="10"
-            fill="rgba(15, 23, 42, 0.95)"
-            stroke={baseColor}
-            strokeWidth={isHighlighted ? 2 : 1}
-          />
-          {/* Flow count text */}
-          <text
-            textAnchor="middle"
-            dy="4"
-            fill={baseColor}
-            fontSize="11"
-            fontFamily="system-ui, -apple-system, sans-serif"
-            fontWeight="700"
-          >
-            {formatCount(edge.flows)} {edge.flows === 1 ? 'flow' : 'flows'}
-          </text>
-          {/* Bidirectional arrows */}
-          <text
-            textAnchor="middle"
-            dy="4"
-            dx="-38"
-            fill={baseColor}
-            fontSize="10"
-            opacity={0.7}
-          >
-            ↔
-          </text>
+          {/* Badge background - taller for S3/API operations */}
+          {edge.operation_category ? (
+            <>
+              {/* Expanded badge for S3 operations */}
+              <rect
+                x="-55"
+                y="-24"
+                width="110"
+                height="48"
+                rx="8"
+                fill="rgba(15, 23, 42, 0.97)"
+                stroke={baseColor}
+                strokeWidth={isHighlighted ? 2 : 1}
+              />
+              {/* Operation category icon and label */}
+              <text
+                textAnchor="middle"
+                dy="-10"
+                fill={edge.operation_category === 'WRITE' ? '#22c55e' : edge.operation_category === 'DELETE' ? '#ef4444' : edge.operation_category === 'ADMIN' ? '#f59e0b' : '#3b82f6'}
+                fontSize="12"
+                fontWeight="800"
+              >
+                {edge.operation_category === 'READ' ? '📖 READ' : edge.operation_category === 'WRITE' ? '✏️ WRITE' : edge.operation_category === 'DELETE' ? '🗑️ DELETE' : edge.operation_category === 'ADMIN' ? '⚙️ ADMIN' : edge.operation_category}
+              </text>
+              {/* IAM Action */}
+              <text
+                textAnchor="middle"
+                dy="5"
+                fill="#94a3b8"
+                fontSize="9"
+                fontFamily="monospace"
+              >
+                {edge.iam_action || edge.action || 'API Call'}
+              </text>
+              {/* Role name */}
+              {edge.assumed_role_name && (
+                <text
+                  textAnchor="middle"
+                  dy="18"
+                  fill="#ec4899"
+                  fontSize="8"
+                >
+                  🔑 {edge.assumed_role_name.length > 18 ? edge.assumed_role_name.substring(0, 18) + '...' : edge.assumed_role_name}
+                </text>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Standard flow badge */}
+              <rect
+                x="-32"
+                y="-10"
+                width="64"
+                height="20"
+                rx="10"
+                fill="rgba(15, 23, 42, 0.95)"
+                stroke={baseColor}
+                strokeWidth={isHighlighted ? 2 : 1}
+              />
+              {/* Flow count text */}
+              <text
+                textAnchor="middle"
+                dy="4"
+                fill={baseColor}
+                fontSize="11"
+                fontFamily="system-ui, -apple-system, sans-serif"
+                fontWeight="700"
+              >
+                {formatCount(edge.flows)} {edge.flows === 1 ? 'flow' : 'flows'}
+              </text>
+              {/* Bidirectional arrows */}
+              <text
+                textAnchor="middle"
+                dy="4"
+                dx="-38"
+                fill={baseColor}
+                fontSize="10"
+                opacity={0.7}
+              >
+                ↔
+              </text>
+            </>
+          )}
         </g>
       )}
 
