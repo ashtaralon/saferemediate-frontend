@@ -82,7 +82,7 @@ type ViewType = 'graph' | 'resource' | 'sankey'
 export default function DependencyMapTab({
   systemName,
   highlightPath,
-  defaultGraphEngine = DEPENDENCY_MAP_V2_ENABLED ? 'comprehensive' : 'architectural',
+  defaultGraphEngine = 'comprehensive',
   onGraphEngineChange,
   onHighlightPathClear
 }: Props) {
@@ -357,34 +357,30 @@ export default function DependencyMapTab({
           {/* Graph Engine Toggle (only show in graph view) */}
           {activeView === 'graph' && (
             <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-              {DEPENDENCY_MAP_V2_ENABLED && (
-                <>
-                  <button
-                    onClick={() => handleGraphEngineChange('comprehensive')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      graphEngine === 'comprehensive'
-                        ? 'bg-cyan-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Comprehensive 6-Tier View - EC2, Security Groups, IAM, Databases, Storage with all edge types"
-                  >
-                    <Layers className="w-4 h-4" />
-                    Full Map
-                  </button>
-                  <button
-                    onClick={() => handleGraphEngineChange('observed')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                      graphEngine === 'observed'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Observed-First View - Only real traffic from VPC Flow Logs"
-                  >
-                    <Activity className="w-4 h-4" />
-                    Traffic
-                  </button>
-                </>
-              )}
+              <button
+                onClick={() => handleGraphEngineChange('comprehensive')}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  graphEngine === 'comprehensive'
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Comprehensive 6-Tier View - EC2, Security Groups, IAM, Databases, Storage with all edge types"
+              >
+                <Layers className="w-4 h-4" />
+                Full Map
+              </button>
+              <button
+                onClick={() => handleGraphEngineChange('observed')}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  graphEngine === 'observed'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Observed-First View - Only real traffic from VPC Flow Logs"
+              >
+                <Activity className="w-4 h-4" />
+                Traffic
+              </button>
               <button
                 onClick={() => handleGraphEngineChange('logical')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
