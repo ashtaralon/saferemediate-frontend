@@ -48,7 +48,6 @@ const GraphViewV2 = dynamic(
 // Feature flag for v2 (Observed-first) dependency map
 // Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
 const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'
-console.log('[DEP-MAP] DEPENDENCY_MAP_V2_ENABLED:', DEPENDENCY_MAP_V2_ENABLED, 'env:', process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2)
 
 interface Resource {
   id: string
