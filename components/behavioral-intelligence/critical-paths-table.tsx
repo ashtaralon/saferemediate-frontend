@@ -95,7 +95,7 @@ const isUnexpectedPort = (path: CriticalPath): boolean => {
 
 // Augment risk flags with detected issues
 const getAugmentedRiskFlags = (path: CriticalPath): string[] => {
-  const flags = [...riskFlags]
+  const flags = [...(path.risk_flags || [])]
   if (isUnexpectedPort(path)) {
     if (!flags.includes('unexpected_port')) {
       flags.push('unexpected_port')
