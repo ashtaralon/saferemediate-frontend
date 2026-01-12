@@ -297,8 +297,8 @@ const AnimatedEdgePath: React.FC<{
   const midX = (sourcePos.x + targetPos.x) / 2
   const midY = (sourcePos.y + targetPos.y) / 2 - 5
 
-  // Animation speed based on flow count
-  const animDuration = Math.max(1.5, 4 - Math.log10(edge.flows + 1))
+  // Animation speed based on flow count (faster = more flows)
+  const animDuration = Math.max(0.8, 2.5 - Math.log10(edge.flows + 1) * 0.5)
 
   // Dash patterns
   let strokeDasharray = 'none'
@@ -339,18 +339,35 @@ const AnimatedEdgePath: React.FC<{
         strokeDasharray={strokeDasharray}
       />
 
-      {/* Animated flowing particles */}
+      {/* Animated flowing particles with glow */}
       {shouldAnimate && (
         <>
-          {/* Forward direction particles */}
-          <circle r={strokeWidth * 0.8} fill={baseColor} opacity={0.9}>
+          {/* Particle glow filter */}
+          <defs>
+            <filter id={`glow-${edge.id}`} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Large glowing particles - 5 particles for dense flow effect */}
+          <circle r={8} fill={baseColor} filter={`url(#glow-${edge.id})`}>
             <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} />
           </circle>
-          <circle r={strokeWidth * 0.6} fill="#fff" opacity={0.7}>
-            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.33}s`} />
+          <circle r={6} fill="#fff" opacity={0.9}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.2}s`} />
           </circle>
-          <circle r={strokeWidth * 0.8} fill={baseColor} opacity={0.9}>
-            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.66}s`} />
+          <circle r={8} fill={baseColor} filter={`url(#glow-${edge.id})`}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.4}s`} />
+          </circle>
+          <circle r={6} fill="#fff" opacity={0.9}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.6}s`} />
+          </circle>
+          <circle r={8} fill={baseColor} filter={`url(#glow-${edge.id})`}>
+            <animateMotion dur={`${animDuration}s`} repeatCount="indefinite" path={path} begin={`${animDuration * 0.8}s`} />
           </circle>
         </>
       )}
@@ -600,14 +617,19 @@ export default function ComprehensiveFlowViz({ systemName, onNodeClick, onRefres
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Animation toggle */}
+          {/* Animation toggle - prominent with pulsing indicator */}
           <button
             onClick={() => setShowAnimations(!showAnimations)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              showAnimations ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-400'
+            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
+              showAnimations
+                ? 'bg-green-600 text-white shadow-lg shadow-green-600/30'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
             }`}
           >
-            {showAnimations ? '● Live' : '○ Static'}
+            <span
+              className={`w-2 h-2 rounded-full ${showAnimations ? 'bg-white animate-pulse' : 'bg-slate-500'}`}
+            />
+            {showAnimations ? 'Live' : 'Static'}
           </button>
 
           {/* Edge type filter */}
