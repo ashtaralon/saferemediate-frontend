@@ -3,14 +3,15 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   Activity, RefreshCw, AlertTriangle, CheckCircle, XCircle,
-  Shield, Network, Eye, Clock, ChevronDown, ChevronRight,
-  TrendingUp, TrendingDown, Minus, Filter, Download
+  Network, Eye, Clock, ChevronDown, ChevronRight, Users, Shield
 } from 'lucide-react'
 import { CoverageStrip } from './coverage-strip'
-import { ScoresPanel } from './scores-panel'
 import { CriticalPathsTable } from './critical-paths-table'
-import { DriftSection } from './drift-section'
 import { TimelineSection } from './timeline'
+import { ConnectivitySection, EdgeFact } from './connectivity-section'
+import { IdentitySection } from './identity-section'
+import { DetectionsSection, Detection } from './detections-section'
+import { ReconciliationLegend } from './reconciliation-badge'
 
 // ============================================================================
 // Types
@@ -22,6 +23,8 @@ interface PlaneStatus {
   gaps_hours?: number
   delay_minutes_p95?: number
   last_recorded_minutes_ago?: number
+  plane?: string
+  coverage_days?: number
 }
 
 interface CoverageStatus {
@@ -31,36 +34,21 @@ interface CoverageStatus {
   iam: PlaneStatus
 }
 
-interface Score {
-  value: number
-  level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
-  reasons: string[]
-}
-
 interface CriticalPath {
   src_key: string
   src_name: string
+  src_type?: string
   dst_key: string
   dst_name: string
+  dst_type?: string
   path: string[]
   port: number
   protocol: string
   observed: boolean
   configured_possible: boolean
-  confidence: string
+  confidence?: string
   risk_flags: string[]
-}
-
-interface DriftItem {
-  resource_key: string
-  resource_name: string
-  resource_type: string
-  drift_type: string
-  severity: string
-  description: string
-  configured_value?: number | string | null
-  observed_value?: number | string | null
-  recommendation?: string
+  evidence_planes?: string[]
 }
 
 interface TimelineEvent {
@@ -72,67 +60,43 @@ interface TimelineEvent {
   details?: Record<string, any>
 }
 
-interface NetworkSummary {
-  total_edges: number
-  external_edges: number
-  internal_edges: number
-  top_talkers: Array<{ key: string; name: string; edge_count: number }>
-}
-
-interface IdentitySummary {
-  principals_count: number
-  roles_with_activity: number
-  high_risk_actions: number
-  top_actors: Array<{ key: string; name: string; action_count: number }>
-}
-
-// API response structure (what the backend actually returns)
 interface ApiResponse {
   system_id: string
   window: { start: string; end: string; days?: number }
   coverage: any
-  confidence: Score
-  risk: Score
+  confidence?: any
+  risk?: any
   critical_paths: CriticalPath[]
-  drift_items: DriftItem[]
-  timeline: Array<{
-    timestamp: string
-    event_type: string
-    summary: string
-    severity: string
-    plane: string
-    details?: Record<string, any>
-  }>
-  network: NetworkSummary
-  identity: IdentitySummary
-  anomalies: Array<{
-    type: string
-    severity: string
-    description: string
-    details?: Record<string, any>
-  }>
+  drift_items?: any[]
+  timeline: any[]
+  network?: any
+  identity?: any
+  anomalies?: any[]
+  dependencies?: {
+    observed_inbound?: EdgeFact[]
+    observed_outbound?: EdgeFact[]
+  }
 }
 
-// Normalized structure for the component
-interface BehavioralSummary {
+interface BehavioralData {
   system_id: string
   window: { start: string; end: string }
   coverage: CoverageStatus
-  scores: {
-    confidence: Score
-    risk: Score
-  }
   critical_paths: CriticalPath[]
-  drift_items: DriftItem[]
   timeline: TimelineEvent[]
-  network_summary: NetworkSummary
-  identity_summary: IdentitySummary
-  anomalies: Array<{
-    type: string
-    severity: string
-    description: string
-    details?: Record<string, any>
-  }>
+  connectivity: {
+    inbound: EdgeFact[]
+    outbound: EdgeFact[]
+  }
+  identity: {
+    workloadIdentities: any[]
+    controlPlaneActors: any[]
+    apiDependencies: any[]
+    totalRoles: number
+    rolesWithUnused: number
+    adminRoles: number
+  }
+  detections: Detection[]
 }
 
 interface BehavioralPageProps {
@@ -140,10 +104,56 @@ interface BehavioralPageProps {
 }
 
 // ============================================================================
-// Transform API response to normalized structure
+// Transform API response
 // ============================================================================
 
-function transformApiResponse(api: ApiResponse): BehavioralSummary {
+function transformApiResponse(api: ApiResponse): BehavioralData {
+  // Transform timeline events
+  const timeline: TimelineEvent[] = (api.timeline || []).map(event => ({
+    ts: event.timestamp || event.ts,
+    type: event.event_type || event.type,
+    summary: event.summary,
+    severity: event.severity,
+    plane: event.plane,
+    details: event.details,
+  }))
+
+  // Transform anomalies to detections
+  const detections: Detection[] = (api.anomalies || []).map(anomaly => ({
+    type: anomaly.type,
+    severity: anomaly.severity,
+    description: anomaly.description,
+    port: anomaly.port,
+    hits: anomaly.hits,
+    resource_name: anomaly.resource_name,
+    resource_key: anomaly.resource_key,
+    planes: {
+      observed: true,
+      configured: null,
+      authorized: null,
+      changed: null,
+    },
+  }))
+
+  // Add drift items as detections
+  if (api.drift_items) {
+    api.drift_items.forEach(drift => {
+      detections.push({
+        type: drift.drift_type || 'config_drift',
+        severity: drift.severity || 'medium',
+        description: drift.description,
+        resource_name: drift.resource_name,
+        resource_key: drift.resource_key,
+        planes: {
+          observed: drift.observed_value !== null,
+          configured: drift.configured_value !== null,
+          authorized: null,
+          changed: null,
+        },
+      })
+    })
+  }
+
   return {
     system_id: api.system_id,
     window: { start: api.window.start, end: api.window.end },
@@ -153,33 +163,21 @@ function transformApiResponse(api: ApiResponse): BehavioralSummary {
       config: api.coverage?.config || { present: false },
       iam: api.coverage?.iam || { present: false },
     },
-    scores: {
-      confidence: api.confidence || { value: 0, level: 'LOW', reasons: [] },
-      risk: api.risk || { value: 0, level: 'LOW', reasons: [] },
-    },
     critical_paths: api.critical_paths || [],
-    drift_items: api.drift_items || [],
-    timeline: (api.timeline || []).map(event => ({
-      ts: event.timestamp,
-      type: event.event_type,
-      summary: event.summary,
-      severity: event.severity,
-      plane: event.plane,
-      details: event.details,
-    })),
-    network_summary: {
-      total_edges: api.network?.total_edges || 0,
-      external_edges: api.network?.internet_exposed || 0,
-      internal_edges: (api.network?.total_edges || 0) - (api.network?.internet_exposed || 0),
-      top_talkers: [], // Backend doesn't provide this yet
+    timeline,
+    connectivity: {
+      inbound: api.dependencies?.observed_inbound || [],
+      outbound: api.dependencies?.observed_outbound || [],
     },
-    identity_summary: {
-      principals_count: api.identity?.total_roles || 0,
-      roles_with_activity: (api.identity?.total_roles || 0) - (api.identity?.roles_with_unused || 0),
-      high_risk_actions: api.identity?.admin_roles || 0,
-      top_actors: [], // Backend doesn't provide this yet
+    identity: {
+      workloadIdentities: api.identity?.workload_identities || [],
+      controlPlaneActors: api.identity?.control_plane_actors || [],
+      apiDependencies: api.identity?.api_dependencies || [],
+      totalRoles: api.identity?.total_roles || 0,
+      rolesWithUnused: api.identity?.roles_with_unused || 0,
+      adminRoles: api.identity?.admin_roles || 0,
     },
-    anomalies: api.anomalies || [],
+    detections,
   }
 }
 
@@ -188,7 +186,7 @@ function transformApiResponse(api: ApiResponse): BehavioralSummary {
 // ============================================================================
 
 export function BehavioralPage({ systemName }: BehavioralPageProps) {
-  const [data, setData] = useState<BehavioralSummary | null>(null)
+  const [data, setData] = useState<BehavioralData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -196,12 +194,11 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
 
   // Filter state
   const [days, setDays] = useState(90)
-  const [showPaths, setShowPaths] = useState(true)
-  const [showDrift, setShowDrift] = useState(true)
-  const [showTimeline, setShowTimeline] = useState(true)
 
   // Expanded sections
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['scores', 'paths', 'drift', 'timeline']))
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    new Set(['connectivity', 'paths', 'detections', 'timeline'])
+  )
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -210,9 +207,9 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
     try {
       const params = new URLSearchParams({
         days: days.toString(),
-        include_paths: showPaths.toString(),
-        include_drift: showDrift.toString(),
-        include_timeline: showTimeline.toString(),
+        include_paths: 'true',
+        include_drift: 'true',
+        include_timeline: 'true',
       })
 
       const res = await fetch(`/api/proxy/systems/${systemName}/behavioral-summary?${params}`)
@@ -231,7 +228,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
     } finally {
       setLoading(false)
     }
-  }, [systemName, days, showPaths, showDrift, showTimeline])
+  }, [systemName, days])
 
   useEffect(() => {
     fetchData()
@@ -242,9 +239,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
     setSyncMessage(null)
 
     try {
-      // Run all collectors in parallel
       const collectors = ['flow_logs', 'cloudtrail', 'config', 'iam']
-
       await Promise.all(collectors.map(async (collector) => {
         try {
           await fetch(`/api/proxy/collectors/run/${collector}`, { method: 'POST' })
@@ -253,9 +248,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
         }
       }))
 
-      // Refresh the data
       await fetchData()
-
       setSyncMessage({ type: 'success', text: 'Synced all data planes from AWS' })
       setTimeout(() => setSyncMessage(null), 5000)
 
@@ -281,7 +274,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
       <div className="flex items-center justify-center h-[600px]">
         <div className="flex flex-col items-center gap-4">
           <RefreshCw className="w-10 h-10 text-emerald-500 animate-spin" />
-          <span className="text-slate-400">Loading behavioral intelligence...</span>
+          <span className="text-slate-400">Loading behavioral facts...</span>
         </div>
       </div>
     )
@@ -331,10 +324,10 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <Activity className="w-7 h-7 text-emerald-400" />
-            Behavioral Intelligence
+            Behavioral Facts
           </h1>
           <p className="text-slate-400 mt-1">
-            Correlating 4 data planes: Observed, Changed, Configured, Authorized
+            Evidence-based view across 4 data planes: Observed, Changed, Configured, Authorized
           </p>
         </div>
 
@@ -387,48 +380,88 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
         </div>
       </div>
 
+      {/* Legend */}
+      <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg px-4 py-2">
+        <div className="flex items-center gap-4">
+          <span className="text-xs text-slate-500 uppercase tracking-wider">Plane Badges:</span>
+          <ReconciliationLegend />
+        </div>
+      </div>
+
       {data && (
         <>
           {/* Coverage Strip */}
           <CoverageStrip coverage={data.coverage} />
 
-          {/* Scores Panel */}
+          {/* Connectivity Section */}
           <section>
             <button
-              onClick={() => toggleSection('scores')}
+              onClick={() => toggleSection('connectivity')}
               className="w-full flex items-center justify-between py-2 text-left"
             >
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Shield className="w-5 h-5 text-emerald-400" />
-                Confidence & Risk Scores
+                <Network className="w-5 h-5 text-violet-400" />
+                Connectivity
+                <span className="px-2 py-0.5 bg-violet-500/20 text-violet-400 rounded text-sm">
+                  {data.connectivity.inbound.length + data.connectivity.outbound.length}
+                </span>
               </h2>
-              {expandedSections.has('scores') ? (
+              {expandedSections.has('connectivity') ? (
                 <ChevronDown className="w-5 h-5 text-slate-400" />
               ) : (
                 <ChevronRight className="w-5 h-5 text-slate-400" />
               )}
             </button>
-            {expandedSections.has('scores') && (
-              <ScoresPanel
-                confidence={data.scores.confidence}
-                risk={data.scores.risk}
-                network={data.network_summary}
-                identity={data.identity_summary}
+            {expandedSections.has('connectivity') && (
+              <ConnectivitySection
+                inboundEdges={data.connectivity.inbound}
+                outboundEdges={data.connectivity.outbound}
+              />
+            )}
+          </section>
+
+          {/* Identity Section */}
+          <section>
+            <button
+              onClick={() => toggleSection('identity')}
+              className="w-full flex items-center justify-between py-2 text-left"
+            >
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-400" />
+                Identity & Change
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-sm">
+                  {data.identity.controlPlaneActors.length} actors
+                </span>
+              </h2>
+              {expandedSections.has('identity') ? (
+                <ChevronDown className="w-5 h-5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-slate-400" />
+              )}
+            </button>
+            {expandedSections.has('identity') && (
+              <IdentitySection
+                workloadIdentities={data.identity.workloadIdentities}
+                controlPlaneActors={data.identity.controlPlaneActors}
+                apiDependencies={data.identity.apiDependencies}
+                totalRoles={data.identity.totalRoles}
+                rolesWithUnused={data.identity.rolesWithUnused}
+                adminRoles={data.identity.adminRoles}
               />
             )}
           </section>
 
           {/* Critical Paths */}
-          {showPaths && data.critical_paths.length > 0 && (
+          {data.critical_paths.length > 0 && (
             <section>
               <button
                 onClick={() => toggleSection('paths')}
                 className="w-full flex items-center justify-between py-2 text-left"
               >
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                  <Network className="w-5 h-5 text-violet-400" />
+                  <Shield className="w-5 h-5 text-emerald-400" />
                   Critical Paths
-                  <span className="px-2 py-0.5 bg-violet-500/20 text-violet-400 rounded text-sm">
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-sm">
                     {data.critical_paths.length}
                   </span>
                 </h2>
@@ -444,34 +477,34 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
             </section>
           )}
 
-          {/* Drift Detection */}
-          {showDrift && data.drift_items.length > 0 && (
+          {/* Detections */}
+          {data.detections.length > 0 && (
             <section>
               <button
-                onClick={() => toggleSection('drift')}
+                onClick={() => toggleSection('detections')}
                 className="w-full flex items-center justify-between py-2 text-left"
               >
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-amber-400" />
-                  Drift Detection
+                  <AlertTriangle className="w-5 h-5 text-amber-400" />
+                  Detections
                   <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded text-sm">
-                    {data.drift_items.length}
+                    {data.detections.length}
                   </span>
                 </h2>
-                {expandedSections.has('drift') ? (
+                {expandedSections.has('detections') ? (
                   <ChevronDown className="w-5 h-5 text-slate-400" />
                 ) : (
                   <ChevronRight className="w-5 h-5 text-slate-400" />
                 )}
               </button>
-              {expandedSections.has('drift') && (
-                <DriftSection items={data.drift_items} />
+              {expandedSections.has('detections') && (
+                <DetectionsSection detections={data.detections} />
               )}
             </section>
           )}
 
           {/* Timeline */}
-          {showTimeline && data.timeline.length > 0 && (
+          {data.timeline.length > 0 && (
             <section>
               <button
                 onClick={() => toggleSection('timeline')}
@@ -493,47 +526,6 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
               {expandedSections.has('timeline') && (
                 <TimelineSection events={data.timeline} />
               )}
-            </section>
-          )}
-
-          {/* Anomalies (if any) */}
-          {data.anomalies && data.anomalies.length > 0 && (
-            <section className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-4">
-              <h2 className="text-lg font-semibold text-rose-400 flex items-center gap-2 mb-4">
-                <AlertTriangle className="w-5 h-5" />
-                Anomalies Detected
-                <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 rounded text-sm">
-                  {data.anomalies.length}
-                </span>
-              </h2>
-              <div className="space-y-3">
-                {data.anomalies.map((anomaly, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-3 rounded-lg border ${
-                      anomaly.severity === 'high'
-                        ? 'bg-rose-500/10 border-rose-500/30'
-                        : anomaly.severity === 'medium'
-                        ? 'bg-amber-500/10 border-amber-500/30'
-                        : 'bg-slate-700/30 border-slate-600/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-white font-medium">{anomaly.type.replace(/_/g, ' ')}</span>
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        anomaly.severity === 'high'
-                          ? 'bg-rose-500/20 text-rose-400'
-                          : anomaly.severity === 'medium'
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-slate-600/50 text-slate-400'
-                      }`}>
-                        {anomaly.severity}
-                      </span>
-                    </div>
-                    <p className="text-slate-400 text-sm mt-1">{anomaly.description}</p>
-                  </div>
-                ))}
-              </div>
             </section>
           )}
 

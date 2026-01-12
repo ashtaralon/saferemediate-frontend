@@ -5,6 +5,7 @@ import {
   Clock, Activity, Eye, Settings, Shield, ChevronDown, ChevronRight,
   Network, AlertTriangle, Plus, Minus, RefreshCw
 } from 'lucide-react'
+import { ReconciliationBadge, PlaneBadges } from './reconciliation-badge'
 
 interface TimelineEvent {
   ts: string
@@ -13,6 +14,7 @@ interface TimelineEvent {
   severity: string
   plane: string
   details?: Record<string, any>
+  planes?: PlaneBadges
 }
 
 interface TimelineSectionProps {
@@ -109,6 +111,23 @@ const getSeverityColor = (severity: string) => {
   }
 }
 
+// Convert event data to plane badges
+const getEventPlaneBadges = (event: TimelineEvent): PlaneBadges => {
+  // If event has explicit planes data, use it
+  if (event.planes) {
+    return event.planes
+  }
+
+  // Otherwise infer from the event's plane
+  const plane = event.plane.toLowerCase()
+  return {
+    observed: plane === 'observed' ? true : null,
+    configured: plane === 'configured' ? true : null,
+    authorized: plane === 'authorized' ? true : null,
+    changed: plane === 'changed' ? true : null,
+  }
+}
+
 const formatTimestamp = (ts: string) => {
   const date = new Date(ts)
   const now = new Date()
@@ -188,32 +207,41 @@ const TimelineItem: React.FC<{
                 </p>
               </div>
 
-              {event.details && Object.keys(event.details).length > 0 && (
-                <div className="text-slate-500">
-                  {isExpanded ? (
-                    <ChevronDown className="w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4" />
-                  )}
-                </div>
-              )}
+              <div className="text-slate-500">
+                {isExpanded ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+              </div>
             </div>
           </button>
 
           {/* Expanded Details */}
-          {isExpanded && event.details && Object.keys(event.details).length > 0 && (
-            <div className="mt-3 bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
-              <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Details</div>
-              <div className="space-y-1">
-                {Object.entries(event.details).map(([key, value]) => (
-                  <div key={key} className="flex justify-between text-sm">
-                    <span className="text-slate-400">{key.replace(/_/g, ' ')}</span>
-                    <span className="text-white font-mono text-xs">
-                      {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                    </span>
-                  </div>
-                ))}
+          {isExpanded && (
+            <div className="mt-3 space-y-3">
+              {/* Reconciliation Badges */}
+              <div className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
+                <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Data Plane Evidence</div>
+                <ReconciliationBadge planes={getEventPlaneBadges(event)} />
               </div>
+
+              {/* Details */}
+              {event.details && Object.keys(event.details).length > 0 && (
+                <div className="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3">
+                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Details</div>
+                  <div className="space-y-1">
+                    {Object.entries(event.details).map(([key, value]) => (
+                      <div key={key} className="flex justify-between text-sm">
+                        <span className="text-slate-400">{key.replace(/_/g, ' ')}</span>
+                        <span className="text-white font-mono text-xs">
+                          {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

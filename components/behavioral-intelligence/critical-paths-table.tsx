@@ -2,41 +2,50 @@
 
 import React, { useState } from 'react'
 import {
-  Network, ChevronRight, CheckCircle, XCircle, AlertTriangle,
-  Eye, Settings, Database, Globe, Server, Shield
+  Network, ChevronRight, CheckCircle, XCircle,
+  Eye, Settings, Database, Globe, Server, Shield, Activity
 } from 'lucide-react'
+import { ReconciliationBadge, PlaneBadges } from './reconciliation-badge'
 
 interface CriticalPath {
   src_key: string
   src_name: string
+  src_type?: string
   dst_key: string
   dst_name: string
+  dst_type?: string
   path: string[]
   port: number
   protocol: string
   observed: boolean
   configured_possible: boolean
-  confidence: string
+  confidence?: string
   risk_flags: string[]
+  evidence_planes?: string[]
 }
 
 interface CriticalPathsTableProps {
   paths: CriticalPath[]
 }
 
-const getResourceIcon = (key: string) => {
-  const keyLower = key.toLowerCase()
-  if (keyLower.includes('rds') || keyLower.includes('dynamodb') || keyLower.includes('database')) {
+const getResourceIcon = (key: string, type?: string) => {
+  const keyLower = (key || '').toLowerCase()
+  const typeLower = (type || '').toLowerCase()
+
+  if (typeLower.includes('rds') || keyLower.includes('rds') || keyLower.includes('database')) {
     return <Database className="w-4 h-4" />
   }
   if (keyLower.includes('internet') || keyLower.includes('igw') || keyLower.includes('0.0.0.0')) {
     return <Globe className="w-4 h-4" />
   }
-  if (keyLower.includes('s3') || keyLower.includes('bucket')) {
+  if (typeLower.includes('s3') || keyLower.includes('s3') || keyLower.includes('bucket')) {
     return <Server className="w-4 h-4" />
   }
   if (keyLower.includes('sg-') || keyLower.includes('security')) {
     return <Shield className="w-4 h-4" />
+  }
+  if (typeLower.includes('ec2') || keyLower.startsWith('i-')) {
+    return <Server className="w-4 h-4" />
   }
   return <Network className="w-4 h-4" />
 }
@@ -62,23 +71,22 @@ const RiskFlagBadge: React.FC<{ flag: string }> = ({ flag }) => {
   )
 }
 
+// Convert path data to plane badges
+const getPathPlaneBadges = (path: CriticalPath): PlaneBadges => {
+  return {
+    observed: path.observed,
+    configured: path.configured_possible,
+    authorized: null, // IAM check not implemented yet
+    changed: null,    // CloudTrail check not implemented yet
+  }
+}
+
 const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () => void }> = ({
   path,
   isExpanded,
   onToggle,
 }) => {
-  const getConfidenceColor = () => {
-    switch (path.confidence.toUpperCase()) {
-      case 'HIGH':
-        return 'text-emerald-400'
-      case 'MEDIUM':
-        return 'text-amber-400'
-      case 'LOW':
-        return 'text-rose-400'
-      default:
-        return 'text-slate-400'
-    }
-  }
+  const planes = getPathPlaneBadges(path)
 
   return (
     <>
@@ -89,10 +97,10 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
         {/* Source */}
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="text-slate-500">{getResourceIcon(path.src_key)}</div>
+            <div className="text-slate-500">{getResourceIcon(path.src_key, path.src_type)}</div>
             <div>
               <div className="text-white font-medium text-sm">{path.src_name}</div>
-              <div className="text-xs text-slate-500 truncate max-w-[150px]">{path.src_key}</div>
+              <div className="text-xs text-slate-500">{path.src_type || 'Resource'}</div>
             </div>
           </div>
         </td>
@@ -109,10 +117,10 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
         {/* Destination */}
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="text-slate-500">{getResourceIcon(path.dst_key)}</div>
+            <div className="text-slate-500">{getResourceIcon(path.dst_key, path.dst_type)}</div>
             <div>
               <div className="text-white font-medium text-sm">{path.dst_name}</div>
-              <div className="text-xs text-slate-500 truncate max-w-[150px]">{path.dst_key}</div>
+              <div className="text-xs text-slate-500">{path.dst_type || 'Resource'}</div>
             </div>
           </div>
         </td>
@@ -124,29 +132,9 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
           </span>
         </td>
 
-        {/* Observed */}
-        <td className="px-4 py-3 text-center">
-          {path.observed ? (
-            <CheckCircle className="w-5 h-5 text-emerald-400 mx-auto" />
-          ) : (
-            <XCircle className="w-5 h-5 text-slate-600 mx-auto" />
-          )}
-        </td>
-
-        {/* Configured */}
-        <td className="px-4 py-3 text-center">
-          {path.configured_possible ? (
-            <CheckCircle className="w-5 h-5 text-blue-400 mx-auto" />
-          ) : (
-            <XCircle className="w-5 h-5 text-slate-600 mx-auto" />
-          )}
-        </td>
-
-        {/* Confidence */}
+        {/* Plane Badges */}
         <td className="px-4 py-3">
-          <span className={`font-medium ${getConfidenceColor()}`}>
-            {path.confidence}
-          </span>
+          <ReconciliationBadge planes={planes} compact />
         </td>
 
         {/* Risk Flags */}
@@ -167,25 +155,35 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
       {/* Expanded Details */}
       {isExpanded && (
         <tr className="bg-slate-800/30">
-          <td colSpan={8} className="px-4 py-4">
+          <td colSpan={6} className="px-4 py-4">
             <div className="space-y-4">
               {/* Full Path */}
+              {path.path && path.path.length > 0 && (
+                <div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
+                    Full Path
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {path.path.map((node, idx) => (
+                      <React.Fragment key={idx}>
+                        <span className="px-3 py-1.5 bg-slate-700/50 rounded-lg text-sm text-white font-mono">
+                          {node}
+                        </span>
+                        {idx < path.path.length - 1 && (
+                          <ChevronRight className="w-4 h-4 text-slate-600" />
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Data Plane Evidence */}
               <div>
                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
-                  Full Path
+                  Data Plane Evidence
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {path.path.map((node, idx) => (
-                    <React.Fragment key={idx}>
-                      <span className="px-3 py-1.5 bg-slate-700/50 rounded-lg text-sm text-white font-mono">
-                        {node}
-                      </span>
-                      {idx < path.path.length - 1 && (
-                        <ChevronRight className="w-4 h-4 text-slate-600" />
-                      )}
-                    </React.Fragment>
-                  ))}
-                </div>
+                <ReconciliationBadge planes={planes} />
               </div>
 
               {/* All Risk Flags */}
@@ -202,16 +200,16 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
                 </div>
               )}
 
-              {/* Status Summary */}
+              {/* Evidence Summary */}
               <div className="flex gap-6 text-sm">
                 <div className="flex items-center gap-2">
-                  <Eye className={`w-4 h-4 ${path.observed ? 'text-emerald-400' : 'text-slate-600'}`} />
+                  <Activity className={`w-4 h-4 ${path.observed ? 'text-emerald-400' : 'text-slate-600'}`} />
                   <span className="text-slate-400">
                     {path.observed ? 'Traffic observed in flow logs' : 'No observed traffic'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Settings className={`w-4 h-4 ${path.configured_possible ? 'text-blue-400' : 'text-slate-600'}`} />
+                  <Settings className={`w-4 h-4 ${path.configured_possible ? 'text-violet-400' : 'text-slate-600'}`} />
                   <span className="text-slate-400">
                     {path.configured_possible ? 'Allowed by security groups' : 'Blocked by configuration'}
                   </span>
@@ -266,20 +264,8 @@ export const CriticalPathsTable: React.FC<CriticalPathsTableProps> = ({ paths })
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                 Port
               </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
-                <div className="flex items-center justify-center gap-1">
-                  <Eye className="w-3 h-3" />
-                  Observed
-                </div>
-              </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">
-                <div className="flex items-center justify-center gap-1">
-                  <Settings className="w-3 h-3" />
-                  Configured
-                </div>
-              </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                Confidence
+                Planes
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                 Risk Flags
