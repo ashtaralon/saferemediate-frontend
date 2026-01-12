@@ -327,7 +327,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
             Behavioral Facts
           </h1>
           <p className="text-slate-400 mt-1">
-            Evidence-based view across 4 data planes: Observed, Changed, Configured, Authorized
+            Evidence-based reconciliation across 4 data planes
           </p>
         </div>
 

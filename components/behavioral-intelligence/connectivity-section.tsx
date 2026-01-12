@@ -55,13 +55,73 @@ const formatTimestamp = (ts: string): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-const isExternal = (edge: EdgeFact): boolean => {
-  const name = edge.dst_name?.toLowerCase() || ''
+// Format protocol from PROTO_X to human-readable
+const formatProtocol = (protocol: string): string => {
+  if (!protocol) return 'Unknown'
+  const proto = protocol.toUpperCase()
+
+  // Handle PROTO_X.0 format from flow logs
+  if (proto.startsWith('PROTO_')) {
+    const num = proto.replace('PROTO_', '').split('.')[0]
+    switch (num) {
+      case '1': return 'ICMP'
+      case '6': return 'TCP'
+      case '17': return 'UDP'
+      case '47': return 'GRE'
+      case '50': return 'ESP'
+      case '58': return 'ICMPv6'
+      default: return `Proto-${num}`
+    }
+  }
+  return proto
+}
+
+// Check if IP is in RFC1918 private range
+const isPrivateIP = (ip: string): boolean => {
+  if (!ip) return false
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(isNaN)) return false
+
+  // 10.0.0.0/8
+  if (parts[0] === 10) return true
+  // 172.16.0.0/12
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true
+  // 192.168.0.0/16
+  if (parts[0] === 192 && parts[1] === 168) return true
+  // 127.0.0.0/8 (loopback)
+  if (parts[0] === 127) return true
+  // 169.254.0.0/16 (link-local)
+  if (parts[0] === 169 && parts[1] === 254) return true
+
+  return false
+}
+
+// Check if destination is a known AWS resource (not just an IP)
+const isKnownResource = (edge: EdgeFact): boolean => {
   const type = edge.dst_type?.toLowerCase() || ''
-  // External if it's an IP address or NetworkEndpoint type
-  return type === 'networkendpoint' ||
-         /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name) ||
-         edge.dst_key === 'unknown'
+  return type !== 'networkendpoint' && type !== 'unknown' && type !== ''
+}
+
+// Classify edge destination
+type DestinationType = 'internal' | 'internet' | 'aws_resource'
+
+const classifyDestination = (edge: EdgeFact): DestinationType => {
+  // If it's a known AWS resource type (EC2, RDS, etc.), it's internal
+  if (isKnownResource(edge)) {
+    return 'aws_resource'
+  }
+
+  // Check if the destination name is an IP
+  const dstName = edge.dst_name || ''
+  const isIP = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(dstName)
+
+  if (isIP) {
+    return isPrivateIP(dstName) ? 'internal' : 'internet'
+  }
+
+  // If dst_key is 'unknown' and name looks like an IP, classify by IP
+  // Otherwise assume it's external (could be a domain)
+  return 'internet'
 }
 
 const getResourceIcon = (type: string) => {
@@ -175,7 +235,7 @@ const EdgeTable: React.FC<{
                   </td>
                   <td className="px-4 py-2">
                     <span className="px-2 py-1 bg-slate-700/50 rounded text-sm text-white font-mono">
-                      {edge.port}/{edge.protocol}
+                      {formatProtocol(edge.protocol)}/{edge.port}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -223,9 +283,28 @@ export const ConnectivitySection: React.FC<ConnectivitySectionProps> = ({
   inboundEdges,
   outboundEdges,
 }) => {
-  // Separate internal vs external for outbound
-  const externalOutbound = outboundEdges.filter(isExternal)
-  const internalOutbound = outboundEdges.filter(e => !isExternal(e))
+  // Classify outbound edges by destination type
+  const internetOutbound: EdgeFact[] = []
+  const internalOutbound: EdgeFact[] = []
+  const awsResourceOutbound: EdgeFact[] = []
+
+  outboundEdges.forEach(edge => {
+    const destType = classifyDestination(edge)
+    switch (destType) {
+      case 'internet':
+        internetOutbound.push(edge)
+        break
+      case 'internal':
+        internalOutbound.push(edge)
+        break
+      case 'aws_resource':
+        awsResourceOutbound.push(edge)
+        break
+    }
+  })
+
+  // Classify inbound similarly for stats
+  const internetInbound = inboundEdges.filter(e => classifyDestination({ ...e, dst_name: e.src_name, dst_type: e.src_type }) === 'internet')
 
   // Summary stats
   const totalInbound = inboundEdges.length
@@ -253,9 +332,9 @@ export const ConnectivitySection: React.FC<ConnectivitySectionProps> = ({
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
           <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
             <Globe className="w-4 h-4" />
-            External Destinations
+            Internet Destinations
           </div>
-          <div className="text-2xl font-bold text-white">{externalOutbound.length}</div>
+          <div className="text-2xl font-bold text-white">{internetOutbound.length}</div>
         </div>
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
           <div className="flex items-center gap-2 text-slate-400 text-sm mb-1">
@@ -274,18 +353,29 @@ export const ConnectivitySection: React.FC<ConnectivitySectionProps> = ({
         showSource={true}
       />
 
-      <EdgeTable
-        edges={externalOutbound}
-        title="External Outbound"
-        icon={<Globe className="w-4 h-4 text-amber-400" />}
-        showSource={true}
-      />
+      {internetOutbound.length > 0 && (
+        <EdgeTable
+          edges={internetOutbound}
+          title="Outbound (Internet)"
+          icon={<Globe className="w-4 h-4 text-amber-400" />}
+          showSource={true}
+        />
+      )}
 
       {internalOutbound.length > 0 && (
         <EdgeTable
           edges={internalOutbound}
-          title="Internal Outbound"
+          title="Outbound (Internal / Private IP)"
           icon={<Network className="w-4 h-4 text-emerald-400" />}
+          showSource={true}
+        />
+      )}
+
+      {awsResourceOutbound.length > 0 && (
+        <EdgeTable
+          edges={awsResourceOutbound}
+          title="Outbound (AWS Resources)"
+          icon={<Server className="w-4 h-4 text-violet-400" />}
           showSource={true}
         />
       )}

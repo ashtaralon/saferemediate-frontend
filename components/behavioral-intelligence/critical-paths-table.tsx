@@ -59,6 +59,7 @@ const RiskFlagBadge: React.FC<{ flag: string }> = ({ flag }) => {
     sensitive_data: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
     admin_access: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
     write_access: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    unexpected_port: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
     default: 'bg-slate-600/50 text-slate-400 border-slate-500/30',
   }
 
@@ -69,6 +70,38 @@ const RiskFlagBadge: React.FC<{ flag: string }> = ({ flag }) => {
       {flag.replace(/_/g, ' ')}
     </span>
   )
+}
+
+// Detect unexpected ports to database targets
+const getExpectedPorts = (dstType: string): number[] => {
+  const typeLower = (dstType || '').toLowerCase()
+  if (typeLower.includes('rds') || typeLower.includes('postgres')) {
+    return [5432, 3306, 1433, 1521, 27017] // PostgreSQL, MySQL, MSSQL, Oracle, MongoDB
+  }
+  if (typeLower.includes('dynamodb')) {
+    return [443] // DynamoDB uses HTTPS
+  }
+  if (typeLower.includes('elasticache') || typeLower.includes('redis')) {
+    return [6379, 11211] // Redis, Memcached
+  }
+  return [] // No expected ports defined - no warning
+}
+
+const isUnexpectedPort = (path: CriticalPath): boolean => {
+  const expectedPorts = getExpectedPorts(path.dst_type || '')
+  if (expectedPorts.length === 0) return false // No expected ports defined
+  return !expectedPorts.includes(path.port)
+}
+
+// Augment risk flags with detected issues
+const getAugmentedRiskFlags = (path: CriticalPath): string[] => {
+  const flags = [...riskFlags]
+  if (isUnexpectedPort(path)) {
+    if (!flags.includes('unexpected_port')) {
+      flags.push('unexpected_port')
+    }
+  }
+  return flags
 }
 
 // Convert path data to plane badges
@@ -87,6 +120,7 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
   onToggle,
 }) => {
   const planes = getPathPlaneBadges(path)
+  const riskFlags = getAugmentedRiskFlags(path)
 
   return (
     <>
@@ -140,12 +174,12 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
         {/* Risk Flags */}
         <td className="px-4 py-3">
           <div className="flex flex-wrap gap-1">
-            {path.risk_flags.slice(0, 2).map((flag, idx) => (
+            {riskFlags.slice(0, 2).map((flag, idx) => (
               <RiskFlagBadge key={idx} flag={flag} />
             ))}
-            {path.risk_flags.length > 2 && (
+            {riskFlags.length > 2 && (
               <span className="px-2 py-0.5 bg-slate-700/50 text-slate-400 rounded text-xs">
-                +{path.risk_flags.length - 2}
+                +{riskFlags.length - 2}
               </span>
             )}
           </div>
@@ -187,13 +221,13 @@ const PathRow: React.FC<{ path: CriticalPath; isExpanded: boolean; onToggle: () 
               </div>
 
               {/* All Risk Flags */}
-              {path.risk_flags.length > 0 && (
+              {riskFlags.length > 0 && (
                 <div>
                   <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">
                     Risk Flags
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {path.risk_flags.map((flag, idx) => (
+                    {riskFlags.map((flag, idx) => (
                       <RiskFlagBadge key={idx} flag={flag} />
                     ))}
                   </div>
