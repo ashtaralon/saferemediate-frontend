@@ -479,7 +479,7 @@ export default function InfrastructureFlowViz({ systemName, onNodeClick, onRefre
     return connected
   }, [edges, highlightedNode])
 
-  // Update positions
+  // Update positions - recalculate when nodes change
   useEffect(() => {
     const updatePositions = () => {
       if (!containerRef.current) return
@@ -501,11 +501,16 @@ export default function InfrastructureFlowViz({ systemName, onNodeClick, onRefre
       setNodePositions(positions)
     }
 
-    const timer = setTimeout(updatePositions, 100)
+    // Run multiple times to catch late renders
+    const timer1 = setTimeout(updatePositions, 50)
+    const timer2 = setTimeout(updatePositions, 200)
+    const timer3 = setTimeout(updatePositions, 500)
     window.addEventListener('resize', updatePositions)
 
     return () => {
-      clearTimeout(timer)
+      clearTimeout(timer1)
+      clearTimeout(timer2)
+      clearTimeout(timer3)
       window.removeEventListener('resize', updatePositions)
     }
   }, [filteredNodes])
@@ -582,16 +587,23 @@ export default function InfrastructureFlowViz({ systemName, onNodeClick, onRefre
             const targetPos = nodePositions[edge.target]
             if (!sourcePos || !targetPos) return null
 
-            const sourceTierOrder = TIER_CONFIG[sourceNode.tier]?.order ?? 0
-            const targetTierOrder = TIER_CONFIG[targetNode.tier]?.order ?? 0
+            // Determine edge direction based on tier positions
+            const sourceIsLeft = sourcePos.right < targetPos.left
+            const targetIsLeft = targetPos.right < sourcePos.left
 
             let startX: number, endX: number
-            if (sourceTierOrder <= targetTierOrder) {
+            if (sourceIsLeft) {
+              // Source is to the left of target - draw from right edge to left edge
               startX = sourcePos.right
               endX = targetPos.left
-            } else {
+            } else if (targetIsLeft) {
+              // Target is to the left of source - draw from left edge to right edge
               startX = sourcePos.left
               endX = targetPos.right
+            } else {
+              // Overlapping horizontally - use center points
+              startX = (sourcePos.left + sourcePos.right) / 2
+              endX = (targetPos.left + targetPos.right) / 2
             }
 
             const isHighlighted = highlightedNode ? edge.source === highlightedNode || edge.target === highlightedNode : false
