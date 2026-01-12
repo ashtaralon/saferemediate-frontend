@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
   Activity, RefreshCw, AlertTriangle, CheckCircle, XCircle,
-  Network, Eye, Clock, ChevronDown, ChevronRight, Users, Shield
+  Network, Eye, Clock, ChevronDown, ChevronRight, Users, Shield,
+  Database, Key
 } from 'lucide-react'
 import { CoverageStrip } from './coverage-strip'
 import { CriticalPathsTable } from './critical-paths-table'
@@ -11,6 +12,8 @@ import { TimelineSection } from './timeline'
 import { ConnectivitySection, EdgeFact } from './connectivity-section'
 import { IdentitySection } from './identity-section'
 import { DetectionsSection, Detection } from './detections-section'
+import { DataAccessSection, BucketAccess, DataPrincipal, FirstTimeAccessEvent } from './data-access-section'
+import { CryptoKeysSection, KmsKey, CryptoPrincipal, KeyLifecycleEvent } from './crypto-keys-section'
 import { ReconciliationLegend } from './reconciliation-badge'
 
 // ============================================================================
@@ -76,6 +79,22 @@ interface ApiResponse {
     observed_inbound?: EdgeFact[]
     observed_outbound?: EdgeFact[]
   }
+  // S3 Data Access (when backend implements)
+  data_access?: {
+    buckets?: BucketAccess[]
+    principals?: DataPrincipal[]
+    first_time_access?: FirstTimeAccessEvent[]
+    total_read_ops?: number
+    total_write_ops?: number
+  }
+  // KMS Keys (when backend implements)
+  crypto_keys?: {
+    keys?: KmsKey[]
+    principals?: CryptoPrincipal[]
+    lifecycle_events?: KeyLifecycleEvent[]
+    total_decrypt_ops?: number
+    total_encrypt_ops?: number
+  }
 }
 
 interface BehavioralData {
@@ -97,6 +116,22 @@ interface BehavioralData {
     adminRoles: number
   }
   detections: Detection[]
+  // S3 Data Access
+  dataAccess: {
+    buckets: BucketAccess[]
+    principals: DataPrincipal[]
+    firstTimeAccess: FirstTimeAccessEvent[]
+    totalReadOps: number
+    totalWriteOps: number
+  }
+  // KMS Keys
+  cryptoKeys: {
+    keys: KmsKey[]
+    principals: CryptoPrincipal[]
+    lifecycleEvents: KeyLifecycleEvent[]
+    totalDecryptOps: number
+    totalEncryptOps: number
+  }
 }
 
 interface BehavioralPageProps {
@@ -178,6 +213,22 @@ function transformApiResponse(api: ApiResponse): BehavioralData {
       adminRoles: api.identity?.admin_roles || 0,
     },
     detections,
+    // S3 Data Access
+    dataAccess: {
+      buckets: api.data_access?.buckets || [],
+      principals: api.data_access?.principals || [],
+      firstTimeAccess: api.data_access?.first_time_access || [],
+      totalReadOps: api.data_access?.total_read_ops || 0,
+      totalWriteOps: api.data_access?.total_write_ops || 0,
+    },
+    // KMS Keys
+    cryptoKeys: {
+      keys: api.crypto_keys?.keys || [],
+      principals: api.crypto_keys?.principals || [],
+      lifecycleEvents: api.crypto_keys?.lifecycle_events || [],
+      totalDecryptOps: api.crypto_keys?.total_decrypt_ops || 0,
+      totalEncryptOps: api.crypto_keys?.total_encrypt_ops || 0,
+    },
   }
 }
 
@@ -197,7 +248,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
 
   // Expanded sections
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['connectivity', 'paths', 'detections', 'timeline'])
+    new Set(['connectivity', 'paths', 'detections', 'dataAccess', 'cryptoKeys', 'timeline'])
   )
 
   const fetchData = useCallback(async () => {
@@ -502,6 +553,66 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
               )}
             </section>
           )}
+
+          {/* Data Access (S3) */}
+          <section>
+            <button
+              onClick={() => toggleSection('dataAccess')}
+              className="w-full flex items-center justify-between py-2 text-left"
+            >
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Database className="w-5 h-5 text-orange-400" />
+                Data Access (S3)
+                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-sm">
+                  {data.dataAccess.buckets.length} buckets
+                </span>
+              </h2>
+              {expandedSections.has('dataAccess') ? (
+                <ChevronDown className="w-5 h-5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-slate-400" />
+              )}
+            </button>
+            {expandedSections.has('dataAccess') && (
+              <DataAccessSection
+                buckets={data.dataAccess.buckets}
+                principals={data.dataAccess.principals}
+                firstTimeAccess={data.dataAccess.firstTimeAccess}
+                totalReadOps={data.dataAccess.totalReadOps}
+                totalWriteOps={data.dataAccess.totalWriteOps}
+              />
+            )}
+          </section>
+
+          {/* Crypto & Keys (KMS) */}
+          <section>
+            <button
+              onClick={() => toggleSection('cryptoKeys')}
+              className="w-full flex items-center justify-between py-2 text-left"
+            >
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Key className="w-5 h-5 text-amber-400" />
+                Crypto & Keys (KMS)
+                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded text-sm">
+                  {data.cryptoKeys.keys.length} keys
+                </span>
+              </h2>
+              {expandedSections.has('cryptoKeys') ? (
+                <ChevronDown className="w-5 h-5 text-slate-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-slate-400" />
+              )}
+            </button>
+            {expandedSections.has('cryptoKeys') && (
+              <CryptoKeysSection
+                keys={data.cryptoKeys.keys}
+                principals={data.cryptoKeys.principals}
+                lifecycleEvents={data.cryptoKeys.lifecycleEvents}
+                totalDecryptOps={data.cryptoKeys.totalDecryptOps}
+                totalEncryptOps={data.cryptoKeys.totalEncryptOps}
+              />
+            )}
+          </section>
 
           {/* Timeline */}
           {data.timeline.length > 0 && (
