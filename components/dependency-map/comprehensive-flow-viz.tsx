@@ -214,7 +214,9 @@ const NodeCard: React.FC<{
         background: isHighlighted
           ? `linear-gradient(135deg, ${tierColor}22 0%, ${tierColor}11 100%)`
           : 'rgba(30, 41, 59, 0.6)',
-        border: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
+        borderTop: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
+        borderRight: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
+        borderBottom: `1px solid ${isHighlighted ? tierColor : 'rgba(148, 163, 184, 0.1)'}`,
         borderLeft: `3px solid ${tierColor}`,
         borderRadius: '8px',
         padding: '10px 12px',
