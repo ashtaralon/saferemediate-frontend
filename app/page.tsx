@@ -53,13 +53,56 @@ interface GapAnalysisData {
   roleName: string
 }
 
+// Cache keys for localStorage
+const CACHE_KEYS = {
+  INFRASTRUCTURE: 'impactiq-infrastructure-cache',
+  FINDINGS: 'impactiq-findings-cache',
+  GAP_DATA: 'impactiq-gap-cache',
+  TIMESTAMP: 'impactiq-cache-timestamp',
+}
+
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes - show cached data but refresh if older
+
+// Load cached data immediately for instant UI (stale-while-revalidate)
+function getCachedData<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const cached = localStorage.getItem(key)
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      console.log(`[page] Loaded ${key} from cache (instant)`)
+      return parsed
+    }
+  } catch (e) {
+    console.warn(`[page] Failed to parse cached ${key}:`, e)
+  }
+  return null
+}
+
+function setCachedData(key: string, data: any): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(key, JSON.stringify(data))
+    localStorage.setItem(CACHE_KEYS.TIMESTAMP, Date.now().toString())
+  } catch (e) {
+    console.warn(`[page] Failed to cache ${key}:`, e)
+  }
+}
+
 export default function HomePage() {
+  // Initialize from cache immediately - no loading spinner if cached data exists
+  const cachedInfra = getCachedData<InfrastructureData>(CACHE_KEYS.INFRASTRUCTURE)
+  const cachedFindings = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS)
+  const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
+  const hasCachedData = cachedInfra !== null
+
   const [activeSection, setActiveSection] = useState("home")
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
-  const [data, setData] = useState<InfrastructureData | null>(null)
-  const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
-  const [loading, setLoading] = useState(true)
-  const [gapData, setGapData] = useState<GapAnalysisData>({
+  const [data, setData] = useState<InfrastructureData | null>(cachedInfra)
+  const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>(cachedFindings || [])
+  // Only show loading if NO cached data - otherwise show cached data immediately
+  const [loading, setLoading] = useState(!hasCachedData)
+  const [gapData, setGapData] = useState<GapAnalysisData>(cachedGap || {
     allowed: 0,
     used: 0,
     unused: 0,
@@ -91,13 +134,15 @@ export default function HomePage() {
         
         console.log(`[Home] Gap Analysis: allowed=${allowed}, used=${used}, unused=${unused}, confidence=${confidence}`)
         
-        setGapData({
+        const newGapData = {
           allowed: allowed,
           used: used,
           unused: unused,
           confidence: Math.round(confidence),
           roleName: roleName,
-        })
+        }
+        setGapData(newGapData)
+        setCachedData(CACHE_KEYS.GAP_DATA, newGapData) // Cache for instant load
         setLastRefresh(new Date())
       })
       .catch((err) => {
@@ -113,59 +158,71 @@ export default function HomePage() {
       })
   }, [])
 
-  const loadData = useCallback(async () => {
-    // Set timeout to prevent infinite loading - must be longer than proxy timeouts (28s) + client timeouts (30s)
-    const timeoutId = setTimeout(() => {
-      console.warn("Data loading timeout - forcing loading to false")
-      setLoading(false)
-    }, 35000) // 35 seconds timeout to allow proxy (28s) + client (30s) to complete
+  const loadData = useCallback(async (isBackgroundRefresh = false) => {
+    // Only show loading spinner on initial load when no cached data exists
+    if (!isBackgroundRefresh) {
+      // Set timeout to prevent infinite loading
+      const timeoutId = setTimeout(() => {
+        console.warn("Data loading timeout - forcing loading to false")
+        setLoading(false)
+      }, 35000)
+
+      // Will clear this in finally block
+      ;(window as any).__loadingTimeoutId = timeoutId
+    }
 
     try {
       const [infrastructureData, findings] = await Promise.allSettled([
         fetchInfrastructure(),
         fetchSecurityFindings(),
       ])
-      
-      clearTimeout(timeoutId)
-      
+
       // Handle infrastructure data
       if (infrastructureData.status === 'fulfilled') {
         setData(infrastructureData.value)
+        setCachedData(CACHE_KEYS.INFRASTRUCTURE, infrastructureData.value) // Cache for instant load
+        console.log("[page] Loaded and cached infrastructure data")
       } else {
         console.error("Infrastructure fetch failed:", infrastructureData.reason)
-        setData(null)
+        // Keep existing data on error (don't wipe cache)
+        if (!isBackgroundRefresh) setData(null)
       }
-      
+
       // Handle findings - only use real data, no fallback
       if (findings.status === 'fulfilled' && findings.value && findings.value.length > 0) {
         setSecurityFindings(findings.value)
-        console.log("[page] Loaded", findings.value.length, "security findings")
+        setCachedData(CACHE_KEYS.FINDINGS, findings.value) // Cache for instant load
+        console.log("[page] Loaded and cached", findings.value.length, "security findings")
       } else {
         console.log("[page] No findings returned from backend")
-        setSecurityFindings([])
+        if (!isBackgroundRefresh) setSecurityFindings([])
       }
     } catch (error) {
       console.error("Failed to load data:", error)
-      clearTimeout(timeoutId)
-      setData(null)
-      // Return empty array on error (no mock data)
-      setSecurityFindings([])
+      // Keep existing data on error (don't wipe cache)
+      if (!isBackgroundRefresh) {
+        setData(null)
+        setSecurityFindings([])
+      }
     } finally {
-      clearTimeout(timeoutId)
+      if ((window as any).__loadingTimeoutId) {
+        clearTimeout((window as any).__loadingTimeoutId)
+      }
       setLoading(false) // ALWAYS set to false
     }
   }, [])
 
   useEffect(() => {
-    loadData()
+    // If we have cached data, treat initial fetch as background refresh (no loading spinner)
+    loadData(hasCachedData)
     fetchGapAnalysis()
-  }, [loadData, fetchGapAnalysis])
+  }, [loadData, fetchGapAnalysis, hasCachedData])
 
   useEffect(() => {
     if (!autoRefresh) return
 
     const interval = setInterval(() => {
-      loadData()
+      loadData(true) // Always background refresh for auto-refresh
       fetchGapAnalysis()
     }, 30000)
 

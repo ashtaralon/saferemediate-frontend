@@ -45,8 +45,30 @@ interface SystemsViewProps {
   onSystemSelect?: (systemName: string) => void
 }
 
+// Load cached systems from localStorage immediately (stale-while-revalidate)
+function getInitialSystems(): System[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const cached = localStorage.getItem("impactiq-systems")
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        console.log("[systems-view] Loaded", parsed.length, "systems from cache (instant)")
+        return parsed
+      }
+    }
+  } catch (e) {
+    console.warn("[systems-view] Failed to parse cached systems:", e)
+  }
+  return []
+}
+
 export function SystemsView({ systems: propSystems = [], onSystemSelect }: SystemsViewProps) {
-  const [localSystems, setLocalSystems] = useState<System[]>(propSystems)
+  // Initialize from cache immediately - no loading spinner if cached data exists
+  const initialSystems = getInitialSystems()
+  const hasCachedData = initialSystems.length > 0
+
+  const [localSystems, setLocalSystems] = useState<System[]>(initialSystems.length > 0 ? initialSystems : propSystems)
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -58,7 +80,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   const [availableSystems, setAvailableSystems] = useState<AvailableSystem[]>([])
   const [isLoadingAvailable, setIsLoadingAvailable] = useState(false)
   const [backendStatus, setBackendStatus] = useState<"connected" | "offline" | "checking">("checking")
-  const [isLoadingData, setIsLoadingData] = useState(true)
+  // Only show loading if NO cached data - otherwise show cached data immediately
+  const [isLoadingData, setIsLoadingData] = useState(!hasCachedData)
   const [gapData, setGapData] = useState<{ allowed: number; used: number; unused: number }>({
     allowed: 0,
     used: 0,
@@ -109,9 +132,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     }
   }, [])
 
-  const fetchSystemsData = useCallback(async () => {
+  const fetchSystemsData = useCallback(async (isBackgroundRefresh = false) => {
     setIsScanning(true)
-    setIsLoadingData(true)
+    // Only show loading spinner on initial load when no cached data exists
+    // Background refreshes (or loads with cached data) should NOT show loading spinner
+    if (!isBackgroundRefresh) {
+      setIsLoadingData(true)
+    }
 
     // Fetch gap analysis from findings
     await fetchGapAnalysisFromFindings()
@@ -201,12 +228,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
 
   useEffect(() => {
-    fetchSystemsData()
-  }, [fetchSystemsData])
+    // If we have cached data, treat initial fetch as background refresh (no loading spinner)
+    fetchSystemsData(hasCachedData)
+  }, [fetchSystemsData, hasCachedData])
 
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchSystemsData()
+      fetchSystemsData(true) // Background refresh - no loading spinner
     }, 30000)
     return () => clearInterval(interval)
   }, [fetchSystemsData])
@@ -218,17 +246,8 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     return () => clearInterval(countdown)
   }, [])
 
-  useEffect(() => {
-    const saved = localStorage.getItem("impactiq-systems")
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        setLocalSystems(parsed)
-      } catch (e) {
-        console.error("[systems-view] Failed to parse saved systems:", e)
-      }
-    }
-  }, [])
+  // NOTE: localStorage loading now happens during initialization (getInitialSystems)
+  // This ensures instant UI without waiting for useEffect to run
 
   useEffect(() => {
     if (localSystems.length > 0) {
