@@ -740,6 +740,44 @@ function generateFlowDetail(flow: Flow, sgData: any[], iamGaps: any[]): FlowDeta
 
 type TimeWindow = '7d' | '30d' | '90d'
 
+// Cache helpers for instant load
+const FLOW_CACHE_KEY = (systemName: string, window: string) => `impactiq-flows-${systemName}-${window}`
+const FLOW_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+interface FlowCacheData {
+  flows: Flow[]
+  xrayData: XRayTraceData | null
+  xrayServices: XRayService[]
+  iamGaps: any[]
+  timestamp: number
+}
+
+function getCachedFlows(systemName: string, window: string): FlowCacheData | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const cached = localStorage.getItem(FLOW_CACHE_KEY(systemName, window))
+    if (cached) {
+      const data = JSON.parse(cached) as FlowCacheData
+      // Check if cache is still valid (5 minutes)
+      if (Date.now() - data.timestamp < FLOW_CACHE_TTL) {
+        console.log('[FlowStrip] Loaded from cache (instant)')
+        return data
+      }
+    }
+  } catch (e) {
+    console.warn('[FlowStrip] Failed to parse cache:', e)
+  }
+  return null
+}
+
+function setCachedFlows(systemName: string, window: string, data: FlowCacheData): void {
+  try {
+    localStorage.setItem(FLOW_CACHE_KEY(systemName, window), JSON.stringify(data))
+  } catch (e) {
+    console.warn('[FlowStrip] Failed to cache:', e)
+  }
+}
+
 export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [loading, setLoading] = useState(true)
   const [flows, setFlows] = useState<Flow[]>([])
@@ -753,8 +791,12 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [xrayServices, setXrayServices] = useState<XRayService[]>([])
   const [showXrayPanel, setShowXrayPanel] = useState(false)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  const fetchData = useCallback(async (isBackgroundRefresh = false) => {
+    // Only show loading if not background refresh AND no cached data
+    if (!isBackgroundRefresh) {
+      setLoading(true)
+    }
+
     try {
       let graphNodes: any[] = []
       let graphEdges: any[] = []
@@ -794,8 +836,10 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       }
 
       // Parse X-Ray traces/insights
+      let fetchedXrayData: XRayTraceData | null = null
       if (xrayTraceRes.status === 'fulfilled' && xrayTraceRes.value.ok) {
         const data = await xrayTraceRes.value.json()
+        fetchedXrayData = data
         setXrayData(data)
         console.log('[FlowStrip] X-Ray insights:', (data.insights || []).length)
       }
@@ -804,6 +848,15 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       const allFlows = buildFullStackFlows(graphNodes, graphEdges, fetchedSgData, fetchedIamGaps, fetchedXrayServices)
       console.log('[FlowStrip] Built', allFlows.length, 'flows')
       setFlows(allFlows)
+
+      // Cache the data for instant load next time
+      setCachedFlows(systemName, timeWindow, {
+        flows: allFlows,
+        xrayData: fetchedXrayData,
+        xrayServices: fetchedXrayServices,
+        iamGaps: fetchedIamGaps,
+        timestamp: Date.now()
+      })
 
       if (allFlows.length > 0 && !selectedFlow) {
         setSelectedFlow(allFlows[0])
@@ -821,7 +874,32 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
     setFlowDetail(generateFlowDetail(flow, sgData, iamGaps))
   }, [sgData, iamGaps])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  // Load from cache FIRST, then fetch fresh data - stale-while-revalidate
+  useEffect(() => {
+    let hasCache = false
+
+    // Step 1: Try to load from cache immediately
+    const cached = getCachedFlows(systemName, timeWindow)
+    if (cached && cached.flows.length > 0) {
+      console.log('[FlowStrip] Using cached flows:', cached.flows.length)
+      setFlows(cached.flows)
+      setXrayData(cached.xrayData)
+      setXrayServices(cached.xrayServices)
+      setIamGaps(cached.iamGaps)
+      setLoading(false) // Hide loading spinner immediately
+      hasCache = true
+
+      // Select first flow
+      if (cached.flows.length > 0) {
+        setSelectedFlow(cached.flows[0])
+        setFlowDetail(generateFlowDetail(cached.flows[0], [], cached.iamGaps))
+      }
+    }
+
+    // Step 2: Fetch fresh data (background if cache exists, with spinner if not)
+    fetchData(hasCache)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [systemName, timeWindow]) // Re-run when system or time window changes
 
   // Extract unique components from flows
   const components = useMemo(() => {
