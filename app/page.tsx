@@ -90,19 +90,12 @@ function setCachedData(key: string, data: any): void {
 }
 
 export default function HomePage() {
-  // Initialize from cache immediately - no loading spinner if cached data exists
-  const cachedInfra = getCachedData<InfrastructureData>(CACHE_KEYS.INFRASTRUCTURE)
-  const cachedFindings = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS)
-  const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
-  const hasCachedData = cachedInfra !== null
-
   const [activeSection, setActiveSection] = useState("home")
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
-  const [data, setData] = useState<InfrastructureData | null>(cachedInfra)
-  const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>(cachedFindings || [])
-  // Only show loading if NO cached data - otherwise show cached data immediately
-  const [loading, setLoading] = useState(!hasCachedData)
-  const [gapData, setGapData] = useState<GapAnalysisData>(cachedGap || {
+  const [data, setData] = useState<InfrastructureData | null>(null)
+  const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
+  const [loading, setLoading] = useState(true)
+  const [gapData, setGapData] = useState<GapAnalysisData>({
     allowed: 0,
     used: 0,
     unused: 0,
@@ -212,11 +205,35 @@ export default function HomePage() {
     }
   }, [])
 
+  // Load from cache FIRST, then fetch fresh data - stale-while-revalidate
   useEffect(() => {
-    // If we have cached data, treat initial fetch as background refresh (no loading spinner)
-    loadData(hasCachedData)
+    let hasCache = false
+
+    // Step 1: Try to load from cache immediately
+    const cachedInfra = getCachedData<InfrastructureData>(CACHE_KEYS.INFRASTRUCTURE)
+    const cachedFindings = getCachedData<SecurityFinding[]>(CACHE_KEYS.FINDINGS)
+    const cachedGap = getCachedData<GapAnalysisData>(CACHE_KEYS.GAP_DATA)
+
+    if (cachedInfra) {
+      console.log("[page] Loaded infrastructure from cache (instant)")
+      setData(cachedInfra)
+      setLoading(false)
+      hasCache = true
+    }
+    if (cachedFindings && cachedFindings.length > 0) {
+      console.log("[page] Loaded", cachedFindings.length, "findings from cache (instant)")
+      setSecurityFindings(cachedFindings)
+    }
+    if (cachedGap) {
+      console.log("[page] Loaded gap data from cache (instant)")
+      setGapData(cachedGap)
+    }
+
+    // Step 2: Fetch fresh data (background if cache exists, with spinner if not)
+    loadData(hasCache)
     fetchGapAnalysis()
-  }, [loadData, fetchGapAnalysis, hasCachedData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run once on mount
 
   useEffect(() => {
     if (!autoRefresh) return
