@@ -741,7 +741,7 @@ function generateFlowDetail(flow: Flow, sgData: any[], iamGaps: any[]): FlowDeta
 type TimeWindow = '7d' | '30d' | '90d'
 
 // Cache helpers for instant load
-const FLOW_CACHE_KEY = (systemName: string, window: string) => `impactiq-flows-${systemName}-${window}`
+const FLOW_CACHE_KEY = (sysName: string, tw: string) => `impactiq-flows-${sysName}-${tw}`
 const FLOW_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 interface FlowCacheData {
@@ -752,10 +752,10 @@ interface FlowCacheData {
   timestamp: number
 }
 
-function getCachedFlows(systemName: string, window: string): FlowCacheData | null {
-  if (typeof window === 'undefined') return null
+function getCachedFlows(sysName: string, tw: string): FlowCacheData | null {
+  if (typeof globalThis.window === 'undefined') return null // SSR check
   try {
-    const cached = localStorage.getItem(FLOW_CACHE_KEY(systemName, window))
+    const cached = localStorage.getItem(FLOW_CACHE_KEY(sysName, tw))
     if (cached) {
       const data = JSON.parse(cached) as FlowCacheData
       // Check if cache is still valid (5 minutes)
@@ -770,9 +770,10 @@ function getCachedFlows(systemName: string, window: string): FlowCacheData | nul
   return null
 }
 
-function setCachedFlows(systemName: string, window: string, data: FlowCacheData): void {
+function setCachedFlows(sysName: string, tw: string, data: FlowCacheData): void {
+  if (typeof globalThis.window === 'undefined') return
   try {
-    localStorage.setItem(FLOW_CACHE_KEY(systemName, window), JSON.stringify(data))
+    localStorage.setItem(FLOW_CACHE_KEY(sysName, tw), JSON.stringify(data))
   } catch (e) {
     console.warn('[FlowStrip] Failed to cache:', e)
   }
