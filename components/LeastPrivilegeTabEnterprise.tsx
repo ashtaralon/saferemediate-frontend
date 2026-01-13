@@ -24,7 +24,7 @@ interface GapItem {
   id: string
   componentId: string
   componentName: string
-  componentType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'EC2' | 'Lambda' | 'RDS'
+  componentType: 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'NetworkACL' | 'EC2' | 'Lambda' | 'RDS'
   componentArn: string
   
   // Metrics
@@ -147,7 +147,12 @@ export default function LeastPrivilegeTabEnterprise({
         id: r.id || r.resourceArn,
         componentId: r.id || r.resourceArn,
         componentName: r.resourceName || r.name,
-        componentType: r.resourceType || 'IAMRole',
+        // FIXED: Properly detect Network ACLs from resource ID
+        componentType: (() => {
+          const resourceId = r.id || r.resourceArn || ''
+          if (resourceId.startsWith('acl-')) return 'NetworkACL'
+          return r.resourceType || 'IAMRole'
+        })(),
         componentArn: r.resourceArn,
         lpScore: r.lpScore,
         allowedCount: r.allowedCount || 0,
@@ -827,6 +832,53 @@ function ComponentDetail({
               }))
             })
           }
+        } else if (component.componentType === 'NetworkACL') {
+          // FIXED: Network ACLs use AWS Config/EC2 API, not gap-analysis endpoint
+          const naclId = component.componentId.startsWith('acl-') ? component.componentId : 
+                        component.componentId.match(/acl-[a-z0-9]+/)?.[0] || component.componentId
+          const response = await fetch(`/api/proxy/system-resources/${systemName}?resource_type=NACL`)
+          if (response.ok) {
+            const data = await response.json()
+            const nacl = (data.resources || []).find((r: any) => r.id === naclId || r.nacl_id === naclId)
+            if (nacl) {
+              // Parse inbound/outbound rules from NACL data
+              const inboundRules = (nacl.inbound_rules || nacl.entries?.filter((e: any) => !e.Egress) || []).map((rule: any) => ({
+                ruleId: rule.rule_number || rule.RuleNumber || '*',
+                direction: 'Inbound',
+                protocol: rule.protocol || rule.Protocol || 'All',
+                portRange: rule.port_range || `${rule.FromPort || '*'}-${rule.ToPort || '*'}`,
+                source: rule.cidr_block || rule.CidrBlock || '0.0.0.0/0',
+                destination: null,
+                isPublic: (rule.cidr_block || rule.CidrBlock || '') === '0.0.0.0/0',
+                observedHits: 0,  // NACLs don't have traffic data
+                unused: false,  // NACLs are stateless, can't determine "unused"
+                exposureTag: (rule.cidr_block || rule.CidrBlock || '') === '0.0.0.0/0' ? '0.0.0.0/0' : null,
+                recommendation: (rule.cidr_block || rule.CidrBlock || '') === '0.0.0.0/0' ? 'Restrict' : 'Keep',
+                impactEstimate: 0,
+                lastSeen: null,
+                confidence: 100
+              }))
+              const outboundRules = (nacl.outbound_rules || nacl.entries?.filter((e: any) => e.Egress) || []).map((rule: any) => ({
+                ruleId: rule.rule_number || rule.RuleNumber || '*',
+                direction: 'Outbound',
+                protocol: rule.protocol || rule.Protocol || 'All',
+                portRange: rule.port_range || `${rule.FromPort || '*'}-${rule.ToPort || '*'}`,
+                source: null,
+                destination: rule.cidr_block || rule.CidrBlock || '0.0.0.0/0',
+                isPublic: (rule.cidr_block || rule.CidrBlock || '') === '0.0.0.0/0',
+                observedHits: 0,
+                unused: false,
+                exposureTag: (rule.cidr_block || rule.CidrBlock || '') === '0.0.0.0/0' ? '0.0.0.0/0' : null,
+                recommendation: (rule.cidr_block || rule.CidrBlock || '') === '0.0.0.0/0' ? 'Restrict' : 'Keep',
+                impactEstimate: 0,
+                lastSeen: null,
+                confidence: 100
+              }))
+              setDetailData({
+                networkRules: [...inboundRules, ...outboundRules]
+              })
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to fetch detail data:', err)
@@ -1017,7 +1069,7 @@ function ComponentDetail({
                 evidenceCoverage={component.evidenceCoverage}
               />
             )}
-            {activeTab === 'network' && component.componentType === 'SecurityGroup' && (
+            {activeTab === 'network' && (component.componentType === 'SecurityGroup' || component.componentType === 'NetworkACL') && (
               <NetworkRulesTable
                 detailData={detailData}
                 timeWindow={timeWindow}
@@ -1034,9 +1086,9 @@ function ComponentDetail({
                 IAM Actions tab only available for IAM Roles
               </div>
             )}
-            {activeTab === 'network' && component.componentType !== 'SecurityGroup' && (
+            {activeTab === 'network' && component.componentType !== 'SecurityGroup' && component.componentType !== 'NetworkACL' && (
               <div className="text-center text-gray-500 py-12">
-                Network Rules tab only available for Security Groups
+                Network Rules tab only available for Security Groups and Network ACLs
               </div>
             )}
             {activeTab === 'resource' && component.componentType !== 'S3Bucket' && (
