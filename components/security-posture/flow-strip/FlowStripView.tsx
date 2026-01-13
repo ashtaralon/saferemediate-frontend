@@ -77,17 +77,113 @@ function shortName(name: string): string {
   return short
 }
 
+// Helper to enrich node names with X-Ray application insights
+function enrichNodeName(node: any, xrayServices: XRayService[]): { name: string; appType?: string; runtime?: string; latency?: number } {
+  const nodeName = (node.name || node.id || '').toLowerCase()
+  const nodeType = (node.type || '').toLowerCase()
+
+  // Try to find matching X-Ray service
+  const xrayMatch = xrayServices.find(svc => {
+    const svcName = svc.name.toLowerCase()
+    return nodeName.includes(svcName) || svcName.includes(nodeName) ||
+           svc.referenceId?.toLowerCase().includes(nodeName)
+  })
+
+  // Enrich based on type and X-Ray data
+  if (nodeType.includes('rds') || nodeType.includes('database')) {
+    const dbEngine = nodeName.includes('postgres') ? 'PostgreSQL' :
+                     nodeName.includes('mysql') ? 'MySQL' :
+                     nodeName.includes('aurora') ? 'Aurora' :
+                     nodeName.includes('mariadb') ? 'MariaDB' : 'SQL'
+    return {
+      name: `RDS ${dbEngine}`,
+      appType: 'Database',
+      latency: xrayMatch?.summaryStatistics.averageResponseTime
+    }
+  }
+
+  if (nodeType.includes('dynamodb') || nodeName.includes('dynamo')) {
+    return {
+      name: 'DynamoDB',
+      appType: 'NoSQL Database',
+      latency: xrayMatch?.summaryStatistics.averageResponseTime
+    }
+  }
+
+  if (nodeType.includes('lambda')) {
+    const runtime = nodeName.includes('node') ? 'Node.js' :
+                   nodeName.includes('python') ? 'Python' :
+                   nodeName.includes('java') ? 'Java' :
+                   nodeName.includes('go') ? 'Go' : undefined
+    return {
+      name: xrayMatch?.name || shortName(node.name || 'Lambda'),
+      appType: 'Serverless Function',
+      runtime,
+      latency: xrayMatch?.summaryStatistics.averageResponseTime
+    }
+  }
+
+  if (nodeType.includes('ec2') || nodeType.includes('instance')) {
+    // Try to detect application type from name
+    const appType = nodeName.includes('api') ? 'API Server' :
+                    nodeName.includes('web') ? 'Web Server' :
+                    nodeName.includes('worker') ? 'Worker' :
+                    nodeName.includes('frontend') ? 'Frontend Server' :
+                    nodeName.includes('backend') ? 'Backend Server' :
+                    nodeName.includes('app') ? 'App Server' : 'Compute'
+    const runtime = nodeName.includes('node') ? 'Node.js' :
+                   nodeName.includes('python') ? 'Python' :
+                   nodeName.includes('java') ? 'Java' :
+                   nodeName.includes('nginx') ? 'Nginx' :
+                   nodeName.includes('apache') ? 'Apache' : undefined
+    return {
+      name: shortName(node.name || 'EC2'),
+      appType,
+      runtime,
+      latency: xrayMatch?.summaryStatistics.averageResponseTime
+    }
+  }
+
+  if (nodeType.includes('s3') || nodeName.includes('bucket')) {
+    return {
+      name: 'S3 Storage',
+      appType: 'Object Storage',
+      latency: xrayMatch?.summaryStatistics.averageResponseTime
+    }
+  }
+
+  if (nodeType.includes('apigateway') || nodeType.includes('api_gateway')) {
+    return {
+      name: 'API Gateway',
+      appType: 'REST API',
+      latency: xrayMatch?.summaryStatistics.averageResponseTime
+    }
+  }
+
+  if (nodeType.includes('sqs')) {
+    return { name: 'SQS Queue', appType: 'Message Queue' }
+  }
+
+  if (nodeType.includes('sns')) {
+    return { name: 'SNS Topic', appType: 'Pub/Sub' }
+  }
+
+  return { name: shortName(node.name || node.id || 'Service') }
+}
+
 // Build flows that match the DESIRED design from Image 1:
 // - Complete end-to-end paths: Internet → frontend-2 → RDS
 // - Inline SG checkpoints (orange, 🛡️) with usage ratios like 1/2
 // - Inline IAM Role checkpoints (pink, 🔑) with usage ratios like 5/23
 // - Real traffic data with ports (:443, :5432), request counts
 // - Instance names (frontend-1, frontend-2) with IDs (i-03c72e12)
+// - ENRICHED with X-Ray application-level insights
 function buildFullStackFlows(
   graphNodes: any[],
   graphEdges: any[],
   sgData: any[],
-  iamGaps: any[]
+  iamGaps: any[],
+  xrayServices: XRayService[] = []
 ): Flow[] {
   const flows: Flow[] = []
 
@@ -95,7 +191,8 @@ function buildFullStackFlows(
     nodes: graphNodes.length,
     edges: graphEdges.length,
     sgs: sgData.length,
-    roles: iamGaps.length
+    roles: iamGaps.length,
+    xrayServices: xrayServices.length
   })
 
   // Extract EC2 instances
@@ -183,8 +280,11 @@ function buildFullStackFlows(
 
     if (rdsInstances.length > 0) {
       const rds = rdsInstances[0]
-      const rdsName = rds.name || 'RDS'
-      const rdsShortName = shortName(rdsName)
+      // Enrich names with X-Ray data
+      const enrichedRds = enrichNodeName(rds, xrayServices)
+      const enrichedEc2 = enrichNodeName(ec2, xrayServices)
+      const rdsDisplayName = enrichedRds.name
+      const ec2DisplayName = enrichedEc2.appType ? `${ec2ShortName} (${enrichedEc2.appType})` : ec2ShortName
 
       const trafficData = rdsEdge || { flows: 847, port: 5432, bytes_total: 258434 }
 
@@ -227,15 +327,15 @@ function buildFullStackFlows(
         id: ec2.id,
         type: 'compute',
         name: ec2Name,
-        shortName: ec2ShortName,
+        shortName: ec2DisplayName,
         instanceId: instanceId.substring(2, 10),
       }
 
       const rdsNode: FlowNode = {
         id: rds.id,
         type: 'database',
-        name: rdsName,
-        shortName: rdsShortName,
+        name: rdsDisplayName,
+        shortName: rdsDisplayName,
         queryCount: trafficData.flows || 48,
       }
 
@@ -243,10 +343,11 @@ function buildFullStackFlows(
       const unusedPerms = roleCheckpoint.gapCount || 0
       const unusedSg = sgCheckpoint.gapCount || 0
       const totalGaps = unusedPerms + unusedSg
+      const avgLatency = enrichedRds.latency ? Math.round(enrichedRds.latency) : 18
 
       flows.push({
         id: `flow-ec2-rds-${idx}`,
-        pathDescription: `Internet → ${ec2ShortName} → RDS`,
+        pathDescription: `Internet → ${ec2DisplayName} → ${rdsDisplayName}`,
         source: internetNode,
         destination: rdsNode,
         segments: [
@@ -256,7 +357,7 @@ function buildFullStackFlows(
             port: 443,
             requestCount: reqCount,
             checkpoints: [sgCheckpoint],
-            label: ':443',
+            label: ':443 HTTPS',
           },
           {
             from: ec2Node,
@@ -264,20 +365,20 @@ function buildFullStackFlows(
             port: 5432,
             requestCount: trafficData.flows || 47,
             checkpoints: [roleCheckpoint],
-            label: ':5432',
+            label: ':5432 PostgreSQL',
           }
         ],
         status: totalGaps > 0 ? 'warning' : 'active',
         lastActivity: new Date(Date.now() - 120000).toISOString(),
         totalRequests: reqCount,
-        latencyP95: 18,
+        latencyP95: avgLatency,
         unusedSgRules: unusedSg,
         unusedIamPerms: unusedPerms,
         totalGaps,
         hasWarning: totalGaps > 0,
         summaryStats: [
           { label: 'req', value: reqCount.toString(), color: 'ok' },
-          { label: 'p95', value: '18ms', color: 'ok' },
+          { label: 'p95', value: `${avgLatency}ms`, color: 'ok' },
           ...(unusedSg > 0 ? [{ label: 'unused SG rule', value: unusedSg.toString(), color: 'warn' }] : []),
         ],
       })
@@ -286,8 +387,11 @@ function buildFullStackFlows(
     // FLOW TYPE 2: Internet → EC2 → S3
     if (s3Buckets.length > 0 && idx === 0) {
       const s3 = s3Buckets[0]
+      const enrichedS3 = enrichNodeName(s3, xrayServices)
+      const enrichedEc2 = enrichNodeName(ec2, xrayServices)
       const role = findRoleFor(ec2Name) || iamGaps.find(r => r.role_name?.toLowerCase().includes('s3'))
       const unusedPerms = role?.unused_permissions || 13
+      const ec2DisplayName = enrichedEc2.appType ? `${ec2ShortName} (${enrichedEc2.appType})` : ec2ShortName
 
       const sgCheckpoint: FlowCheckpoint = {
         id: `sg-s3-${idx}`,
@@ -325,15 +429,15 @@ function buildFullStackFlows(
         id: ec2.id,
         type: 'compute',
         name: ec2Name,
-        shortName: ec2ShortName,
+        shortName: ec2DisplayName,
         instanceId: instanceId.substring(2, 10),
       }
 
       const s3Node: FlowNode = {
         id: s3.id,
         type: 'storage',
-        name: s3.name || 'S3',
-        shortName: 'S3',
+        name: enrichedS3.name,
+        shortName: enrichedS3.name,
         operationCount: 60,
       }
 
@@ -341,7 +445,7 @@ function buildFullStackFlows(
 
       flows.push({
         id: `flow-ec2-s3-${idx}`,
-        pathDescription: `Internet → ${ec2ShortName} → S3`,
+        pathDescription: `Internet → ${ec2DisplayName} → ${enrichedS3.name}`,
         source: internetNode,
         destination: s3Node,
         segments: [
@@ -351,26 +455,26 @@ function buildFullStackFlows(
             port: 443,
             requestCount: 847,
             checkpoints: [sgCheckpoint],
-            label: ':443',
+            label: ':443 HTTPS',
           },
           {
             from: ec2Node,
             to: s3Node,
             requestCount: 60,
             checkpoints: [roleCheckpoint],
-            label: 'Put/Get',
+            label: 'PutObject/GetObject',
           }
         ],
         status: totalGaps > 0 ? 'warning' : 'active',
         lastActivity: new Date(Date.now() - 300000).toISOString(),
         totalRequests: 847,
-        latencyP95: 18,
+        latencyP95: enrichedS3.latency ? Math.round(enrichedS3.latency) : 25,
         unusedSgRules: sgCheckpoint.gapCount || 0,
         unusedIamPerms: unusedPerms,
         totalGaps,
         hasWarning: totalGaps > 0,
         summaryStats: [
-          { label: 'API calls', value: '60', color: 'ok' },
+          { label: 'S3 ops', value: '60', color: 'ok' },
           { label: 'unused perms', value: unusedPerms.toString(), color: 'warn' },
           { label: 'high-risk', value: '5', color: 'warn' },
         ],
@@ -483,7 +587,12 @@ function buildFullStackFlows(
     const dynamo = dynamoTables[0]
 
     const lambdaName = lambda.name || 'Lambda'
-    const lambdaShortName = shortName(lambdaName).substring(0, 12)
+    // Enrich with X-Ray data
+    const enrichedLambda = enrichNodeName(lambda, xrayServices)
+    const enrichedDynamo = enrichNodeName(dynamo, xrayServices)
+    const lambdaDisplay = enrichedLambda.runtime
+      ? `${shortName(lambdaName)} (${enrichedLambda.runtime})`
+      : shortName(lambdaName)
 
     const roleCheckpoint: FlowCheckpoint = {
       id: lambdaRole?.role_id || 'lambda-role',
@@ -501,27 +610,29 @@ function buildFullStackFlows(
       id: 'api-gateway-trigger',
       type: 'api_gateway',
       name: 'API Gateway',
-      shortName: 'API Gateway',
+      shortName: 'API Gateway (REST)',
     }
 
     const lambdaNode: FlowNode = {
       id: lambda.id,
       type: 'lambda',
       name: lambdaName,
-      shortName: lambdaShortName,
+      shortName: lambdaDisplay.substring(0, 18),
     }
 
     const dynamoNode: FlowNode = {
       id: dynamo.id,
       type: 'dynamodb',
-      name: dynamo.name || 'DynamoDB',
-      shortName: 'DynamoDB',
+      name: enrichedDynamo.name,
+      shortName: enrichedDynamo.name,
       queryCount: 60,
     }
 
+    const avgLatency = enrichedDynamo.latency ? Math.round(enrichedDynamo.latency) : 12
+
     flows.push({
       id: 'flow-lambda-dynamo',
-      pathDescription: `Lambda → DynamoDB`,
+      pathDescription: `API Gateway → ${lambdaDisplay} → ${enrichedDynamo.name}`,
       source: apiGatewayNode,
       destination: dynamoNode,
       segments: [
@@ -530,27 +641,27 @@ function buildFullStackFlows(
           to: lambdaNode,
           requestCount: 3800,
           checkpoints: [],
-          label: '3.8K',
+          label: '3.8K invocations',
         },
         {
           from: lambdaNode,
           to: dynamoNode,
           requestCount: 3700,
           checkpoints: [roleCheckpoint],
-          label: 'Query/Scan',
+          label: 'Query/Scan/GetItem',
         }
       ],
       status: 'active',
       lastActivity: new Date(Date.now() - 1020000).toISOString(),
       totalRequests: 6700,
-      latencyP95: 15,
+      latencyP95: avgLatency,
       unusedSgRules: 0,
       unusedIamPerms: roleCheckpoint.gapCount || 0,
       totalGaps: roleCheckpoint.gapCount || 0,
       hasWarning: (roleCheckpoint.gapCount || 0) > 0,
       summaryStats: [
-        { label: 'req', value: '6.7K', color: 'ok' },
-        { label: 'p95', value: '15ms', color: 'ok' },
+        { label: 'invocations', value: '6.7K', color: 'ok' },
+        { label: 'p95', value: `${avgLatency}ms`, color: 'ok' },
         { label: 'gaps', value: (roleCheckpoint.gapCount || 0).toString(), color: (roleCheckpoint.gapCount || 0) > 0 ? 'warn' : 'ok' },
       ],
     })
@@ -674,10 +785,12 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       }
 
       // Parse X-Ray service map
+      let fetchedXrayServices: XRayService[] = []
       if (xrayServiceRes.status === 'fulfilled' && xrayServiceRes.value.ok) {
         const data = await xrayServiceRes.value.json()
-        setXrayServices(data.services || [])
-        console.log('[FlowStrip] X-Ray services:', (data.services || []).length)
+        fetchedXrayServices = data.services || []
+        setXrayServices(fetchedXrayServices)
+        console.log('[FlowStrip] X-Ray services:', fetchedXrayServices.length)
       }
 
       // Parse X-Ray traces/insights
@@ -687,8 +800,8 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         console.log('[FlowStrip] X-Ray insights:', (data.insights || []).length)
       }
 
-      // Build flows
-      const allFlows = buildFullStackFlows(graphNodes, graphEdges, fetchedSgData, fetchedIamGaps)
+      // Build flows with X-Ray enrichment
+      const allFlows = buildFullStackFlows(graphNodes, graphEdges, fetchedSgData, fetchedIamGaps, fetchedXrayServices)
       console.log('[FlowStrip] Built', allFlows.length, 'flows')
       setFlows(allFlows)
 
@@ -1028,40 +1141,40 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
 
         {/* X-Ray Insights Panel */}
         {showXrayPanel && (
-          <div className="w-[300px] flex flex-col border-l" style={{ borderColor: 'rgba(148, 163, 184, 0.1)', background: 'rgba(20, 25, 40, 0.95)' }}>
-            <div className="px-3.5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
-              <div className="flex items-center gap-2">
-                <span className="text-base">🔬</span>
-                <span className="text-sm font-semibold" style={{ color: '#a78bfa' }}>X-Ray Application Insights</span>
+          <div className="w-[340px] flex flex-col border-l" style={{ borderColor: 'rgba(148, 163, 184, 0.1)', background: 'rgba(20, 25, 40, 0.95)' }}>
+            <div className="px-4 py-3.5 border-b flex items-center justify-between" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">🔬</span>
+                <span className="text-base font-semibold" style={{ color: '#a78bfa' }}>X-Ray Application Insights</span>
               </div>
               <button
                 onClick={() => setShowXrayPanel(false)}
-                className="text-slate-500 hover:text-slate-300 text-lg"
+                className="text-slate-500 hover:text-slate-300 text-xl px-1"
               >
                 ×
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-3">
+            <div className="flex-1 overflow-y-auto p-4">
               {/* Trace Stats */}
               {xrayData?.traceStats && (
-                <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(30, 41, 59, 0.5)' }}>
-                  <h4 className="text-[9px] uppercase tracking-wide mb-2" style={{ color: '#8b5cf6' }}>Trace Statistics</h4>
-                  <div className="grid grid-cols-2 gap-2">
+                <div className="mb-5 p-4 rounded-lg" style={{ background: 'rgba(30, 41, 59, 0.5)' }}>
+                  <h4 className="text-xs uppercase tracking-wide mb-3 font-semibold" style={{ color: '#8b5cf6' }}>Trace Statistics</h4>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <div className="text-lg font-bold">{xrayData.traceStats.totalTraces.toLocaleString()}</div>
-                      <div className="text-[10px]" style={{ color: '#64748b' }}>Total Traces</div>
+                      <div className="text-xl font-bold">{xrayData.traceStats.totalTraces.toLocaleString()}</div>
+                      <div className="text-xs" style={{ color: '#94a3b8' }}>Total Traces</div>
                     </div>
                     <div>
-                      <div className="text-lg font-bold" style={{ color: '#f59e0b' }}>{xrayData.traceStats.errorTraces}</div>
-                      <div className="text-[10px]" style={{ color: '#64748b' }}>Errors</div>
+                      <div className="text-xl font-bold" style={{ color: '#f59e0b' }}>{xrayData.traceStats.errorTraces}</div>
+                      <div className="text-xs" style={{ color: '#94a3b8' }}>Errors</div>
                     </div>
                     <div>
-                      <div className="text-lg font-bold">{xrayData.traceStats.averageLatency}ms</div>
-                      <div className="text-[10px]" style={{ color: '#64748b' }}>Avg Latency</div>
+                      <div className="text-xl font-bold">{xrayData.traceStats.averageLatency}ms</div>
+                      <div className="text-xs" style={{ color: '#94a3b8' }}>Avg Latency</div>
                     </div>
                     <div>
-                      <div className="text-lg font-bold">{xrayData.traceStats.p95Latency}ms</div>
-                      <div className="text-[10px]" style={{ color: '#64748b' }}>p95 Latency</div>
+                      <div className="text-xl font-bold">{xrayData.traceStats.p95Latency}ms</div>
+                      <div className="text-xs" style={{ color: '#94a3b8' }}>p95 Latency</div>
                     </div>
                   </div>
                 </div>
@@ -1069,18 +1182,18 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
 
               {/* Top Operations */}
               {xrayData?.topOperations && xrayData.topOperations.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#10b981' }}>
-                    🔥 Top Operations
+                <div className="mb-5">
+                  <h4 className="text-xs uppercase tracking-wide mb-3 flex items-center gap-2 font-semibold" style={{ color: '#10b981' }}>
+                    <span className="text-lg">🔥</span> Top Operations
                   </h4>
-                  <div className="rounded-md overflow-hidden" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
+                  <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
                     {xrayData.topOperations.slice(0, 4).map((op, i) => (
-                      <div key={i} className="flex items-center gap-2 px-2.5 py-2 text-[10px]" style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.05)' }}>
-                        <span className="flex-1 font-mono text-[9px] truncate">{op.name}</span>
-                        <span className="text-[9px]" style={{ color: '#64748b' }}>{op.count.toLocaleString()}</span>
-                        <span className="text-[9px]" style={{ color: '#94a3b8' }}>{op.avgLatency}ms</span>
+                      <div key={i} className="flex items-center gap-3 px-3 py-2.5" style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.08)' }}>
+                        <span className="flex-1 font-mono text-xs truncate">{op.name}</span>
+                        <span className="text-xs font-medium" style={{ color: '#94a3b8' }}>{op.count.toLocaleString()}</span>
+                        <span className="text-xs" style={{ color: '#64748b' }}>{op.avgLatency}ms</span>
                         {op.errorRate > 0.1 && (
-                          <span className="text-[9px]" style={{ color: '#f59e0b' }}>{op.errorRate}%</span>
+                          <span className="text-xs font-semibold" style={{ color: '#f59e0b' }}>{op.errorRate}%</span>
                         )}
                       </div>
                     ))}
@@ -1090,15 +1203,15 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
 
               {/* Insights */}
               {xrayData?.insights && xrayData.insights.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#f59e0b' }}>
-                    ⚠ Application Issues
+                <div className="mb-5">
+                  <h4 className="text-xs uppercase tracking-wide mb-3 flex items-center gap-2 font-semibold" style={{ color: '#f59e0b' }}>
+                    <span className="text-lg">⚠️</span> Application Issues
                   </h4>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {xrayData.insights.map((insight) => (
                       <div
                         key={insight.id}
-                        className="p-2.5 rounded-md"
+                        className="p-3.5 rounded-lg"
                         style={{
                           background: insight.severity === 'critical' ? 'rgba(239, 68, 68, 0.15)' :
                                      insight.severity === 'warning' ? 'rgba(245, 158, 11, 0.15)' :
@@ -1110,17 +1223,17 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
                           }`
                         }}
                       >
-                        <div className="flex items-start gap-2">
-                          <span className="text-sm mt-0.5">
-                            {insight.type === 'latency' ? '⏱' : insight.type === 'error' ? '❌' : '📈'}
+                        <div className="flex items-start gap-3">
+                          <span className="text-xl mt-0.5">
+                            {insight.type === 'latency' ? '⏱️' : insight.type === 'error' ? '❌' : '📈'}
                           </span>
                           <div className="flex-1">
-                            <div className="text-[11px] font-semibold mb-1">{insight.title}</div>
-                            <div className="text-[10px] mb-1.5" style={{ color: '#94a3b8' }}>{insight.description}</div>
-                            <div className="text-[9px] mb-1" style={{ color: '#64748b' }}>
-                              Root cause: <span style={{ color: '#cbd5e1' }}>{insight.rootCause}</span>
+                            <div className="text-sm font-semibold mb-1.5">{insight.title}</div>
+                            <div className="text-xs mb-2" style={{ color: '#94a3b8' }}>{insight.description}</div>
+                            <div className="text-xs mb-2" style={{ color: '#64748b' }}>
+                              <strong>Root cause:</strong> <span style={{ color: '#cbd5e1' }}>{insight.rootCause}</span>
                             </div>
-                            <div className="text-[9px] p-1.5 rounded" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+                            <div className="text-xs p-2 rounded-md" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
                               💡 {insight.recommendation}
                             </div>
                           </div>
@@ -1134,13 +1247,13 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
               {/* Services */}
               {xrayServices.length > 0 && (
                 <div>
-                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#3b82f6' }}>
-                    🔗 Service Map
+                  <h4 className="text-xs uppercase tracking-wide mb-3 flex items-center gap-2 font-semibold" style={{ color: '#3b82f6' }}>
+                    <span className="text-lg">🔗</span> Service Map
                   </h4>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {xrayServices.slice(0, 5).map((svc, i) => (
-                      <div key={i} className="flex items-center gap-2 p-2 rounded" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
-                        <span className="text-sm">
+                      <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
+                        <span className="text-2xl">
                           {svc.type.includes('Lambda') ? 'λ' :
                            svc.type.includes('RDS') ? '🗄️' :
                            svc.type.includes('DynamoDB') ? '⚡' :
@@ -1148,13 +1261,13 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
                            svc.type.includes('ApiGateway') ? '🚪' : '🔹'}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="text-[10px] font-medium truncate">{svc.name}</div>
-                          <div className="text-[9px]" style={{ color: '#64748b' }}>
+                          <div className="text-sm font-medium truncate">{svc.name}</div>
+                          <div className="text-xs" style={{ color: '#94a3b8' }}>
                             {svc.summaryStatistics.totalCount.toLocaleString()} calls • {svc.summaryStatistics.averageResponseTime.toFixed(0)}ms avg
                           </div>
                         </div>
                         {svc.summaryStatistics.errorCount > 0 && (
-                          <span className="px-1.5 py-0.5 rounded text-[8px] font-bold" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>
+                          <span className="px-2 py-1 rounded text-xs font-bold" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>
                             {svc.summaryStatistics.errorCount}
                           </span>
                         )}
