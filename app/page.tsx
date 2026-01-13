@@ -15,6 +15,7 @@ import { AutomationSection } from "@/components/automation-section"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
+import { FlowStripView } from "@/components/security-posture"
 import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -54,7 +55,7 @@ interface GapAnalysisData {
 }
 
 export default function HomePage() {
-  const [activeSection, setActiveSection] = useState("home")
+  const [activeSection, setActiveSection] = useState("flows")
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
@@ -264,7 +265,8 @@ export default function HomePage() {
     return <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
   }
 
-  if (loading) {
+  // For flows view, don't block on loading - FlowStripView has its own loading state
+  if (loading && activeSection !== "flows") {
     return (
       <div className="flex min-h-screen bg-gray-50">
         <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={0} />
@@ -362,6 +364,13 @@ export default function HomePage() {
             )}
             <ComplianceCards systems={complianceSystems} />
             <TrendsActivity />
+          </div>
+        )
+
+      case "flows":
+        return (
+          <div className="h-[calc(100vh-4rem)] -m-8">
+            <FlowStripView systemName="alon-prod" />
           </div>
         )
 

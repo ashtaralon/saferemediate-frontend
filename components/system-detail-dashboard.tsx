@@ -134,14 +134,29 @@ const SnapshotsRecoveryTab = dynamic(() => import("./snapshots-recovery-tab"), {
   ),
 })
 
-const SystemSecurityOverview = dynamic(
+// New redesigned Security Posture component (Allowed vs Observed diff view)
+const SecurityPosture = dynamic(
+  () => import("./security-posture").then((mod) => ({ default: mod.SecurityPosture })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading security posture...</span>
+      </div>
+    ),
+  }
+)
+
+// Legacy component (kept for reference, can be removed later)
+const SystemSecurityOverviewLegacy = dynamic(
   () => import("./system-security-overview").then((mod) => ({ default: mod.SystemSecurityOverview })),
   {
     ssr: false,
     loading: () => (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <span className="ml-3 text-slate-600">טוען סקירת אבטחה...</span>
+        <span className="ml-3 text-slate-600">Loading...</span>
       </div>
     ),
   }
@@ -1532,8 +1547,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       )}
 
       {activeTab === "security-posture" && (
-        <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SystemSecurityOverview 
+        <div className="max-w-[1800px] mx-auto h-[calc(100vh-200px)]">
+          <SecurityPosture
             systemName={systemName}
             onViewOnMap={(highlightPath) => {
               setActiveTab('dependency-map')
