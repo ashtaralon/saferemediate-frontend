@@ -58,6 +58,19 @@ const ComprehensiveFlowViz = dynamic(
   }
 )
 
+// Lazy load FlowStripView (Full Stack Flows with SG + IAM checkpoints) with SSR disabled
+const FlowStripView = dynamic(
+  () => import('./security-posture/flow-strip/FlowStripView').then(mod => ({ default: mod.FlowStripView })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
+      </div>
+    )
+  }
+)
+
 // Feature flag for v2 (Observed-first) dependency map
 // Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
 const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'
@@ -77,7 +90,7 @@ interface Props {
   onHighlightPathClear?: () => void
 }
 
-type ViewType = 'graph' | 'resource' | 'sankey'
+type ViewType = 'graph' | 'resource' | 'sankey' | 'flows'
 
 export default function DependencyMapTab({
   systemName,
@@ -352,6 +365,17 @@ export default function DependencyMapTab({
               <Search className="w-4 h-4" />
               Resource View
             </button>
+            <button
+              onClick={() => setActiveView('flows')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeView === 'flows'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <GitBranch className="w-4 h-4" />
+              Full Stack Flows
+            </button>
           </div>
 
           {/* Graph Engine Toggle (only show in graph view) */}
@@ -516,6 +540,14 @@ export default function DependencyMapTab({
               onRefresh={fetchGraphData}
             />
           )
+        ) : activeView === 'flows' ? (
+          <React.Suspense fallback={
+            <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+              <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
+            </div>
+          }>
+            <FlowStripView systemName={systemName} />
+          </React.Suspense>
         ) : (
           <ResourceView
             systemName={systemName}

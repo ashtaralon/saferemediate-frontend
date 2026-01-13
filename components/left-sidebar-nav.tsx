@@ -1,6 +1,6 @@
 "use client"
 
-import { Home, AlertTriangle, Server, Grid3x3, Key, Plug, Zap, GitBranch } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Key, Plug, Zap } from "lucide-react"
 
 interface LeftSidebarNavProps {
   activeItem?: string
@@ -11,7 +11,6 @@ interface LeftSidebarNavProps {
 export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount = 0 }: LeftSidebarNavProps) {
   const menuItems = [
     { id: "home", label: "Home", icon: Home },
-    { id: "flows", label: "Flows", icon: GitBranch },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount },
     { id: "systems", label: "Systems", icon: Server },
     { id: "compliance", label: "Compliance", icon: Grid3x3 },
