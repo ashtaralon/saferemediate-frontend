@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { SGInspectorSheet } from './inspector/SGInspectorSheet';
 
 // ============================================================================
 // Types & Interfaces
@@ -412,6 +413,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
   const [currentSimulation, setCurrentSimulation] = useState<SimulationResult | null>(null);
   const [simLoading, setSimLoading] = useState(false);
   const [activeRule, setActiveRule] = useState<RuleAnalysis | null>(null);
+  const [showInspector, setShowInspector] = useState(false);
   
   // Fetch gap analysis
   const fetchAnalysis = useCallback(async () => {
@@ -609,10 +611,21 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
                 )}
               </div>
             </div>
-            <div className="text-right">
-              <ConfidenceBadge confidence={analysis.summary.average_confidence} />
-              <div className="text-xs text-slate-500 mt-1">
-                Risk Score: {analysis.summary.risk_score}
+            <div className="flex items-start gap-4">
+              <button
+                onClick={() => setShowInspector(true)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+                Inspect
+              </button>
+              <div className="text-right">
+                <ConfidenceBadge confidence={analysis.summary.average_confidence} />
+                <div className="text-xs text-slate-500 mt-1">
+                  Risk Score: {analysis.summary.risk_score}
+                </div>
               </div>
             </div>
           </div>
@@ -732,6 +745,13 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
         simulation={currentSimulation}
         isLoading={simLoading}
         onConfirm={applyRemediation}
+      />
+
+      {/* SG Inspector Sheet */}
+      <SGInspectorSheet
+        sgId={sgId}
+        open={showInspector}
+        onOpenChange={setShowInspector}
       />
     </>
   );

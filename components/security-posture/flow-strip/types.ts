@@ -2,9 +2,9 @@
 
 export type FlowStatus = 'active' | 'idle' | 'warning' | 'blocked'
 
-export type CheckpointType = 'security_group' | 'iam_role'
+export type CheckpointType = 'security_group' | 'iam_role' | 'nacl'
 
-export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'step_functions' | 'dynamodb' | 'sqs' | 'sns' | 'eventbridge'
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'step_functions' | 'dynamodb' | 'sqs' | 'sns' | 'eventbridge' | 'vpc_endpoint' | 'secrets_manager' | 'alb'
 
 // A checkpoint (gate) on the flow - SG or IAM Role
 export interface FlowCheckpoint {

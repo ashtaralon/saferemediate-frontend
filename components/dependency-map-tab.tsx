@@ -141,15 +141,18 @@ export default function DependencyMapTab({
     try {
       console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
       
-      // Add client-side timeout to prevent infinite loading
+      // Add client-side timeout to prevent infinite loading (60s for cold starts)
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second client timeout
-      
+      const timeoutId = setTimeout(() => {
+        console.log('[DependencyMapTab] Request timeout - aborting')
+        controller.abort('Request timeout after 60 seconds')
+      }, 60000) // 60 second client timeout for cold starts
+
       const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`, {
         signal: controller.signal,
         cache: 'no-store',
       })
-      
+
       clearTimeout(timeoutId)
       console.log('[DependencyMapTab] Response status:', res.status, res.ok)
       if (res.ok) {

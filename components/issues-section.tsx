@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { AlertTriangle, Shield, RefreshCw, Play, CheckCircle, Loader2 } from "lucide-react"
+import { AlertTriangle, Shield, RefreshCw, Play, CheckCircle, Loader2, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
+import { SGInspectorSheet } from "@/components/inspector/SGInspectorSheet"
 import { fetchSecurityFindings, triggerScan, getScanStatus } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
@@ -49,6 +50,8 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
   const [showModal, setShowModal] = useState(false)
   const [autoScanned, setAutoScanned] = useState(false)
   const [lastScanTime, setLastScanTime] = useState<Date | null>(null)
+  const [inspectorSgId, setInspectorSgId] = useState<string | null>(null)
+  const [showInspector, setShowInspector] = useState(false)
 
   // Fetch findings from backend using api-client
   const fetchFindings = useCallback(async (): Promise<Finding[]> => {
@@ -397,8 +400,8 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                 )}
               </div>
 
-              {/* Action button */}
-              <div className="ml-4">
+              {/* Action buttons */}
+              <div className="ml-4 flex flex-col gap-2">
                 <Button
                   variant="default"
                   size="sm"
@@ -407,6 +410,24 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                 >
                   Simulate Fix
                 </Button>
+                {/* Inspect button for Security Group findings */}
+                {(finding.type === "sg_unused_rules" || finding.sg_id) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const sgId = finding.sg_id || finding.resourceId || finding.resource?.split(":").pop()
+                      if (sgId) {
+                        setInspectorSgId(sgId)
+                        setShowInspector(true)
+                      }
+                    }}
+                    className="whitespace-nowrap"
+                  >
+                    <Search className="w-4 h-4 mr-1" />
+                    Inspect
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -421,6 +442,13 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
           onClose={handleModalClose}
         />
       )}
+
+      {/* SG Inspector Sheet */}
+      <SGInspectorSheet
+        sgId={inspectorSgId}
+        open={showInspector}
+        onOpenChange={setShowInspector}
+      />
     </div>
   )
 }

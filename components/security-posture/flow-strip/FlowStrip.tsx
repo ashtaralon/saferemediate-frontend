@@ -18,12 +18,16 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
   sqs: { icon: MessageSquare, color: 'text-rose-500', bg: 'bg-rose-50', label: 'SQS' },
   sns: { icon: Radio, color: 'text-violet-500', bg: 'bg-violet-50', label: 'SNS' },
   eventbridge: { icon: Calendar, color: 'text-teal-500', bg: 'bg-teal-50', label: 'EventBridge' },
+  alb: { icon: Network, color: 'text-cyan-500', bg: 'bg-cyan-50', label: 'ALB' },
+  vpc_endpoint: { icon: Network, color: 'text-indigo-500', bg: 'bg-indigo-50', label: 'VPC Endpoint' },
+  secrets_manager: { icon: Key, color: 'text-yellow-500', bg: 'bg-yellow-50', label: 'Secrets' },
 }
 
 // Checkpoint icons
-const CHECKPOINT_CONFIG = {
+const CHECKPOINT_CONFIG: Record<string, { icon: typeof Shield; color: string; bg: string; ring: string; label: string }> = {
   security_group: { icon: Shield, color: 'text-orange-600', bg: 'bg-orange-100', ring: 'ring-orange-300', label: 'SG' },
   iam_role: { icon: Key, color: 'text-pink-600', bg: 'bg-pink-100', ring: 'ring-pink-300', label: 'Role' },
+  nacl: { icon: Network, color: 'text-cyan-600', bg: 'bg-cyan-100', ring: 'ring-cyan-300', label: 'NACL' },
 }
 
 // Format numbers
