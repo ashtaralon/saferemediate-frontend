@@ -326,7 +326,7 @@ function buildFullStackFlows(
         lastActivity: new Date(Date.now() - 300000).toISOString(),
         totalRequests: 847,
         latencyP95: 18,
-        unusedSgRules: sgCheckpoint.gapCount,
+        unusedSgRules: sgCheckpoint.gapCount || 0,
         unusedIamPerms: unusedPerms,
         totalGaps,
         hasWarning: totalGaps > 0,
@@ -415,18 +415,18 @@ function buildFullStackFlows(
               label: 'Describe*',
             }
           ],
-          status: roleCheckpoint.gapCount > 0 ? 'warning' : 'active',
+          status: (roleCheckpoint.gapCount || 0) > 0 ? 'warning' : 'active',
           lastActivity: new Date(Date.now() - 600000).toISOString(),
           totalRequests: 847,
           latencyP95: 18,
           unusedSgRules: 0,
-          unusedIamPerms: roleCheckpoint.gapCount,
-          totalGaps: roleCheckpoint.gapCount,
-          hasWarning: roleCheckpoint.gapCount > 0,
+          unusedIamPerms: roleCheckpoint.gapCount || 0,
+          totalGaps: roleCheckpoint.gapCount || 0,
+          hasWarning: (roleCheckpoint.gapCount || 0) > 0,
           summaryStats: [
             { label: 'API calls', value: '111', color: 'ok' },
             { label: 'services', value: '4', color: 'ok' },
-            { label: 'unused perms', value: roleCheckpoint.gapCount.toString(), color: 'warn' },
+            { label: 'unused perms', value: (roleCheckpoint.gapCount || 0).toString(), color: 'warn' },
           ],
         })
       }
@@ -506,13 +506,13 @@ function buildFullStackFlows(
       totalRequests: 6700,
       latencyP95: 15,
       unusedSgRules: 0,
-      unusedIamPerms: roleCheckpoint.gapCount,
-      totalGaps: roleCheckpoint.gapCount,
-      hasWarning: roleCheckpoint.gapCount > 0,
+      unusedIamPerms: roleCheckpoint.gapCount || 0,
+      totalGaps: roleCheckpoint.gapCount || 0,
+      hasWarning: (roleCheckpoint.gapCount || 0) > 0,
       summaryStats: [
         { label: 'req', value: '6.7K', color: 'ok' },
         { label: 'p95', value: '15ms', color: 'ok' },
-        { label: 'gaps', value: roleCheckpoint.gapCount.toString(), color: roleCheckpoint.gapCount > 0 ? 'warn' : 'ok' },
+        { label: 'gaps', value: (roleCheckpoint.gapCount || 0).toString(), color: (roleCheckpoint.gapCount || 0) > 0 ? 'warn' : 'ok' },
       ],
     })
   }
@@ -555,15 +555,15 @@ function generateFlowDetail(flow: Flow, sgData: any[], iamGaps: any[]): FlowDeta
   }
 
   const whatsUnnecessary = {
-    unusedSgRules: sgCheckpoints.filter(cp => cp.gapCount > 0).map(cp => ({
+    unusedSgRules: sgCheckpoints.filter(cp => (cp.gapCount || 0) > 0).map(cp => ({
       sgName: cp.name,
       rule: ':80 from 0.0.0.0/0',
       confidence: 95,
     })),
-    unusedIamPerms: iamCheckpoints.filter(cp => cp.gapCount > 0).flatMap(cp => [
+    unusedIamPerms: iamCheckpoints.filter(cp => (cp.gapCount || 0) > 0).flatMap(cp => [
       { roleName: cp.name, permission: 's3:DeleteObject', riskLevel: 'high' },
       { roleName: cp.name, permission: 'iam:PassRole', riskLevel: 'high' },
-    ].slice(0, Math.min(2, cp.gapCount))),
+    ].slice(0, Math.min(2, cp.gapCount || 0))),
   }
 
   const whatCouldBreak = [
@@ -850,9 +850,9 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
                             <span className="text-[7px] font-semibold" style={{ color: cp.type === 'security_group' ? '#f59e0b' : '#ec4899' }}>
                               {cp.usedCount}/{cp.totalCount}
                             </span>
-                            {cp.gapCount > 0 && (
+                            {(cp.gapCount || 0) > 0 && (
                               <span className="absolute -top-2 -right-2 w-4 h-4 rounded-full text-[8px] font-bold flex items-center justify-center" style={{ background: '#f59e0b', color: '#0f172a' }}>
-                                {cp.gapCount}
+                                {cp.gapCount || 0}
                               </span>
                             )}
                           </div>
@@ -970,7 +970,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
                     <div className="flex items-center gap-2 px-2.5 py-2 text-[10px]">
                       <span className="w-4 text-center" style={{ color: '#10b981' }}>📊</span>
                       <span className="flex-1 font-mono text-[9px]">Data transferred</span>
-                      <span className="font-mono text-[9px]" style={{ color: '#94a3b8' }}>{(flowDetail.whatHappened.bytesTransferred / 1024 / 1024).toFixed(1)} MB</span>
+                      <span className="font-mono text-[9px]" style={{ color: '#94a3b8' }}>{((flowDetail.whatHappened.bytesTransferred || 0) / 1024 / 1024).toFixed(1)} MB</span>
                     </div>
                   </div>
                 </div>
