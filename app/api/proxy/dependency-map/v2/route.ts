@@ -38,6 +38,10 @@ export async function GET(req: NextRequest) {
 
     console.log(`[proxy] dependency-map/v2 -> ${backendUrl}`)
 
+    // Create abort controller with longer timeout for cold starts
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
+
     const res = await fetch(backendUrl, {
       method: "GET",
       headers: {
@@ -46,7 +50,10 @@ export async function GET(req: NextRequest) {
         "ngrok-skip-browser-warning": "true",
       },
       cache: "no-store",
+      signal: controller.signal,
     })
+
+    clearTimeout(timeoutId)
 
     if (!res.ok) {
       const errorText = await res.text()
