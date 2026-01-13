@@ -7,6 +7,45 @@ interface FlowStripViewProps {
   systemName: string
 }
 
+// X-Ray types
+interface XRayService {
+  name: string
+  type: string
+  referenceId: string
+  summaryStatistics: {
+    okCount: number
+    errorCount: number
+    faultCount: number
+    totalCount: number
+    averageResponseTime: number
+  }
+  edges: { referenceId: string; summary: { ok: number; error: number; fault: number } }[]
+}
+
+interface XRayInsight {
+  id: string
+  type: string
+  title: string
+  description: string
+  severity: 'critical' | 'warning' | 'medium' | 'low'
+  affectedServices: string[]
+  rootCause: string
+  recommendation: string
+  impactedRequests: number
+}
+
+interface XRayTraceData {
+  insights: XRayInsight[]
+  traceStats: {
+    totalTraces: number
+    errorTraces: number
+    averageLatency: number
+    p95Latency: number
+    p99Latency: number
+  }
+  topOperations: { name: string; count: number; avgLatency: number; errorRate: number }[]
+}
+
 // Node icons
 const NODE_ICONS: Record<NodeType, string> = {
   internet: '🌐',
@@ -598,6 +637,10 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [sgData, setSgData] = useState<any[]>([])
   const [iamGaps, setIamGaps] = useState<any[]>([])
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('30d')
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [xrayData, setXrayData] = useState<XRayTraceData | null>(null)
+  const [xrayServices, setXrayServices] = useState<XRayService[]>([])
+  const [showXrayPanel, setShowXrayPanel] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -607,9 +650,11 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       let fetchedSgData: any[] = []
       let fetchedIamGaps: any[] = []
 
-      const [mapV2Res, iamRes] = await Promise.allSettled([
+      const [mapV2Res, iamRes, xrayServiceRes, xrayTraceRes] = await Promise.allSettled([
         fetch(`/api/proxy/dependency-map/v2?systemId=${systemName}&window=${timeWindow}&mode=observed`),
         fetch(`/api/proxy/iam-analysis/gaps/${systemName}`),
+        fetch(`/api/proxy/xray/service-map?systemName=${systemName}&window=${timeWindow}`),
+        fetch(`/api/proxy/xray/traces?systemName=${systemName}&window=${timeWindow}`),
       ])
 
       // Parse dependency map v2
@@ -626,6 +671,20 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         fetchedIamGaps = data.gaps || []
         setIamGaps(fetchedIamGaps)
         console.log('[FlowStrip] IAM gaps:', fetchedIamGaps.length, 'roles')
+      }
+
+      // Parse X-Ray service map
+      if (xrayServiceRes.status === 'fulfilled' && xrayServiceRes.value.ok) {
+        const data = await xrayServiceRes.value.json()
+        setXrayServices(data.services || [])
+        console.log('[FlowStrip] X-Ray services:', (data.services || []).length)
+      }
+
+      // Parse X-Ray traces/insights
+      if (xrayTraceRes.status === 'fulfilled' && xrayTraceRes.value.ok) {
+        const data = await xrayTraceRes.value.json()
+        setXrayData(data)
+        console.log('[FlowStrip] X-Ray insights:', (data.insights || []).length)
       }
 
       // Build flows
@@ -693,7 +752,10 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ background: '#0f172a', color: '#e2e8f0' }}>
+    <div
+      className={`flex flex-col ${isFullscreen ? 'fixed inset-0 z-50' : 'h-full'}`}
+      style={{ background: '#0f172a', color: '#e2e8f0' }}
+    >
       {/* Top Bar */}
       <div className="px-5 py-3 flex items-center gap-5 border-b" style={{ background: 'rgba(15, 23, 42, 0.95)', borderColor: 'rgba(148, 163, 184, 0.1)' }}>
         <div className="flex items-center gap-2.5">
@@ -724,7 +786,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
             </button>
           ))}
         </div>
-        <div className="ml-auto flex gap-5 text-xs">
+        <div className="ml-auto flex items-center gap-5 text-xs">
           <div className="flex items-center gap-1.5">
             <span className="font-bold">{stats.total}</span>
             <span style={{ color: '#94a3b8' }}>Full-Stack Flows</span>
@@ -733,6 +795,50 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
             <span className="font-bold" style={{ color: '#f59e0b' }}>{stats.withGaps}</span>
             <span style={{ color: '#94a3b8' }}>With Gaps</span>
           </div>
+          <div className="w-px h-5" style={{ background: 'rgba(148, 163, 184, 0.2)' }} />
+          {/* X-Ray Toggle */}
+          <button
+            onClick={() => setShowXrayPanel(!showXrayPanel)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-[11px]"
+            style={{
+              border: '1px solid',
+              borderColor: showXrayPanel ? '#8b5cf6' : 'rgba(148, 163, 184, 0.2)',
+              background: showXrayPanel ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+              color: showXrayPanel ? '#a78bfa' : '#94a3b8',
+            }}
+          >
+            <span>🔬</span>
+            <span>X-Ray Insights</span>
+            {xrayData?.insights?.length ? (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold" style={{ background: 'rgba(245, 158, 11, 0.3)', color: '#f59e0b' }}>
+                {xrayData.insights.length}
+              </span>
+            ) : null}
+          </button>
+          {/* Fullscreen Toggle */}
+          <button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-[11px]"
+            style={{
+              border: '1px solid',
+              borderColor: isFullscreen ? '#10b981' : 'rgba(148, 163, 184, 0.2)',
+              background: isFullscreen ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+              color: isFullscreen ? '#10b981' : '#94a3b8',
+            }}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? (
+              <>
+                <span>⊠</span>
+                <span>Exit</span>
+              </>
+            ) : (
+              <>
+                <span>⛶</span>
+                <span>Expand</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
@@ -919,6 +1025,147 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
             </div>
           </div>
         </div>
+
+        {/* X-Ray Insights Panel */}
+        {showXrayPanel && (
+          <div className="w-[300px] flex flex-col border-l" style={{ borderColor: 'rgba(148, 163, 184, 0.1)', background: 'rgba(20, 25, 40, 0.95)' }}>
+            <div className="px-3.5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-base">🔬</span>
+                <span className="text-sm font-semibold" style={{ color: '#a78bfa' }}>X-Ray Application Insights</span>
+              </div>
+              <button
+                onClick={() => setShowXrayPanel(false)}
+                className="text-slate-500 hover:text-slate-300 text-lg"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3">
+              {/* Trace Stats */}
+              {xrayData?.traceStats && (
+                <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(30, 41, 59, 0.5)' }}>
+                  <h4 className="text-[9px] uppercase tracking-wide mb-2" style={{ color: '#8b5cf6' }}>Trace Statistics</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-lg font-bold">{xrayData.traceStats.totalTraces.toLocaleString()}</div>
+                      <div className="text-[10px]" style={{ color: '#64748b' }}>Total Traces</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold" style={{ color: '#f59e0b' }}>{xrayData.traceStats.errorTraces}</div>
+                      <div className="text-[10px]" style={{ color: '#64748b' }}>Errors</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold">{xrayData.traceStats.averageLatency}ms</div>
+                      <div className="text-[10px]" style={{ color: '#64748b' }}>Avg Latency</div>
+                    </div>
+                    <div>
+                      <div className="text-lg font-bold">{xrayData.traceStats.p95Latency}ms</div>
+                      <div className="text-[10px]" style={{ color: '#64748b' }}>p95 Latency</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Top Operations */}
+              {xrayData?.topOperations && xrayData.topOperations.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#10b981' }}>
+                    🔥 Top Operations
+                  </h4>
+                  <div className="rounded-md overflow-hidden" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
+                    {xrayData.topOperations.slice(0, 4).map((op, i) => (
+                      <div key={i} className="flex items-center gap-2 px-2.5 py-2 text-[10px]" style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.05)' }}>
+                        <span className="flex-1 font-mono text-[9px] truncate">{op.name}</span>
+                        <span className="text-[9px]" style={{ color: '#64748b' }}>{op.count.toLocaleString()}</span>
+                        <span className="text-[9px]" style={{ color: '#94a3b8' }}>{op.avgLatency}ms</span>
+                        {op.errorRate > 0.1 && (
+                          <span className="text-[9px]" style={{ color: '#f59e0b' }}>{op.errorRate}%</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Insights */}
+              {xrayData?.insights && xrayData.insights.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#f59e0b' }}>
+                    ⚠ Application Issues
+                  </h4>
+                  <div className="space-y-2">
+                    {xrayData.insights.map((insight) => (
+                      <div
+                        key={insight.id}
+                        className="p-2.5 rounded-md"
+                        style={{
+                          background: insight.severity === 'critical' ? 'rgba(239, 68, 68, 0.15)' :
+                                     insight.severity === 'warning' ? 'rgba(245, 158, 11, 0.15)' :
+                                     'rgba(59, 130, 246, 0.1)',
+                          border: `1px solid ${
+                            insight.severity === 'critical' ? 'rgba(239, 68, 68, 0.3)' :
+                            insight.severity === 'warning' ? 'rgba(245, 158, 11, 0.3)' :
+                            'rgba(59, 130, 246, 0.2)'
+                          }`
+                        }}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-sm mt-0.5">
+                            {insight.type === 'latency' ? '⏱' : insight.type === 'error' ? '❌' : '📈'}
+                          </span>
+                          <div className="flex-1">
+                            <div className="text-[11px] font-semibold mb-1">{insight.title}</div>
+                            <div className="text-[10px] mb-1.5" style={{ color: '#94a3b8' }}>{insight.description}</div>
+                            <div className="text-[9px] mb-1" style={{ color: '#64748b' }}>
+                              Root cause: <span style={{ color: '#cbd5e1' }}>{insight.rootCause}</span>
+                            </div>
+                            <div className="text-[9px] p-1.5 rounded" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+                              💡 {insight.recommendation}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Services */}
+              {xrayServices.length > 0 && (
+                <div>
+                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#3b82f6' }}>
+                    🔗 Service Map
+                  </h4>
+                  <div className="space-y-1.5">
+                    {xrayServices.slice(0, 5).map((svc, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2 rounded" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
+                        <span className="text-sm">
+                          {svc.type.includes('Lambda') ? 'λ' :
+                           svc.type.includes('RDS') ? '🗄️' :
+                           svc.type.includes('DynamoDB') ? '⚡' :
+                           svc.type.includes('S3') ? '📦' :
+                           svc.type.includes('ApiGateway') ? '🚪' : '🔹'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] font-medium truncate">{svc.name}</div>
+                          <div className="text-[9px]" style={{ color: '#64748b' }}>
+                            {svc.summaryStatistics.totalCount.toLocaleString()} calls • {svc.summaryStatistics.averageResponseTime.toFixed(0)}ms avg
+                          </div>
+                        </div>
+                        {svc.summaryStatistics.errorCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded text-[8px] font-bold" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}>
+                            {svc.summaryStatistics.errorCount}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Right Pane - Detail */}
         <div className="w-[320px] flex flex-col border-l" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
