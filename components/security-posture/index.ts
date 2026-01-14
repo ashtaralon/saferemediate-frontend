@@ -6,6 +6,7 @@ export { ComponentDetail } from './ComponentDetail'
 export { GapQueue } from './GapQueue'
 export { PlanePulse, MOCK_PLANE_PULSE_DATA } from './PlanePulse'
 export { CommandQueues, MOCK_COMMAND_QUEUES_DATA } from './CommandQueues'
+export { S3BucketDetail, MOCK_S3_BUCKET_DATA } from './S3BucketDetail'
 export * from './types'
 
 // Flow Strip - End-to-end traffic visualization

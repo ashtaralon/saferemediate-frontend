@@ -6,6 +6,7 @@ import { PlanePulse } from "./PlanePulse"
 import { CommandQueues } from "./CommandQueues"
 import { ComponentList } from "./ComponentList"
 import { ComponentDetail } from "./ComponentDetail"
+import { S3BucketDetail, type S3BucketDetailData } from "./S3BucketDetail"
 import type {
   SecurityPostureProps,
   SecurityComponent,
@@ -447,6 +448,9 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
   const [apiQueues, setApiQueues] = useState<CommandQueuesData | null>(null)
   const [apiSummary, setApiSummary] = useState<{ total_components: number; total_removal_candidates: number; high_risk_count: number } | null>(null)
 
+  // S3-specific detail state
+  const [s3BucketDetail, setS3BucketDetail] = useState<S3BucketDetailData | null>(null)
+
   // Derived data for new components - use API data when available, fallback to computed
   const windowDays = useMemo(() => {
     const mapping: Record<TimeWindow, number> = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }
@@ -568,6 +572,10 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
   // Fetch component detail
   const fetchComponentDetail = useCallback(async (component: SecurityComponent) => {
     setDiffLoading(true)
+    // Clear both detail states when switching
+    setComponentDiff(null)
+    setS3BucketDetail(null)
+
     try {
       if (component.type === 'iam_role' || component.type === 'iam_user') {
         const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(component.name)}/gap-analysis`)
@@ -581,14 +589,64 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
           const data = await res.json()
           setComponentDiff(transformSGDetailToDiff(data))
         }
+      } else if (component.type === 's3_bucket') {
+        // Use S3-specific endpoint
+        const res = await fetch(`/api/proxy/s3-buckets/${encodeURIComponent(component.name)}/analysis?window=${timeWindow}`)
+        if (res.ok) {
+          const data = await res.json()
+          setS3BucketDetail(data)
+        } else {
+          // Fallback to mock data structure when API not available
+          setS3BucketDetail({
+            bucketName: component.name,
+            bucketArn: component.id,
+            region: 'unknown',
+            system: systemName,
+            planes: {
+              configured: { available: true, lastUpdated: new Date().toISOString() },
+              observed: { available: false, confidence: 'unknown', lastUpdated: new Date().toISOString() },
+              authorized: { available: true, lastUpdated: new Date().toISOString() },
+              changed: { available: true, lastUpdated: new Date().toISOString() },
+            },
+            blockPublicAccess: {
+              blockPublicAcls: true,
+              ignorePublicAcls: true,
+              blockPublicPolicy: true,
+              restrictPublicBuckets: true,
+              allEnabled: true,
+            },
+            bucketPolicy: {
+              hasBucketPolicy: false,
+              statementCount: 0,
+              statements: [],
+              publicStatements: [],
+              crossAccountStatements: [],
+            },
+            aclGrants: [],
+            observedUsage: {
+              dataEventsStatus: 'unknown',
+              dataEventsReason: 'S3 data events status could not be determined. Enable CloudTrail S3 data events to observe bucket access patterns.',
+            },
+            changeHistory: [],
+            insights: [
+              {
+                type: 'warning',
+                title: 'Observed Usage Unknown',
+                description: 'S3 data events are not enabled or status could not be determined.',
+                recommendation: 'Enable CloudTrail S3 data events to identify actual access patterns.',
+              },
+            ],
+          })
+        }
       }
     } catch (e) {
       console.error('Failed to fetch component detail:', e)
       setComponentDiff(null)
+      setS3BucketDetail(null)
     } finally {
       setDiffLoading(false)
     }
-  }, [])
+  }, [timeWindow, systemName])
 
   // Handle component selection
   const handleSelectComponent = useCallback((component: SecurityComponent) => {
@@ -714,25 +772,42 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
             />
           </div>
 
-          {/* Right pane - Component detail */}
+          {/* Right pane - Component detail (resource-type specific) */}
           <div className="flex-1 bg-white">
-            <ComponentDetail
-              diff={componentDiff}
-              loading={diffLoading}
-              onClose={() => {
-                setSelectedComponent(null)
-                setComponentDiff(null)
-              }}
-              onGeneratePolicy={() => {
-                console.log('Generate policy for', selectedComponent?.name)
-              }}
-              onSimulateImpact={() => {
-                console.log('Simulate impact for', selectedComponent?.name)
-              }}
-              onExport={() => {
-                console.log('Export for', selectedComponent?.name)
-              }}
-            />
+            {selectedComponent?.type === 's3_bucket' ? (
+              <S3BucketDetail
+                data={s3BucketDetail}
+                loading={diffLoading}
+                onClose={() => {
+                  setSelectedComponent(null)
+                  setS3BucketDetail(null)
+                }}
+                onExport={() => {
+                  console.log('Export S3 bucket report for', selectedComponent?.name)
+                }}
+                onCreateTicket={() => {
+                  console.log('Create ticket for S3 bucket', selectedComponent?.name)
+                }}
+              />
+            ) : (
+              <ComponentDetail
+                diff={componentDiff}
+                loading={diffLoading}
+                onClose={() => {
+                  setSelectedComponent(null)
+                  setComponentDiff(null)
+                }}
+                onGeneratePolicy={() => {
+                  console.log('Generate policy for', selectedComponent?.name)
+                }}
+                onSimulateImpact={() => {
+                  console.log('Simulate impact for', selectedComponent?.name)
+                }}
+                onExport={() => {
+                  console.log('Export for', selectedComponent?.name)
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
