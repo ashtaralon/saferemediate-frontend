@@ -653,9 +653,9 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
                 Inspect
               </button>
               <div className="text-right">
-                <ConfidenceBadge confidence={analysis.summary.average_confidence} />
+                <ConfidenceBadge confidence={analysis.summary?.average_confidence ?? 0} />
                 <div className="text-xs text-slate-500 mt-1">
-                  Risk Score: {analysis.summary.risk_score}
+                  Risk Score: {analysis.summary?.risk_score ?? 0}
                 </div>
               </div>
             </div>
@@ -666,19 +666,19 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
         <div className="p-6 border-b border-slate-700/50">
           <div className="flex gap-4">
             <SummaryBox
-              count={analysis.summary.used_rules}
+              count={analysis.summary?.used_rules ?? 0}
               label="OBSERVED"
               subLabel="Keep"
               color="green"
             />
             <SummaryBox
-              count={analysis.summary.unobserved_rules || 0}
+              count={analysis.summary?.unobserved_rules ?? 0}
               label="UNOBSERVED"
               subLabel="Gap - Remove"
               color="red"
             />
             <SummaryBox
-              count={analysis.summary.overly_broad_rules}
+              count={analysis.summary?.overly_broad_rules ?? 0}
               label="OVERLY BROAD"
               subLabel="Tighten"
               color="orange"
@@ -686,7 +686,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
           </div>
 
           {/* Gap Metrics Banner */}
-          {analysis.summary.gap_metrics && analysis.summary.gap_metrics.gap_percentage > 0 && (
+          {analysis.summary?.gap_metrics && analysis.summary.gap_metrics.gap_percentage > 0 && (
             <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -698,12 +698,12 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
                   </span>
                 </div>
                 <span className="text-xs text-amber-300/70">
-                  {analysis.summary.gap_metrics.unobserved_ports} of {analysis.summary.gap_metrics.configured_ports} ports have 0 connections
+                  {analysis.summary?.gap_metrics?.unobserved_ports ?? 0} of {analysis.summary?.gap_metrics?.configured_ports ?? 0} ports have 0 connections
                 </span>
               </div>
-              {analysis.summary.unobserved_db_ports > 0 && (
+              {(analysis.summary?.unobserved_db_ports ?? 0) > 0 && (
                 <div className="mt-2 text-xs text-rose-400">
-                  {analysis.summary.unobserved_db_ports} unobserved database port(s) - high priority for removal
+                  {analysis.summary?.unobserved_db_ports} unobserved database port(s) - high priority for removal
                 </div>
               )}
             </div>
@@ -759,7 +759,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-amber-400"></div>
                   <h4 className="text-sm font-medium text-amber-400 uppercase tracking-wider">
-                    Gap - Unobserved ({analysis.summary.observation_days}d)
+                    Gap - Unobserved ({analysis.summary?.observation_days ?? 30}d)
                   </h4>
                   <span className="text-xs text-slate-500">
                     ({analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'UNOBSERVED').length} rules with 0 connections)
@@ -772,7 +772,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
 
               <div className="p-3 mb-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
                 <p className="text-xs text-amber-300/80">
-                  These ports are configured but have 0 observed connections in the {analysis.summary.observation_days}-day observation window.
+                  These ports are configured but have 0 observed connections in the {analysis.summary?.observation_days ?? 30}-day observation window.
                   Remove them to achieve true Least Privilege.
                 </p>
               </div>

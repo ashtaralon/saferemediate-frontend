@@ -49,6 +49,7 @@ import {
 } from '../../types/sg-inspector'
 
 import { useSGInspector, getInspectorStats } from '../../hooks/useSGInspector'
+import { SGGapCard } from '../sg-gap-card'
 
 // =============================================================================
 // HELPER COMPONENTS
@@ -921,6 +922,7 @@ export interface SGInspectorTemplateProps {
 
 export function SGInspectorTemplate({ sgId, initialWindow = 30 }: SGInspectorTemplateProps) {
   const [windowDays, setWindowDays] = useState(initialWindow)
+  const [showGapCard, setShowGapCard] = useState(true)
 
   const { data, loading, error, refetch } = useSGInspector({
     sgId,
@@ -999,7 +1001,65 @@ export function SGInspectorTemplate({ sgId, initialWindow = 30 }: SGInspectorTem
         loading={loading}
       />
 
-      {/* 2) Current Rules (Configured) */}
+      {/* 2) Gap Analysis Card - Shows UNOBSERVED ports and recommendations */}
+      {showGapCard && (
+        <section style={{ marginBottom: '32px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>
+              Gap Analysis
+            </h3>
+            <button
+              onClick={() => setShowGapCard(!showGapCard)}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '4px',
+                border: '1px solid #e5e7eb',
+                backgroundColor: 'white',
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              Hide
+            </button>
+          </div>
+          <SGGapCard
+            sgId={sgId}
+            onSimulate={(sgId, ruleId, action) => {
+              console.log('[SGInspectorTemplate] Simulate:', { sgId, ruleId, action })
+            }}
+            onRemediate={(sgId, ruleId, action) => {
+              console.log('[SGInspectorTemplate] Remediate:', { sgId, ruleId, action })
+              // Refresh data after remediation
+              refetch()
+            }}
+          />
+        </section>
+      )}
+
+      {/* Show toggle button if gap card is hidden */}
+      {!showGapCard && (
+        <div style={{ marginBottom: '16px' }}>
+          <button
+            onClick={() => setShowGapCard(true)}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: '1px solid #e5e7eb',
+              backgroundColor: '#f9fafb',
+              cursor: 'pointer',
+              fontSize: '13px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Eye size={16} />
+            Show Gap Analysis
+          </button>
+        </div>
+      )}
+
+      {/* 3) Current Rules (Configured) */}
       <section style={{ marginBottom: '32px' }}>
         <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px' }}>
           Current Rules (Configured)
