@@ -87,6 +87,15 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ data, onClose }) => {
   const IconComponent = RESOURCE_ICONS[data.header.icon] || Key;
+  const planeCoverage = data.header.plane_coverage;
+
+  // Plane chip configuration
+  const planes = [
+    { key: 'configured', label: 'Configured', color: 'blue' },
+    { key: 'observed', label: 'Observed', color: 'green' },
+    { key: 'changed', label: 'Changed', color: 'purple' },
+    { key: 'authorized', label: 'Authorized', color: 'orange' },
+  ];
 
   return (
     <div className="flex items-start justify-between mb-6">
@@ -110,7 +119,32 @@ const Header: React.FC<HeaderProps> = ({ data, onClose }) => {
             )}
             <span className="text-gray-400 text-sm">• Production</span>
           </div>
-          <p className="text-gray-500 text-sm mt-1">
+          {/* Plane Coverage Chips */}
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {planes.map(plane => {
+              const coverage = planeCoverage[plane.key as keyof typeof planeCoverage];
+              const isAvailable = coverage?.available;
+              return (
+                <span
+                  key={plane.key}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                    isAvailable
+                      ? `bg-${plane.color}-500/20 text-${plane.color}-300 border border-${plane.color}-500/30`
+                      : 'bg-gray-800 text-gray-500 border border-gray-700'
+                  }`}
+                  title={coverage?.reason || (isAvailable ? 'Data available' : 'No data')}
+                >
+                  {isAvailable ? (
+                    <Check className="w-3 h-3" />
+                  ) : (
+                    <X className="w-3 h-3" />
+                  )}
+                  {plane.label}
+                </span>
+              );
+            })}
+          </div>
+          <p className="text-gray-500 text-sm mt-2">
             Last seen: {data.header.last_seen ? formatDateTime(data.header.last_seen) : 'Unknown'}
           </p>
         </div>
@@ -208,18 +242,35 @@ interface WhyItsRiskyProps {
 }
 
 const WhyItsRiskySection: React.FC<WhyItsRiskyProps> = ({ data }) => {
-  const insights = data.insights || [];
+  const backendInsights = data.insights || [];
   const riskLevel = data.gap_analysis.overall.risk_level;
+  const planeCoverage = data.header.plane_coverage;
+  const resourceName = data.header.identity.name || data.header.resource_id;
+
+  // Generate templated insights based on plane coverage
+  const generatedInsights: Array<{ text: string; severity: string; cites: string[] }> = [];
+
+  // Telemetry Gap insight - most important
+  if (!planeCoverage.observed?.available) {
+    generatedInsights.push({
+      text: `We can see "${resourceName}" exists (Configured), but we cannot verify its activity because CloudTrail data is unavailable (Observed: Unknown). Enable CloudTrail to analyze actual usage.`,
+      severity: 'warning',
+      cites: ['configured', 'observed'],
+    });
+  }
+
+  // Combine backend insights with generated ones
+  const allInsights = [...generatedInsights, ...backendInsights];
 
   return (
     <CollapsibleSection
       title="Why It's Risky"
       icon={<Lightbulb className="w-5 h-5 text-yellow-400" />}
-      defaultOpen={false}
+      defaultOpen={allInsights.length > 0}
     >
-      {insights.length > 0 ? (
+      {allInsights.length > 0 ? (
         <div className="space-y-2">
-          {insights.map((insight, idx) => (
+          {allInsights.map((insight, idx) => (
             <div
               key={idx}
               className={`px-3 py-2 rounded text-sm ${
@@ -231,6 +282,11 @@ const WhyItsRiskySection: React.FC<WhyItsRiskyProps> = ({ data }) => {
               }`}
             >
               {insight.text}
+              {insight.cites && insight.cites.length > 0 && (
+                <span className="text-xs opacity-70 ml-2">
+                  (cites: {insight.cites.join(', ')})
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -259,9 +315,30 @@ const WhatsActuallyUsedSection: React.FC<WhatsActuallyUsedProps> = ({ data }) =>
   const usedCount = iamRole?.used_count || 0;
   const allowedCount = iamRole?.allowed_count || 0;
 
-  // Determine confidence/evidence status
-  const hasObserved = data.header.plane_coverage.observed?.available;
-  const observedSource = data.what_happened.source || 'CloudTrail';
+  // Check data availability - distinguish "0" from "unknown"
+  const iamSummary = data.gap_analysis?.identity?.summary as any;
+  const hasUsedData = iamSummary?.used_data_available ?? false;
+  const hasAllowedData = iamSummary?.allowed_data_available ?? (allowedCount > 0);
+  const apiUsageCount = iamSummary?.api_usage_count ?? data.what_happened?.api_usage?.length ?? 0;
+
+  // Format the "observed" display - NEVER show "0" if we don't have telemetry
+  const formatObservedUsage = () => {
+    if (!hasUsedData) {
+      return 'Unknown (Telemetry Gap)';
+    }
+    if (usedCount === 0 && apiUsageCount === 0) {
+      return '0 permissions observed (verified unused)';
+    }
+    return `${usedCount || apiUsageCount} permissions observed in use`;
+  };
+
+  // Format the "analyzed" display
+  const formatAnalyzedCount = () => {
+    if (!hasAllowedData) {
+      return 'Policy data unavailable';
+    }
+    return `${allowedCount} permissions in policy`;
+  };
 
   return (
     <CollapsibleSection
@@ -282,13 +359,13 @@ const WhatsActuallyUsedSection: React.FC<WhatsActuallyUsedProps> = ({ data }) =>
 
       {/* Activity stats */}
       <div className="flex items-center justify-between text-sm">
-        <span className="text-green-400">
+        <span className={hasUsedData ? 'text-green-400' : 'text-yellow-400'}>
           Last activity:{' '}
-          <span className="font-medium">{usedCount} permissions observed in use</span>
+          <span className="font-medium">{formatObservedUsage()}</span>
         </span>
         <span className="flex items-center gap-1 text-gray-400">
-          <span className="w-2 h-2 rounded-full bg-green-500"></span>
-          IAM: {allowedCount} permissions analyzed
+          <span className={`w-2 h-2 rounded-full ${hasAllowedData ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+          IAM: {formatAnalyzedCount()}
         </span>
       </div>
     </CollapsibleSection>
@@ -407,24 +484,31 @@ interface EvidenceSourcesProps {
 }
 
 const EvidenceSourcesFooter: React.FC<EvidenceSourcesProps> = ({ data }) => {
-  const sources = [];
+  // Check ACTUAL data availability, not just plane coverage claims
+  const iamSummary = data.gap_analysis?.identity?.summary as any;
+  const networkSummary = data.gap_analysis?.network?.summary as any;
 
-  // Check which evidence sources are available based on plane coverage
-  if (data.header.plane_coverage.observed?.available) {
-    sources.push({ name: 'CloudTrail', available: true });
-  }
-  if (data.header.plane_coverage.authorized?.available) {
-    sources.push({ name: 'IAM Analysis', available: true });
-  }
-  if (data.header.plane_coverage.configured?.available) {
-    sources.push({ name: 'AWS Config', available: true });
-  }
+  // CloudTrail: Check if we have actual usage data
+  const hasCloudTrailData = (iamSummary?.used_data_available) ??
+    ((data.what_happened?.api_usage?.length ?? 0) > 0 ||
+    (data.what_happened?.summary?.total_inbound ?? 0) > 0 ||
+    (data.what_happened?.summary?.total_outbound ?? 0) > 0);
 
-  // If no specific sources detected, show defaults
-  if (sources.length === 0) {
-    sources.push({ name: 'CloudTrail', available: false });
-    sources.push({ name: 'IAM Analysis', available: false });
-  }
+  // IAM Analysis: Check if we have policy data
+  const hasIamData = (iamSummary?.allowed_data_available) ??
+    ((data.what_allowed?.identity?.iam_role?.allowed_count ?? 0) > 0);
+
+  // AWS Config: Check if we have configured data (SGs, etc.)
+  const hasConfigData = data.header.plane_coverage.configured?.available &&
+    (data.what_allowed?.network?.security_groups?.length > 0 ||
+     data.what_allowed?.identity?.iam_role !== null);
+
+  // Always show all 3 sources with proper status
+  const sources = [
+    { name: 'CloudTrail', available: hasCloudTrailData },
+    { name: 'IAM Analysis', available: hasIamData },
+    { name: 'AWS Config', available: hasConfigData },
+  ];
 
   return (
     <div className="mt-6 pt-4 border-t border-gray-700">
@@ -438,15 +522,71 @@ const EvidenceSourcesFooter: React.FC<EvidenceSourcesProps> = ({ data }) => {
             className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
               source.available
                 ? 'bg-gray-700 text-gray-300'
-                : 'bg-gray-800 text-gray-500'
+                : 'bg-gray-800/50 text-gray-500'
             }`}
           >
-            {source.available && <Check className="w-3 h-3 text-green-400" />}
+            {source.available ? (
+              <Check className="w-3 h-3 text-green-400" />
+            ) : (
+              <X className="w-3 h-3 text-red-400" />
+            )}
             {source.name}
           </span>
         ))}
       </div>
     </div>
+  );
+};
+
+// =============================================================================
+// BLAST RADIUS SECTION
+// =============================================================================
+
+interface BlastRadiusProps {
+  data: ResourcePopupResponse;
+}
+
+const BlastRadiusSection: React.FC<BlastRadiusProps> = ({ data }) => {
+  const blastRadius = data.blast_radius;
+  const affectedResources = blastRadius?.affected_resources || [];
+  const totalAffected = blastRadius?.total_affected || 0;
+
+  if (totalAffected === 0) {
+    return null; // Don't show if no dependencies
+  }
+
+  return (
+    <CollapsibleSection
+      title="Blast Radius"
+      icon={<Globe className="w-5 h-5 text-red-400" />}
+      defaultOpen={true}
+    >
+      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-3">
+        <p className="text-red-300 text-sm font-medium">
+          {blastRadius?.message || `This resource is used by ${totalAffected} other resource${totalAffected > 1 ? 's' : ''}`}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {affectedResources.slice(0, 5).map((resource, idx) => (
+          <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-white/5 rounded text-sm">
+            <span className="text-gray-400">{resource.type || 'Resource'}:</span>
+            <span className="text-gray-200">{resource.name}</span>
+          </div>
+        ))}
+        {totalAffected > 5 && (
+          <p className="text-gray-500 text-xs px-3">
+            ...and {totalAffected - 5} more resources
+          </p>
+        )}
+      </div>
+
+      {totalAffected > 0 && (
+        <p className="text-yellow-400 text-xs mt-3 px-3">
+          Removing or modifying this resource may impact these dependent resources.
+        </p>
+      )}
+    </CollapsibleSection>
   );
 };
 
@@ -547,6 +687,7 @@ export const UniversalTemplateRenderer: React.FC<UniversalTemplateRendererProps>
         <WhyItsRiskySection data={data} />
         <WhatsActuallyUsedSection data={data} />
         <RecommendedTighteningSection data={data} />
+        <BlastRadiusSection data={data} />
       </div>
 
       {/* Evidence Sources */}
