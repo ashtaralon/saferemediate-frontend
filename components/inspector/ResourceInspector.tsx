@@ -354,7 +354,17 @@ function SecurityGroupTemplate({
       )}
 
       {/* Evidence */}
-      <EvidenceBar sources={data.evidence?.flow_logs?.available ? ['VPC Flow Logs', 'AWS Config'] : ['AWS Config']} />
+      <div className="px-6 py-3 bg-gray-50 text-xs text-gray-500 flex items-center gap-2">
+        <Clock className="w-3 h-3" />
+        <span>Evidence:</span>
+        {data.evidence?.flow_logs?.available ? (
+          <span className="text-green-600">✓ VPC Flow Logs ({data.evidence.flow_logs.window_days}d)</span>
+        ) : (
+          <span className="text-gray-400">⚠ No Flow Logs</span>
+        )}
+        <span>•</span>
+        <span className="text-green-600">✓ AWS Config</span>
+      </div>
     </>
   )
 }
