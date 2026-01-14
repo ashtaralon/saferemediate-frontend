@@ -1024,6 +1024,7 @@ export function SGInspectorTemplate({ sgId, initialWindow = 30 }: SGInspectorTem
           </div>
           <SGGapCard
             sgId={sgId}
+            useGenericCard={true}
             onSimulate={(sgId, ruleId, action) => {
               console.log('[SGInspectorTemplate] Simulate:', { sgId, ruleId, action })
             }}

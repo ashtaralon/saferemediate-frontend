@@ -630,7 +630,13 @@ function generateCheckpointLeastPrivilegeData(data: RealNodeData): LeastPrivileg
   const { checkpoint, segment, fromNode, toNode, port, requestCount, sgData, iamData } = checkpointContext!
 
   const isSecurityGroup = checkpoint.type === 'security_group'
-  const resourceType: ResourceType = isSecurityGroup ? 'security_group' : 'iam_role'
+  // Determine resource type - check ID prefix first, then checkpoint type
+  const checkpointId = checkpoint.id || checkpoint.name || ''
+  let resourceType: ResourceType = 'iam_role' // default fallback
+  if (checkpointId.startsWith('acl-')) resourceType = 'nacl'
+  else if (checkpointId.startsWith('sg-') || isSecurityGroup) resourceType = 'security_group'
+  else if (checkpointId.startsWith('i-')) resourceType = 'ec2'
+  else if (checkpoint.type === 'iam_role' || checkpoint.type?.includes('iam')) resourceType = 'iam_role'
   const cpName = checkpoint.name || checkpoint.shortName || 'Unknown'
 
   // For Security Groups - analyze rules
@@ -884,13 +890,20 @@ export function generateLeastPrivilegeData(data: RealNodeData): LeastPrivilegeDa
 
   const nodeType = (node.type || '').toLowerCase()
   const nodeName = node.name || node.shortName || node.id || 'Unknown'
+  const nodeId = node.id || ''
 
-  // Determine resource type from actual node type
+  // Determine resource type - PRIORITY: check ID prefix first (most reliable), then node type
   let resourceType: ResourceType = 'ec2'
-  if (nodeType.includes('security') || nodeType.includes('sg')) resourceType = 'security_group'
+
+  // First, check ID prefix (most reliable for AWS resources)
+  if (nodeId.startsWith('acl-')) resourceType = 'nacl'
+  else if (nodeId.startsWith('sg-')) resourceType = 'security_group'
+  else if (nodeId.startsWith('i-')) resourceType = 'ec2'
+  // Then fall back to type string matching
+  else if (nodeType.includes('security') || nodeType.includes('sg')) resourceType = 'security_group'
+  else if (nodeType.includes('nacl') || nodeType.includes('networkacl') || nodeType.includes('network_acl')) resourceType = 'nacl'
   else if (nodeType.includes('iam') || nodeType.includes('role')) resourceType = 'iam_role'
   else if (nodeType.includes('s3') || nodeType.includes('bucket') || nodeType.includes('storage')) resourceType = 's3_bucket'
-  else if (nodeType.includes('nacl')) resourceType = 'nacl'
   else if (nodeType.includes('rds') || nodeType.includes('database')) resourceType = 'rds'
   else if (nodeType.includes('lambda')) resourceType = 'lambda'
   else if (nodeType.includes('dynamo')) resourceType = 'dynamodb'

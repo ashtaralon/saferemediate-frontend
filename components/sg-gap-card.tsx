@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { SGInspectorSheet } from './inspector/SGInspectorSheet';
+import { ResourceGapCard } from './ResourceGapCard';
+import { ResourceGapTemplate, ActionType } from '@/types/resource-gap-template';
+import { getResourceTemplate, mergeTemplateConfig } from '@/lib/resource-gap-templates';
 
 // ============================================================================
-// Types & Interfaces
+// Types & Interfaces (SG-specific)
 // ============================================================================
 
 interface RuleTraffic {
@@ -90,12 +93,13 @@ interface SimulationResult {
 export interface SGGapCardProps {
   sgId: string;
   systemName?: string;
+  useGenericCard?: boolean; // Flag to use the new generic ResourceGapCard
   onSimulate?: (sgId: string, ruleId: string, action: string) => void;
   onRemediate?: (sgId: string, ruleId: string, action: string) => void;
 }
 
 // ============================================================================
-// Helper Components
+// Helper Components (SG-specific styling)
 // ============================================================================
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
@@ -119,7 +123,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 const ConfidenceBadge: React.FC<{ confidence: number }> = ({ confidence }) => {
   let style = 'bg-rose-500/20 text-rose-400 border-rose-500/30';
   let label = 'LOW';
-  
+
   if (confidence >= 80) {
     style = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     label = 'HIGH';
@@ -127,7 +131,7 @@ const ConfidenceBadge: React.FC<{ confidence: number }> = ({ confidence }) => {
     style = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
     label = 'MEDIUM';
   }
-  
+
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${style} border`}>
       {label} ({confidence}%)
@@ -146,7 +150,7 @@ const SummaryBox: React.FC<{
     red: 'from-rose-500/20 to-rose-600/10 border-rose-500/30 text-rose-400',
     orange: 'from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400',
   };
-  
+
   return (
     <div className={`flex-1 bg-gradient-to-br ${colors[color]} border rounded-xl p-4 text-center`}>
       <div className="text-3xl font-bold">{count}</div>
@@ -165,11 +169,11 @@ const RuleRow: React.FC<{
   isSimulated: boolean;
 }> = ({ rule, isExpanded, onToggle, onSimulate, onApply, isSimulated }) => {
   const protocolLabel = rule.protocol === '-1' ? 'ALL' : rule.protocol.toUpperCase();
-  
+
   return (
     <div className="border border-slate-700/50 rounded-lg overflow-hidden mb-2">
       {/* Rule Header */}
-      <div 
+      <div
         className="flex items-center justify-between p-3 bg-slate-800/50 cursor-pointer hover:bg-slate-800/70 transition-colors"
         onClick={onToggle}
       >
@@ -190,7 +194,7 @@ const RuleRow: React.FC<{
             )}
           </div>
         </div>
-        
+
         <div className="flex items-center gap-3">
           {rule.traffic.has_traffic ? (
             <span className="text-xs text-slate-400">
@@ -200,17 +204,17 @@ const RuleRow: React.FC<{
             <span className="text-xs text-slate-500 italic">No traffic</span>
           )}
           <ConfidenceBadge confidence={rule.recommendation.confidence} />
-          <svg 
+          <svg
             className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-            fill="none" 
-            stroke="currentColor" 
+            fill="none"
+            stroke="currentColor"
             viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </div>
       </div>
-      
+
       {/* Expanded Details */}
       {isExpanded && (
         <div className="p-4 bg-slate-900/50 border-t border-slate-700/50">
@@ -245,7 +249,7 @@ const RuleRow: React.FC<{
               </p>
             </div>
           )}
-          
+
           {/* Suggested CIDRs (for TIGHTEN) */}
           {rule.recommendation.suggested_cidrs && rule.recommendation.suggested_cidrs.length > 0 && (
             <div className="mb-4">
@@ -259,7 +263,7 @@ const RuleRow: React.FC<{
               </div>
             </div>
           )}
-          
+
           {/* Description if present */}
           {rule.description && (
             <div className="mb-4">
@@ -267,7 +271,7 @@ const RuleRow: React.FC<{
               <p className="text-sm text-slate-400">{rule.description}</p>
             </div>
           )}
-          
+
           {/* Action Buttons */}
           {(rule.recommendation.action === 'DELETE' || rule.recommendation.action === 'TIGHTEN' || rule.recommendation.action === 'REPLACE') && (
             <div className="flex gap-2 mt-4 pt-4 border-t border-slate-700/50">
@@ -284,8 +288,8 @@ const RuleRow: React.FC<{
                 onClick={(e) => { e.stopPropagation(); onApply(); }}
                 disabled={!isSimulated}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                  isSimulated 
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white' 
+                  isSimulated
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
@@ -314,14 +318,14 @@ const SimulationModal: React.FC<{
   onConfirm: () => void;
 }> = ({ isOpen, onClose, simulation, isLoading, onConfirm }) => {
   if (!isOpen) return null;
-  
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-auto">
         <div className="p-6 border-b border-slate-700">
           <h3 className="text-xl font-semibold text-white">Simulation Result</h3>
         </div>
-        
+
         <div className="p-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -352,7 +356,7 @@ const SimulationModal: React.FC<{
                   </>
                 )}
               </div>
-              
+
               {/* Action */}
               <div>
                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Action</div>
@@ -362,7 +366,7 @@ const SimulationModal: React.FC<{
                   {simulation.action}
                 </span>
               </div>
-              
+
               {/* Impact */}
               <div>
                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Impact</div>
@@ -377,7 +381,7 @@ const SimulationModal: React.FC<{
                   ))}
                 </div>
               </div>
-              
+
               {/* CLI Command */}
               <div>
                 <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">AWS CLI Command</div>
@@ -385,7 +389,7 @@ const SimulationModal: React.FC<{
                   {simulation.cli_command}
                 </pre>
               </div>
-              
+
               {/* Reversible badge */}
               {simulation.reversible && (
                 <div className="flex items-center gap-2 text-sm text-slate-400">
@@ -402,7 +406,7 @@ const SimulationModal: React.FC<{
             </div>
           )}
         </div>
-        
+
         <div className="p-6 border-t border-slate-700 flex justify-end gap-3">
           <button
             onClick={onClose}
@@ -425,12 +429,67 @@ const SimulationModal: React.FC<{
 };
 
 // ============================================================================
+// Data Transformation for Generic Card
+// ============================================================================
+
+/**
+ * Transform SG API response to generic ResourceGapCard format
+ */
+function transformToGenericFormat(analysis: GapAnalysisResult) {
+  const ingressRules = analysis.rules_analysis.filter(r => r.direction === 'ingress');
+
+  return {
+    analysis: {
+      rules: ingressRules.map(rule => ({
+        id: rule.rule_id,
+        status: rule.status,
+        port: rule.port_range,
+        protocol: rule.protocol === '-1' ? 'ALL' : rule.protocol.toUpperCase(),
+        source: rule.source,
+        connections: rule.traffic.connection_count,
+        lastUsed: rule.traffic.has_traffic ? 'Recent' : undefined,
+        recommendation: rule.recommendation,
+        // Additional SG-specific fields
+        is_public: rule.is_public,
+        source_type: rule.source_type,
+        description: rule.description,
+        traffic: rule.traffic,
+      })),
+      summary: {
+        total_rules: analysis.summary.total_rules,
+        used_rules: analysis.summary.used_rules,
+        unused_rules: analysis.summary.unused_rules,
+        unobserved_rules: analysis.summary.unobserved_rules,
+        overly_broad_rules: analysis.summary.overly_broad_rules,
+        average_confidence: analysis.summary.average_confidence,
+        risk_score: analysis.summary.risk_score,
+        observation_days: analysis.summary.observation_days,
+        gap_metrics: analysis.summary.gap_metrics,
+      },
+      recommendations: ingressRules
+        .filter(r => r.recommendation.action !== 'KEEP')
+        .map(r => ({
+          rule_id: r.rule_id,
+          action: r.recommendation.action,
+          reason: r.recommendation.reason,
+          confidence: r.recommendation.confidence,
+        })),
+    },
+    blast_radius: {
+      neighbor_count: analysis.eni_count,
+      impacted_neighbors: [],
+    },
+  };
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
 export const SGGapCard: React.FC<SGGapCardProps> = ({
   sgId,
   systemName,
+  useGenericCard = false,
   onSimulate,
   onRemediate,
 }) => {
@@ -445,21 +504,21 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
   const [simLoading, setSimLoading] = useState(false);
   const [activeRule, setActiveRule] = useState<RuleAnalysis | null>(null);
   const [showInspector, setShowInspector] = useState(false);
-  
+
   // Fetch gap analysis
   const fetchAnalysis = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const params = new URLSearchParams({ days: '365' });
       const response = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?${params}`);
-      
+
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
-      
+
       const data = await response.json();
       setAnalysis(data);
     } catch (err) {
@@ -468,11 +527,11 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
       setIsLoading(false);
     }
   }, [sgId]);
-  
+
   useEffect(() => {
     fetchAnalysis();
   }, [fetchAnalysis]);
-  
+
   // Toggle rule expansion
   const toggleRule = (ruleId: string) => {
     setExpandedRules(prev => {
@@ -485,14 +544,14 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
       return next;
     });
   };
-  
+
   // Run simulation
   const runSimulation = async (rule: RuleAnalysis) => {
     setActiveRule(rule);
     setShowSimModal(true);
     setSimLoading(true);
     setCurrentSimulation(null);
-    
+
     try {
       const response = await fetch(`/api/proxy/security-groups/${sgId}/simulate`, {
         method: 'POST',
@@ -503,16 +562,16 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
           suggested_cidrs: rule.recommendation.suggested_cidrs,
         }),
       });
-      
+
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
-      
+
       const data = await response.json();
       setCurrentSimulation(data);
       setSimulatedRules(prev => new Set(prev).add(rule.rule_id));
-      
+
       onSimulate?.(sgId, rule.rule_id, rule.recommendation.action);
     } catch (err) {
       console.error('Simulation error:', err);
@@ -530,7 +589,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
       setSimLoading(false);
     }
   };
-  
+
   // Apply remediation
   const applyRemediation = () => {
     if (activeRule) {
@@ -538,11 +597,11 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
     }
     setShowSimModal(false);
   };
-  
+
   // Export recommendations
   const exportRecommendations = () => {
     if (!analysis) return;
-    
+
     const data = {
       sg_id: analysis.sg_id,
       sg_name: analysis.sg_name,
@@ -561,7 +620,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
           suggested_cidrs: r.recommendation.suggested_cidrs,
         })),
     };
-    
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -570,11 +629,30 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
     a.click();
     URL.revokeObjectURL(url);
   };
-  
+
+  // Transform data for generic card
+  const genericData = useMemo(() => {
+    if (!analysis) return null;
+    return transformToGenericFormat(analysis);
+  }, [analysis]);
+
+  // Handle generic card simulate
+  const handleGenericSimulate = useCallback((resourceId: string, ruleId: string, action: ActionType) => {
+    const rule = analysis?.rules_analysis.find(r => r.rule_id === ruleId);
+    if (rule) {
+      runSimulation(rule);
+    }
+  }, [analysis]);
+
+  // Handle generic card remediate
+  const handleGenericRemediate = useCallback((resourceId: string, ruleId: string, action: ActionType) => {
+    onRemediate?.(resourceId, ruleId, action);
+  }, [onRemediate]);
+
   // ============================================================================
   // Render States
   // ============================================================================
-  
+
   // Loading state
   if (isLoading) {
     return (
@@ -586,7 +664,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
       </div>
     );
   }
-  
+
   // Error state
   if (error) {
     return (
@@ -608,13 +686,87 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
       </div>
     );
   }
-  
+
   if (!analysis) return null;
-  
+
   // ============================================================================
-  // Main Render
+  // Generic Card Render (when useGenericCard is true)
   // ============================================================================
-  
+
+  if (useGenericCard && genericData) {
+    return (
+      <>
+        <div className="mb-4">
+          {/* Header with SG-specific info */}
+          <div className="flex items-start justify-between p-4 bg-slate-900/80 border border-slate-700/50 rounded-t-2xl">
+            <div>
+              <div className="flex items-center gap-3">
+                <h3 className="text-xl font-semibold text-white">{analysis.sg_name}</h3>
+                <span className="px-2 py-0.5 bg-slate-700/50 rounded text-xs font-mono text-slate-400">
+                  {analysis.sg_id}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-2">
+                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs">
+                  VPC: {analysis.vpc_id}
+                </span>
+                <span className="px-2 py-0.5 bg-slate-700/50 text-slate-400 rounded text-xs">
+                  {analysis.eni_count} ENIs attached
+                </span>
+                {systemName && (
+                  <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
+                    System: {systemName}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <button
+                onClick={() => setShowInspector(true)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+                Inspect
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Generic ResourceGapCard */}
+        <ResourceGapCard
+          resourceType="SecurityGroup"
+          resourceId={sgId}
+          analysisData={genericData}
+          onSimulate={handleGenericSimulate}
+          onRemediate={handleGenericRemediate}
+          onRefresh={fetchAnalysis}
+        />
+
+        {/* Simulation Modal */}
+        <SimulationModal
+          isOpen={showSimModal}
+          onClose={() => setShowSimModal(false)}
+          simulation={currentSimulation}
+          isLoading={simLoading}
+          onConfirm={applyRemediation}
+        />
+
+        {/* SG Inspector Sheet */}
+        <SGInspectorSheet
+          sgId={sgId}
+          open={showInspector}
+          onOpenChange={setShowInspector}
+        />
+      </>
+    );
+  }
+
+  // ============================================================================
+  // Original SG Card Render (default)
+  // ============================================================================
+
   return (
     <>
       <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700/50 rounded-2xl overflow-hidden">
@@ -661,7 +813,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
             </div>
           </div>
         </div>
-        
+
         {/* Summary Cards */}
         <div className="p-6 border-b border-slate-700/50">
           <div className="flex gap-4">
@@ -709,7 +861,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
             </div>
           )}
         </div>
-        
+
         {/* Rules List - Split into Observed and Gap sections */}
         <div className="p-6">
           {/* Section 1: What's Actually Used (Observed traffic) */}
@@ -843,7 +995,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
             </div>
           )}
         </div>
-        
+
         {/* Footer */}
         <div className="p-6 border-t border-slate-700/50 bg-slate-800/30">
           <div className="flex items-center justify-between">
@@ -875,7 +1027,7 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
           </div>
         </div>
       </div>
-      
+
       {/* Simulation Modal */}
       <SimulationModal
         isOpen={showSimModal}
@@ -896,4 +1048,3 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
 };
 
 export default SGGapCard;
-

@@ -20,8 +20,10 @@ export async function GET(
 
   try {
     // Fetch data from multiple endpoints in parallel
-    const [iamGapsRes, sgListRes, postureRes] = await Promise.allSettled([
-      fetch(`${BACKEND_URL}/api/iam-analysis/gaps/${systemName}`, {
+    // Use least-privilege/issues endpoint which has actual gap analysis data
+    const windowDays = parseInt(window.replace('d', '')) || 365
+    const [lpIssuesRes, sgListRes, postureRes] = await Promise.allSettled([
+      fetch(`${BACKEND_URL}/api/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&observationDays=${windowDays}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       }),
@@ -35,11 +37,24 @@ export async function GET(
       }),
     ])
 
-    // Process IAM gaps
+    // Process least-privilege issues (IAM gaps with real data)
     let iamGaps: any[] = []
-    if (iamGapsRes.status === "fulfilled" && iamGapsRes.value.ok) {
-      const data = await iamGapsRes.value.json()
-      iamGaps = data.gaps || []
+    let lpSummary: any = null
+    if (lpIssuesRes.status === "fulfilled" && lpIssuesRes.value.ok) {
+      const data = await lpIssuesRes.value.json()
+      lpSummary = data.summary
+      // Transform LP resources to IAM gaps format
+      const iamResources = (data.resources || []).filter((r: any) => r.resourceType === 'IAMRole')
+      iamGaps = iamResources.map((r: any) => ({
+        role_id: r.resourceArn || r.id,
+        role_name: r.resourceName,
+        allowed_permissions: r.allowedCount || 0,
+        used_permissions: r.usedCount || 0,
+        unused_permissions: r.gapCount || 0,
+        usage_percent: r.lpScore || 0,
+        has_admin_access: r.severity === 'CRITICAL' || r.severity === 'critical',
+        has_wildcards: (r.unusedList || []).some((p: string) => p?.includes('*')),
+      }))
     }
 
     // Process Security Groups
@@ -112,6 +127,12 @@ export async function GET(
     // Build component list
     const components = buildComponents(iamGaps, securityGroups)
 
+    // Use LP summary if available, otherwise compute from components
+    const totalRemovalCandidates = lpSummary?.totalExcessPermissions ||
+      components.reduce((sum: number, c: any) => sum + (c.G_gap?.value || 0), 0)
+    const highRiskCount = lpSummary?.criticalCount ||
+      queues.blast_radius_warnings.length
+
     return NextResponse.json({
       system_name: systemName,
       window,
@@ -120,9 +141,9 @@ export async function GET(
       queues,
       components,
       summary: {
-        total_components: components.length,
-        total_removal_candidates: components.reduce((sum: number, c: any) => sum + (c.G_gap?.value || 0), 0),
-        high_risk_count: queues.blast_radius_warnings.length,
+        total_components: lpSummary?.totalResources || components.length,
+        total_removal_candidates: totalRemovalCandidates,
+        high_risk_count: highRiskCount,
       },
     })
   } catch (error) {
