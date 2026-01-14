@@ -442,24 +442,36 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
     sortOrder: 'desc',
   })
 
-  // Derived data for new components
+  // State for API response data
+  const [apiPlanePulse, setApiPlanePulse] = useState<PlanePulseData | null>(null)
+  const [apiQueues, setApiQueues] = useState<CommandQueuesData | null>(null)
+  const [apiSummary, setApiSummary] = useState<{ total_components: number; total_removal_candidates: number; high_risk_count: number } | null>(null)
+
+  // Derived data for new components - use API data when available, fallback to computed
   const windowDays = useMemo(() => {
     const mapping: Record<TimeWindow, number> = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }
     return mapping[timeWindow]
   }, [timeWindow])
 
-  const planePulseData = useMemo(() =>
-    buildPlanePulseData(components, evidenceCoverage, windowDays),
-    [components, evidenceCoverage, windowDays]
-  )
+  const planePulseData = useMemo(() => {
+    if (apiPlanePulse) return apiPlanePulse
+    return buildPlanePulseData(components, evidenceCoverage, windowDays)
+  }, [apiPlanePulse, components, evidenceCoverage, windowDays])
 
-  const commandQueuesData = useMemo(() =>
-    buildCommandQueuesData(components, allGaps),
-    [components, allGaps]
-  )
+  const commandQueuesData = useMemo(() => {
+    if (apiQueues) return apiQueues
+    return buildCommandQueuesData(components, allGaps)
+  }, [apiQueues, components, allGaps])
 
-  // Summary stats
+  // Summary stats - use API data when available
   const summary = useMemo(() => {
+    if (apiSummary) {
+      return {
+        totalComponents: apiSummary.total_components,
+        totalRemovalCandidates: apiSummary.total_removal_candidates,
+        highRiskCandidates: apiSummary.high_risk_count,
+      }
+    }
     const totalComponents = components.length
     const totalRemovalCandidates = components.reduce((sum, c) => sum + c.unusedCount, 0)
     const highRiskCandidates = components.filter(c =>
@@ -467,120 +479,91 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
     ).length
 
     return { totalComponents, totalRemovalCandidates, highRiskCandidates }
-  }, [components])
+  }, [apiSummary, components])
 
-  // Fetch all data
+  // Fetch all data from unified API
   const fetchAllData = useCallback(async () => {
     setLoading(true)
     try {
-      const allComponents: SecurityComponent[] = []
-      const gaps: GapItem[] = []
+      // Use the new unified security-posture API endpoint
+      const res = await fetch(`/api/proxy/security-posture/${systemName}?window=${timeWindow}&min_conf=${minConfidence}`)
 
-      // Fetch IAM gaps
-      try {
-        const iamRes = await fetch(`/api/proxy/iam-analysis/gaps/${systemName}`)
-        if (iamRes.ok) {
-          const iamData = await iamRes.json()
-          const iamGaps = iamData.gaps || []
-          iamGaps.forEach((gap: any) => {
-            const component = transformIAMGapToComponent(gap)
-            allComponents.push(component)
+      if (res.ok) {
+        const data = await res.json()
 
-            if (gap.unused_permissions > 0) {
-              gaps.push({
-                id: `iam-${gap.role_name}`,
-                componentId: gap.role_name,
-                componentName: gap.role_name,
-                componentType: 'iam_role',
-                type: 'iam_action',
-                identifier: `${gap.unused_permissions} unused permissions`,
-                allowedBy: gap.role_name,
-                observedCount: 0,
-                lastSeen: null,
-                riskTags: gap.has_wildcards ? ['wildcard'] : gap.has_admin_access ? ['admin'] : ['write'],
-                riskScore: gap.has_wildcards ? 90 : gap.has_admin_access ? 80 : 50,
-                recommendation: 'remove',
-                confidence: 85,
-                reason: `Role has ${gap.unused_permissions} permissions that haven't been used.`,
-              })
-            }
-          })
+        // Set API response data directly
+        if (data.plane_pulse) {
+          setApiPlanePulse(data.plane_pulse)
         }
-      } catch (e) {
-        console.error('Failed to fetch IAM gaps:', e)
-      }
 
-      // Fetch Security Groups
-      try {
-        const sgListRes = await fetch(`${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`)
-        if (sgListRes.ok) {
-          const sgListData = await sgListRes.json()
-          const sgList = sgListData.security_groups || []
-
-          const sgPromises = sgList.slice(0, 10).map(async (sg: any) => {
-            try {
-              const res = await fetch(`/api/proxy/security-groups/${sg.id}/gap-analysis?days=365`)
-              if (res.ok) return await res.json()
-              return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: 0 }
-            } catch {
-              return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: 0 }
-            }
-          })
-
-          const sgResults = await Promise.all(sgPromises)
-          sgResults.forEach((sg: any) => {
-            if (sg?.sg_id) {
-              const component = transformSGToComponent(sg)
-              allComponents.push(component)
-
-              const unusedPublic = (sg.rules_analysis || []).filter(
-                (r: any) => r.source === '0.0.0.0/0' && r.status === 'UNUSED'
-              )
-              unusedPublic.forEach((r: any) => {
-                gaps.push({
-                  id: `sg-${sg.sg_id}-${r.port_range}`,
-                  componentId: sg.sg_id,
-                  componentName: sg.sg_name,
-                  componentType: 'security_group',
-                  type: 'sg_rule',
-                  identifier: `TCP:${r.port_range} from 0.0.0.0/0`,
-                  allowedBy: sg.sg_name,
-                  observedCount: 0,
-                  lastSeen: null,
-                  riskTags: ['public'],
-                  riskScore: 95,
-                  recommendation: 'remove',
-                  confidence: sg.eni_count > 0 ? 90 : 40,
-                  reason: 'Internet-exposed rule with zero traffic. Immediate removal recommended.',
-                  exposure: { cidr: '0.0.0.0/0', ports: r.port_range, protocol: 'TCP' },
-                })
-              })
-            }
-          })
+        if (data.queues) {
+          setApiQueues(data.queues)
         }
-      } catch (e) {
-        console.error('Failed to fetch SGs:', e)
+
+        if (data.summary) {
+          setApiSummary(data.summary)
+        }
+
+        // Transform components for the list view
+        const transformedComponents: SecurityComponent[] = (data.components || []).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          type: c.type,
+          lpScore: c.A_authorized_breadth?.value > 0
+            ? Math.round(((c.A_authorized_breadth.value - (c.G_gap?.value || 0)) / c.A_authorized_breadth.value) * 100)
+            : 100,
+          allowedCount: c.A_authorized_breadth?.value || 0,
+          observedCount: c.U_observed_usage?.value || 0,
+          unusedCount: c.G_gap?.value || 0,
+          highestRiskUnused: c.risk_flags?.[0] ? mapFlagToRiskTag(c.risk_flags[0]) : null,
+          hasWildcards: c.risk_flags?.includes('wildcard_action'),
+          hasAdminAccess: c.risk_flags?.includes('admin_policy'),
+          hasInternetExposure: c.risk_flags?.includes('world_open'),
+          confidence: c.confidence === 'high' ? 'strong' : c.confidence === 'medium' ? 'medium' : 'weak',
+          evidenceSources: [
+            { source: 'CloudTrail' as const, status: 'available' as const },
+            { source: 'Config' as const, status: 'available' as const },
+          ],
+        }))
+
+        setComponents(transformedComponents)
+
+        // Update evidence coverage based on API response
+        if (data.plane_pulse?.planes?.observed) {
+          const observed = data.plane_pulse.planes.observed
+          setEvidenceCoverage([
+            { source: 'CloudTrail', status: observed.breakdown?.cloudtrail_usage > 50 ? 'available' : 'partial' },
+            { source: 'FlowLogs', status: observed.breakdown?.flow_logs > 50 ? 'available' : observed.breakdown?.flow_logs > 0 ? 'partial' : 'unavailable' },
+            { source: 'Config', status: 'available' },
+            { source: 'IAM', status: 'available' },
+          ])
+        }
+      } else {
+        console.error('Failed to fetch security posture:', res.status)
+        // Fallback to empty state
+        setComponents([])
+        setApiPlanePulse(null)
+        setApiQueues(null)
       }
-
-      setComponents(allComponents)
-      setAllGaps(gaps)
-
-      // Update evidence coverage based on actual data
-      const hasFlowLogs = allComponents.some(c =>
-        c.type === 'security_group' && c.confidence === 'strong'
-      )
-      setEvidenceCoverage([
-        { source: 'CloudTrail', status: 'available' },
-        { source: 'FlowLogs', status: hasFlowLogs ? 'available' : 'partial' },
-        { source: 'Config', status: 'available' },
-        { source: 'IAM', status: 'available' },
-      ])
     } catch (err) {
       console.error('Failed to fetch data:', err)
+      setComponents([])
     } finally {
       setLoading(false)
     }
-  }, [systemName])
+  }, [systemName, timeWindow, minConfidence])
+
+  // Helper to map API risk flags back to RiskTag
+  function mapFlagToRiskTag(flag: string): RiskTag | null {
+    const mapping: Record<string, RiskTag> = {
+      admin_policy: 'admin',
+      wildcard_action: 'wildcard',
+      world_open: 'public',
+      sensitive_ports: 'broad_ports',
+      overly_permissive: 'write',
+    }
+    return mapping[flag] || null
+  }
 
   // Fetch component detail
   const fetchComponentDetail = useCallback(async (component: SecurityComponent) => {
