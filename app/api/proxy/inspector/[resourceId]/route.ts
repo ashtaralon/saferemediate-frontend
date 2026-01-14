@@ -35,10 +35,25 @@ export async function GET(
     if (!response.ok) {
       const errorText = await response.text()
       console.error(`[Resource Inspector Proxy] Backend error ${response.status}: ${errorText}`)
+
+      // Try to parse the error detail from backend JSON response
+      let errorMessage = `Backend returned ${response.status}`
+      try {
+        const errorJson = JSON.parse(errorText)
+        if (errorJson.detail) {
+          errorMessage = errorJson.detail
+        }
+      } catch {
+        // If not JSON, use the raw text
+        if (errorText) {
+          errorMessage = errorText
+        }
+      }
+
       return NextResponse.json(
         {
           success: false,
-          error: `Backend returned ${response.status}`,
+          error: errorMessage,
           detail: errorText,
         },
         { status: response.status }
