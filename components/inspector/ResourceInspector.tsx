@@ -220,8 +220,15 @@ function SecurityGroupTemplate({
   data: any
   formatTime: (t: string | null) => string
 }) {
-  const isHealthy = data.gap_count === 0
+  const hasFlowLogs = data.evidence?.flow_logs?.available === true
   const hasRecommendations = data.recommendations && data.recommendations.length > 0
+
+  // Health status depends on whether we have Flow Logs evidence
+  const healthStatus = !hasFlowLogs
+    ? { status: 'unknown', label: '? Unknown', color: 'gray' }
+    : data.gap_count === 0
+      ? { status: 'healthy', label: 'Healthy', color: 'green' }
+      : { status: 'gaps', label: `${data.gap_count} Gap${data.gap_count > 1 ? 's' : ''}`, color: 'orange' }
 
   return (
     <>
@@ -244,15 +251,20 @@ function SecurityGroupTemplate({
             </div>
           </div>
           <div>
-            {isHealthy ? (
+            {healthStatus.status === 'unknown' ? (
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium">
+                <HelpCircle className="w-4 h-4" />
+                {healthStatus.label}
+              </span>
+            ) : healthStatus.status === 'healthy' ? (
               <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
                 <CheckCircle className="w-4 h-4" />
-                Healthy
+                {healthStatus.label}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
                 <AlertTriangle className="w-4 h-4" />
-                {data.gap_count} Gap{data.gap_count > 1 ? 's' : ''}
+                {healthStatus.label}
               </span>
             )}
           </div>
@@ -302,9 +314,13 @@ function SecurityGroupTemplate({
                 </td>
                 <td className="py-3 text-right">
                   <div className="font-medium text-gray-900">
-                    {rule.flow_count?.toLocaleString() || 0}
+                    {rule.status === 'unknown' ? (
+                      <span className="text-gray-400">-</span>
+                    ) : (
+                      rule.flow_count?.toLocaleString() || 0
+                    )}
                   </div>
-                  {rule.last_seen && (
+                  {rule.last_seen && rule.status !== 'unknown' && (
                     <div className="text-xs text-gray-400">{formatTime(rule.last_seen)}</div>
                   )}
                 </td>
