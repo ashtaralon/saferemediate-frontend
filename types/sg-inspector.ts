@@ -132,7 +132,7 @@ export interface RuleEvidence {
   top_sources?: string[]
 }
 
-export type RuleUsageStatus = 'USED' | 'UNOBSERVED' | 'UNKNOWN'
+export type RuleUsageStatus = 'USED' | 'UNUSED' | 'UNOBSERVED' | 'OVERLY_BROAD' | 'UNKNOWN'
 
 export interface RuleUsageItem {
   rule_id: string
@@ -283,13 +283,18 @@ export function getSeverityColor(severity: SuggestionSeverity): {
 export function getUsageColor(usage: RuleUsageStatus): {
   bg: string
   text: string
+  border?: string
 } {
   switch (usage) {
     case 'USED':
-      return { bg: '#dcfce7', text: '#166534' }
+      return { bg: '#dcfce7', text: '#166534', border: '#86efac' }
+    case 'UNUSED':
+      return { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' }
     case 'UNOBSERVED':
-      return { bg: '#fef3c7', text: '#92400e' }
+      return { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' }  // Amber - 0 connections gap
+    case 'OVERLY_BROAD':
+      return { bg: '#fed7aa', text: '#ea580c', border: '#fdba74' }  // Orange - needs tightening
     case 'UNKNOWN':
-      return { bg: '#f3f4f6', text: '#6b7280' }
+      return { bg: '#f3f4f6', text: '#6b7280', border: '#d1d5db' }
   }
 }

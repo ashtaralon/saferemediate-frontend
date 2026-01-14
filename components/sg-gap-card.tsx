@@ -15,11 +15,14 @@ interface RuleTraffic {
 }
 
 interface RuleRecommendation {
-  action: 'KEEP' | 'DELETE' | 'TIGHTEN' | 'REVIEW';
+  action: 'KEEP' | 'DELETE' | 'TIGHTEN' | 'REVIEW' | 'REPLACE';
   reason: string;
   confidence: number;
   suggested_cidrs?: string[];
   observed_sources?: string[];
+  gap_type?: 'unobserved' | null;
+  observed_connections?: number;
+  category?: string;
 }
 
 interface RuleAnalysis {
@@ -33,21 +36,31 @@ interface RuleAnalysis {
   source: string;
   description: string;
   is_public: boolean;
-  status: 'USED' | 'UNUSED' | 'OVERLY_BROAD';
+  status: 'USED' | 'UNUSED' | 'UNOBSERVED' | 'OVERLY_BROAD';
   traffic: RuleTraffic;
   recommendation: RuleRecommendation;
+}
+
+interface GapMetrics {
+  configured_ports: number;
+  observed_ports: number;
+  unobserved_ports: number;
+  gap_percentage: number;
 }
 
 interface GapSummary {
   total_rules: number;
   used_rules: number;
   unused_rules: number;
+  unobserved_rules: number;
   overly_broad_rules: number;
   public_rules: number;
+  unobserved_db_ports: number;
   observation_days: number;
   average_confidence: number;
   risk_score: number;
   recommendations_count: number;
+  gap_metrics: GapMetrics;
 }
 
 interface GapAnalysisResult {
@@ -86,17 +99,19 @@ export interface SGGapCardProps {
 // ============================================================================
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const styles: Record<string, { bg: string; text: string; border: string }> = {
+  const styles: Record<string, { bg: string; text: string; border: string; label?: string }> = {
     USED: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
     UNUSED: { bg: 'bg-rose-500/20', text: 'text-rose-400', border: 'border-rose-500/30' },
-    OVERLY_BROAD: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
+    UNOBSERVED: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', label: '0 CONNECTIONS' },
+    OVERLY_BROAD: { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' },
   };
-  
+
   const style = styles[status] || styles.USED;
-  
+  const label = style.label || status.replace('_', ' ');
+
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text} border ${style.border}`}>
-      {status.replace('_', ' ')}
+      {label}
     </span>
   );
 };
@@ -205,6 +220,7 @@ const RuleRow: React.FC<{
             <div className="flex items-start gap-2">
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                 rule.recommendation.action === 'DELETE' ? 'bg-rose-500/20 text-rose-400' :
+                rule.recommendation.action === 'REPLACE' ? 'bg-rose-600/20 text-rose-300' :
                 rule.recommendation.action === 'TIGHTEN' ? 'bg-amber-500/20 text-amber-400' :
                 rule.recommendation.action === 'KEEP' ? 'bg-emerald-500/20 text-emerald-400' :
                 'bg-blue-500/20 text-blue-400'
@@ -214,6 +230,21 @@ const RuleRow: React.FC<{
               <p className="text-sm text-slate-300">{rule.recommendation.reason}</p>
             </div>
           </div>
+
+          {/* Gap indicator for unobserved rules */}
+          {rule.recommendation.gap_type === 'unobserved' && (
+            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <div className="flex items-center gap-2 text-amber-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span className="text-xs font-medium uppercase tracking-wider">Gap Detected</span>
+              </div>
+              <p className="text-xs text-amber-300/80 mt-1">
+                This port is configured but has 0 observed connections. Remove it to achieve Least Privilege.
+              </p>
+            </div>
+          )}
           
           {/* Suggested CIDRs (for TIGHTEN) */}
           {rule.recommendation.suggested_cidrs && rule.recommendation.suggested_cidrs.length > 0 && (
@@ -238,7 +269,7 @@ const RuleRow: React.FC<{
           )}
           
           {/* Action Buttons */}
-          {(rule.recommendation.action === 'DELETE' || rule.recommendation.action === 'TIGHTEN') && (
+          {(rule.recommendation.action === 'DELETE' || rule.recommendation.action === 'TIGHTEN' || rule.recommendation.action === 'REPLACE') && (
             <div className="flex gap-2 mt-4 pt-4 border-t border-slate-700/50">
               <button
                 onClick={(e) => { e.stopPropagation(); onSimulate(); }}
@@ -634,71 +665,178 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
         {/* Summary Cards */}
         <div className="p-6 border-b border-slate-700/50">
           <div className="flex gap-4">
-            <SummaryBox 
-              count={analysis.summary.used_rules} 
-              label="USED" 
-              subLabel="Keep" 
-              color="green" 
+            <SummaryBox
+              count={analysis.summary.used_rules}
+              label="OBSERVED"
+              subLabel="Keep"
+              color="green"
             />
-            <SummaryBox 
-              count={analysis.summary.unused_rules} 
-              label="UNUSED" 
-              subLabel="Delete" 
-              color="red" 
+            <SummaryBox
+              count={analysis.summary.unobserved_rules || 0}
+              label="UNOBSERVED"
+              subLabel="Gap - Remove"
+              color="red"
             />
-            <SummaryBox 
-              count={analysis.summary.overly_broad_rules} 
-              label="OVERLY BROAD" 
-              subLabel="Tighten" 
-              color="orange" 
+            <SummaryBox
+              count={analysis.summary.overly_broad_rules}
+              label="OVERLY BROAD"
+              subLabel="Tighten"
+              color="orange"
             />
           </div>
+
+          {/* Gap Metrics Banner */}
+          {analysis.summary.gap_metrics && analysis.summary.gap_metrics.gap_percentage > 0 && (
+            <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span className="text-amber-400 font-medium">
+                    {analysis.summary.gap_metrics.gap_percentage}% Gap Detected
+                  </span>
+                </div>
+                <span className="text-xs text-amber-300/70">
+                  {analysis.summary.gap_metrics.unobserved_ports} of {analysis.summary.gap_metrics.configured_ports} ports have 0 connections
+                </span>
+              </div>
+              {analysis.summary.unobserved_db_ports > 0 && (
+                <div className="mt-2 text-xs text-rose-400">
+                  {analysis.summary.unobserved_db_ports} unobserved database port(s) - high priority for removal
+                </div>
+              )}
+            </div>
+          )}
         </div>
         
-        {/* Rules List */}
+        {/* Rules List - Split into Observed and Gap sections */}
         <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-medium text-slate-300 uppercase tracking-wider">
-              Ingress Rules ({analysis.rules_analysis.filter(r => r.direction === 'ingress').length})
-            </h4>
-            <button
-              onClick={() => {
-                const ingressRules = analysis.rules_analysis
-                  .filter(r => r.direction === 'ingress')
-                  .map(r => r.rule_id);
-                setExpandedRules(prev => 
-                  ingressRules.every(id => prev.has(id))
-                    ? new Set([...prev].filter(id => !ingressRules.includes(id)))
-                    : new Set([...prev, ...ingressRules])
-                );
-              }}
-              className="text-xs text-slate-400 hover:text-white transition-colors"
-            >
+          {/* Section 1: What's Actually Used (Observed traffic) */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                <h4 className="text-sm font-medium text-emerald-400 uppercase tracking-wider">
+                  What's Actually Used
+                </h4>
+                <span className="text-xs text-slate-500">
+                  ({analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'USED').length} rules with traffic)
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
               {analysis.rules_analysis
-                .filter(r => r.direction === 'ingress')
-                .every(r => expandedRules.has(r.rule_id)) ? 'Collapse All' : 'Expand All'}
-            </button>
+                .filter(r => r.direction === 'ingress' && r.status === 'USED')
+                .map(rule => (
+                  <RuleRow
+                    key={rule.rule_id}
+                    rule={rule}
+                    isExpanded={expandedRules.has(rule.rule_id)}
+                    onToggle={() => toggleRule(rule.rule_id)}
+                    onSimulate={() => runSimulation(rule)}
+                    onApply={() => {
+                      setActiveRule(rule);
+                      applyRemediation();
+                    }}
+                    isSimulated={simulatedRules.has(rule.rule_id)}
+                  />
+                ))}
+            </div>
+
+            {analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'USED').length === 0 && (
+              <div className="text-center py-4 text-slate-500 text-sm border border-dashed border-slate-700 rounded-lg">
+                No rules with observed traffic
+              </div>
+            )}
           </div>
-          
-          <div className="space-y-2">
-            {analysis.rules_analysis
-              .filter(r => r.direction === 'ingress')
-              .map(rule => (
-                <RuleRow
-                  key={rule.rule_id}
-                  rule={rule}
-                  isExpanded={expandedRules.has(rule.rule_id)}
-                  onToggle={() => toggleRule(rule.rule_id)}
-                  onSimulate={() => runSimulation(rule)}
-                  onApply={() => {
-                    setActiveRule(rule);
-                    applyRemediation();
-                  }}
-                  isSimulated={simulatedRules.has(rule.rule_id)}
-                />
-              ))}
-          </div>
-          
+
+          {/* Section 2: Gap (Unobserved - 0 connections) */}
+          {analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'UNOBSERVED').length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-amber-400"></div>
+                  <h4 className="text-sm font-medium text-amber-400 uppercase tracking-wider">
+                    Gap - Unobserved ({analysis.summary.observation_days}d)
+                  </h4>
+                  <span className="text-xs text-slate-500">
+                    ({analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'UNOBSERVED').length} rules with 0 connections)
+                  </span>
+                </div>
+                <span className="px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-xs font-medium">
+                  Recommended: REMOVE
+                </span>
+              </div>
+
+              <div className="p-3 mb-3 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+                <p className="text-xs text-amber-300/80">
+                  These ports are configured but have 0 observed connections in the {analysis.summary.observation_days}-day observation window.
+                  Remove them to achieve true Least Privilege.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                {analysis.rules_analysis
+                  .filter(r => r.direction === 'ingress' && r.status === 'UNOBSERVED')
+                  .map(rule => (
+                    <RuleRow
+                      key={rule.rule_id}
+                      rule={rule}
+                      isExpanded={expandedRules.has(rule.rule_id)}
+                      onToggle={() => toggleRule(rule.rule_id)}
+                      onSimulate={() => runSimulation(rule)}
+                      onApply={() => {
+                        setActiveRule(rule);
+                        applyRemediation();
+                      }}
+                      isSimulated={simulatedRules.has(rule.rule_id)}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Section 3: Overly Broad (needs tightening) */}
+          {analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'OVERLY_BROAD').length > 0 && (
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-orange-400"></div>
+                  <h4 className="text-sm font-medium text-orange-400 uppercase tracking-wider">
+                    Overly Broad
+                  </h4>
+                  <span className="text-xs text-slate-500">
+                    ({analysis.rules_analysis.filter(r => r.direction === 'ingress' && r.status === 'OVERLY_BROAD').length} rules to tighten)
+                  </span>
+                </div>
+                <span className="px-2 py-1 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                  Recommended: TIGHTEN
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {analysis.rules_analysis
+                  .filter(r => r.direction === 'ingress' && r.status === 'OVERLY_BROAD')
+                  .map(rule => (
+                    <RuleRow
+                      key={rule.rule_id}
+                      rule={rule}
+                      isExpanded={expandedRules.has(rule.rule_id)}
+                      onToggle={() => toggleRule(rule.rule_id)}
+                      onSimulate={() => runSimulation(rule)}
+                      onApply={() => {
+                        setActiveRule(rule);
+                        applyRemediation();
+                      }}
+                      isSimulated={simulatedRules.has(rule.rule_id)}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
+
           {analysis.rules_analysis.filter(r => r.direction === 'ingress').length === 0 && (
             <div className="text-center py-8 text-slate-500">
               No ingress rules found
