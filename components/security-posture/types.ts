@@ -175,3 +175,177 @@ export interface SecurityPostureProps {
 // Helper function types
 export type RiskScoreCalculator = (item: GapItem) => number
 export type ComponentSorter = (a: SecurityComponent, b: SecurityComponent, state: ComponentListState) => number
+
+// ============================================================================
+// Plane Pulse Types - 4-Plane Model for Security Posture
+// ============================================================================
+
+export type PlaneType = 'configured' | 'observed' | 'authorized' | 'changed'
+
+export type PlaneAvailability = 'available' | 'limited' | 'missing'
+
+export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown'
+
+// Observed plane has additional breakdown by source
+export interface ObservedBreakdown {
+  flow_logs: number      // coverage percentage
+  cloudtrail_usage: number
+  xray: number
+}
+
+// Individual plane status
+export interface PlaneStatus {
+  available: boolean
+  coverage_pct: number
+  last_updated: string
+  // Only for observed plane
+  confidence?: ConfidenceLevel
+  breakdown?: ObservedBreakdown
+}
+
+// All 4 planes together
+export interface PlanePulseData {
+  window_days: number
+  planes: {
+    configured: PlaneStatus
+    observed: PlaneStatus
+    authorized: PlaneStatus
+    changed: PlaneStatus
+  }
+}
+
+// Coverage issues for trust banner
+export interface CoverageIssue {
+  source: string
+  issue: string
+  fixAction?: string
+  fixLink?: string
+}
+
+// Props for PlanePulse component
+export interface PlanePulseProps {
+  data: PlanePulseData
+  timeWindow: TimeWindow
+  onTimeWindowChange: (window: TimeWindow) => void
+  coverageIssues?: CoverageIssue[]
+  onFixCoverage?: () => void
+}
+
+// ============================================================================
+// Command Queues Types - 3 Actionable Queues
+// ============================================================================
+
+export type QueueType = 'high_confidence_gaps' | 'architectural_risks' | 'blast_radius_warnings'
+
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+
+export type RiskFlag =
+  | 'world_open'           // 0.0.0.0/0 exposure
+  | 'admin_policy'         // Admin/PowerUser attached
+  | 'wildcard_resource'    // Resource: * in policy
+  | 'wildcard_action'      // Action: * in policy
+  | 'public_bucket'        // S3 public access
+  | 'sensitive_ports'      // SSH/RDP/DB ports exposed
+  | 'cross_account'        // Cross-account trust
+  | 'no_mfa'               // No MFA requirement
+  | 'overly_permissive'    // General over-permission
+
+export type RiskCategory =
+  | 'over_privileged'
+  | 'public_exposure'
+  | 'sensitive_action_wildcard'
+  | 'trust_boundary_violation'
+
+export type BlastRadiusRisk = 'risky' | 'safe' | 'unknown'
+
+export type CTAType =
+  | 'view_impact_report'
+  | 'enable_telemetry'
+  | 'investigate_activity'
+  | 'review_manually'
+  | 'view_change_diff'
+
+// A/U/G metric with state (value vs unknown vs zero)
+export type MetricState = 'value' | 'unknown' | 'zero'
+
+export interface AUGMetric {
+  value: number | null
+  state: MetricState
+}
+
+// Recent change information
+export interface WhyNow {
+  recent_change: boolean
+  changed_at?: string
+  actor?: string
+  change_type?: 'created' | 'modified' | 'deleted'
+  change_summary?: string
+}
+
+// Blast radius assessment
+export interface BlastRadius {
+  neighbors: number
+  critical_paths: number
+  risk: BlastRadiusRisk
+  impacted_services?: string[]
+}
+
+// Recommended action
+export interface RecommendedAction {
+  cta: CTAType
+  cta_label: string
+  reason: string
+  link?: string
+}
+
+// Single queue card item
+export interface QueueCardItem {
+  id: string
+  resource_type: ComponentType
+  resource_name: string
+  resource_arn?: string
+
+  // Severity and confidence
+  severity: Severity
+  confidence: ConfidenceLevel
+
+  // Why this is flagged now
+  why_now?: WhyNow
+
+  // A/U/G metrics
+  A_authorized_breadth: AUGMetric
+  U_observed_usage: AUGMetric
+  G_gap: AUGMetric
+
+  // Risk assessment
+  risk_flags: RiskFlag[]
+  risk_category?: RiskCategory
+  risk_description?: string
+
+  // Blast radius
+  blast_radius: BlastRadius
+
+  // Recommended action
+  recommended_action: RecommendedAction
+
+  // Evidence
+  evidence_window_days?: number
+  last_seen?: string | null
+  observation_count?: number
+}
+
+// All 3 queues together
+export interface CommandQueuesData {
+  high_confidence_gaps: QueueCardItem[]
+  architectural_risks: QueueCardItem[]
+  blast_radius_warnings: QueueCardItem[]
+}
+
+// Props for CommandQueues component
+export interface CommandQueuesProps {
+  data: CommandQueuesData
+  minConfidence: ConfidenceLevel
+  onMinConfidenceChange: (level: ConfidenceLevel) => void
+  onCardClick?: (item: QueueCardItem, queue: QueueType) => void
+  onCTAClick?: (item: QueueCardItem, queue: QueueType) => void
+}
