@@ -144,7 +144,13 @@ export function ComponentList({
 
   // Filter and sort components
   const filteredComponents = useMemo(() => {
-    let result = [...components]
+    // Deduplicate components by id to prevent React key warnings
+    const seen = new Set<string>()
+    let result = components.filter(c => {
+      if (seen.has(c.id)) return false
+      seen.add(c.id)
+      return true
+    })
 
     // Filter by search
     if (localSearch) {

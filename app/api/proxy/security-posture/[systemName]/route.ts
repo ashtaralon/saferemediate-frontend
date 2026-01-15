@@ -22,16 +22,12 @@ export async function GET(
     // Fetch data from multiple endpoints in parallel
     // Use least-privilege/issues endpoint which has actual gap analysis data
     const windowDays = parseInt(window.replace('d', '')) || 365
-    const [lpIssuesRes, sgListRes, postureRes] = await Promise.allSettled([
+    const [lpIssuesRes, sgListRes] = await Promise.allSettled([
       fetch(`${BACKEND_URL}/api/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&observationDays=${windowDays}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       }),
-      fetch(`${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      }),
-      fetch(`${BACKEND_URL}/api/posture/overview/${systemName}?include_details=true`, {
+      fetch(`${BACKEND_URL}/api/infrastructure/security-groups?system_name=${encodeURIComponent(systemName)}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       }),
@@ -43,46 +39,64 @@ export async function GET(
     if (lpIssuesRes.status === "fulfilled" && lpIssuesRes.value.ok) {
       const data = await lpIssuesRes.value.json()
       lpSummary = data.summary
-      // Transform LP resources to IAM gaps format
+      // Transform LP resources to IAM gaps format, deduplicating by id
       const iamResources = (data.resources || []).filter((r: any) => r.resourceType === 'IAMRole')
-      iamGaps = iamResources.map((r: any) => ({
-        role_id: r.resourceArn || r.id,
-        role_name: r.resourceName,
-        allowed_permissions: r.allowedCount || 0,
-        used_permissions: r.usedCount || 0,
-        unused_permissions: r.gapCount || 0,
-        usage_percent: r.lpScore || 0,
-        has_admin_access: r.severity === 'CRITICAL' || r.severity === 'critical',
-        has_wildcards: (r.unusedList || []).some((p: string) => p?.includes('*')),
-      }))
+      const seenIds = new Set<string>()
+      iamGaps = iamResources
+        .filter((r: any) => {
+          const id = r.resourceArn || r.id
+          if (!id || seenIds.has(id)) return false
+          seenIds.add(id)
+          return true
+        })
+        .map((r: any) => ({
+          role_id: r.resourceArn || r.id,
+          role_name: r.resourceName,
+          allowed_permissions: r.allowedCount || 0,
+          used_permissions: r.usedCount || 0,
+          unused_permissions: r.gapCount || 0,
+          usage_percent: r.lpScore || 0,
+          has_admin_access: r.severity === 'CRITICAL' || r.severity === 'critical',
+          has_wildcards: (r.unusedList || []).some((p: string) => p?.includes('*')),
+        }))
     }
 
-    // Process Security Groups
+    // Process Security Groups - the infrastructure endpoint returns an array directly
     let securityGroups: any[] = []
     if (sgListRes.status === "fulfilled" && sgListRes.value.ok) {
-      const data = await sgListRes.value.json()
-      const sgList = data.security_groups || []
+      const sgList = await sgListRes.value.json()
 
       // Fetch gap analysis for each SG (limit to 10 for performance)
-      const sgDetailsPromises = sgList.slice(0, 10).map(async (sg: any) => {
+      const sgDetailsPromises = (Array.isArray(sgList) ? sgList : []).slice(0, 10).map(async (sg: any) => {
         try {
           const res = await fetch(
-            `${BACKEND_URL}/api/security-groups/${sg.id}/gap-analysis?days=${window.replace('d', '')}`,
+            `${BACKEND_URL}/api/security-groups/${sg.id}/inspector?days=${window.replace('d', '')}`,
             { headers: { Accept: "application/json" }, cache: "no-store" }
           )
-          if (res.ok) return await res.json()
-          return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: 0 }
+          if (res.ok) {
+            const data = await res.json()
+            // Map configured_rules to rules_analysis format expected by downstream code
+            const rulesAnalysis = (data.configured_rules || []).map((r: any) => ({
+              source: r.source_cidr || r.source_sg || 'unknown',
+              port_range: r.port_display || `${r.from_port}-${r.to_port}`,
+              protocol: r.protocol?.toUpperCase() || 'TCP',
+              status: r.status?.toUpperCase() || 'UNKNOWN',
+              hits: r.flow_count || 0,
+              is_public: r.is_public || false,
+            }))
+            return {
+              sg_id: sg.id,
+              sg_name: sg.name,
+              rules_analysis: rulesAnalysis,
+              eni_count: data.summary?.total_rules || 0,
+            }
+          }
+          return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: sg.ingress_rules || 0 }
         } catch {
-          return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: 0 }
+          return { sg_id: sg.id, sg_name: sg.name, rules_analysis: [], eni_count: sg.ingress_rules || 0 }
         }
       })
       securityGroups = await Promise.all(sgDetailsPromises)
-    }
-
-    // Process posture overview for additional metadata
-    let postureOverview: any = null
-    if (postureRes.status === "fulfilled" && postureRes.value.ok) {
-      postureOverview = await postureRes.value.json()
     }
 
     // Build Plane Pulse data

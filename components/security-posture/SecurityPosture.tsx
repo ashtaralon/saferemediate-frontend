@@ -508,27 +508,34 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
           setApiSummary(data.summary)
         }
 
-        // Transform components for the list view
-        const transformedComponents: SecurityComponent[] = (data.components || []).map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          type: c.type,
-          lpScore: c.A_authorized_breadth?.value > 0
-            ? Math.round(((c.A_authorized_breadth.value - (c.G_gap?.value || 0)) / c.A_authorized_breadth.value) * 100)
-            : 100,
-          allowedCount: c.A_authorized_breadth?.value || 0,
-          observedCount: c.U_observed_usage?.value || 0,
-          unusedCount: c.G_gap?.value || 0,
-          highestRiskUnused: c.risk_flags?.[0] ? mapFlagToRiskTag(c.risk_flags[0]) : null,
-          hasWildcards: c.risk_flags?.includes('wildcard_action'),
-          hasAdminAccess: c.risk_flags?.includes('admin_policy'),
-          hasInternetExposure: c.risk_flags?.includes('world_open'),
-          confidence: c.confidence === 'high' ? 'strong' : c.confidence === 'medium' ? 'medium' : 'weak',
-          evidenceSources: [
-            { source: 'CloudTrail' as const, status: 'available' as const },
-            { source: 'Config' as const, status: 'available' as const },
-          ],
-        }))
+        // Transform components for the list view, deduplicating by id
+        const seenIds = new Set<string>()
+        const transformedComponents: SecurityComponent[] = (data.components || [])
+          .filter((c: any) => {
+            if (!c.id || seenIds.has(c.id)) return false
+            seenIds.add(c.id)
+            return true
+          })
+          .map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            lpScore: c.A_authorized_breadth?.value > 0
+              ? Math.round(((c.A_authorized_breadth.value - (c.G_gap?.value || 0)) / c.A_authorized_breadth.value) * 100)
+              : 100,
+            allowedCount: c.A_authorized_breadth?.value || 0,
+            observedCount: c.U_observed_usage?.value || 0,
+            unusedCount: c.G_gap?.value || 0,
+            highestRiskUnused: c.risk_flags?.[0] ? mapFlagToRiskTag(c.risk_flags[0]) : null,
+            hasWildcards: c.risk_flags?.includes('wildcard_action'),
+            hasAdminAccess: c.risk_flags?.includes('admin_policy'),
+            hasInternetExposure: c.risk_flags?.includes('world_open'),
+            confidence: c.confidence === 'high' ? 'strong' : c.confidence === 'medium' ? 'medium' : 'weak',
+            evidenceSources: [
+              { source: 'CloudTrail' as const, status: 'available' as const },
+              { source: 'Config' as const, status: 'available' as const },
+            ],
+          }))
 
         setComponents(transformedComponents)
 
