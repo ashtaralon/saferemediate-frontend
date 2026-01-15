@@ -166,6 +166,8 @@ export interface FlowStripProps {
 export interface FlowDetailProps {
   detail: FlowDetail | null
   loading: boolean
+  trafficDataLoading?: boolean // Loading state specifically for "What Happened" traffic data
+  hasRealTrafficData?: boolean // Indicates if data is from real VPC Flow Logs
   onClose: () => void
   onRemoveItem: (itemId: string, type: 'sg_rule' | 'iam_perm') => void
 }

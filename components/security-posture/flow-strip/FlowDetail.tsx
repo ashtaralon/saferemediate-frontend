@@ -73,7 +73,7 @@ function RiskBadge({ risk }: { risk: 'high' | 'medium' | 'low' }) {
   )
 }
 
-export function FlowDetail({ detail, loading, onClose, onRemoveItem }: FlowDetailProps) {
+export function FlowDetail({ detail, loading, trafficDataLoading, hasRealTrafficData, onClose, onRemoveItem }: FlowDetailProps) {
   if (loading) {
     return (
       <div className="h-full flex flex-col bg-white">
@@ -136,46 +136,71 @@ export function FlowDetail({ detail, loading, onClose, onRemoveItem }: FlowDetai
           iconColor="text-green-600"
           bgColor="bg-green-50"
           borderColor="border-green-200"
+          badge={
+            trafficDataLoading ? (
+              <span className="flex items-center gap-1 text-xs text-gray-500 ml-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Loading traffic data...
+              </span>
+            ) : hasRealTrafficData ? (
+              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2">
+                VPC Flow Logs
+              </span>
+            ) : (
+              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2">
+                Estimated
+              </span>
+            )
+          }
         >
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Ports</div>
-              <div className="font-mono text-sm">
-                {whatHappened.ports.map(p => `:${p}`).join(', ')}
-              </div>
+          {trafficDataLoading ? (
+            <div className="flex items-center justify-center py-8 text-gray-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              <span className="text-sm">Loading real traffic data from VPC Flow Logs...</span>
             </div>
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Total Requests</div>
-              <div className="font-semibold text-green-600">{formatNumber(whatHappened.totalRequests)}</div>
-            </div>
-            {whatHappened.latencyP95 && (
-              <div>
-                <div className="text-xs text-gray-500 mb-1">P95 Latency</div>
-                <div className="font-semibold">{whatHappened.latencyP95}ms</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Ports</div>
+                  <div className="font-mono text-sm">
+                    {whatHappened.ports.length > 0 ? whatHappened.ports.map(p => `:${p}`).join(', ') : 'No data'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Total Requests</div>
+                  <div className="font-semibold text-green-600">{formatNumber(whatHappened.totalRequests)}</div>
+                </div>
+                {whatHappened.latencyP95 && (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">P95 Latency</div>
+                    <div className="font-semibold">{whatHappened.latencyP95}ms</div>
+                  </div>
+                )}
+                {whatHappened.bytesTransferred && (
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1">Data Transferred</div>
+                    <div className="font-semibold">{formatBytes(whatHappened.bytesTransferred)}</div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Last Seen</div>
+                  <div className="text-sm">{whatHappened.lastSeen}</div>
+                </div>
               </div>
-            )}
-            {whatHappened.bytesTransferred && (
-              <div>
-                <div className="text-xs text-gray-500 mb-1">Data Transferred</div>
-                <div className="font-semibold">{formatBytes(whatHappened.bytesTransferred)}</div>
-              </div>
-            )}
-            <div>
-              <div className="text-xs text-gray-500 mb-1">Last Seen</div>
-              <div className="text-sm">{whatHappened.lastSeen}</div>
-            </div>
-          </div>
-          {whatHappened.topSources && whatHappened.topSources.length > 0 && (
-            <div className="mt-4 pt-4 border-t">
-              <div className="text-xs text-gray-500 mb-2">Top Sources</div>
-              <div className="flex flex-wrap gap-2">
-                {whatHappened.topSources.map((src, idx) => (
-                  <span key={idx} className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                    {src}
-                  </span>
-                ))}
-              </div>
-            </div>
+              {whatHappened.topSources && whatHappened.topSources.length > 0 && (
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-xs text-gray-500 mb-2">Top Sources</div>
+                  <div className="flex flex-wrap gap-2">
+                    {whatHappened.topSources.map((src, idx) => (
+                      <span key={idx} className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                        {src}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </Section>
 

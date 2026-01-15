@@ -47,6 +47,39 @@ interface XRayTraceData {
   topOperations: { name: string; count: number; avgLatency: number; errorRate: number }[]
 }
 
+// Traffic data from VPC Flow Logs (ACTUAL_TRAFFIC relationships)
+interface TrafficDataResponse {
+  system_name: string
+  resource_id?: string
+  observed_ports: {
+    ports: { port: number; protocol: string; bytesIn: number; bytesOut: number; connections: number; lastSeen?: string }[]
+    totalPorts: number
+    utilizationPercent: number
+    summary: string
+  }
+  traffic_timeline: {
+    period: string
+    data: { date: string; dayName: string; requests: number; bytesTransferred: number; uniqueConnections: number }[]
+    totalRequests: number
+    avgDailyRequests: number
+    firstSeen?: string
+    lastActivity?: string
+  }
+  flows: {
+    direction: 'inbound' | 'outbound'
+    peer_name: string
+    peer_type?: string
+    port: number
+    protocol: string
+    hit_count: number
+    bytes: number
+    last_seen?: string
+    first_seen?: string
+  }[]
+  unique_sources: string[]
+  has_traffic_data: boolean
+}
+
 // Node icons - AWS components
 const NODE_ICONS: Record<NodeType, string> = {
   internet: '🌐',
@@ -972,19 +1005,66 @@ function buildFullStackFlows(
   return flows
 }
 
+// Helper to format relative time from ISO date string
+function formatRelativeTime(dateStr: string): string {
+  try {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins} min ago`
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
+    return date.toLocaleDateString()
+  } catch {
+    return 'Unknown'
+  }
+}
+
 // Generate detailed flow analysis
-function generateFlowDetail(flow: Flow, sgData: any[], iamGaps: any[]): FlowDetailType {
+function generateFlowDetail(
+  flow: Flow,
+  sgData: any[],
+  iamGaps: any[],
+  trafficData?: TrafficDataResponse | null
+): FlowDetailType {
   const allCheckpoints = flow.segments.flatMap(s => s.checkpoints)
   const sgCheckpoints = allCheckpoints.filter(cp => cp.type === 'security_group')
   const iamCheckpoints = allCheckpoints.filter(cp => cp.type === 'iam_role')
 
+  // Use real traffic data when available, otherwise fall back to pattern-matched values
+  const hasRealTraffic = trafficData?.has_traffic_data ?? false
+  const realPorts = trafficData?.observed_ports?.ports || []
+  const realTimeline = trafficData?.traffic_timeline
+  const realSources = trafficData?.unique_sources || []
+
+  // Calculate total bytes from real traffic data
+  const realBytesTransferred = realPorts.reduce((sum, p) => sum + (p.bytesIn || 0) + (p.bytesOut || 0), 0)
+
+  // Format last seen from real traffic data
+  const lastSeenFromTraffic = realTimeline?.lastActivity
+    ? formatRelativeTime(realTimeline.lastActivity)
+    : realPorts[0]?.lastSeen
+      ? formatRelativeTime(realPorts[0].lastSeen)
+      : 'Unknown'
+
   const whatHappened = {
-    ports: flow.segments.map(s => s.port).filter((p): p is number => p !== undefined),
-    totalRequests: flow.totalRequests,
-    latencyP95: flow.latencyP95,
-    bytesTransferred: flow.totalRequests * 1024,
-    lastSeen: 'Just now',
-    topSources: flow.source.type === 'internet' ? ['52.94.133.0', '54.239.28.0', '18.205.93.0'] : undefined,
+    ports: hasRealTraffic
+      ? realPorts.map(p => p.port).filter(Boolean)
+      : flow.segments.map(s => s.port).filter((p): p is number => p !== undefined),
+    totalRequests: hasRealTraffic
+      ? (realTimeline?.totalRequests || realPorts.reduce((sum, p) => sum + (p.connections || 0), 0))
+      : flow.totalRequests,
+    latencyP95: flow.latencyP95, // X-Ray provides this, not VPC Flow Logs
+    bytesTransferred: hasRealTraffic ? realBytesTransferred : flow.totalRequests * 1024,
+    lastSeen: hasRealTraffic ? lastSeenFromTraffic : 'Just now',
+    topSources: hasRealTraffic && realSources.length > 0
+      ? realSources.slice(0, 5)
+      : (flow.source.type === 'internet' ? ['52.94.133.0', '54.239.28.0', '18.205.93.0'] : undefined),
     apiCalls: iamCheckpoints.length > 0 ? [
       { name: 'GetItem', count: Math.floor(Math.random() * 500) },
       { name: 'PutItem', count: Math.floor(Math.random() * 200) },
@@ -1099,6 +1179,8 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [leastPrivilegeData, setLeastPrivilegeData] = useState<LeastPrivilegeData | null>(null)
   const [lpLoading, setLpLoading] = useState(false)
   const [rawGraphData, setRawGraphData] = useState<{ nodes: any[]; edges: any[] }>({ nodes: [], edges: [] })
+  const [trafficData, setTrafficData] = useState<TrafficDataResponse | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false) // Loading state for "What Happened" section
 
   const fetchData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading if not background refresh AND no cached data
@@ -1114,12 +1196,13 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       let fetchedIamGaps: any[] = []
       let fetchedNaclData: any[] = []
 
-      const [mapV2Res, iamRes, xrayServiceRes, xrayTraceRes, naclRes] = await Promise.allSettled([
+      const [mapV2Res, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes] = await Promise.allSettled([
         fetch(`/api/proxy/dependency-map/v2?systemId=${systemName}&window=${timeWindow}&mode=observed`),
         fetch(`/api/proxy/iam-analysis/gaps/${systemName}`),
         fetch(`/api/proxy/xray/service-map?systemName=${systemName}&window=${timeWindow}`),
         fetch(`/api/proxy/xray/traces?systemName=${systemName}&window=${timeWindow}`),
         fetch(`/api/proxy/system-resources/${systemName}?resource_type=NACL`),
+        fetch(`/api/proxy/traffic-data?system_name=${systemName}`), // Real traffic from VPC Flow Logs
       ])
 
       // Parse dependency map v2
@@ -1166,6 +1249,15 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         console.log('[FlowStrip] NACLs:', fetchedNaclData.length)
       }
 
+      // Parse real traffic data from VPC Flow Logs (ACTUAL_TRAFFIC)
+      let fetchedTrafficData: TrafficDataResponse | null = null
+      if (trafficRes.status === 'fulfilled' && trafficRes.value.ok) {
+        const data = await trafficRes.value.json()
+        fetchedTrafficData = data
+        setTrafficData(data)
+        console.log('[FlowStrip] Traffic data:', data.has_traffic_data ? `${data.observed_ports?.totalPorts || 0} ports observed` : 'No traffic data')
+      }
+
       // Build flows with X-Ray enrichment and NACL data
       const allFlows = buildFullStackFlows(graphNodes, graphEdges, fetchedSgData, fetchedIamGaps, fetchedXrayServices, fetchedNaclData)
       console.log('[FlowStrip] Built', allFlows.length, 'flows')
@@ -1182,7 +1274,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
 
       if (allFlows.length > 0 && !selectedFlow) {
         setSelectedFlow(allFlows[0])
-        setFlowDetail(generateFlowDetail(allFlows[0], fetchedSgData, fetchedIamGaps))
+        setFlowDetail(generateFlowDetail(allFlows[0], fetchedSgData, fetchedIamGaps, fetchedTrafficData))
       }
     } catch (err) {
       console.error('Failed to fetch data:', err)
@@ -1195,8 +1287,8 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
 
   const handleSelectFlow = useCallback((flow: Flow) => {
     setSelectedFlow(flow)
-    setFlowDetail(generateFlowDetail(flow, sgData, iamGaps))
-  }, [sgData, iamGaps])
+    setFlowDetail(generateFlowDetail(flow, sgData, iamGaps, trafficData))
+  }, [sgData, iamGaps, trafficData])
 
   // Handle clicking on a node to show Least Privilege Card
   const handleNodeClick = useCallback(async (node: FlowNode, e: React.MouseEvent) => {
@@ -1493,7 +1585,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
     let iamDetailedData: any = null
     if (checkpoint.type === 'iam_role') {
       try {
-        const roleName = checkpoint.name || checkpoint.shortName
+        const roleName = checkpoint.name || checkpoint.shortName || 'unknown'
         const iamResponse = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`)
         if (iamResponse.ok) {
           const iamResult = await iamResponse.json()
@@ -1590,7 +1682,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       // Select first flow
       if (cached.flows.length > 0) {
         setSelectedFlow(cached.flows[0])
-        setFlowDetail(generateFlowDetail(cached.flows[0], [], cached.iamGaps))
+        setFlowDetail(generateFlowDetail(cached.flows[0], [], cached.iamGaps, null)) // Traffic data will be fetched fresh
       }
     }
 
@@ -2133,8 +2225,17 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
               <div className="flex-1 overflow-y-auto p-3.5">
                 {/* What Happened */}
                 <div className="mb-4">
-                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: '#10b981' }}>
-                    📊 What Happened
+                  <h4 className="text-[9px] uppercase tracking-wide mb-2 flex items-center justify-between" style={{ color: '#10b981' }}>
+                    <span className="flex items-center gap-1.5">📊 What Happened</span>
+                    {trafficData?.has_traffic_data ? (
+                      <span className="px-1.5 py-0.5 rounded text-[8px]" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>
+                        VPC Flow Logs
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded text-[8px]" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#64748b' }}>
+                        Estimated
+                      </span>
+                    )}
                   </h4>
                   <div className="rounded-md overflow-hidden" style={{ background: 'rgba(30, 41, 59, 0.3)' }}>
                     <div className="flex items-center gap-2 px-2.5 py-2 text-[10px]" style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.05)' }}>
