@@ -4,7 +4,7 @@ export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
-export const maxDuration = 30
+export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       : `${BACKEND_URL}/api/issues/summary`
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 seconds
+    const timeoutId = setTimeout(() => controller.abort(), 55000) // 55 seconds
     
     const res = await fetch(backendUrl, {
       headers: {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
-export const maxDuration = 30
+export const maxDuration = 60
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
@@ -50,7 +50,7 @@ export async function GET(
   console.log(`[IAM Proxy] Fetching ${roleName} from backend... (refresh=${forceRefresh})`)
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 28000)
+  const timeoutId = setTimeout(() => controller.abort(), 55000) // 55s timeout
 
   try {
     const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}`
