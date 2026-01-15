@@ -642,3 +642,93 @@ export async function rollbackRemediation(findingId: string, snapshotId: string)
     return await res.json()
   } catch { return { success: false, error: 'Failed' } }
 }
+
+// ============================================================================
+// Posture Score API
+// ============================================================================
+
+export interface PostureScoreData {
+  system_name: string
+  overall_score: number
+  grade: 'A' | 'B' | 'C' | 'D' | 'F'
+  dimensions: {
+    least_privilege: {
+      score: number
+      weight: number
+      details: {
+        total_roles: number
+        total_permissions: number
+        used_permissions: number
+        unused_permissions: number
+      }
+    }
+    network_security: {
+      score: number
+      weight: number
+      details: {
+        total_security_groups: number
+        total_rules: number
+        used_rules: number
+        unused_rules: number
+      }
+    }
+    data_protection: {
+      score: number
+      weight: number
+      details: {
+        total_buckets: number
+        encrypted_buckets: number
+        private_buckets: number
+      }
+    }
+    compliance: {
+      score: number
+      weight: number
+      details: {
+        config_rules_compliant: string | number
+        standards_met: string[]
+      }
+    }
+    observability: {
+      score: number
+      weight: number
+      details: {
+        total_resources: number
+        with_flow_logs: number
+        with_cloudtrail: number
+      }
+    }
+  }
+  top_issues: Array<{
+    dimension: string
+    score: number
+    recommendation: string
+  }>
+  window_days: number
+  resources_analyzed: number
+  timestamp: string
+}
+
+export async function fetchPostureScore(systemName: string): Promise<PostureScoreData | null> {
+  try {
+    const response = await fetch(`/api/proxy/posture-score/${encodeURIComponent(systemName)}`, {
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    })
+
+    if (!response.ok) {
+      console.warn("[api-client] Posture score endpoint returned error:", response.status)
+      return null
+    }
+
+    const data = await response.json()
+    console.log("[api-client] Successfully loaded posture score for", systemName)
+    return data
+  } catch (error) {
+    console.warn("[api-client] Posture score fetch failed:", error)
+    return null
+  }
+}

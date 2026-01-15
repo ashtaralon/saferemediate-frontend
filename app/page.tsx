@@ -20,6 +20,7 @@ import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown } from "lucide-react"
+import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
@@ -377,8 +378,11 @@ export default function HomePage() {
             </div>
             <HomeStatsBanner {...statsData} />
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              <div className="lg:col-span-3">
+              <div className="lg:col-span-2">
                 <InfrastructureOverview stats={infrastructureStats} />
+              </div>
+              <div className="lg:col-span-1">
+                <PostureScoreCard systemName="Eltro" />
               </div>
               <div className="lg:col-span-1">
                 <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
