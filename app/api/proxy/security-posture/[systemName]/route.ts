@@ -215,8 +215,8 @@ function buildCommandQueues(iamGaps: any[], sgs: any[], minConf: string) {
       severity: hasAdmin || hasWildcard ? "critical" : gap.unused_permissions > 20 ? "high" : "medium",
       confidence,
       A_authorized_breadth: { value: gap.allowed_permissions || 0, state: "value" },
-      U_observed_usage: { value: gap.used_permissions || 0, state: confidence === "low" ? "unknown" : "value" },
-      G_gap: { value: gap.unused_permissions || 0, state: confidence === "low" ? "unknown" : "value" },
+      U_observed_usage: { value: gap.used_permissions || 0, state: "value" },
+      G_gap: { value: gap.unused_permissions || 0, state: "value" },
       risk_flags: [
         ...(hasAdmin ? ["admin_policy"] : []),
         ...(hasWildcard ? ["wildcard_action"] : []),
@@ -261,8 +261,8 @@ function buildCommandQueues(iamGaps: any[], sgs: any[], minConf: string) {
       severity: hasUnusedPublic ? "critical" : hasPublic ? "high" : "medium",
       confidence,
       A_authorized_breadth: { value: rules.length, state: "value" },
-      U_observed_usage: { value: rules.length - unused, state: confidence === "low" ? "unknown" : "value" },
-      G_gap: { value: unused, state: confidence === "low" ? "unknown" : "value" },
+      U_observed_usage: { value: rules.length - unused, state: "value" },
+      G_gap: { value: unused, state: "value" },
       risk_flags: [
         ...(hasPublic ? ["world_open"] : []),
         ...(hasUnusedPublic ? ["sensitive_ports"] : []),

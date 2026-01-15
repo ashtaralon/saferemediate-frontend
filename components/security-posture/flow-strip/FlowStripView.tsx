@@ -1265,10 +1265,26 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         console.log('[FlowStrip] V2 Data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
       }
 
-      // Parse IAM gaps
+      // Parse IAM gaps - the proxy returns a single role object, wrap it in an array
       if (iamRes.status === 'fulfilled' && iamRes.value.ok) {
         const data = await iamRes.value.json()
-        fetchedIamGaps = data.gaps || []
+        // If data has role_name, it's a single role object - wrap in array with normalized field names
+        // Otherwise, check for gaps array (future-proofing)
+        if (data.role_name) {
+          fetchedIamGaps = [{
+            role_name: data.role_name,
+            role_arn: data.role_arn,
+            allowed_permissions: data.allowed_count || data.allowed_actions || 0,
+            used_permissions: data.used_count || data.used_actions || 0,
+            unused_permissions: data.unused_count || data.unused_actions || 0,
+            allowed_actions_list: data.allowed_actions_list || [],
+            used_actions_list: data.used_actions_list || [],
+            unused_actions_list: data.unused_actions_list || [],
+          }]
+          console.log('[FlowStrip] IAM gap data:', data.role_name, '-', data.allowed_count, 'allowed,', data.unused_count, 'unused')
+        } else {
+          fetchedIamGaps = data.gaps || []
+        }
         setIamGaps(fetchedIamGaps)
         console.log('[FlowStrip] IAM gaps:', fetchedIamGaps.length, 'roles')
       }
@@ -1340,6 +1356,57 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         })
         setSgGapData(sgGapMap)
         console.log('[FlowStrip] SG gap analysis:', sgGapMap.size, 'security groups analyzed')
+      }
+
+      // Fetch detailed IAM gap analysis for roles (the summary endpoint returns 0/0)
+      // Filter to non-service roles that are likely used by app resources
+      const appRoles = fetchedIamGaps.filter((r: any) => {
+        const name = r.role_name?.toLowerCase() || ''
+        return !name.startsWith('awsservicerole') && !name.includes('service-role')
+      }).slice(0, 5) // Limit to 5 roles
+
+      if (appRoles.length > 0) {
+        console.log('[FlowStrip] Fetching detailed gap analysis for', appRoles.length, 'IAM roles')
+        const iamGapPromises = appRoles.map(async (role: any) => {
+          const roleName = role.role_name
+          if (!roleName) return null
+          try {
+            const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis`, {
+              signal: AbortSignal.timeout(10000) // 10 second timeout
+            })
+            if (res.ok) {
+              const data = await res.json()
+              // Only use data if it has actual values (not timeout/error)
+              if (data.allowed_count > 0 || data.allowed_actions_list?.length > 0) {
+                return { roleName, data }
+              }
+            }
+          } catch (e) {
+            console.warn(`[FlowStrip] Failed to fetch IAM gap for ${roleName}:`, e)
+          }
+          return null
+        })
+
+        const iamGapResults = await Promise.all(iamGapPromises)
+        iamGapResults.forEach(result => {
+          if (result?.data) {
+            // Update the role in fetchedIamGaps with detailed data
+            const roleIndex = fetchedIamGaps.findIndex((r: any) => r.role_name === result.roleName)
+            if (roleIndex >= 0) {
+              fetchedIamGaps[roleIndex] = {
+                ...fetchedIamGaps[roleIndex],
+                allowed_permissions: result.data.allowed_count || result.data.allowed_actions || 0,
+                used_permissions: result.data.used_count || result.data.used_actions || 0,
+                unused_permissions: result.data.unused_count || result.data.unused_actions || 0,
+                allowed_actions_list: result.data.allowed_actions_list || [],
+                used_actions_list: result.data.used_actions_list || [],
+                unused_actions_list: result.data.unused_actions_list || [],
+              }
+              console.log(`[FlowStrip] Updated ${result.roleName}: ${result.data.allowed_count} allowed, ${result.data.unused_count} unused`)
+            }
+          }
+        })
+        setIamGaps([...fetchedIamGaps]) // Trigger re-render with updated data
       }
 
       // Build flows with X-Ray enrichment and NACL data
