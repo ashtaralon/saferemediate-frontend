@@ -348,4 +348,7 @@ export interface CommandQueuesProps {
   onMinConfidenceChange: (level: ConfidenceLevel) => void
   onCardClick?: (item: QueueCardItem, queue: QueueType) => void
   onCTAClick?: (item: QueueCardItem, queue: QueueType) => void
+  onGeneratePolicy?: (item: QueueCardItem, queue: QueueType) => void
+  onSimulate?: (item: QueueCardItem, queue: QueueType) => void
+  onRemediate?: (item: QueueCardItem, queue: QueueType) => void
 }

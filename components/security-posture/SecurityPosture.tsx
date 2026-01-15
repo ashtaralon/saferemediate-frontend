@@ -1,12 +1,15 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { RefreshCw, Loader2 } from "lucide-react"
+import { RefreshCw, Loader2, Search, X } from "lucide-react"
 import { PlanePulse } from "./PlanePulse"
 import { CommandQueues } from "./CommandQueues"
 import { ComponentList } from "./ComponentList"
 import { ComponentDetail } from "./ComponentDetail"
 import { S3BucketDetail, type S3BucketDetailData } from "./S3BucketDetail"
+import { LeastPrivilegePolicyModal } from "./LeastPrivilegePolicyModal"
+import { SimulationModal } from "./SimulationModal"
+import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
 import type {
   SecurityPostureProps,
   SecurityComponent,
@@ -451,6 +454,18 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
   // S3-specific detail state
   const [s3BucketDetail, setS3BucketDetail] = useState<S3BucketDetailData | null>(null)
 
+  // Modal state for LP Policy and Simulation
+  const [showPolicyModal, setShowPolicyModal] = useState(false)
+  const [showSimulationModal, setShowSimulationModal] = useState(false)
+  const [selectedUnusedPermissions, setSelectedUnusedPermissions] = useState<string[]>([])
+  // State for IAM Remediation modal (reusing existing LP tab modal)
+  const [showRemediationModal, setShowRemediationModal] = useState(false)
+  const [selectedRoleName, setSelectedRoleName] = useState<string>("")
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [showSearchInput, setShowSearchInput] = useState(false)
+
   // Derived data for new components - use API data when available, fallback to computed
   const windowDays = useMemo(() => {
     const mapping: Record<TimeWindow, number> = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }
@@ -684,17 +699,41 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
     fetchAllData()
   }, [fetchAllData])
 
-  // Filter components by confidence
+  // Filter components by confidence and search query
   const filteredComponents = useMemo(() => {
     const confidenceOrder: ConfidenceLevel[] = ['unknown', 'low', 'medium', 'high']
     const minIndex = confidenceOrder.indexOf(minConfidence)
+    const searchLower = searchQuery.toLowerCase().trim()
 
     return components.filter(c => {
       const componentConfidence = mapConfidence(c.confidence)
       const componentIndex = confidenceOrder.indexOf(componentConfidence)
-      return componentIndex >= minIndex
+      const matchesConfidence = componentIndex >= minIndex
+      const matchesSearch = !searchLower ||
+        c.name.toLowerCase().includes(searchLower) ||
+        c.type.toLowerCase().includes(searchLower) ||
+        c.id.toLowerCase().includes(searchLower)
+      return matchesConfidence && matchesSearch
     })
-  }, [components, minConfidence])
+  }, [components, minConfidence, searchQuery])
+
+  // Filter command queues by search query
+  const filteredCommandQueuesData = useMemo(() => {
+    const searchLower = searchQuery.toLowerCase().trim()
+    if (!searchLower) return commandQueuesData
+
+    const filterItems = (items: QueueCardItem[]) => items.filter(item =>
+      item.resource_name.toLowerCase().includes(searchLower) ||
+      item.resource_type.toLowerCase().includes(searchLower) ||
+      item.resource_arn?.toLowerCase().includes(searchLower)
+    )
+
+    return {
+      high_confidence_gaps: filterItems(commandQueuesData.high_confidence_gaps),
+      architectural_risks: filterItems(commandQueuesData.architectural_risks),
+      blast_radius_warnings: filterItems(commandQueuesData.blast_radius_warnings),
+    }
+  }, [commandQueuesData, searchQuery])
 
   if (loading) {
     return (
@@ -722,6 +761,39 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
             <div className="text-right">
               <div className="text-3xl font-bold text-red-300">{summary.highRiskCandidates}</div>
               <div className="text-indigo-200 text-xs">High Risk</div>
+            </div>
+            {/* Search input */}
+            <div className="flex items-center gap-2">
+              {showSearchInput ? (
+                <div className="flex items-center bg-white/10 rounded-lg px-3 py-1.5">
+                  <Search className="w-4 h-4 text-indigo-200" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name..."
+                    className="bg-transparent border-none outline-none text-white placeholder-indigo-200 ml-2 w-48 text-sm"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => {
+                      setSearchQuery("")
+                      setShowSearchInput(false)
+                    }}
+                    className="ml-2 hover:bg-white/10 p-1 rounded"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowSearchInput(true)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                  title="Search"
+                >
+                  <Search className="w-5 h-5" />
+                </button>
+              )}
             </div>
             <button
               onClick={fetchAllData}
@@ -752,11 +824,38 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
         {/* Command Queues Section */}
         <div className="px-6 py-4 border-b bg-gray-50">
           <CommandQueues
-            data={commandQueuesData}
+            data={filteredCommandQueuesData}
             minConfidence={minConfidence}
             onMinConfidenceChange={setMinConfidence}
             onCardClick={handleQueueCardClick}
             onCTAClick={handleQueueCTAClick}
+            onGeneratePolicy={(item, queue) => {
+              // Find the component and open the LP Policy modal
+              const component = components.find(c => c.id === item.id || c.name === item.resource_name)
+              if (component) {
+                setSelectedComponent(component)
+                setShowPolicyModal(true)
+              }
+            }}
+            onSimulate={(item, queue) => {
+              // Find the component and open the Simulation modal
+              const component = components.find(c => c.id === item.id || c.name === item.resource_name)
+              if (component) {
+                setSelectedComponent(component)
+                // Extract gap actions for simulation
+                const gapValue = item.G_gap?.value || 0
+                // For now, we'll let the modal fetch unused permissions
+                setSelectedUnusedPermissions([])
+                setShowSimulationModal(true)
+              }
+            }}
+            onRemediate={(item, queue) => {
+              // Open the IAM Permission Analysis Modal (same as Least Privilege tab)
+              if (item.resource_type === 'iam_role' || item.resource_type === 'iam_user') {
+                setSelectedRoleName(item.resource_name)
+                setShowRemediationModal(true)
+              }
+            }}
           />
         </div>
 
@@ -768,6 +867,11 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
               <h3 className="font-semibold text-gray-900">Component Heatmap</h3>
               <p className="text-sm text-gray-500">
                 {filteredComponents.length} components • Sorted by {listState.sortBy}
+                {searchQuery && (
+                  <span className="ml-2 text-indigo-600">
+                    • Filtered by "{searchQuery}"
+                  </span>
+                )}
               </p>
             </div>
             <ComponentList
@@ -805,10 +909,21 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
                   setComponentDiff(null)
                 }}
                 onGeneratePolicy={() => {
-                  console.log('Generate policy for', selectedComponent?.name)
+                  // Open LP Policy Modal
+                  if (selectedComponent) {
+                    setShowPolicyModal(true)
+                  }
                 }}
                 onSimulateImpact={() => {
-                  console.log('Simulate impact for', selectedComponent?.name)
+                  // Open Simulation Modal with unused permissions
+                  if (selectedComponent && componentDiff) {
+                    // Extract unused permission actions from the diff
+                    const unusedActions = componentDiff.iamActions?.items
+                      ?.filter(item => item.recommendation === 'remove' || item.observedCount === 0)
+                      ?.map(item => item.identifier) || []
+                    setSelectedUnusedPermissions(unusedActions)
+                    setShowSimulationModal(true)
+                  }
                 }}
                 onExport={() => {
                   console.log('Export for', selectedComponent?.name)
@@ -818,6 +933,44 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
           </div>
         </div>
       </div>
+
+      {/* Least Privilege Policy Modal */}
+      <LeastPrivilegePolicyModal
+        isOpen={showPolicyModal}
+        onClose={() => setShowPolicyModal(false)}
+        roleArn={selectedComponent?.id || null}
+        roleName={selectedComponent?.name || ''}
+      />
+
+      {/* Simulation Modal */}
+      <SimulationModal
+        isOpen={showSimulationModal}
+        onClose={() => setShowSimulationModal(false)}
+        roleArn={selectedComponent?.id || null}
+        roleName={selectedComponent?.name || ''}
+        unusedPermissions={selectedUnusedPermissions}
+      />
+
+      {/* IAM Remediation Modal - Same as Least Privilege tab */}
+      <IAMPermissionAnalysisModal
+        isOpen={showRemediationModal}
+        onClose={() => {
+          setShowRemediationModal(false)
+          setSelectedRoleName("")
+        }}
+        roleName={selectedRoleName}
+        systemName={systemName}
+        onApplyFix={(data) => {
+          console.log('[SecurityPosture] Apply fix requested:', data)
+        }}
+        onRemediationSuccess={(roleName) => {
+          console.log('[SecurityPosture] Remediation successful for:', roleName)
+          setShowRemediationModal(false)
+          setSelectedRoleName("")
+          // Refresh data to remove remediated resource from list
+          fetchAllData()
+        }}
+      />
     </div>
   )
 }

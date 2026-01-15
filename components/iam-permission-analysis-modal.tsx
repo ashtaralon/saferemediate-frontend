@@ -79,6 +79,7 @@ export function IAMPermissionAnalysisModal({
   const [simulating, setSimulating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
+  const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -185,12 +186,39 @@ export function IAMPermissionAnalysisModal({
       })
       
       setGapData(mappedData)
+      // Initialize all unused permissions as selected by default
+      const unusedPermsSet = new Set(mappedData.unused_permissions)
+      setSelectedPermissionsToRemove(unusedPermsSet)
     } catch (err: any) {
       console.error('[IAM-Modal] Error:', err)
       setError(err.message || 'Failed to fetch gap analysis')
     } finally {
       setLoading(false)
     }
+  }
+
+  // Toggle permission selection
+  const togglePermissionSelection = (permission: string) => {
+    setSelectedPermissionsToRemove(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(permission)) {
+        newSet.delete(permission)
+      } else {
+        newSet.add(permission)
+      }
+      return newSet
+    })
+  }
+
+  // Select/deselect all unused permissions
+  const selectAllPermissions = () => {
+    if (gapData) {
+      setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
+    }
+  }
+
+  const deselectAllPermissions = () => {
+    setSelectedPermissionsToRemove(new Set())
   }
 
   const handleClose = () => {
@@ -213,25 +241,26 @@ export function IAMPermissionAnalysisModal({
     
     setApplying(true)
     try {
-      // Call the remediation API
+      // Call the remediation API with selected permissions only
+      const permissionsToRemove = Array.from(selectedPermissionsToRemove)
       const response = await fetch('/api/proxy/iam-roles/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role_name: roleName,
-          permissions_to_remove: unusedPermissions.map(p => p.permission),
+          permissions_to_remove: permissionsToRemove,
           create_snapshot: createSnapshot,
-          snapshot_reason: `Pre-remediation backup - removing ${unusedCount} permissions`
+          snapshot_reason: `Pre-remediation backup - removing ${permissionsToRemove.length} permissions`
         })
       })
       
       const result = await response.json()
       
       if (result.success && result.permissions_removed > 0) {
-        // Show success toast
+        // Show success toast with snapshot info
         toast({
           title: "✅ Remediation Applied Successfully",
-          description: `Removed ${result.permissions_removed} permissions from ${roleName}`,
+          description: `Removed ${result.permissions_removed} permissions from ${roleName}${createSnapshot ? '. Snapshot created for rollback.' : ''}`,
           variant: "default"
         })
         
@@ -342,7 +371,7 @@ export function IAMPermissionAnalysisModal({
         <div className="relative w-[600px] bg-white rounded-2xl shadow-2xl p-8 text-center">
           <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-purple-600" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">Analyzing Permissions</h2>
-          <p className="text-gray-500">Fetching CloudTrail data for {roleName}...</p>
+          <p className="text-gray-500">Fetching CloudTrail data for <span className="font-bold text-gray-700">{roleName}</span>...</p>
         </div>
       </div>
     )
@@ -384,7 +413,10 @@ export function IAMPermissionAnalysisModal({
         <div className="absolute inset-0 bg-black/60" />
         <div className="relative w-[700px] bg-white rounded-2xl shadow-2xl p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Simulating Permission Removal</h2>
-          <p className="text-gray-500 mb-6">{roleName} - Analyzing {observationDays} days of permission usage...</p>
+          <p className="text-lg mb-6">
+            <span className="font-bold text-gray-900">{roleName}</span>
+            <span className="text-gray-500"> - Analyzing {observationDays} days of permission usage...</span>
+          </p>
           
           <div className="space-y-4">
             {[
@@ -422,7 +454,10 @@ export function IAMPermissionAnalysisModal({
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Simulation Results</h2>
-              <p className="text-gray-500">Permission Removal Analysis</p>
+              <p className="text-lg">
+                <span className="font-bold text-gray-900">{roleName}</span>
+                <span className="text-gray-500"> - Permission Removal Analysis</span>
+              </p>
             </div>
             <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
               <X className="w-6 h-6" />
@@ -447,39 +482,76 @@ export function IAMPermissionAnalysisModal({
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span>Remove {unusedCount} unused permissions from {roleName}</span>
+                  <span>Remove <strong>{selectedPermissionsToRemove.size}</strong> selected permissions from {roleName}</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span>Reduce attack surface by {unusedPercent}%</span>
+                  <span>Reduce attack surface by {totalPermissions > 0 ? Math.round((selectedPermissionsToRemove.size / totalPermissions) * 100) : 0}%</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span>Improve LP score from {lpScore}% to 100%</span>
+                  <span>Improve LP score from {lpScore}% to {totalPermissions > 0 ? Math.round(((totalPermissions - unusedCount + (unusedCount - selectedPermissionsToRemove.size)) / totalPermissions) * 100) : 100}%</span>
                 </div>
               </div>
             </div>
 
-            {/* Permissions to Remove */}
+            {/* Permissions to Remove - With Selection */}
             <div>
-              <h3 className="font-bold text-lg text-gray-900 mb-3">Permissions to Remove ({unusedCount}):</h3>
-              <div className="p-4 bg-red-50 border border-red-200 rounded-xl max-h-48 overflow-y-auto">
-                <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-lg text-gray-900">
+                  Permissions to Remove ({selectedPermissionsToRemove.size} of {unusedCount} selected)
+                </h3>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    onClick={selectAllPermissions}
+                    className="text-indigo-600 hover:underline font-medium"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-gray-400">|</span>
+                  <button
+                    onClick={deselectAllPermissions}
+                    className="text-indigo-600 hover:underline font-medium"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl max-h-64 overflow-y-auto">
+                <div className="space-y-2">
                   {unusedPermissions.map((perm, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                      <span className="font-mono text-gray-700 truncate">{perm.permission}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                    <label
+                      key={i}
+                      className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                        selectedPermissionsToRemove.has(perm.permission)
+                          ? 'bg-red-100 border border-red-300'
+                          : 'bg-white border border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPermissionsToRemove.has(perm.permission)}
+                        onChange={() => togglePermissionSelection(perm.permission)}
+                        className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500"
+                      />
+                      <span className="font-mono text-sm text-gray-700 flex-1 truncate">{perm.permission}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
                         perm.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-700' :
                         perm.risk_level === 'HIGH' ? 'bg-orange-100 text-orange-700' :
                         'bg-gray-100 text-gray-600'
                       }`}>
                         {perm.risk_level}
                       </span>
-                    </div>
+                    </label>
                   ))}
                 </div>
               </div>
+              {selectedPermissionsToRemove.size === 0 && (
+                <p className="mt-2 text-sm text-amber-600 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Select at least one permission to remove
+                </p>
+              )}
             </div>
 
             {/* Permissions to Keep */}
@@ -648,9 +720,9 @@ export function IAMPermissionAnalysisModal({
                 />
                 <span className="text-sm text-gray-600">Create rollback checkpoint first</span>
               </label>
-              <button 
+              <button
                 onClick={handleApplyFix}
-                disabled={applying}
+                disabled={applying || selectedPermissionsToRemove.size === 0}
                 className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {applying ? (
@@ -659,7 +731,7 @@ export function IAMPermissionAnalysisModal({
                     Applying...
                   </>
                 ) : (
-                  'APPLY FIX NOW'
+                  `APPLY FIX (${selectedPermissionsToRemove.size} permissions)`
                 )}
               </button>
             </div>
@@ -678,7 +750,10 @@ export function IAMPermissionAnalysisModal({
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Permission Usage Analysis</h2>
-            <p className="text-gray-500">{roleName} - IAMRole - {systemName}</p>
+            <p className="text-lg">
+              <span className="font-bold text-gray-900">{roleName}</span>
+              <span className="text-gray-500"> - IAMRole - {systemName}</span>
+            </p>
           </div>
           <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-6 h-6" />

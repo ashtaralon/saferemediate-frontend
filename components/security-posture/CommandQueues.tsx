@@ -244,9 +244,12 @@ interface QueueCardProps {
   queueType: QueueType
   onClick?: () => void
   onCTAClick?: () => void
+  onGeneratePolicy?: () => void
+  onSimulate?: () => void
+  onRemediate?: () => void
 }
 
-function QueueCard({ item, queueType, onClick, onCTAClick }: QueueCardProps) {
+function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onSimulate, onRemediate }: QueueCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const severityConfig = SEVERITY_CONFIG[item.severity]
   const confidenceConfig = CONFIDENCE_CONFIG[item.confidence]
@@ -424,6 +427,32 @@ function QueueCard({ item, queueType, onClick, onCTAClick }: QueueCardProps) {
         </div>
       )}
 
+      {/* Action Buttons - LP Policy & Remediate (Simulate is inside Remediate flow) */}
+      {(item.resource_type === 'iam_role' || item.resource_type === 'iam_user') && (
+        <div className="px-3 py-2 border-t border-gray-100 flex gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onGeneratePolicy?.()
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium bg-indigo-100 text-indigo-700 hover:bg-indigo-200 transition-colors"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>LP Policy</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemediate?.()
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Remediate</span>
+          </button>
+        </div>
+      )}
+
       {/* CTA Button */}
       <div className="p-3 border-t border-gray-100">
         <button
@@ -455,9 +484,12 @@ interface QueueColumnProps {
   items: QueueCardItem[]
   onCardClick?: (item: QueueCardItem) => void
   onCTAClick?: (item: QueueCardItem) => void
+  onGeneratePolicy?: (item: QueueCardItem) => void
+  onSimulate?: (item: QueueCardItem) => void
+  onRemediate?: (item: QueueCardItem) => void
 }
 
-function QueueColumn({ type, items, onCardClick, onCTAClick }: QueueColumnProps) {
+function QueueColumn({ type, items, onCardClick, onCTAClick, onGeneratePolicy, onSimulate, onRemediate }: QueueColumnProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const config = QUEUE_CONFIG[type]
@@ -510,6 +542,9 @@ function QueueColumn({ type, items, onCardClick, onCTAClick }: QueueColumnProps)
                   queueType={type}
                   onClick={() => onCardClick?.(item)}
                   onCTAClick={() => onCTAClick?.(item)}
+                  onGeneratePolicy={() => onGeneratePolicy?.(item)}
+                  onSimulate={() => onSimulate?.(item)}
+                  onRemediate={() => onRemediate?.(item)}
                 />
               ))}
 
@@ -600,6 +635,9 @@ export function CommandQueues({
   onMinConfidenceChange,
   onCardClick,
   onCTAClick,
+  onGeneratePolicy,
+  onSimulate,
+  onRemediate,
 }: CommandQueuesProps) {
   // Filter items based on minimum confidence
   const filterByConfidence = (items: QueueCardItem[]): QueueCardItem[] => {
@@ -638,18 +676,27 @@ export function CommandQueues({
           items={filteredGaps}
           onCardClick={(item) => onCardClick?.(item, 'high_confidence_gaps')}
           onCTAClick={(item) => onCTAClick?.(item, 'high_confidence_gaps')}
+          onGeneratePolicy={(item) => onGeneratePolicy?.(item, 'high_confidence_gaps')}
+          onSimulate={(item) => onSimulate?.(item, 'high_confidence_gaps')}
+          onRemediate={(item) => onRemediate?.(item, 'high_confidence_gaps')}
         />
         <QueueColumn
           type="architectural_risks"
           items={filteredRisks}
           onCardClick={(item) => onCardClick?.(item, 'architectural_risks')}
           onCTAClick={(item) => onCTAClick?.(item, 'architectural_risks')}
+          onGeneratePolicy={(item) => onGeneratePolicy?.(item, 'architectural_risks')}
+          onSimulate={(item) => onSimulate?.(item, 'architectural_risks')}
+          onRemediate={(item) => onRemediate?.(item, 'architectural_risks')}
         />
         <QueueColumn
           type="blast_radius_warnings"
           items={filteredWarnings}
           onCardClick={(item) => onCardClick?.(item, 'blast_radius_warnings')}
           onCTAClick={(item) => onCTAClick?.(item, 'blast_radius_warnings')}
+          onGeneratePolicy={(item) => onGeneratePolicy?.(item, 'blast_radius_warnings')}
+          onSimulate={(item) => onSimulate?.(item, 'blast_radius_warnings')}
+          onRemediate={(item) => onRemediate?.(item, 'blast_radius_warnings')}
         />
       </div>
     </div>
