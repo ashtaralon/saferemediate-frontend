@@ -417,7 +417,10 @@ function detectCoverageIssues(data: PlanePulseData): CoverageIssue[] {
         fixAction: 'Enable CloudTrail data events',
       })
     }
-    if (observed.breakdown.xray < 10) {
+    // Only show X-Ray warning if other telemetry sources are good but overall coverage is still low
+    // X-Ray is optional - don't warn if Flow Logs and CloudTrail provide sufficient coverage
+    const hasGoodBaseCoverage = observed.breakdown.flow_logs >= 50 && observed.breakdown.cloudtrail_usage >= 50
+    if (observed.breakdown.xray < 10 && !hasGoodBaseCoverage && observed.coverage_pct < 30) {
       issues.push({
         source: 'X-Ray',
         issue: 'Tracing not enabled',
