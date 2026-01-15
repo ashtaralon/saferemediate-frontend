@@ -47,6 +47,25 @@ interface XRayTraceData {
   topOperations: { name: string; count: number; avgLatency: number; errorRate: number }[]
 }
 
+// SG Gap Analysis response from backend
+interface SGGapAnalysisResponse {
+  sg_id: string
+  sg_name: string
+  rules_analysis: {
+    source: string
+    port_range: string
+    protocol: string
+    status: string
+    hits: number
+    is_public: boolean
+    description: string
+  }[]
+  used_rules: number
+  unused_rules: number
+  total_rules: number
+  eni_count?: number
+}
+
 // Traffic data from VPC Flow Logs (ACTUAL_TRAFFIC relationships)
 interface TrafficDataResponse {
   system_name: string
@@ -286,6 +305,20 @@ function buildFullStackFlows(
     nacls: naclData.length
   })
 
+  // Helper to find SG gap analysis data by name or ID
+  const findSgGapData = (sgNameOrId: string): SGGapAnalysisResponse | undefined => {
+    // Try to find by exact ID match
+    const byId = sgData.find((sg: any) => sg.sg_id === sgNameOrId)
+    if (byId) return byId
+
+    // Try to find by name match
+    const sgNameLower = sgNameOrId.toLowerCase()
+    return sgData.find((sg: any) =>
+      sg.sg_name?.toLowerCase().includes(sgNameLower) ||
+      sg.sg_id?.toLowerCase().includes(sgNameLower)
+    )
+  }
+
   // Helper to find NACL for a subnet or create a default NACL checkpoint
   const findNaclForSubnet = (subnetId?: string): FlowCheckpoint | null => {
     if (!naclData.length) return null
@@ -451,44 +484,54 @@ function buildFullStackFlows(
 
       const trafficData = rdsEdge || { flows: 847, port: 5432, bytes_total: 258434 }
 
-      // ALB SG checkpoint (if ALB exists)
+      // ALB SG checkpoint (if ALB exists) - use real gap data if available
+      const albSgGapData = findSgGapData('ALB-SG') || findSgGapData('alb')
       const albSgCheckpoint: FlowCheckpoint = {
-        id: `alb-sg-${idx}`,
+        id: albSgGapData?.sg_id || `alb-sg-${idx}`,
         type: 'security_group',
-        name: 'ALB-SG',
-        shortName: 'ALB-SG',
-        usedCount: 1,
-        totalCount: 2,
-        gapCount: 1,
-        usedItems: [':443 from 0.0.0.0/0'],
-        unusedItems: [':80 from 0.0.0.0/0'],
+        name: albSgGapData?.sg_name || 'ALB-SG',
+        shortName: (albSgGapData?.sg_name || 'ALB-SG').substring(0, 10),
+        usedCount: albSgGapData?.used_rules ?? 1,
+        totalCount: albSgGapData?.total_rules ?? 2,
+        gapCount: albSgGapData?.unused_rules ?? 1,
+        usedItems: albSgGapData?.rules_analysis
+          ?.filter((r: any) => r.status === 'USED' || r.hits > 0)
+          .map((r: any) => `${r.port_range} from ${r.source}`) || [':443 from 0.0.0.0/0'],
+        unusedItems: albSgGapData?.rules_analysis
+          ?.filter((r: any) => r.status === 'UNUSED' || r.hits === 0)
+          .map((r: any) => `${r.port_range} from ${r.source}`) || [':80 from 0.0.0.0/0'],
       }
 
-      // App Server SG checkpoint
+      // App Server SG checkpoint - use real gap data if available
+      const appSgGapData = findSgGapData(ec2ShortName) || findSgGapData('app') || findSgGapData('frontend')
       const appSgCheckpoint: FlowCheckpoint = {
-        id: `sg-${idx}`,
+        id: appSgGapData?.sg_id || `sg-${idx}`,
         type: 'security_group',
-        name: `${ec2ShortName}-sg`,
-        shortName: `${ec2ShortName}-sg`.substring(0, 10),
-        usedCount: 1,
-        totalCount: 1,
-        gapCount: 0,
-        usedItems: hasALB ? [':443 from ALB-SG'] : [':443 from 0.0.0.0/0'],
-        unusedItems: [],
+        name: appSgGapData?.sg_name || `${ec2ShortName}-sg`,
+        shortName: (appSgGapData?.sg_name || `${ec2ShortName}-sg`).substring(0, 10),
+        usedCount: appSgGapData?.used_rules ?? 1,
+        totalCount: appSgGapData?.total_rules ?? 1,
+        gapCount: appSgGapData?.unused_rules ?? 0,
+        usedItems: appSgGapData?.rules_analysis
+          ?.filter((r: any) => r.status === 'USED' || r.hits > 0)
+          .map((r: any) => `${r.port_range} from ${r.source}`) || (hasALB ? [':443 from ALB-SG'] : [':443 from 0.0.0.0/0']),
+        unusedItems: appSgGapData?.rules_analysis
+          ?.filter((r: any) => r.status === 'UNUSED' || r.hits === 0)
+          .map((r: any) => `${r.port_range} from ${r.source}`) || [],
       }
 
-      // IAM role checkpoint
+      // IAM role checkpoint - use gap data from iamGaps array
       const role = findRoleFor(ec2Name)
       const roleCheckpoint: FlowCheckpoint = {
-        id: `role-${idx}`,
+        id: role?.role_id || `role-${idx}`,
         type: 'iam_role',
         name: role?.role_name || `${ec2ShortName}-role`,
         shortName: (role?.role_name || `${ec2ShortName}-role`).substring(0, 12),
-        usedCount: role?.used_permissions || 1,
-        totalCount: role?.allowed_permissions || 1,
-        gapCount: role?.unused_permissions || 0,
-        usedItems: [],
-        unusedItems: [],
+        usedCount: role?.used_permissions ?? 1,
+        totalCount: role?.allowed_permissions ?? 1,
+        gapCount: role?.unused_permissions ?? 0,
+        usedItems: role?.used_actions_list?.slice(0, 5) || [], // Show top 5 used actions
+        unusedItems: role?.unused_actions_list?.slice(0, 5) || [], // Show top 5 unused actions
       }
 
       const internetNode: FlowNode = {
@@ -832,16 +875,22 @@ function buildFullStackFlows(
           unusedItems: [],
         }
 
+        // Use real SG gap data if available
+        const apiSgGapData = findSgGapData(ec2ShortName) || findSgGapData('app')
         const sgCheckpoint: FlowCheckpoint = {
-          id: `sg-api-${idx}`,
+          id: apiSgGapData?.sg_id || `sg-api-${idx}`,
           type: 'security_group',
-          name: `${ec2ShortName}-sg`,
-          shortName: `${ec2ShortName}-sg`.substring(0, 10),
-          usedCount: 1,
-          totalCount: 2,
-          gapCount: 0,
-          usedItems: [],
-          unusedItems: [],
+          name: apiSgGapData?.sg_name || `${ec2ShortName}-sg`,
+          shortName: (apiSgGapData?.sg_name || `${ec2ShortName}-sg`).substring(0, 10),
+          usedCount: apiSgGapData?.used_rules ?? 1,
+          totalCount: apiSgGapData?.total_rules ?? 2,
+          gapCount: apiSgGapData?.unused_rules ?? 0,
+          usedItems: apiSgGapData?.rules_analysis
+            ?.filter((r: any) => r.status === 'USED' || r.hits > 0)
+            .map((r: any) => `${r.port_range} from ${r.source}`).slice(0, 5) || [],
+          unusedItems: apiSgGapData?.rules_analysis
+            ?.filter((r: any) => r.status === 'UNUSED' || r.hits === 0)
+            .map((r: any) => `${r.port_range} from ${r.source}`).slice(0, 5) || [],
         }
 
         const internetNode: FlowNode = {
@@ -1181,6 +1230,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [rawGraphData, setRawGraphData] = useState<{ nodes: any[]; edges: any[] }>({ nodes: [], edges: [] })
   const [trafficData, setTrafficData] = useState<TrafficDataResponse | null>(null)
   const [detailLoading, setDetailLoading] = useState(false) // Loading state for "What Happened" section
+  const [sgGapData, setSgGapData] = useState<Map<string, SGGapAnalysisResponse>>(new Map()) // SG gap analysis cache
 
   const fetchData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading if not background refresh AND no cached data
@@ -1256,6 +1306,40 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         fetchedTrafficData = data
         setTrafficData(data)
         console.log('[FlowStrip] Traffic data:', data.has_traffic_data ? `${data.observed_ports?.totalPorts || 0} ports observed` : 'No traffic data')
+      }
+
+      // Fetch SG gap analysis for security groups found in topology
+      const sgNodes = graphNodes.filter(n =>
+        n.type === 'SecurityGroup' || n.resource_type === 'SecurityGroup' || n.id?.startsWith('sg-')
+      )
+      const sgGapMap = new Map<string, SGGapAnalysisResponse>()
+
+      if (sgNodes.length > 0) {
+        console.log('[FlowStrip] Fetching gap analysis for', sgNodes.length, 'security groups')
+        const sgGapPromises = sgNodes.slice(0, 5).map(async (sg) => { // Limit to 5 to avoid too many requests
+          const sgId = sg.id?.match(/sg-[a-f0-9]+/)?.[0] || sg.id
+          if (!sgId) return null
+          try {
+            const res = await fetch(`/api/proxy/security-groups/${sgId}/gap-analysis?days=365`)
+            if (res.ok) {
+              const data = await res.json()
+              return { sgId, data }
+            }
+          } catch (e) {
+            console.warn(`[FlowStrip] Failed to fetch SG gap for ${sgId}:`, e)
+          }
+          return null
+        })
+
+        const sgGapResults = await Promise.all(sgGapPromises)
+        sgGapResults.forEach(result => {
+          if (result?.data) {
+            sgGapMap.set(result.sgId, result.data)
+            fetchedSgData.push(result.data)
+          }
+        })
+        setSgGapData(sgGapMap)
+        console.log('[FlowStrip] SG gap analysis:', sgGapMap.size, 'security groups analyzed')
       }
 
       // Build flows with X-Ray enrichment and NACL data
