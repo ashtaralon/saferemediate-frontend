@@ -132,6 +132,8 @@ export default function DependencyMapTab({
   const [isLoading, setIsLoading] = useState(true)
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [syncJobId, setSyncJobId] = useState<string | null>(null)
   const [syncProgress, setSyncProgress] = useState<{ step: number; total: number; message: string; percent: number } | null>(null)
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -142,8 +144,8 @@ export default function DependencyMapTab({
     setIsLoading(true)
     setResourcesLoading(true)
     try {
-      console.log('[DependencyMapTab] Fetching graph data for system:', systemName)
-      
+      console.log('[DependencyMapTab] Fetching graph data for system:', systemName, 'search:', searchQuery)
+
       // Add client-side timeout to prevent infinite loading (60s for cold starts)
       const controller = new AbortController()
       const timeoutId = setTimeout(() => {
@@ -151,7 +153,13 @@ export default function DependencyMapTab({
         controller.abort('Request timeout after 60 seconds')
       }, 60000) // 60 second client timeout for cold starts
 
-      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`, {
+      // Build URL with optional search parameter
+      let url = `/api/proxy/dependency-map/full?systemName=${encodeURIComponent(systemName)}`
+      if (searchQuery) {
+        url += `&search=${encodeURIComponent(searchQuery)}`
+      }
+
+      const res = await fetch(url, {
         signal: controller.signal,
         cache: 'no-store',
       })
@@ -225,7 +233,7 @@ export default function DependencyMapTab({
       setIsLoading(false)
       setResourcesLoading(false)
     }
-  }, [systemName])
+  }, [systemName, searchQuery])
 
   // Fetch resources separately if not loaded from graph
   const fetchResources = useCallback(async () => {
@@ -511,8 +519,44 @@ export default function DependencyMapTab({
           )}
         </div>
 
-        {/* Right side: Description + Sync button */}
+        {/* Right side: Search + Description + Sync button */}
         <div className="flex items-center gap-4">
+          {/* Search Box */}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search resources..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setSearchQuery(searchInput)
+                  }
+                }}
+                className="pl-9 pr-4 py-2 w-48 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <button
+              onClick={() => setSearchQuery(searchInput)}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              Search
+            </button>
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchInput('')
+                  setSearchQuery('')
+                }}
+                className="px-3 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors text-sm font-medium"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           <div className="text-sm text-slate-500">
             {activeView === 'sankey' ? (
               <span>Professional traffic flow visualization • Based on actual VPC Flow Logs</span>

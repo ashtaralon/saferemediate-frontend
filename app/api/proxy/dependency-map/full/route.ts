@@ -17,8 +17,9 @@ export async function GET(req: NextRequest) {
   const systemName = url.searchParams.get("systemName") ?? "alon-prod"
   const includeUnused = url.searchParams.get("includeUnused") ?? "true"
   const maxNodes = url.searchParams.get("maxNodes") ?? "200"
-  
-  const cacheKey = `dependency-map:${systemName}:${includeUnused}:${maxNodes}`
+  const search = url.searchParams.get("search") ?? ""
+
+  const cacheKey = `dependency-map:${systemName}:${includeUnused}:${maxNodes}:${search}`
   const now = Date.now()
   
   // Check in-memory cache
@@ -42,10 +43,15 @@ export async function GET(req: NextRequest) {
     // Reduced timeout to 25 seconds to prevent long waits
     const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
 
-    const backendUrl = `${BACKEND_URL}/api/dependency-map/full?` +
+    let backendUrl = `${BACKEND_URL}/api/dependency-map/full?` +
       `system_name=${encodeURIComponent(systemName)}` +
       `&include_unused=${includeUnused}` +
       `&max_nodes=${maxNodes}`
+
+    // Add search parameter if provided
+    if (search) {
+      backendUrl += `&search=${encodeURIComponent(search)}`
+    }
 
     console.log(`[Dependency Map Full Proxy] Fetching from: ${backendUrl}`)
     
