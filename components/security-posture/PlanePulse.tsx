@@ -197,7 +197,7 @@ interface PlaneChipProps {
 }
 
 function PlaneChip({ type, status }: PlaneChipProps) {
-  const config = PLANE_CONFIG[type]
+  const config = PLANE_CONFIG[type] ?? { label: 'Unknown', icon: Settings, description: 'Unknown plane', color: 'text-gray-700', bgColor: 'bg-gray-50', borderColor: 'border-gray-200' }
   const availability = getAvailabilityStatus(status)
   const AvailabilityIcon = getAvailabilityIcon(availability)
   const Icon = config.icon
@@ -248,7 +248,7 @@ function PlaneChip({ type, status }: PlaneChipProps) {
           </div>
 
           {/* Confidence badge for observed plane */}
-          {type === 'observed' && status.confidence && (
+          {type === 'observed' && status.confidence && CONFIDENCE_CONFIG[status.confidence] && (
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-gray-500">Confidence:</span>
               <span className={`

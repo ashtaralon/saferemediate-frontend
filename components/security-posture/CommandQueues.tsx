@@ -251,9 +251,9 @@ interface QueueCardProps {
 
 function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onSimulate, onRemediate }: QueueCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const severityConfig = SEVERITY_CONFIG[item.severity]
-  const confidenceConfig = CONFIDENCE_CONFIG[item.confidence]
-  const resourceIconConfig = RESOURCE_TYPE_ICONS[item.resource_type]
+  const severityConfig = SEVERITY_CONFIG[item.severity] ?? SEVERITY_CONFIG.medium
+  const confidenceConfig = CONFIDENCE_CONFIG[item.confidence] ?? CONFIDENCE_CONFIG.unknown
+  const resourceIconConfig = RESOURCE_TYPE_ICONS[item.resource_type] ?? { icon: Shield, color: 'text-gray-600', bgColor: 'bg-gray-100' }
   const ResourceIcon = resourceIconConfig.icon
 
   // Determine card style based on queue type
@@ -299,6 +299,7 @@ function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onS
           <div className="flex flex-wrap gap-1 mt-2">
             {item.risk_flags.slice(0, 3).map((flag) => {
               const flagConfig = RISK_FLAG_CONFIG[flag]
+              if (!flagConfig) return null
               const FlagIcon = flagConfig.icon
               return (
                 <span
