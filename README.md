@@ -1,4 +1,4 @@
-# SafeRemediate - AWS Security Remediation Platform
+# CYNTRO - Cloud Security Platform
 
 **Status:** MVP Stage - Active Development  
 **Version:** 1.0  
@@ -32,7 +32,7 @@
 
 ---
 
-## 🎯 What is SafeRemediate?
+## 🎯 What is CYNTRO?
 
 **Automated AWS security remediation with guaranteed rollback.**
 
@@ -80,7 +80,7 @@
 ## 🏗️ Project Structure
 
 ```
-saferemediate-frontend/
+cyntro-frontend/
 ├── MVP_DOCUMENTATION.md              ⭐ START HERE (Truth table)
 │
 ├── Documentation/
@@ -121,7 +121,7 @@ saferemediate-frontend/
 2. **The Analysis** (1.5 min) - Explain confidence scores and evidence
 3. **The Simulation** (1 min) - Preview changes before/after
 4. **The Roadmap** (0.5 min) - Path to production
-5. **The Pitch** (1 min) - Why SafeRemediate is different
+5. **The Pitch** (1 min) - Why CYNTRO is different
 
 [Full demo script in MVP_DOCUMENTATION.md →](./MVP_DOCUMENTATION.md#-5-minute-demo-script)
 
@@ -251,15 +251,15 @@ saferemediate-frontend/
 ## 📞 Contact
 
 ### Investors
-- **Email:** [investors@saferemediate.com]
+- **Email:** [investors@cyntro.io]
 - **Deck:** [Request pitch deck]
 
 ### Pilot Customers
-- **Email:** [pilot@saferemediate.com]
+- **Email:** [pilot@cyntro.io]
 - **Offer:** 6 months free, 50% off Year 1
 
 ### Technical Questions
-- **Email:** [tech@saferemediate.com]
+- **Email:** [tech@cyntro.io]
 - **Slack:** [Request invite]
 - **Calendar:** [Schedule 30-min call]
 
@@ -277,7 +277,7 @@ Proprietary - All rights reserved
 
 Most tools say: *"These permissions look unused."*
 
-SafeRemediate says: *"We can safely remove these permissions now — and we guarantee rollback."*
+CYNTRO says: *"We can safely remove these permissions now — and we guarantee rollback."*
 
 **The difference:**
 - ✅ Evidence-based (not assumption-based)
@@ -295,7 +295,7 @@ SafeRemediate says: *"We can safely remove these permissions now — and we guar
 **Status:** Active Development  
 **Last Updated:** December 25, 2024
 
-**Built with 💙 by the SafeRemediate Team**
+**Built with 💙 by the CYNTRO Team**
 
 ---
 
