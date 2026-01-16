@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { Home, AlertTriangle, Server, Grid3x3, Key, Plug, Zap } from "lucide-react"
 
 interface LeftSidebarNavProps {
@@ -29,15 +30,13 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
     >
       <div className="px-6 py-5 border-b" style={{ borderColor: "var(--border-subtle)" }}>
         <div className="flex items-center gap-3">
-          <div
-            className="relative w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
-            style={{
-              background: "linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%)",
-              boxShadow: "0 0 0 2px rgba(124, 58, 237, 0.3), 0 0 0 4px rgba(59, 130, 246, 0.2)",
-            }}
-          >
-            <span className="text-white font-bold text-lg" style={{ fontFamily: "system-ui" }}>C</span>
-          </div>
+          <Image
+            src="/cyntro-logo.png"
+            alt="CYNTRO Logo"
+            width={36}
+            height={36}
+            className="rounded"
+          />
           <h1
             className="text-xl font-bold"
             style={{
