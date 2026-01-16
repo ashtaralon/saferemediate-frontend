@@ -210,7 +210,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
     // Step 1: Try to load from cache immediately
     try {
-      const cached = localStorage.getItem("impactiq-systems")
+      const cached = localStorage.getItem("cyntro-systems")
       if (cached) {
         const parsed = JSON.parse(cached)
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -246,7 +246,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
   // Save to cache whenever systems change
   useEffect(() => {
     if (localSystems.length > 0) {
-      localStorage.setItem("impactiq-systems", JSON.stringify(localSystems))
+      localStorage.setItem("cyntro-systems", JSON.stringify(localSystems))
     }
   }, [localSystems])
 

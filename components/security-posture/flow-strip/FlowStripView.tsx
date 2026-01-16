@@ -1171,7 +1171,7 @@ function generateFlowDetail(
 type TimeWindow = '7d' | '30d' | '90d'
 
 // Cache helpers for instant load
-const FLOW_CACHE_KEY = (sysName: string, tw: string) => `impactiq-flows-${sysName}-${tw}`
+const FLOW_CACHE_KEY = (sysName: string, tw: string) => `cyntro-flows-${sysName}-${tw}`
 const FLOW_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 interface FlowCacheData {

@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
-  title: "ImpactIQ - Cloud Security Dashboard",
+  title: "CYNTRO - Cloud Security Platform",
   description: "Monitor and manage your cloud security posture across all systems",
   generator: "v0.app",
   icons: {

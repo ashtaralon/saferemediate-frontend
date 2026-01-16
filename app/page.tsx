@@ -56,10 +56,10 @@ interface GapAnalysisData {
 
 // Cache keys for localStorage
 const CACHE_KEYS = {
-  INFRASTRUCTURE: 'impactiq-infrastructure-cache',
-  FINDINGS: 'impactiq-findings-cache',
-  GAP_DATA: 'impactiq-gap-cache',
-  TIMESTAMP: 'impactiq-cache-timestamp',
+  INFRASTRUCTURE: 'cyntro-infrastructure-cache',
+  FINDINGS: 'cyntro-findings-cache',
+  GAP_DATA: 'cyntro-gap-cache',
+  TIMESTAMP: 'cyntro-cache-timestamp',
 }
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes - show cached data but refresh if older
@@ -490,7 +490,7 @@ export default function HomePage() {
       default:
         return (
           <div>
-            <h1 className="text-4xl font-bold mb-4 text-gray-900">Welcome to ImpactIQ</h1>
+            <h1 className="text-4xl font-bold mb-4 text-gray-900">Welcome to CYNTRO</h1>
           </div>
         )
     }

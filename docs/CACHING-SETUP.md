@@ -16,10 +16,10 @@ Files changed:
 - `app/page.tsx` - Infrastructure/findings caching
 
 Cache keys used:
-- `impactiq-systems` - Systems list
-- `impactiq-infrastructure-cache` - Infrastructure data
-- `impactiq-findings-cache` - Security findings
-- `impactiq-gap-cache` - Gap analysis data
+- `cyntro-systems` - Systems list
+- `cyntro-infrastructure-cache` - Infrastructure data
+- `cyntro-findings-cache` - Security findings
+- `cyntro-gap-cache` - Gap analysis data
 
 ### Layer 2: Backend (Render /data disk) - OPTIONAL
 For even faster responses, add disk-based caching to your backend:

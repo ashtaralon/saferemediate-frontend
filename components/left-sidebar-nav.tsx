@@ -28,12 +28,27 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
       }}
     >
       <div className="px-6 py-5 border-b" style={{ borderColor: "var(--border-subtle)" }}>
-        <div className="flex items-center gap-2">
-          <div className="relative w-8 h-8 rounded-lg flex items-center justify-center text-xl overflow-hidden bg-gradient-blue">
-            <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent pointer-events-none"></div>
-            🛡️
+        <div className="flex items-center gap-3">
+          <div
+            className="relative w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
+            style={{
+              background: "linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%)",
+              boxShadow: "0 0 0 2px rgba(124, 58, 237, 0.3), 0 0 0 4px rgba(59, 130, 246, 0.2)",
+            }}
+          >
+            <span className="text-white font-bold text-lg" style={{ fontFamily: "system-ui" }}>C</span>
           </div>
-          <h1 className="text-xl font-bold text-gradient-blue">ImpactIQ</h1>
+          <h1
+            className="text-xl font-bold"
+            style={{
+              background: "linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            CYNTRO
+          </h1>
         </div>
       </div>
 
