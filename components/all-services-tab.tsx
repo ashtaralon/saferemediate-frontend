@@ -160,7 +160,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     setSyncing(true)
     setSyncMessage(null)
     try {
-      const response = await fetch('/api/proxy/collectors/sync-all?days=7', {
+      const response = await fetch('/api/proxy/collectors/sync-all?days=2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(120000), // 2 minute timeout

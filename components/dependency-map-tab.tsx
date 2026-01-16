@@ -361,7 +361,7 @@ export default function DependencyMapTab({
     setSyncProgress(null)
 
     try {
-      const response = await fetch('/api/proxy/collectors/sync-all/start?days=7', {
+      const response = await fetch('/api/proxy/collectors/sync-all/start?days=2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(30000),

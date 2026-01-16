@@ -138,7 +138,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
     try {
       console.log("[SyncFromAWS] Starting async sync job...")
 
-      const response = await fetch("/api/proxy/collectors/sync-all/start?days=7", {
+      const response = await fetch("/api/proxy/collectors/sync-all/start?days=2", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

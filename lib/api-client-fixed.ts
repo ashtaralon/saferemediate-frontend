@@ -367,7 +367,7 @@ export async function testBackendHealth(): Promise<{ success: boolean; message: 
 export async function fetchGapAnalysis(roleName: string = "SafeRemediate-Lambda-Remediation-Role"): Promise<any> {
   try {
     // Trigger traffic ingestion first (background, don't wait)
-    fetch(`${BACKEND_URL}/api/traffic/ingest?days=7`).catch(() => {})
+    fetch(`${BACKEND_URL}/api/traffic/ingest?days=2`).catch(() => {})
 
     // No caching for gap analysis (always fresh)
     const response = await fetch(`${BACKEND_URL}/api/traffic/gap/${roleName}`, {
