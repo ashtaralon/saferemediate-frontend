@@ -128,6 +128,8 @@ const RISK_FLAG_CONFIG: Record<RiskFlag, {
   cross_account: { label: 'Cross-Account', icon: Users, color: 'text-amber-600' },
   no_mfa: { label: 'No MFA', icon: Lock, color: 'text-orange-600' },
   overly_permissive: { label: 'Over-Permissive', icon: Unlock, color: 'text-amber-600' },
+  no_encryption: { label: 'No Encryption', icon: Unlock, color: 'text-orange-600' },
+  policy_issues: { label: 'Policy Issues', icon: AlertTriangle, color: 'text-amber-600' },
 }
 
 const CTA_LABELS: Record<CTAType, string> = {

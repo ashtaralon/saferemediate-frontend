@@ -249,6 +249,8 @@ export type RiskFlag =
   | 'cross_account'        // Cross-account trust
   | 'no_mfa'               // No MFA requirement
   | 'overly_permissive'    // General over-permission
+  | 'no_encryption'        // S3 bucket not encrypted
+  | 'policy_issues'        // S3 bucket policy issues
 
 export type RiskCategory =
   | 'over_privileged'
