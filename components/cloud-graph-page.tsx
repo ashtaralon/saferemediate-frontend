@@ -696,7 +696,7 @@ export default function CloudGraphPage() {
           </div>
 
           {/* Issues */}
-          {nodeDetails[selectedNode].issues.length > 0 && (
+          {nodeDetails[selectedNode]?.issues && nodeDetails[selectedNode].issues.length > 0 && (
             <div>
               <label className="text-sm font-semibold text-gray-600 block mb-3">Active Issues</label>
               <div className="space-y-2">

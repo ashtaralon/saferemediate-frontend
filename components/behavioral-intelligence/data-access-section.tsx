@@ -180,12 +180,12 @@ const BucketAccessTable: React.FC<{ buckets: BucketAccess[] }> = ({ buckets }) =
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
-                  {bucket.top_principals.slice(0, 2).map((principal, i) => (
+                  {bucket.top_principals?.slice(0, 2).map((principal, i) => (
                     <span key={i} className="px-2 py-0.5 bg-slate-700/50 text-slate-300 rounded text-xs truncate max-w-[120px]">
                       {extractPrincipalName(principal)}
                     </span>
                   ))}
-                  {bucket.top_principals.length > 2 && (
+                  {bucket.top_principals && bucket.top_principals.length > 2 && (
                     <span className="px-2 py-0.5 bg-slate-700/50 text-slate-500 rounded text-xs">
                       +{bucket.top_principals.length - 2}
                     </span>

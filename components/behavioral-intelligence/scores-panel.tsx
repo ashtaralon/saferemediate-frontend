@@ -209,7 +209,7 @@ export const ScoresPanel: React.FC<ScoresPanelProps> = ({
 
       {/* Top Actors / Talkers */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {network && network.top_talkers.length > 0 && (
+        {network?.top_talkers && network.top_talkers.length > 0 && (
           <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
             <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
               <Network className="w-4 h-4 text-violet-400" />
@@ -226,7 +226,7 @@ export const ScoresPanel: React.FC<ScoresPanelProps> = ({
           </div>
         )}
 
-        {identity && identity.top_actors.length > 0 && (
+        {identity?.top_actors && identity.top_actors.length > 0 && (
           <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
             <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-400" />

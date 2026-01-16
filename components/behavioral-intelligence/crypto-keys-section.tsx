@@ -210,12 +210,12 @@ const KeysTable: React.FC<{ keys: KmsKey[] }> = ({ keys }) => {
               </td>
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
-                  {key.top_principals.slice(0, 2).map((principal, i) => (
+                  {key.top_principals?.slice(0, 2).map((principal, i) => (
                     <span key={i} className="px-2 py-0.5 bg-slate-700/50 text-slate-300 rounded text-xs truncate max-w-[100px]">
                       {extractPrincipalName(principal)}
                     </span>
                   ))}
-                  {key.top_principals.length > 2 && (
+                  {key.top_principals && key.top_principals.length > 2 && (
                     <span className="px-2 py-0.5 bg-slate-700/50 text-slate-500 rounded text-xs">
                       +{key.top_principals.length - 2}
                     </span>
