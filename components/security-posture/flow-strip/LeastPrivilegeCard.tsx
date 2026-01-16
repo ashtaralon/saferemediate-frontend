@@ -232,7 +232,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               </div>
 
               {/* Expandable details */}
-              {data.currentConfig.details.length > 0 && (
+              {data.currentConfig?.details && data.currentConfig.details.length > 0 && (
                 <div className="space-y-1">
                   {data.currentConfig.details.map((detail, i) => (
                     <div key={i} className="text-xs font-mono px-2 py-1 rounded" style={{ background: 'rgba(30, 41, 59, 0.5)', color: '#94a3b8' }}>
@@ -286,7 +286,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
           {expandedSections.has('observed') && (
             <div className="px-4 pb-4 space-y-4">
               {/* For Security Groups - Observed Ports */}
-              {data.observedBehavior.observedPorts && data.observedBehavior.observedPorts.length > 0 && (
+              {data.observedBehavior?.observedPorts && data.observedBehavior.observedPorts.length > 0 && (
                 <div>
                   <h5 className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                     Observed Ports
@@ -305,7 +305,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* For Security Groups - Observed Sources */}
-              {data.observedBehavior.observedSources && data.observedBehavior.observedSources.length > 0 && (
+              {data.observedBehavior?.observedSources && data.observedBehavior.observedSources.length > 0 && (
                 <div>
                   <h5 className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                     Observed Sources
@@ -330,7 +330,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* For IAM Roles - Used Actions */}
-              {data.observedBehavior.usedActions && data.observedBehavior.usedActions.length > 0 && (
+              {data.observedBehavior?.usedActions && data.observedBehavior.usedActions.length > 0 && (
                 <div>
                   <h5 className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                     Used Actions (CloudTrail)
@@ -355,7 +355,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* For IAM Roles - Unused Actions (collapsed by service) */}
-              {data.observedBehavior.unusedActions && data.observedBehavior.unusedActions.length > 0 && (
+              {data.observedBehavior?.unusedActions && data.observedBehavior.unusedActions.length > 0 && (
                 <div>
                   <h5 className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                     Unused Actions (by Service)
@@ -374,7 +374,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* For S3 - Accessing Principals */}
-              {data.observedBehavior.accessingPrincipals && data.observedBehavior.accessingPrincipals.length > 0 && (
+              {data.observedBehavior?.accessingPrincipals && data.observedBehavior.accessingPrincipals.length > 0 && (
                 <div>
                   <h5 className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                     Accessing Principals
@@ -394,7 +394,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* For S3 - Used Operations */}
-              {data.observedBehavior.usedOperations && data.observedBehavior.usedOperations.length > 0 && (
+              {data.observedBehavior?.usedOperations && data.observedBehavior.usedOperations.length > 0 && (
                 <div>
                   <h5 className="text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
                     Used Operations
@@ -410,7 +410,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* Credential Context (IAM) */}
-              {data.observedBehavior.credentialContext && (
+              {data.observedBehavior?.credentialContext && (
                 <div className="px-3 py-2 rounded" style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
                   <span className="text-xs" style={{ color: '#64748b' }}>Credential context: </span>
                   <span className="text-xs font-medium" style={{ color: '#a78bfa' }}>{data.observedBehavior.credentialContext}</span>
@@ -418,21 +418,23 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* Last Activity & Coverage */}
-              <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
-                <div className="text-xs" style={{ color: '#64748b' }}>
-                  Last activity: <span style={{ color: '#10b981' }}>{data.observedBehavior.lastActivity}</span>
+              {data.observedBehavior && (
+                <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
+                  <div className="text-xs" style={{ color: '#64748b' }}>
+                    Last activity: <span style={{ color: '#10b981' }}>{data.observedBehavior.lastActivity}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{
+                        background: data.observedBehavior.coverageLevel === 'high' ? '#10b981' :
+                                    data.observedBehavior.coverageLevel === 'partial' ? '#f59e0b' : '#ef4444'
+                      }}
+                    />
+                    <span className="text-xs" style={{ color: '#94a3b8' }}>{data.observedBehavior.coverageNote}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{
-                      background: data.observedBehavior.coverageLevel === 'high' ? '#10b981' :
-                                  data.observedBehavior.coverageLevel === 'partial' ? '#f59e0b' : '#ef4444'
-                    }}
-                  />
-                  <span className="text-xs" style={{ color: '#94a3b8' }}>{data.observedBehavior.coverageNote}</span>
-                </div>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -460,7 +462,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
                     <span>✗</span> Replace
                   </h5>
                   <div className="space-y-1">
-                    {data.recommendation.before.map((item, i) => (
+                    {data.recommendation?.before?.map((item, i) => (
                       <div key={i} className="px-2 py-1.5 rounded text-xs font-mono" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#fca5a5' }}>
                         {item}
                       </div>
@@ -474,7 +476,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
                     <span>✓</span> With
                   </h5>
                   <div className="space-y-1">
-                    {data.recommendation.after.map((item, i) => (
+                    {data.recommendation?.after?.map((item, i) => (
                       <div key={i} className="px-2 py-1.5 rounded text-xs font-mono" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#6ee7b7' }}>
                         {item}
                       </div>
@@ -484,7 +486,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               </div>
 
               {/* Generated Policy Preview (for IAM) */}
-              {data.recommendation.generatedPolicy && (
+              {data.recommendation?.generatedPolicy && (
                 <div>
                   <button
                     onClick={() => setShowGeneratedPolicy(!showGeneratedPolicy)}
@@ -503,7 +505,7 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
               )}
 
               {/* Impact Preview */}
-              {data.recommendation.impactPreview && data.recommendation.impactPreview.length > 0 && (
+              {data.recommendation?.impactPreview && data.recommendation.impactPreview.length > 0 && (
                 <div className="px-3 py-2 rounded" style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
                   <h5 className="text-xs font-semibold mb-1" style={{ color: '#3b82f6' }}>Impact Preview</h5>
                   {data.recommendation.impactPreview.map((impact, i) => (
@@ -521,22 +523,22 @@ export function LeastPrivilegeCard({ data, loading, onClose, onApplyFix }: Least
             Evidence Sources
           </h5>
           <div className="flex flex-wrap gap-2">
-            {data.dataSources.flowLogs && (
+            {data.dataSources?.flowLogs && (
               <span className="px-2 py-1 rounded text-xs" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
                 ✓ Flow Logs
               </span>
             )}
-            {data.dataSources.cloudTrail && (
+            {data.dataSources?.cloudTrail && (
               <span className="px-2 py-1 rounded text-xs" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa' }}>
                 ✓ CloudTrail
               </span>
             )}
-            {data.dataSources.awsConfig && (
+            {data.dataSources?.awsConfig && (
               <span className="px-2 py-1 rounded text-xs" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>
                 ✓ AWS Config
               </span>
             )}
-            {data.dataSources.iam && (
+            {data.dataSources?.iam && (
               <span className="px-2 py-1 rounded text-xs" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#ec4899' }}>
                 ✓ IAM Analysis
               </span>

@@ -21,7 +21,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
     try {
       const response = await fetch(`/api/proxy/system-graph?systemName=${encodeURIComponent(system.systemName)}`)
       const data = await response.json()
-      if (data.success && data.resources) {
+      if (data.success && Array.isArray(data.resources)) {
         const allResources: SystemGraphResource[] = data.resources.map((r: any) => ({
           id: r.id, name: r.name, type: r.type,
           source: (r.source === "seed") ? "seed" : "derived" as "seed" | "derived"

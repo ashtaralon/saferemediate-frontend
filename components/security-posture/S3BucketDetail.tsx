@@ -709,13 +709,13 @@ export function S3BucketDetail({
               <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
                 <FileText className="w-4 h-4" />
                 Bucket Policy
-                {!data.bucketPolicy.hasBucketPolicy && (
+                {!data.bucketPolicy?.hasBucketPolicy && (
                   <span className="text-xs text-gray-500">(No policy attached)</span>
                 )}
               </h3>
-              {data.bucketPolicy.hasBucketPolicy ? (
+              {data.bucketPolicy?.hasBucketPolicy ? (
                 <div className="space-y-2">
-                  {data.bucketPolicy.statements.map((stmt, i) => (
+                  {data.bucketPolicy.statements?.map((stmt, i) => (
                     <PolicyStatementCard key={i} statement={stmt} />
                   ))}
                 </div>
@@ -727,7 +727,7 @@ export function S3BucketDetail({
             </div>
 
             {/* ACL Grants */}
-            {data.aclGrants.length > 0 && (
+            {data.aclGrants && data.aclGrants.length > 0 && (
               <div>
                 <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
                   <Users className="w-4 h-4" />

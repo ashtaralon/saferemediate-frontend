@@ -335,10 +335,10 @@ export function SGInspectorV2({
       </div>
 
       {/* Top Source IPs - only show if there's data */}
-      {data.top_source_ips.length > 0 && (
+      {data.top_source_ips && data.top_source_ips.length > 0 && (
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
-            Top Source IPs (VPC Flow Logs, {data.evidence.flow_logs.window_days}d)
+            Top Source IPs (VPC Flow Logs, {data.evidence?.flow_logs?.window_days ?? 0}d)
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -380,7 +380,7 @@ export function SGInspectorV2({
             Recommended Tightening
           </h3>
           <ul className="space-y-2">
-            {data.recommendations!.map((rec, idx) => (
+            {data.recommendations?.map((rec, idx) => (
               <li key={idx} className="text-sm text-orange-800">
                 • {rec.rule_summary} — <span className="text-orange-600">{rec.reason}</span>
               </li>
@@ -393,7 +393,7 @@ export function SGInspectorV2({
       <div className="px-6 py-3 bg-gray-50 text-xs text-gray-500">
         <div className="flex items-center gap-2">
           <Clock className="w-3 h-3" />
-          Evidence: {data.evidence.flow_logs.available ? (
+          Evidence: {data.evidence?.flow_logs?.available ? (
             <span className="text-green-600">✓ Flow Logs ({data.evidence.flow_logs.window_days} day window)</span>
           ) : (
             <span className="text-gray-400">No Flow Logs available</span>
