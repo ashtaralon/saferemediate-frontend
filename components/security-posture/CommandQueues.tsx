@@ -185,7 +185,8 @@ function getBlastRadiusColor(risk: BlastRadiusRisk): string {
   }
 }
 
-function renderMetricValue(metric: { value: number | null; state: MetricState }): React.ReactNode {
+function renderMetricValue(metric: { value: number | null; state: MetricState } | null | undefined): React.ReactNode {
+  if (!metric) return <span className="text-gray-400">??</span>
   if (metric.state === 'unknown') {
     return <span className="text-gray-400">??</span>
   }
@@ -195,7 +196,8 @@ function renderMetricValue(metric: { value: number | null; state: MetricState })
   return <span>{metric.value}</span>
 }
 
-function getMetricColor(metric: { value: number | null; state: MetricState }, type: 'A' | 'U' | 'G'): string {
+function getMetricColor(metric: { value: number | null; state: MetricState } | null | undefined, type: 'A' | 'U' | 'G'): string {
+  if (!metric) return 'text-gray-400'
   if (metric.state === 'unknown') return 'text-gray-400'
   if (metric.state === 'zero' || metric.value === 0) return 'text-gray-500'
 
@@ -302,7 +304,7 @@ function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onS
         </div>
 
         {/* Risk Flags */}
-        {item.risk_flags.length > 0 && (
+        {item.risk_flags && Array.isArray(item.risk_flags) && item.risk_flags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {item.risk_flags.slice(0, 3).map((flag) => {
               const flagConfig = RISK_FLAG_CONFIG[flag]
@@ -391,16 +393,16 @@ function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onS
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className={`flex items-center gap-1 cursor-help ${getBlastRadiusColor(item.blast_radius.risk)}`}>
+            <div className={`flex items-center gap-1 cursor-help ${getBlastRadiusColor(item.blast_radius?.risk || 'unknown')}`}>
               <Zap className="w-3.5 h-3.5" />
-              <span>{item.blast_radius.neighbors} neighbors</span>
+              <span>{item.blast_radius?.neighbors ?? 0} neighbors</span>
             </div>
           </TooltipTrigger>
           <TooltipContent>
             <div>
-              <div>Blast radius: {item.blast_radius.neighbors} connected resources</div>
-              <div>{item.blast_radius.critical_paths} critical paths</div>
-              {item.blast_radius.impacted_services && item.blast_radius.impacted_services.length > 0 && (
+              <div>Blast radius: {item.blast_radius?.neighbors ?? 0} connected resources</div>
+              <div>{item.blast_radius?.critical_paths ?? 0} critical paths</div>
+              {item.blast_radius?.impacted_services && item.blast_radius.impacted_services.length > 0 && (
                 <div className="mt-1 text-gray-400">
                   Services: {item.blast_radius.impacted_services.slice(0, 3).join(', ')}
                 </div>
@@ -482,7 +484,7 @@ function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onS
             }
           `}
         >
-          <span>{item.recommended_action.cta_label}</span>
+          <span>{item.recommended_action?.cta_label || 'View Details'}</span>
           <ExternalLink className="w-4 h-4" />
         </button>
       </div>
@@ -652,6 +654,7 @@ export function CommandQueues({
 }: CommandQueuesProps) {
   // Filter items based on minimum confidence
   const filterByConfidence = (items: QueueCardItem[]): QueueCardItem[] => {
+    if (!Array.isArray(items)) return []
     const confidenceOrder: ConfidenceLevel[] = ['unknown', 'low', 'medium', 'high']
     const minIndex = confidenceOrder.indexOf(minConfidence)
 
@@ -661,9 +664,9 @@ export function CommandQueues({
     })
   }
 
-  const filteredGaps = filterByConfidence(data.high_confidence_gaps)
-  const filteredRisks = filterByConfidence(data.architectural_risks)
-  const filteredWarnings = filterByConfidence(data.blast_radius_warnings)
+  const filteredGaps = filterByConfidence(data?.high_confidence_gaps || [])
+  const filteredRisks = filterByConfidence(data?.architectural_risks || [])
+  const filteredWarnings = filterByConfidence(data?.blast_radius_warnings || [])
 
   const totalCount = filteredGaps.length + filteredRisks.length + filteredWarnings.length
 
