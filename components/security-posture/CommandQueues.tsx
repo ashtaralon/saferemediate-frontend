@@ -253,6 +253,11 @@ interface QueueCardProps {
 
 function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onSimulate, onRemediate }: QueueCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+
+  if (!SEVERITY_CONFIG[item.severity]) console.warn(`[CommandQueues] Unknown severity: "${item.severity}"`)
+  if (!CONFIDENCE_CONFIG[item.confidence]) console.warn(`[CommandQueues] Unknown confidence: "${item.confidence}"`)
+  if (!RESOURCE_TYPE_ICONS[item.resource_type]) console.warn(`[CommandQueues] Unknown resource_type: "${item.resource_type}"`)
+
   const severityConfig = SEVERITY_CONFIG[item.severity] ?? SEVERITY_CONFIG.medium
   const confidenceConfig = CONFIDENCE_CONFIG[item.confidence] ?? CONFIDENCE_CONFIG.unknown
   const resourceIconConfig = RESOURCE_TYPE_ICONS[item.resource_type] ?? { icon: Shield, color: 'text-gray-600', bgColor: 'bg-gray-100' }
@@ -301,7 +306,10 @@ function QueueCard({ item, queueType, onClick, onCTAClick, onGeneratePolicy, onS
           <div className="flex flex-wrap gap-1 mt-2">
             {item.risk_flags.slice(0, 3).map((flag) => {
               const flagConfig = RISK_FLAG_CONFIG[flag]
-              if (!flagConfig) return null
+              if (!flagConfig) {
+                console.warn(`[CommandQueues] Unknown risk flag: "${flag}"`)
+                return null
+              }
               const FlagIcon = flagConfig.icon
               return (
                 <span

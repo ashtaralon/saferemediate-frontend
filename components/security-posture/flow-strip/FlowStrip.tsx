@@ -53,6 +53,7 @@ function formatTimeAgo(dateStr: string): string {
 
 // Node component with stats
 function FlowNodeDisplay({ node, showStats = true }: { node: FlowNode; showStats?: boolean }) {
+  if (!NODE_CONFIG[node.type]) console.warn(`[FlowStrip] Unknown node type: "${node.type}"`)
   const config = NODE_CONFIG[node.type] ?? { icon: Server, color: 'text-gray-500', bg: 'bg-gray-50', label: 'Unknown' }
   const Icon = config.icon
 
@@ -78,6 +79,7 @@ function FlowNodeDisplay({ node, showStats = true }: { node: FlowNode; showStats
 
 // Checkpoint (gate) component - sits ON the flow line
 function CheckpointGate({ checkpoint }: { checkpoint: FlowCheckpoint }) {
+  if (!CHECKPOINT_CONFIG[checkpoint.type]) console.warn(`[FlowStrip] Unknown checkpoint type: "${checkpoint.type}"`)
   const config = CHECKPOINT_CONFIG[checkpoint.type] ?? { icon: Shield, color: 'text-gray-600', bg: 'bg-gray-100', ring: 'ring-gray-300', label: 'Unknown' }
   const Icon = config.icon
   const hasGap = checkpoint.gapCount && checkpoint.gapCount > 0

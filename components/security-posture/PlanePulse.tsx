@@ -197,6 +197,7 @@ interface PlaneChipProps {
 }
 
 function PlaneChip({ type, status }: PlaneChipProps) {
+  if (!PLANE_CONFIG[type]) console.warn(`[PlanePulse] Unknown plane type: "${type}"`)
   const config = PLANE_CONFIG[type] ?? { label: 'Unknown', icon: Settings, description: 'Unknown plane', color: 'text-gray-700', bgColor: 'bg-gray-50', borderColor: 'border-gray-200' }
   const availability = getAvailabilityStatus(status)
   const AvailabilityIcon = getAvailabilityIcon(availability)
