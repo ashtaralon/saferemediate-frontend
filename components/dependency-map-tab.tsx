@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useCallback, useEffect } from 'react'
-import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity } from 'lucide-react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { Map, Search, RefreshCw, Network, Layers, Cloud, GitBranch, Activity, CheckCircle, XCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import GraphView from './dependency-map/graph-view'
 import ResourceView from './dependency-map/resource-view'
@@ -132,7 +132,10 @@ export default function DependencyMapTab({
   const [isLoading, setIsLoading] = useState(true)
   const [resourcesLoading, setResourcesLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [syncJobId, setSyncJobId] = useState<string | null>(null)
+  const [syncProgress, setSyncProgress] = useState<{ step: number; total: number; message: string; percent: number } | null>(null)
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const syncPollingRef = useRef<NodeJS.Timeout | null>(null)
 
   // Fetch graph data
   const fetchGraphData = useCallback(async () => {
@@ -288,15 +291,72 @@ export default function DependencyMapTab({
     setActiveView('graph')
   }, [])
 
+  // Poll for sync job status
+  const pollSyncStatus = useCallback(async (jobId: string) => {
+    try {
+      const response = await fetch(`/api/proxy/collectors/sync-all/status/${jobId}`, {
+        signal: AbortSignal.timeout(8000),
+      })
+
+      if (!response.ok) {
+        console.log('[DependencyMapTab] Status check failed, will retry')
+        return
+      }
+
+      const data = await response.json()
+      setSyncProgress({
+        step: data.current_step,
+        total: data.total_steps,
+        message: data.message,
+        percent: data.progress_percent
+      })
+
+      if (data.status === 'completed') {
+        setSyncing(false)
+        setSyncJobId(null)
+        if (syncPollingRef.current) {
+          clearInterval(syncPollingRef.current)
+          syncPollingRef.current = null
+        }
+
+        const results = data.results || {}
+        setSyncMessage({
+          type: 'success',
+          text: `Synced: ${results.flow_logs?.relationships_created || 0} traffic, ${results.cloudtrail?.events_processed || 0} events`
+        })
+
+        // Refresh the graph data
+        setTimeout(() => fetchGraphData(), 1000)
+        setTimeout(() => setSyncMessage(null), 8000)
+      } else if (data.status === 'failed') {
+        setSyncing(false)
+        setSyncJobId(null)
+        if (syncPollingRef.current) {
+          clearInterval(syncPollingRef.current)
+          syncPollingRef.current = null
+        }
+        setSyncMessage({
+          type: 'error',
+          text: data.error || 'Sync failed'
+        })
+        setTimeout(() => setSyncMessage(null), 8000)
+      }
+    } catch (error) {
+      console.log('[DependencyMapTab] Status poll error (sync still running)')
+    }
+  }, [fetchGraphData])
+
   // Sync from AWS - fetches latest data from AWS and updates Neo4j
   const handleSyncFromAWS = useCallback(async () => {
     setSyncing(true)
     setSyncMessage(null)
+    setSyncProgress(null)
+
     try {
-      const response = await fetch('/api/proxy/collectors/sync-all?days=7', {
+      const response = await fetch('/api/proxy/collectors/sync-all/start?days=7', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(120000), // 2 minute timeout
+        signal: AbortSignal.timeout(30000),
       })
 
       if (!response.ok) {
@@ -304,29 +364,44 @@ export default function DependencyMapTab({
       }
 
       const data = await response.json()
-      console.log('[DependencyMapTab] Sync complete:', data)
 
-      setSyncMessage({
-        type: 'success',
-        text: `Synced: ${data.results?.flow_logs?.relationships_created || 0} traffic, ${data.results?.cloudtrail?.relationships_created || 0} API calls`
-      })
+      if (data.success && data.job_id) {
+        console.log('[DependencyMapTab] Sync job started:', data.job_id)
+        setSyncJobId(data.job_id)
+        setSyncProgress({ step: 0, total: 7, message: 'Starting sync...', percent: 0 })
 
-      // Refresh the graph data
-      setTimeout(() => {
-        fetchGraphData()
-      }, 1000)
+        // Start polling for status
+        syncPollingRef.current = setInterval(() => pollSyncStatus(data.job_id), 3000)
+        pollSyncStatus(data.job_id)
+      } else if (data.existing_job_id) {
+        // Job already running
+        console.log('[DependencyMapTab] Sync job already running:', data.existing_job_id)
+        setSyncJobId(data.existing_job_id)
+        setSyncProgress({ step: data.current_step || 0, total: 7, message: data.message || 'Sync in progress...', percent: Math.round(((data.current_step || 0) / 7) * 100) })
 
+        syncPollingRef.current = setInterval(() => pollSyncStatus(data.existing_job_id), 3000)
+      } else {
+        throw new Error(data.error || 'Failed to start sync')
+      }
     } catch (error) {
       console.error('[DependencyMapTab] Sync failed:', error)
+      setSyncing(false)
       setSyncMessage({
         type: 'error',
         text: error instanceof Error ? error.message : 'Sync failed'
       })
-    } finally {
-      setSyncing(false)
       setTimeout(() => setSyncMessage(null), 5000)
     }
-  }, [fetchGraphData])
+  }, [pollSyncStatus])
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (syncPollingRef.current) {
+        clearInterval(syncPollingRef.current)
+      }
+    }
+  }, [])
 
   return (
     <div className="flex flex-col h-full min-h-[700px]">
@@ -457,29 +532,47 @@ export default function DependencyMapTab({
           </div>
 
           {/* Sync from AWS button */}
-          <button
-            onClick={handleSyncFromAWS}
-            disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-          >
-            {syncing ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Syncing...
-              </>
-            ) : (
-              <>
-                <Cloud className="w-4 h-4" />
-                Sync from AWS
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSyncFromAWS}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+            >
+              {syncing ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-4 h-4" />
+                  Sync from AWS
+                </>
+              )}
+            </button>
 
-          {syncMessage && (
-            <span className={`text-sm ${syncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-              {syncMessage.text}
-            </span>
-          )}
+            {/* Progress indicator */}
+            {syncing && syncProgress && (
+              <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+                <div className="w-24 bg-blue-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${syncProgress.percent}%` }}
+                  />
+                </div>
+                <span className="text-xs text-blue-700 font-medium whitespace-nowrap">
+                  {syncProgress.step}/{syncProgress.total}
+                </span>
+              </div>
+            )}
+
+            {syncMessage && (
+              <div className={`flex items-center gap-1.5 text-sm ${syncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                {syncMessage.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                <span>{syncMessage.text}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
