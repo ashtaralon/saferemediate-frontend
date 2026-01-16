@@ -224,7 +224,8 @@ function getMetricColor(metric: { value: number | null; state: MetricState } | n
 }
 
 function ConfidenceDots({ level }: { level: ConfidenceLevel }) {
-  const config = CONFIDENCE_CONFIG[level]
+  if (!CONFIDENCE_CONFIG[level]) console.warn(`[CommandQueues] Unknown confidence level: "${level}"`)
+  const config = CONFIDENCE_CONFIG[level] ?? CONFIDENCE_CONFIG.unknown
   return (
     <div className="flex items-center gap-0.5">
       {[1, 2, 3, 4].map((dot) => (
@@ -587,7 +588,8 @@ interface ConfidenceFilterProps {
 
 function ConfidenceFilter({ value, onChange }: ConfidenceFilterProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const config = CONFIDENCE_CONFIG[value]
+  if (!CONFIDENCE_CONFIG[value]) console.warn(`[CommandQueues] Unknown confidence level: "${value}"`)
+  const config = CONFIDENCE_CONFIG[value] ?? CONFIDENCE_CONFIG.unknown
   const levels: ConfidenceLevel[] = ['high', 'medium', 'low', 'unknown']
 
   return (
@@ -612,7 +614,7 @@ function ConfidenceFilter({ value, onChange }: ConfidenceFilterProps) {
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-lg border py-1 min-w-[160px] z-50">
             {levels.map((level) => {
-              const levelConfig = CONFIDENCE_CONFIG[level]
+              const levelConfig = CONFIDENCE_CONFIG[level] ?? CONFIDENCE_CONFIG.unknown
               return (
                 <button
                   key={level}
