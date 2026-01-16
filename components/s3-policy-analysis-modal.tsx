@@ -254,22 +254,28 @@ export function S3PolicyAnalysisModal({
 
   if (!isOpen) return null
 
-  // Calculate derived values
-  const totalPolicies = gapData?.summary?.total_policies ?? 0
-  const usedCount = gapData?.summary?.used_count ?? 0
-  const unusedCount = gapData?.summary?.unused_count ?? 0
-  const lpScore = gapData?.summary?.lp_score ?? 0
+  // First, get the actual filtered lists
+  const usedPolicies = (gapData?.policies_analysis ?? []).filter(p => p.policy_type === 'used')
+  const unusedPolicies = (gapData?.policies_analysis ?? []).filter(p => p.policy_type === 'unused' || p.policy_type === 'overly_permissive')
+  const securityIssues = gapData?.security_issues ?? []
+
+  // CRITICAL FIX: Derive counts from actual list lengths to ensure UI consistency
+  // The backend may return summary counts that don't match the filtered lists
+  const usedCount = usedPolicies.length > 0 ? usedPolicies.length : (gapData?.summary?.used_count ?? 0)
+  const unusedCount = unusedPolicies.length > 0 ? unusedPolicies.length : (gapData?.summary?.unused_count ?? 0)
+  const totalPolicies = (usedCount + unusedCount) > 0 ? (usedCount + unusedCount) : (gapData?.summary?.total_policies ?? 0)
+
+  // Calculate LP score from actual data
+  const derivedLpScore = totalPolicies > 0 ? Math.round((usedCount / totalPolicies) * 100) : 0
+  const lpScore = gapData?.summary?.lp_score ?? derivedLpScore
+
   const observationDays = gapData?.observation_days ?? 90
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
   const s3Events = gapData?.summary?.s3_events ?? 0
   const hasPublicAccess = gapData?.summary?.has_public_access ?? false
-  
+
   const usedPercent = totalPolicies > 0 ? Math.round((usedCount / totalPolicies) * 100) : 0
   const unusedPercent = totalPolicies > 0 ? Math.round((unusedCount / totalPolicies) * 100) : 0
-  
-  const usedPolicies = (gapData?.policies_analysis ?? []).filter(p => p.policy_type === 'used')
-  const unusedPolicies = (gapData?.policies_analysis ?? []).filter(p => p.policy_type === 'unused' || p.policy_type === 'overly_permissive')
-  const securityIssues = gapData?.security_issues ?? []
   
   const endDate = new Date()
   const startDate = new Date()

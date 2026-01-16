@@ -816,26 +816,36 @@ export const SGGapCard: React.FC<SGGapCardProps> = ({
 
         {/* Summary Cards */}
         <div className="p-6 border-b border-slate-700/50">
-          <div className="flex gap-4">
-            <SummaryBox
-              count={analysis.summary?.used_rules ?? 0}
-              label="OBSERVED"
-              subLabel="Keep"
-              color="green"
-            />
-            <SummaryBox
-              count={analysis.summary?.unobserved_rules ?? 0}
-              label="UNOBSERVED"
-              subLabel="Gap - Remove"
-              color="red"
-            />
-            <SummaryBox
-              count={analysis.summary?.overly_broad_rules ?? 0}
-              label="OVERLY BROAD"
-              subLabel="Tighten"
-              color="orange"
-            />
-          </div>
+          {/* CRITICAL FIX: Use filtered ingress counts to match displayed sections */}
+          {(() => {
+            const ingressRules = analysis.rules_analysis.filter(r => r.direction === 'ingress');
+            const usedIngressCount = ingressRules.filter(r => r.status === 'USED').length;
+            const unobservedIngressCount = ingressRules.filter(r => r.status === 'UNOBSERVED').length;
+            const overlyBroadIngressCount = ingressRules.filter(r => r.status === 'OVERLY_BROAD').length;
+
+            return (
+              <div className="flex gap-4">
+                <SummaryBox
+                  count={usedIngressCount}
+                  label="OBSERVED"
+                  subLabel="Keep"
+                  color="green"
+                />
+                <SummaryBox
+                  count={unobservedIngressCount}
+                  label="UNOBSERVED"
+                  subLabel="Gap - Remove"
+                  color="red"
+                />
+                <SummaryBox
+                  count={overlyBroadIngressCount}
+                  label="OVERLY BROAD"
+                  subLabel="Tighten"
+                  color="orange"
+                />
+              </div>
+            );
+          })()}
 
           {/* Gap Metrics Banner */}
           {analysis.summary?.gap_metrics && analysis.summary.gap_metrics.gap_percentage > 0 && (
