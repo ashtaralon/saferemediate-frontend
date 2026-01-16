@@ -19,7 +19,7 @@ import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } f
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
-import { RefreshCw, Shield, TrendingDown } from "lucide-react"
+import { RefreshCw, Shield, TrendingDown, AlertOctagon } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
@@ -54,11 +54,21 @@ interface GapAnalysisData {
   roleName: string
 }
 
+interface SecurityHubData {
+  total: number
+  critical: number
+  high: number
+  medium: number
+  low: number
+  byProduct: Record<string, number>
+}
+
 // Cache keys for localStorage
 const CACHE_KEYS = {
   INFRASTRUCTURE: 'cyntro-infrastructure-cache',
   FINDINGS: 'cyntro-findings-cache',
   GAP_DATA: 'cyntro-gap-cache',
+  SECURITY_HUB: 'cyntro-security-hub-cache',
   TIMESTAMP: 'cyntro-cache-timestamp',
 }
 
@@ -102,6 +112,14 @@ export default function HomePage() {
     unused: 0,
     confidence: 99,
     roleName: "Loading...",
+  })
+  const [securityHubData, setSecurityHubData] = useState<SecurityHubData>({
+    total: 0,
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    byProduct: {},
   })
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -149,6 +167,35 @@ export default function HomePage() {
           confidence: 0,
           roleName: "Error loading",
         })
+      })
+  }, [])
+
+  const fetchSecurityHub = useCallback(() => {
+    fetchWithTimeout("/api/proxy/security-hub?severity=CRITICAL,HIGH,MEDIUM,LOW&days=30&max_results=200", {}, 30000)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((data) => {
+        const summary = data.summary || {}
+        const bySeverity = summary.by_severity || {}
+
+        const newData: SecurityHubData = {
+          total: summary.total || 0,
+          critical: bySeverity.CRITICAL || 0,
+          high: bySeverity.HIGH || 0,
+          medium: bySeverity.MEDIUM || 0,
+          low: bySeverity.LOW || 0,
+          byProduct: summary.by_product || {},
+        }
+
+        console.log(`[Home] Security Hub: ${newData.total} findings (${newData.critical} critical, ${newData.high} high)`)
+        setSecurityHubData(newData)
+        setCachedData(CACHE_KEYS.SECURITY_HUB, newData)
+      })
+      .catch((err) => {
+        console.warn("Security Hub fetch failed:", err)
+        // Keep existing data on error
       })
   }, [])
 
@@ -229,10 +276,16 @@ export default function HomePage() {
       console.log("[page] Loaded gap data from cache (instant)")
       setGapData(cachedGap)
     }
+    const cachedSecurityHub = getCachedData<SecurityHubData>(CACHE_KEYS.SECURITY_HUB)
+    if (cachedSecurityHub) {
+      console.log("[page] Loaded Security Hub data from cache (instant)")
+      setSecurityHubData(cachedSecurityHub)
+    }
 
     // Step 2: Fetch fresh data (background if cache exists, with spinner if not)
     loadData(hasCache)
     fetchGapAnalysis()
+    fetchSecurityHub()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only run once on mount
 
@@ -242,10 +295,11 @@ export default function HomePage() {
     const interval = setInterval(() => {
       loadData(true) // Always background refresh for auto-refresh
       fetchGapAnalysis()
+      fetchSecurityHub()
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [autoRefresh, loadData, fetchGapAnalysis])
+  }, [autoRefresh, loadData, fetchGapAnalysis, fetchSecurityHub])
 
   // Compute security stats from actual findings when backend returns zeros
   const computeStatsFromFindings = (findings: SecurityFinding[]) => {
@@ -431,6 +485,61 @@ export default function HomePage() {
                 </Card>
               </div>
             </div>
+            {/* Security Hub Findings Card */}
+            {securityHubData.total > 0 && (
+              <Card className="bg-gradient-to-br from-red-50 to-orange-50 border-red-200">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg font-semibold text-red-900 flex items-center gap-2">
+                      <AlertOctagon className="h-5 w-5 text-red-600" />
+                      Security Hub Findings
+                    </CardTitle>
+                    <span className="text-xs bg-red-600 text-white px-2 py-1 rounded-full font-medium">
+                      {securityHubData.total} Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-red-600">
+                    AWS Security Hub aggregated findings
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-red-600">
+                      <div className="text-2xl font-bold text-red-600">{securityHubData.critical}</div>
+                      <div className="text-xs text-gray-600">Critical</div>
+                    </div>
+                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-orange-500">
+                      <div className="text-2xl font-bold text-orange-500">{securityHubData.high}</div>
+                      <div className="text-xs text-gray-600">High</div>
+                    </div>
+                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-amber-500">
+                      <div className="text-2xl font-bold text-amber-500">{securityHubData.medium}</div>
+                      <div className="text-xs text-gray-600">Medium</div>
+                    </div>
+                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-blue-400">
+                      <div className="text-2xl font-bold text-blue-500">{securityHubData.low}</div>
+                      <div className="text-xs text-gray-600">Low</div>
+                    </div>
+                  </div>
+                  {Object.keys(securityHubData.byProduct).length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {Object.entries(securityHubData.byProduct).slice(0, 4).map(([product, count]) => (
+                        <span key={product} className="text-xs bg-white/80 px-2 py-1 rounded-full text-gray-700">
+                          {product}: {count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {(securityHubData.critical > 0 || securityHubData.high > 0) && (
+                    <div className="mt-3 p-2 bg-red-100 rounded-lg text-center">
+                      <span className="text-xs font-medium text-red-800">
+                        {securityHubData.critical + securityHubData.high} findings need immediate attention
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
             <SecurityIssuesOverview {...securityIssuesData} />
             {securityFindings.length > 0 && (
               <div className="bg-white rounded-lg p-6 border border-gray-200">
