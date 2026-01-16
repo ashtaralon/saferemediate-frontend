@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { RefreshCw, Loader2, Search, X } from "lucide-react"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { PlanePulse } from "./PlanePulse"
 import { CommandQueues } from "./CommandQueues"
 import { ComponentList } from "./ComponentList"
@@ -835,53 +836,57 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
       <div className="flex-1 overflow-auto">
         {/* Plane Pulse Section */}
         <div className="px-6 py-4 border-b bg-white">
-          <PlanePulse
-            data={planePulseData}
-            timeWindow={timeWindow}
-            onTimeWindowChange={setTimeWindow}
-            onFixCoverage={() => {
-              console.log('Fix coverage clicked')
-              // TODO: Navigate to telemetry setup
-            }}
-          />
+          <ErrorBoundary componentName="Telemetry Coverage">
+            <PlanePulse
+              data={planePulseData}
+              timeWindow={timeWindow}
+              onTimeWindowChange={setTimeWindow}
+              onFixCoverage={() => {
+                console.log('Fix coverage clicked')
+                // TODO: Navigate to telemetry setup
+              }}
+            />
+          </ErrorBoundary>
         </div>
 
         {/* Command Queues Section */}
         <div className="px-6 py-4 border-b bg-gray-50">
-          <CommandQueues
-            data={filteredCommandQueuesData}
-            minConfidence={minConfidence}
-            onMinConfidenceChange={setMinConfidence}
-            onCardClick={handleQueueCardClick}
-            onCTAClick={handleQueueCTAClick}
-            onGeneratePolicy={(item, queue) => {
-              // Find the component and open the LP Policy modal
-              const component = components.find(c => c.id === item.id || c.name === item.resource_name)
-              if (component) {
-                setSelectedComponent(component)
-                setShowPolicyModal(true)
-              }
-            }}
-            onSimulate={(item, queue) => {
-              // Find the component and open the Simulation modal
-              const component = components.find(c => c.id === item.id || c.name === item.resource_name)
-              if (component) {
-                setSelectedComponent(component)
-                // Extract gap actions for simulation
-                const gapValue = item.G_gap?.value || 0
-                // For now, we'll let the modal fetch unused permissions
-                setSelectedUnusedPermissions([])
-                setShowSimulationModal(true)
-              }
-            }}
-            onRemediate={(item, queue) => {
-              // Open the IAM Permission Analysis Modal (same as Least Privilege tab)
-              if (item.resource_type === 'iam_role' || item.resource_type === 'iam_user') {
-                setSelectedRoleName(item.resource_name)
-                setShowRemediationModal(true)
-              }
-            }}
-          />
+          <ErrorBoundary componentName="Command Queues">
+            <CommandQueues
+              data={filteredCommandQueuesData}
+              minConfidence={minConfidence}
+              onMinConfidenceChange={setMinConfidence}
+              onCardClick={handleQueueCardClick}
+              onCTAClick={handleQueueCTAClick}
+              onGeneratePolicy={(item, queue) => {
+                // Find the component and open the LP Policy modal
+                const component = components.find(c => c.id === item.id || c.name === item.resource_name)
+                if (component) {
+                  setSelectedComponent(component)
+                  setShowPolicyModal(true)
+                }
+              }}
+              onSimulate={(item, queue) => {
+                // Find the component and open the Simulation modal
+                const component = components.find(c => c.id === item.id || c.name === item.resource_name)
+                if (component) {
+                  setSelectedComponent(component)
+                  // Extract gap actions for simulation
+                  const gapValue = item.G_gap?.value || 0
+                  // For now, we'll let the modal fetch unused permissions
+                  setSelectedUnusedPermissions([])
+                  setShowSimulationModal(true)
+                }
+              }}
+              onRemediate={(item, queue) => {
+                // Open the IAM Permission Analysis Modal (same as Least Privilege tab)
+                if (item.resource_type === 'iam_role' || item.resource_type === 'iam_user') {
+                  setSelectedRoleName(item.resource_name)
+                  setShowRemediationModal(true)
+                }
+              }}
+            />
+          </ErrorBoundary>
         </div>
 
         {/* Main two-pane layout */}
@@ -899,39 +904,42 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
                 )}
               </p>
             </div>
-            <ComponentList
-              components={filteredComponents}
-              selectedId={selectedComponent?.id || null}
-              onSelect={handleSelectComponent}
-              listState={listState}
-              onListStateChange={(updates) => setListState(prev => ({ ...prev, ...updates }))}
-            />
+            <ErrorBoundary componentName="Component List">
+              <ComponentList
+                components={filteredComponents}
+                selectedId={selectedComponent?.id || null}
+                onSelect={handleSelectComponent}
+                listState={listState}
+                onListStateChange={(updates) => setListState(prev => ({ ...prev, ...updates }))}
+              />
+            </ErrorBoundary>
           </div>
 
           {/* Right pane - Component detail (resource-type specific) */}
           <div className="flex-1 bg-white">
-            {selectedComponent?.type === 's3_bucket' ? (
-              <S3BucketDetail
-                data={s3BucketDetail}
-                loading={diffLoading}
-                onClose={() => {
-                  setSelectedComponent(null)
-                  setS3BucketDetail(null)
-                }}
-                onExport={() => {
-                  console.log('Export S3 bucket report for', selectedComponent?.name)
-                }}
-                onCreateTicket={() => {
-                  console.log('Create ticket for S3 bucket', selectedComponent?.name)
-                }}
-              />
-            ) : (
-              <ComponentDetail
-                diff={componentDiff}
-                loading={diffLoading}
-                onClose={() => {
-                  setSelectedComponent(null)
-                  setComponentDiff(null)
+            <ErrorBoundary componentName="Component Detail">
+              {selectedComponent?.type === 's3_bucket' ? (
+                <S3BucketDetail
+                  data={s3BucketDetail}
+                  loading={diffLoading}
+                  onClose={() => {
+                    setSelectedComponent(null)
+                    setS3BucketDetail(null)
+                  }}
+                  onExport={() => {
+                    console.log('Export S3 bucket report for', selectedComponent?.name)
+                  }}
+                  onCreateTicket={() => {
+                    console.log('Create ticket for S3 bucket', selectedComponent?.name)
+                  }}
+                />
+              ) : (
+                <ComponentDetail
+                  diff={componentDiff}
+                  loading={diffLoading}
+                  onClose={() => {
+                    setSelectedComponent(null)
+                    setComponentDiff(null)
                 }}
                 onGeneratePolicy={() => {
                   // Open LP Policy Modal
@@ -954,7 +962,8 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
                   console.log('Export for', selectedComponent?.name)
                 }}
               />
-            )}
+              )}
+            </ErrorBoundary>
           </div>
         </div>
       </div>

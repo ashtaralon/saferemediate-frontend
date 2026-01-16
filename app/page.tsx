@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
 import { InfrastructureOverview } from "@/components/infrastructure-overview"
@@ -390,7 +391,11 @@ export default function HomePage() {
   }
 
   if (selectedSystem) {
-    return <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
+    return (
+      <ErrorBoundary componentName="System Dashboard">
+        <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
+      </ErrorBoundary>
+    )
   }
 
   if (loading) {
