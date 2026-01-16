@@ -102,48 +102,73 @@ function transformSGToComponent(sg: any): SecurityComponent {
 }
 
 function transformIAMDetailToDiff(detail: any, roleName: string): ComponentDiff {
-  const permissions = detail.permissions_analysis || []
-  const unusedPerms = permissions.filter((p: any) => p.status === 'UNUSED')
+  // Handle both old format (permissions_analysis) and new format (unused_actions_list)
+  let unusedPerms: string[] = []
+  let allowedCount = 0
+  let usedCount = 0
+  let unusedCount = 0
+  let lpScore = 0
 
-  const items: GapItem[] = unusedPerms.map((p: any, idx: number) => {
+  // New backend format
+  if (detail.unused_actions_list) {
+    unusedPerms = detail.unused_actions_list || []
+    allowedCount = detail.allowed_count || detail.allowed_actions || 0
+    usedCount = detail.used_count || detail.used_actions || 0
+    unusedCount = detail.unused_count || detail.unused_actions || 0
+    // Calculate LP score: higher score = better (more used, less unused)
+    lpScore = allowedCount > 0 ? Math.round((usedCount / allowedCount) * 100) : 0
+  }
+  // Old format (permissions_analysis)
+  else if (detail.permissions_analysis) {
+    const permissions = detail.permissions_analysis || []
+    unusedPerms = permissions.filter((p: any) => p.status === 'UNUSED').map((p: any) => p.permission)
+    allowedCount = detail.summary?.total_permissions || 0
+    usedCount = detail.summary?.used_count || 0
+    unusedCount = detail.summary?.unused_count || 0
+    lpScore = detail.summary?.lp_score || 0
+  }
+
+  const items: GapItem[] = unusedPerms.map((permission: string, idx: number) => {
     const riskTags: RiskTag[] = []
-    if (p.permission?.includes('*')) riskTags.push('wildcard')
-    if (p.is_high_risk || p.risk_level === 'HIGH' || p.risk_level === 'CRITICAL') riskTags.push('admin')
-    if (p.permission?.toLowerCase().includes('delete')) riskTags.push('delete')
-    if (p.permission?.toLowerCase().includes('put') || p.permission?.toLowerCase().includes('create')) riskTags.push('write')
+    if (permission?.includes('*')) riskTags.push('wildcard')
+    if (permission?.toLowerCase().includes('admin') || permission?.includes(':*')) riskTags.push('admin')
+    if (permission?.toLowerCase().includes('delete')) riskTags.push('delete')
+    if (permission?.toLowerCase().includes('put') || permission?.toLowerCase().includes('create')) riskTags.push('write')
 
     return {
-      id: `${roleName}-${p.permission}-${idx}`,
+      id: `${roleName}-${permission}-${idx}`,
       componentId: roleName,
       componentName: roleName,
       componentType: 'iam_role' as ComponentType,
       type: 'iam_action' as const,
-      identifier: p.permission,
-      allowedBy: detail.policies?.inline?.[0]?.policy_name || detail.policies?.managed?.[0]?.policy_name || 'Unknown Policy',
-      observedCount: p.usage_count || 0,
+      identifier: permission,
+      allowedBy: detail.policies?.inline?.[0]?.policy_name || detail.policies?.managed?.[0]?.policy_name || 'Attached Policy',
+      observedCount: 0,
       lastSeen: null,
       riskTags,
-      riskScore: p.is_high_risk ? 80 : 40,
+      riskScore: riskTags.includes('admin') || riskTags.includes('wildcard') ? 80 : 40,
       recommendation: 'remove' as RecommendationAction,
       confidence: 85,
-      reason: `Permission "${p.permission}" has not been used in the observation period. Consider removing to reduce attack surface.`,
+      reason: `Permission "${permission}" has not been used in the observation period. Consider removing to reduce attack surface.`,
     }
   })
+
+  const confidenceLevel = lpScore >= 80 ? 'strong' : lpScore >= 50 ? 'medium' : 'weak'
 
   return {
     componentId: roleName,
     componentName: roleName,
     componentType: 'iam_role',
-    allowed: detail.summary?.total_permissions || 0,
-    observedUsed: detail.summary?.used_count || 0,
-    unusedCandidates: detail.summary?.unused_count || 0,
-    confidence: detail.summary?.lp_score >= 80 ? 'strong' : detail.summary?.lp_score >= 50 ? 'medium' : 'weak',
-    confidencePercent: detail.summary?.lp_score || 0,
-    observationWindow: '365 days',
+    allowed: allowedCount,
+    observedUsed: usedCount,
+    unusedCandidates: unusedCount,
+    confidence: confidenceLevel,
+    confidencePercent: lpScore,
+    observationWindow: `${detail.observation_days || 365} days`,
     iamActions: {
-      allowed: detail.summary?.total_permissions || 0,
-      used: detail.summary?.used_count || 0,
-      unused: detail.summary?.unused_count || 0,
+      allowed: allowedCount,
+      used: usedCount,
+      unused: unusedCount,
       items,
     },
   }
