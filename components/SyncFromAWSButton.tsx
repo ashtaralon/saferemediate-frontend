@@ -111,7 +111,8 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               </div>
               <div>
                 CloudTrail:{" "}
-                {result.results.cloudtrail?.relationships_created || 0} relationships
+                {result.results.cloudtrail?.events_processed || 0} events,{" "}
+                {result.results.cloudtrail?.s3_buckets_discovered || 0} S3 buckets discovered
               </div>
               <div>
                 IAM Analyzer:{" "}
