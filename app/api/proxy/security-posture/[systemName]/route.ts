@@ -22,12 +22,16 @@ export async function GET(
     // Fetch data from multiple endpoints in parallel
     // Use least-privilege/issues endpoint which has actual gap analysis data
     const windowDays = parseInt(window.replace('d', '')) || 365
-    const [lpIssuesRes, sgListRes] = await Promise.allSettled([
+    const [lpIssuesRes, sgListRes, s3ListRes] = await Promise.allSettled([
       fetch(`${BACKEND_URL}/api/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&observationDays=${windowDays}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       }),
       fetch(`${BACKEND_URL}/api/infrastructure/security-groups?system_name=${encodeURIComponent(systemName)}`, {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      }),
+      fetch(`${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}`, {
         headers: { Accept: "application/json" },
         cache: "no-store",
       }),
@@ -99,9 +103,74 @@ export async function GET(
       securityGroups = await Promise.all(sgDetailsPromises)
     }
 
+    // Process S3 Buckets - filter from system resources
+    let s3Buckets: any[] = []
+    if (s3ListRes.status === "fulfilled" && s3ListRes.value.ok) {
+      const systemResources = await s3ListRes.value.json()
+      const allResources = systemResources.resources || []
+
+      // Filter S3 buckets (type contains S3 or service is s3)
+      const s3Resources = allResources.filter((r: any) =>
+        r.type?.toLowerCase().includes('s3') ||
+        r.service?.toLowerCase() === 's3'
+      ).filter((r: any) =>
+        // Exclude non-bucket resources (like IAM policies with S3 in name)
+        !r.name?.includes('Access') && !r.name?.includes('Policy') && !r.name?.startsWith('ASIA')
+      )
+
+      // Fetch gap analysis for each S3 bucket (limit to 10 for performance)
+      const s3DetailsPromises = s3Resources.slice(0, 10).map(async (bucket: any) => {
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/api/s3-buckets/${encodeURIComponent(bucket.name)}/gap-analysis`,
+            { headers: { Accept: "application/json" }, cache: "no-store" }
+          )
+          if (res.ok) {
+            const data = await res.json()
+            return {
+              bucket_id: bucket.arn || bucket.id || bucket.name,
+              bucket_name: bucket.name,
+              is_public: data.public_access?.is_public || false,
+              is_encrypted: data.encryption?.enabled || false,
+              versioning: data.versioning?.enabled || false,
+              logging: data.logging?.enabled || false,
+              has_policy: data.policy?.exists || false,
+              policy_issues: data.policy?.issues || [],
+              public_objects: data.public_access?.public_objects || 0,
+            }
+          }
+          return {
+            bucket_id: bucket.arn || bucket.id || bucket.name,
+            bucket_name: bucket.name,
+            is_public: false,
+            is_encrypted: false,
+            versioning: false,
+            logging: false,
+            has_policy: false,
+            policy_issues: [],
+            public_objects: 0,
+          }
+        } catch {
+          return {
+            bucket_id: bucket.arn || bucket.id || bucket.name,
+            bucket_name: bucket.name,
+            is_public: false,
+            is_encrypted: false,
+            versioning: false,
+            logging: false,
+            has_policy: false,
+            policy_issues: [],
+            public_objects: 0,
+          }
+        }
+      })
+      s3Buckets = await Promise.all(s3DetailsPromises)
+    }
+
     // Build Plane Pulse data
     const hasFlowLogs = securityGroups.some((sg: any) => sg.eni_count > 0)
     const hasCloudTrail = iamGaps.length > 0
+    const hasS3Data = s3Buckets.length > 0
 
     const planePulse = {
       window_days: parseInt(window.replace('d', '')),
@@ -112,13 +181,14 @@ export async function GET(
           last_updated: new Date().toISOString(),
         },
         observed: {
-          available: hasFlowLogs || hasCloudTrail,
-          coverage_pct: calculateObservedCoverage(iamGaps, securityGroups),
+          available: hasFlowLogs || hasCloudTrail || hasS3Data,
+          coverage_pct: calculateObservedCoverage(iamGaps, securityGroups, s3Buckets),
           last_updated: new Date().toISOString(),
-          confidence: calculateConfidence(iamGaps, securityGroups),
+          confidence: calculateConfidence(iamGaps, securityGroups, s3Buckets),
           breakdown: {
             flow_logs: hasFlowLogs ? 70 : 0,
             cloudtrail_usage: hasCloudTrail ? 80 : 0,
+            s3_data: hasS3Data ? 60 : 0,
             xray: 0,
           },
         },
@@ -136,10 +206,10 @@ export async function GET(
     }
 
     // Build Command Queues data
-    const queues = buildCommandQueues(iamGaps, securityGroups, minConf)
+    const queues = buildCommandQueues(iamGaps, securityGroups, s3Buckets, minConf)
 
     // Build component list
-    const components = buildComponents(iamGaps, securityGroups)
+    const components = buildComponents(iamGaps, securityGroups, s3Buckets)
 
     // Use LP summary if available, otherwise compute from components
     const totalRemovalCandidates = lpSummary?.totalExcessPermissions ||
@@ -170,7 +240,7 @@ export async function GET(
 }
 
 // Helper functions
-function calculateObservedCoverage(iamGaps: any[], sgs: any[]): number {
+function calculateObservedCoverage(iamGaps: any[], sgs: any[], s3Buckets: any[] = []): number {
   let total = 0
   let covered = 0
 
@@ -184,18 +254,24 @@ function calculateObservedCoverage(iamGaps: any[], sgs: any[]): number {
     if (sg.eni_count > 0) covered++
   })
 
+  s3Buckets.forEach((bucket) => {
+    total++
+    // S3 bucket is "covered" if we have data about it
+    if (bucket.bucket_name) covered++
+  })
+
   return total > 0 ? Math.round((covered / total) * 100) : 0
 }
 
-function calculateConfidence(iamGaps: any[], sgs: any[]): "high" | "medium" | "low" | "unknown" {
-  const coverage = calculateObservedCoverage(iamGaps, sgs)
+function calculateConfidence(iamGaps: any[], sgs: any[], s3Buckets: any[] = []): "high" | "medium" | "low" | "unknown" {
+  const coverage = calculateObservedCoverage(iamGaps, sgs, s3Buckets)
   if (coverage >= 70) return "high"
   if (coverage >= 40) return "medium"
   if (coverage > 0) return "low"
   return "unknown"
 }
 
-function buildCommandQueues(iamGaps: any[], sgs: any[], minConf: string) {
+function buildCommandQueues(iamGaps: any[], sgs: any[], s3Buckets: any[] = [], minConf: string) {
   const highConfidenceGaps: any[] = []
   const architecturalRisks: any[] = []
   const blastRadiusWarnings: any[] = []
@@ -287,6 +363,54 @@ function buildCommandQueues(iamGaps: any[], sgs: any[], minConf: string) {
     }
   })
 
+  // Process S3 Buckets
+  s3Buckets.forEach((bucket) => {
+    const isPublic = bucket.is_public
+    const notEncrypted = !bucket.is_encrypted
+    const noVersioning = !bucket.versioning
+    const noLogging = !bucket.logging
+    const policyIssues = bucket.policy_issues?.length || 0
+
+    // Calculate gap score based on missing security features
+    let gapScore = 0
+    if (isPublic) gapScore += 3
+    if (notEncrypted) gapScore += 2
+    if (noVersioning) gapScore += 1
+    if (noLogging) gapScore += 1
+    if (policyIssues > 0) gapScore += policyIssues
+
+    const item = {
+      id: bucket.bucket_id,
+      resource_type: "s3_bucket",
+      resource_name: bucket.bucket_name,
+      severity: isPublic ? "critical" : notEncrypted ? "high" : gapScore > 2 ? "medium" : "low",
+      confidence: "high" as const,
+      A_authorized_breadth: { value: 4, state: "value" }, // 4 security features tracked
+      U_observed_usage: {
+        value: (bucket.is_encrypted ? 1 : 0) + (bucket.versioning ? 1 : 0) + (bucket.logging ? 1 : 0) + (!bucket.is_public ? 1 : 0),
+        state: "value"
+      },
+      G_gap: { value: gapScore, state: "value" },
+      risk_flags: [
+        ...(isPublic ? ["public_bucket"] : []),
+        ...(notEncrypted ? ["no_encryption"] : []),
+        ...(policyIssues > 0 ? ["policy_issues"] : []),
+      ],
+      blast_radius: { neighbors: bucket.public_objects || 0, critical_paths: isPublic ? 3 : 0, risk: isPublic ? "risky" : "safe" },
+      recommended_action: {
+        cta: isPublic ? "investigate_activity" : "view_impact_report",
+        cta_label: isPublic ? "Block Public Access" : "View Security Report",
+        reason: isPublic ? "Bucket allows public access" : notEncrypted ? "Bucket is not encrypted" : `${gapScore} security improvements needed`,
+      },
+    }
+
+    if (isPublic) {
+      blastRadiusWarnings.push(item)
+    } else if (gapScore > 0) {
+      highConfidenceGaps.push(item)
+    }
+  })
+
   return {
     high_confidence_gaps: highConfidenceGaps,
     architectural_risks: architecturalRisks,
@@ -294,7 +418,7 @@ function buildCommandQueues(iamGaps: any[], sgs: any[], minConf: string) {
   }
 }
 
-function buildComponents(iamGaps: any[], sgs: any[]) {
+function buildComponents(iamGaps: any[], sgs: any[], s3Buckets: any[] = []) {
   const components: any[] = []
 
   iamGaps.forEach((gap) => {
@@ -327,6 +451,38 @@ function buildComponents(iamGaps: any[], sgs: any[]) {
       G_gap: { value: unused, state: "value" },
       confidence: sg.eni_count > 0 ? "high" : "low",
       risk_flags: hasPublic ? ["world_open"] : [],
+    })
+  })
+
+  // Add S3 buckets
+  s3Buckets.forEach((bucket) => {
+    const isPublic = bucket.is_public
+    const notEncrypted = !bucket.is_encrypted
+    const policyIssues = bucket.policy_issues?.length || 0
+
+    let gapScore = 0
+    if (isPublic) gapScore += 3
+    if (notEncrypted) gapScore += 2
+    if (!bucket.versioning) gapScore += 1
+    if (!bucket.logging) gapScore += 1
+    if (policyIssues > 0) gapScore += policyIssues
+
+    components.push({
+      id: bucket.bucket_id,
+      name: bucket.bucket_name,
+      type: "s3_bucket",
+      A_authorized_breadth: { value: 4, state: "value" },
+      U_observed_usage: {
+        value: (bucket.is_encrypted ? 1 : 0) + (bucket.versioning ? 1 : 0) + (bucket.logging ? 1 : 0) + (!bucket.is_public ? 1 : 0),
+        state: "value"
+      },
+      G_gap: { value: gapScore, state: "value" },
+      confidence: "high",
+      risk_flags: [
+        ...(isPublic ? ["public_bucket"] : []),
+        ...(notEncrypted ? ["no_encryption"] : []),
+        ...(policyIssues > 0 ? ["policy_issues"] : []),
+      ],
     })
   })
 
