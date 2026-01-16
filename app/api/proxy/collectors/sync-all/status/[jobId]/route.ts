@@ -7,26 +7,25 @@ const BACKEND_URL =
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
-export const maxDuration = 300 // 5 minutes for complete sync
 
-export async function POST(request: NextRequest) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ jobId: string }> }
+) {
   try {
-    const url = new URL(request.url)
-    const days = url.searchParams.get("days") || "7"
+    const { jobId } = await params
 
-    console.log(`[Collectors Proxy] Starting sync-all (${days} days)...`)
-
-    const response = await fetch(`${BACKEND_URL}/api/collectors/sync-all?days=${days}`, {
-      method: "POST",
+    const response = await fetch(`${BACKEND_URL}/api/collectors/sync-all/status/${jobId}`, {
+      method: "GET",
       headers: {
         "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(300000), // 5 minute timeout
+      signal: AbortSignal.timeout(10000), // 10 second timeout for status check
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[Collectors Proxy] Backend error: ${response.status}`, errorText)
+      console.error(`[Collectors Proxy] Status check error: ${response.status}`, errorText)
       return NextResponse.json(
         {
           success: false,
@@ -38,19 +37,15 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json()
-    console.log("[Collectors Proxy] Sync complete:", data)
-
     return NextResponse.json(data)
   } catch (error: any) {
-    console.error("[Collectors Proxy] Error:", error)
+    console.error("[Collectors Proxy] Status check error:", error)
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Failed to sync from AWS",
-        timeout: error.name === "AbortError",
+        error: error.message || "Failed to get sync status",
       },
       { status: 500 }
     )
   }
 }
-
