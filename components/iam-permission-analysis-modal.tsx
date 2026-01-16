@@ -139,29 +139,45 @@ export function IAMPermissionAnalysisModal({
                          rawData.unused_actions_list || 
                          []
       
+      // CRITICAL FIX: Derive counts from actual list lengths to ensure UI consistency
+      // The backend may return counts that don't match the lists (e.g., used_count is intersection
+      // of allowed & observed, but used_actions_list contains all observed actions)
+      const actualUsedPerms = Array.isArray(usedPerms) ? usedPerms : []
+      const actualUnusedPerms = Array.isArray(unusedPerms) ? unusedPerms : []
+
+      // Use list lengths as the source of truth for counts displayed in UI
+      const derivedUsedCount = actualUsedPerms.length
+      const derivedUnusedCount = actualUnusedPerms.length
+      const derivedTotalCount = derivedUsedCount + derivedUnusedCount
+
+      // Calculate LP score based on actual list data if not provided
+      const derivedLpScore = rawData.summary?.lp_score ?? rawData.lp_score ??
+        (derivedTotalCount > 0 ? Math.round((derivedUsedCount / derivedTotalCount) * 100) : 0)
+
       const mappedData: GapAnalysisData = {
         role_name: rawData.role_name || roleName,
         role_arn: rawData.role_arn,
         observation_days: rawData.observation_days || 90,
         summary: {
-          total_permissions: allowedCount,
-          used_count: usedCount,
-          unused_count: unusedCount,
-          lp_score: rawData.summary?.lp_score ?? rawData.lp_score ?? 0,
+          // Use derived counts from actual lists to ensure consistency with displayed data
+          total_permissions: derivedTotalCount > 0 ? derivedTotalCount : allowedCount,
+          used_count: derivedUsedCount > 0 ? derivedUsedCount : usedCount,
+          unused_count: derivedUnusedCount > 0 ? derivedUnusedCount : unusedCount,
+          lp_score: derivedLpScore,
           overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
           cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
           high_risk_unused_count: rawData.summary?.high_risk_unused_count ?? rawData.high_risk_unused?.length ?? 0
         },
         // Build permissions_analysis from used_permissions and unused_permissions arrays
         permissions_analysis: [
-          ...(Array.isArray(usedPerms) ? usedPerms : []).map((p: string) => ({
+          ...actualUsedPerms.map((p: string) => ({
             permission: p,
             status: 'USED' as const,
             risk_level: 'LOW' as const,
             recommendation: 'Keep this permission',
             usage_count: 1
           })),
-          ...(Array.isArray(unusedPerms) ? unusedPerms : []).map((p: string) => ({
+          ...actualUnusedPerms.map((p: string) => ({
             permission: p,
             status: 'UNUSED' as const,
             risk_level: (rawData.high_risk_unused || []).includes(p) ? 'HIGH' as const : 'MEDIUM' as const,
@@ -169,8 +185,8 @@ export function IAMPermissionAnalysisModal({
             usage_count: 0
           }))
         ],
-        used_permissions: Array.isArray(usedPerms) ? usedPerms : [],
-        unused_permissions: Array.isArray(unusedPerms) ? unusedPerms : [],
+        used_permissions: actualUsedPerms,
+        unused_permissions: actualUnusedPerms,
         high_risk_unused: rawData.high_risk_unused || [],
         confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
         dependency_context: rawData.dependency_context
@@ -490,7 +506,12 @@ export function IAMPermissionAnalysisModal({
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span>Improve LP score from {lpScore}% to {totalPermissions > 0 ? Math.round(((totalPermissions - unusedCount + (unusedCount - selectedPermissionsToRemove.size)) / totalPermissions) * 100) : 100}%</span>
+                  <span>Improve LP score from {lpScore}% to {(() => {
+                    // LP score = (used / total) * 100
+                    // After removing unused permissions: newTotal = total - removed, used stays same
+                    const newTotal = totalPermissions - selectedPermissionsToRemove.size
+                    return newTotal > 0 ? Math.round((usedCount / newTotal) * 100) : 100
+                  })()}%</span>
                 </div>
               </div>
             </div>

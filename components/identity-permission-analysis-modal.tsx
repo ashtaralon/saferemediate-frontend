@@ -152,21 +152,28 @@ export function IdentityPermissionAnalysisModal({
 
   if (!isOpen) return null
 
-  // Use real API data if available, otherwise fall back to props
-  const totalPermissions = gapData?.summary?.total_permissions ?? identity.permissions ?? 0
-  const usedCount = gapData?.summary?.used_count ?? identity.usedPermissions ?? 0
-  const unusedCount = gapData?.summary?.unused_count ?? identity.unusedPermissions ?? 0
-  const recordingDays = gapData?.observation_days ?? identity.recordingDays ?? 90
-  const gapPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
-  const lpScore = gapData?.summary?.lp_score ?? 0
-  const confidence = lpScore > 0 ? Math.round(100 - lpScore) : 97 // Higher unused = higher confidence to remove
-  const overallRisk = gapData?.summary?.overall_risk ?? "UNKNOWN"
-
   // Use real permission lists from API
   const usedList = gapData?.used_permissions ?? identity.usedList ?? []
   const unusedList = gapData?.unused_permissions ?? identity.unusedList ?? []
   const highRiskUnused = gapData?.high_risk_unused ?? []
   const permissionsAnalysis = gapData?.permissions_analysis ?? []
+
+  // CRITICAL FIX: Derive counts from actual list lengths to ensure UI consistency
+  // The backend may return counts that don't match the lists, so we use list lengths
+  // as the source of truth for what's displayed in the UI
+  const usedCount = usedList.length > 0 ? usedList.length : (gapData?.summary?.used_count ?? identity.usedPermissions ?? 0)
+  const unusedCount = unusedList.length > 0 ? unusedList.length : (gapData?.summary?.unused_count ?? identity.unusedPermissions ?? 0)
+  const totalPermissions = (usedCount + unusedCount) > 0 ? (usedCount + unusedCount) : (gapData?.summary?.total_permissions ?? identity.permissions ?? 0)
+
+  const recordingDays = gapData?.observation_days ?? identity.recordingDays ?? 90
+  const gapPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
+
+  // Calculate LP score from actual data if not provided, or if provided score doesn't match list data
+  const derivedLpScore = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
+  const lpScore = gapData?.summary?.lp_score ?? derivedLpScore
+
+  const confidence = lpScore > 0 ? Math.round(100 - lpScore) : 97 // Higher unused = higher confidence to remove
+  const overallRisk = gapData?.summary?.overall_risk ?? "UNKNOWN"
 
   // Show loading state
   if (isLoading) {
