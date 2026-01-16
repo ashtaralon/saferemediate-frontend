@@ -26,7 +26,7 @@ The GitHub token is returning 403 (Permission Denied). The token may be:
 Run in Terminal:
 
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 
 # Store new token
 echo -e "protocol=https\nhost=github.com\nusername=ashtaralon\npassword=YOUR_NEW_TOKEN" | git credential-osxkeychain store
@@ -44,8 +44,8 @@ git push origin main
 If you have SSH keys set up:
 
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
-git remote set-url origin git@github.com:ashtaralon/saferemediate-frontend.git
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
+git remote set-url origin git@github.com:ashtaralon/cyntro-frontend.git
 git push origin main
 ```
 

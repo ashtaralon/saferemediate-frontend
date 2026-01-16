@@ -5,7 +5,7 @@ Complete API reference for the Least Privilege enforcement system.
 ## Base URL
 
 ```
-Production: https://saferemediate-backend.onrender.com
+Production: https://cyntro-backend.onrender.com
 Development: http://localhost:8000
 ```
 
@@ -770,7 +770,7 @@ import requests
 
 # Get analysis
 response = requests.get(
-    "https://api.saferemediate.com/api/least-privilege/analysis",
+    "https://api.cyntro.com/api/least-privilege/analysis",
     params={"identityId": "arn:aws:iam::123456789012:role/example-role"},
     headers={"Authorization": "Bearer <token>"}
 )
@@ -778,7 +778,7 @@ analysis = response.json()
 
 # Enforce change
 response = requests.post(
-    "https://api.saferemediate.com/api/least-privilege/enforce",
+    "https://api.cyntro.com/api/least-privilege/enforce",
     json={
         "identityId": "arn:aws:iam::123456789012:role/example-role",
         "recommendationId": "rec-001",
@@ -794,7 +794,7 @@ result = response.json()
 ```javascript
 // Get analysis
 const analysis = await fetch(
-  `https://api.saferemediate.com/api/least-privilege/analysis?identityId=${identityId}`,
+  `https://api.cyntro.com/api/least-privilege/analysis?identityId=${identityId}`,
   {
     headers: { Authorization: `Bearer ${token}` }
   }
@@ -802,7 +802,7 @@ const analysis = await fetch(
 
 // Enforce change
 const result = await fetch(
-  'https://api.saferemediate.com/api/least-privilege/enforce',
+  'https://api.cyntro.com/api/least-privilege/enforce',
   {
     method: 'POST',
     headers: {

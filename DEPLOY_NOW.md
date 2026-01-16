@@ -11,13 +11,13 @@
 
 ### Option 1: Run Deployment Script
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 ./deploy.sh
 ```
 
 ### Option 2: Push to GitHub (Triggers Vercel)
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 git push origin main
 ```
 
@@ -27,14 +27,14 @@ If it asks for credentials:
 
 ### Option 3: Deploy with Vercel CLI
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 npx vercel login
 npx vercel --prod
 ```
 
 ### Option 4: Manual Vercel Redeploy
 1. Go to: https://vercel.com/dashboard
-2. Select: `saferemediate-frontend` project
+2. Select: `cyntro-frontend` project
 3. Click: **Deployments** tab
 4. Click: **Redeploy** button
 5. Wait 1-2 minutes

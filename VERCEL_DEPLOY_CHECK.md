@@ -2,7 +2,7 @@
 
 ## 🔍 Frontend Repository Status
 
-**Repository:** `https://github.com/ashtaralon/saferemediate-frontend.git`
+**Repository:** `https://github.com/ashtaralon/cyntro-frontend.git`
 
 ### ✅ What's Pushed:
 - Latest commit: `d20a172` - Add main README
@@ -33,7 +33,7 @@
 ### Option 1: Manual Deploy on Vercel
 
 1. Go to: https://vercel.com/dashboard
-2. Find: `saferemediate-frontend` project
+2. Find: `cyntro-frontend` project
 3. Click: **"Deployments"** tab
 4. Click: **"Redeploy"** → **"Redeploy"** (use latest commit)
 
@@ -42,7 +42,7 @@
 1. Make a small change (add a comment)
 2. Commit and push:
    ```bash
-   cd /Users/aashtar/Documents/Alon/Personal/Startup/Database/ImpacIQ/saferemediate-frontend
+   cd /Users/aashtar/Documents/Alon/Personal/Startup/Database/ImpacIQ/cyntro-frontend
    echo "# Updated $(date)" >> README.md
    git add README.md
    git commit -m "Trigger Vercel rebuild"
@@ -55,7 +55,7 @@
 2. Select project
 3. Go to **Settings** → **Git**
 4. Verify:
-   - ✅ Repository: `ashtaralon/saferemediate-frontend`
+   - ✅ Repository: `ashtaralon/cyntro-frontend`
    - ✅ Production Branch: `main`
    - ✅ Auto-deploy: Enabled
 

@@ -10,7 +10,7 @@
 
 1. לך ל: https://vercel.com/dashboard
 2. התחבר לחשבון שלך
-3. בחר את הפרויקט: **saferemediate-frontend**
+3. בחר את הפרויקט: **cyntro-frontend**
 
 ---
 
@@ -22,7 +22,7 @@
 
 4. מלא את הפרטים:
    - **Name:** `NEXT_PUBLIC_BACKEND_URL`
-   - **Value:** `https://saferemediate-backend.onrender.com`
+   - **Value:** `https://cyntro-backend.onrender.com`
    - **Environments:** בחר את כל הסביבות:
      - ☑️ Production
      - ☑️ Preview  
@@ -73,15 +73,15 @@ https://your-frontend-url.vercel.app
 
 ✅ **נכון:**
 ```
-https://saferemediate-backend.onrender.com/api/traffic/gap/...
-https://saferemediate-backend.onrender.com/api/findings
-https://saferemediate-backend.onrender.com/api/proxy/auto-tag-status
+https://cyntro-backend.onrender.com/api/traffic/gap/...
+https://cyntro-backend.onrender.com/api/findings
+https://cyntro-backend.onrender.com/api/proxy/auto-tag-status
 ```
 
 ❌ **לא נכון (אם זה קורה, ה-env var לא הוגדר):**
 ```
-https://saferemediate-frontend-xxx.vercel.app/SafeRemediate-Lambda-Remediation-Role
-https://saferemediate-frontend-xxx.vercel.app/api/findings
+https://cyntro-frontend-xxx.vercel.app/CYNTRO-Lambda-Remediation-Role
+https://cyntro-frontend-xxx.vercel.app/api/findings
 ```
 
 ---

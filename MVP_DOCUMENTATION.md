@@ -1,4 +1,4 @@
-# SafeRemediate MVP Documentation
+# CYNTRO MVP Documentation
 ## Honest Assessment: What Works, What's Demo, What's Next
 
 **Version:** 1.0 MVP  
@@ -10,7 +10,7 @@
 
 ## 📋 Executive Summary
 
-SafeRemediate is a **working MVP** with a compelling vision: automated AWS security remediation using temporal graph analysis and least privilege enforcement. 
+CYNTRO is a **working MVP** with a compelling vision: automated AWS security remediation using temporal graph analysis and least privilege enforcement. 
 
 **What we have:** A functional foundation with real IAM analysis, temporal tracking concepts, and a professional React dashboard.
 
@@ -202,7 +202,7 @@ POST /api/snapshots/:id/rollback
 ```
 
 **Deployed at:**
-- Backend: `https://saferemediate-backend-f.onrender.com`
+- Backend: `https://cyntro-backend-f.onrender.com`
 - Frontend: Vercel deployment
 
 **Acceptance Criteria:**
@@ -1017,7 +1017,7 @@ But you **cannot** auto-apply changes yet (dry-run only).
 - ❌ No auto-remediation
 - ❌ No rollback
 
-**SafeRemediate:**
+**CYNTRO:**
 - ✅ Shows unused permissions
 - ✅ Confidence-scored recommendations
 - ✅ Auto-remediation (Phase 4)
@@ -1076,7 +1076,7 @@ But you **cannot** auto-apply changes yet (dry-run only).
 - 10 pilot customers (LOIs signed)
 - SOC 2 compliance in 6 months
 
-**Contact:** [your-email@saferemediate.com]
+**Contact:** [your-email@cyntro.com]
 
 ---
 
@@ -1093,7 +1093,7 @@ But you **cannot** auto-apply changes yet (dry-run only).
 - 1 security engineer as champion
 - Feedback every 2 weeks
 
-**Contact:** [pilot@saferemediate.com]
+**Contact:** [pilot@cyntro.com]
 
 ---
 
@@ -1107,7 +1107,7 @@ But you **cannot** auto-apply changes yet (dry-run only).
 
 **Questions?**
 - Slack: [your-slack-workspace]
-- Email: [tech@saferemediate.com]
+- Email: [tech@cyntro.com]
 - Calendar: [schedule 30-min call]
 
 ---
@@ -1164,7 +1164,7 @@ If you believe that:
 
 **Version:** 1.0 MVP  
 **Last Updated:** December 25, 2024  
-**Authors:** SafeRemediate Team  
+**Authors:** CYNTRO Team  
 **License:** Proprietary
 
 ---
@@ -1206,7 +1206,7 @@ If you believe that:
 ### Get IAM Roles for System
 
 ```bash
-curl -X GET "https://saferemediate-backend-f.onrender.com/api/least-privilege/roles?systemName=alon-prod"
+curl -X GET "https://cyntro-backend-f.onrender.com/api/least-privilege/roles?systemName=alon-prod"
 ```
 
 **Response:**
@@ -1229,7 +1229,7 @@ curl -X GET "https://saferemediate-backend-f.onrender.com/api/least-privilege/ro
 ### Simulate Remediation
 
 ```bash
-curl -X POST "https://saferemediate-backend-f.onrender.com/api/least-privilege/simulate" \
+curl -X POST "https://cyntro-backend-f.onrender.com/api/least-privilege/simulate" \
   -H "Content-Type: application/json" \
   -d '{
     "identity_arn": "arn:aws:iam::123456789:role/lambda-execution",

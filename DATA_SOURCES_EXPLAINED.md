@@ -6,9 +6,9 @@ This document explains where each number on the Systems Overview dashboard comes
 
 ### 1. **"2 systems monitored"** (Top Header)
 - **Source**: Count of systems returned from `/api/proxy/systems`
-- **Backend Endpoint**: `/api/systems` (in `saferemediate-backend/api/systems.py`)
+- **Backend Endpoint**: `/api/systems` (in `cyntro-backend/api/systems.py`)
 - **Data Source**: Neo4j database - queries all `Resource` nodes with `systemName` or `SystemName` tags
-- **Code Location**: `saferemediate-frontend/components/systems-view.tsx:474`
+- **Code Location**: `cyntro-frontend/components/systems-view.tsx:474`
   ```typescript
   const totalSystems = localSystems.length
   ```
@@ -22,18 +22,18 @@ This document explains where each number on the Systems Overview dashboard comes
   - **Used permissions**: Analyzed from CloudTrail events (last 90 days)
   - **Unused permissions**: `allowed_count - used_count`
 - **Code Location**: 
-  - Frontend: `saferemediate-frontend/components/systems-view.tsx:76-109` (fetchGapAnalysisFromFindings)
-  - Frontend: `saferemediate-frontend/components/systems-view.tsx:596` (displays `gapData.unused`)
-  - Backend: `saferemediate-backend/main.py:784-875` (IAM analysis endpoint)
+  - Frontend: `cyntro-frontend/components/systems-view.tsx:76-109` (fetchGapAnalysisFromFindings)
+  - Frontend: `cyntro-frontend/components/systems-view.tsx:596` (displays `gapData.unused`)
+  - Backend: `cyntro-backend/main.py:784-875` (IAM analysis endpoint)
 
 ### 3. **"2" Total Systems** (Summary Card)
 - **Source**: Same as #1 - count of `localSystems` array
-- **Code Location**: `saferemediate-frontend/components/systems-view.tsx:804`
+- **Code Location**: `cyntro-frontend/components/systems-view.tsx:804`
 
 ### 4. **"0" Mission Critical at Risk** (Summary Card)
 - **Source**: Count of systems with `criticality >= 5` AND `critical > 0`
 - **Calculation**: Filters systems that are mission critical AND have critical issues
-- **Code Location**: `saferemediate-frontend/components/systems-view.tsx:475`
+- **Code Location**: `cyntro-frontend/components/systems-view.tsx:475`
   ```typescript
   const missionCriticalAtRisk = localSystems.filter((s) => s.criticality >= 5 && s.critical > 0).length
   ```
@@ -42,13 +42,13 @@ This document explains where each number on the Systems Overview dashboard comes
 - **Source**: Sum of `critical` field from all systems
 - **Backend Data**: From Neo4j `SecurityFinding` nodes with `severity = 'CRITICAL'`
 - **Code Location**: 
-  - Frontend: `saferemediate-frontend/components/systems-view.tsx:476`
-  - Backend: `saferemediate-backend/api/systems.py:47-120` (get_findings_counts_for_system)
+  - Frontend: `cyntro-frontend/components/systems-view.tsx:476`
+  - Backend: `cyntro-backend/api/systems.py:47-120` (get_findings_counts_for_system)
 
 ### 6. **"17" Permission Gap** (Summary Card)
 - **Source**: Same as #2 - `gapData.unused` (unused permissions count)
 - **Sub-label "0 allowed, 0 used"**: Shows `gapData.allowed` and `gapData.used`
-- **Code Location**: `saferemediate-frontend/components/systems-view.tsx:832-836`
+- **Code Location**: `cyntro-frontend/components/systems-view.tsx:832-836`
 
 ### 7. **"0/100" Avg Health Score** (Summary Card)
 - **Source**: Average of all systems' `health` scores
@@ -56,10 +56,10 @@ This document explains where each number on the Systems Overview dashboard comes
   ```typescript
   Math.round(localSystems.reduce((sum, s) => sum + (s.health || 0), 0) / localSystems.length)
   ```
-- **Backend Calculation**: `saferemediate-backend/api/systems.py:30-44`
+- **Backend Calculation**: `cyntro-backend/api/systems.py:30-44`
   - Formula: `100 - min((critical * 10) + (high * 5) + (medium * 2) + (low * 1), 100)`
   - Lower score = more issues
-- **Code Location**: `saferemediate-frontend/components/systems-view.tsx:477-480`
+- **Code Location**: `cyntro-frontend/components/systems-view.tsx:477-480`
 
 ## System Table Row Data
 
@@ -68,7 +68,7 @@ This document explains where each number on the Systems Overview dashboard comes
 1. **System Name**: From AWS `SystemName` tag (Neo4j `Resource.systemName`)
 2. **Business Criticality**: 
    - Determined by frontend logic: `systemName.includes("payment") || systemName.includes("alon") || isProd` → 5 (MISSION CRITICAL)
-   - Code: `saferemediate-frontend/components/systems-view.tsx:146-148`
+   - Code: `cyntro-frontend/components/systems-view.tsx:146-148`
 3. **Environment**: From AWS `Environment` tag, or inferred from system name
 4. **Health Score**: Calculated from findings (see #7 above)
 5. **Critical/High/Total Findings**: From Neo4j `SecurityFinding` nodes
@@ -109,15 +109,15 @@ This document explains where each number on the Systems Overview dashboard comes
 ## Key Backend Endpoints
 
 1. **`GET /api/systems`** - Returns all systems with metrics
-   - File: `saferemediate-backend/api/systems.py`
+   - File: `cyntro-backend/api/systems.py`
    - Queries Neo4j for systems, findings, resource counts
 
 2. **`GET /api/iam-roles/{role_name}/gap-analysis?days=90`** - Permission gap analysis
-   - File: `saferemediate-backend/main.py:784-875`
+   - File: `cyntro-backend/main.py:784-875`
    - Analyzes IAM policies vs CloudTrail usage
 
 3. **`GET /api/proxy/gap-analysis?systemName=alon-prod`** - Frontend proxy
-   - File: `saferemediate-frontend/app/api/proxy/gap-analysis/route.ts`
+   - File: `cyntro-frontend/app/api/proxy/gap-analysis/route.ts`
    - Maps system names to IAM role names and calls backend
 
 ## Notes
@@ -137,7 +137,7 @@ This document explains where each number on the Systems Overview dashboard comes
 
 2. **Health Score showing 0/100**:
    - Should be 100 when no issues, but calculation might be inverted
-   - Check `saferemediate-backend/api/systems.py:30-44` for calculation logic
+   - Check `cyntro-backend/api/systems.py:30-44` for calculation logic
 
 3. **Criticality not from AWS tags**:
    - Currently inferred from system name in frontend

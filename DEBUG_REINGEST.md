@@ -9,7 +9,7 @@
 
 ### 2. API Proxy Route
 - **Location**: `app/api/proxy/admin/reingest/route.ts`
-- **Backend URL**: `https://saferemediate-backend-f.onrender.com/api/admin/reingest`
+- **Backend URL**: `https://cyntro-backend-f.onrender.com/api/admin/reingest`
 - **Method**: POST
 
 ---
@@ -66,7 +66,7 @@ DevTools → Network tab → Find "reingest" request:
 Test if backend endpoint exists:
 
 ```bash
-curl -X POST https://saferemediate-backend-f.onrender.com/api/admin/reingest \
+curl -X POST https://cyntro-backend-f.onrender.com/api/admin/reingest \
   -H "Content-Type: application/json" \
   -d '{"scope":"all"}'
 ```
@@ -121,7 +121,7 @@ signal: AbortSignal.timeout(120000) // 2 minutes
 **Problem**: `COLLECTORS_AVAILABLE = False`
 **Fix**: Check backend logs for:
 - `⚠️  Collectors not available`
-- Missing `saferemediate_collectors.py` import
+- Missing `cyntro_collectors.py` import
 
 ---
 
@@ -138,7 +138,7 @@ curl -X POST http://localhost:3000/api/proxy/admin/reingest \
 ### Backend Test
 ```bash
 # Test backend directly
-curl -X POST https://saferemediate-backend-f.onrender.com/api/admin/reingest \
+curl -X POST https://cyntro-backend-f.onrender.com/api/admin/reingest \
   -H "Content-Type: application/json" \
   -d '{"scope":"all"}'
 ```
@@ -155,7 +155,7 @@ curl -X POST https://saferemediate-backend-f.onrender.com/api/admin/reingest \
    → Body: `{"scope":"all"}`
 
 3. **API Proxy forwards to backend**
-   → POST `https://saferemediate-backend-f.onrender.com/api/admin/reingest`
+   → POST `https://cyntro-backend-f.onrender.com/api/admin/reingest`
 
 4. **Backend processes**
    → Runs collectors (IAM, Lambda, RDS, etc.)

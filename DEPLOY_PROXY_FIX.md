@@ -9,7 +9,7 @@
 ## 🚀 Deploy Steps
 
 ```bash
-cd /Users/aashtar/Documents/Alon/Personal/Startup/Database/ImpacIQ/saferemediate-frontend
+cd /Users/aashtar/Documents/Alon/Personal/Startup/Database/ImpacIQ/cyntro-frontend
 
 # Check what changed
 git status
@@ -31,10 +31,10 @@ git push origin main
 ## ✅ After Deployment
 
 1. **Wait 2-3 minutes** for Vercel to deploy
-2. **Check deployment status**: https://vercel.com/ashtaralon-2691s-projects/saferemediate-frontend
+2. **Check deployment status**: https://vercel.com/ashtaralon-2691s-projects/cyntro-frontend
 3. **Test the proxy**:
    ```bash
-   curl https://saferemediate-frontend.vercel.app/api/proxy/systems | jq '.systems[] | select(.systemName == "alon-prod")'
+   curl https://cyntro-frontend.vercel.app/api/proxy/systems | jq '.systems[] | select(.systemName == "alon-prod")'
    ```
 4. **Hard refresh browser**: Cmd+Shift+R (Mac) or Ctrl+F5 (Windows)
 5. **Check Systems Overview** - "alon-prod" should appear!

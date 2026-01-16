@@ -15,7 +15,7 @@ The fetch request to backend stays in "Pending" state. This usually means:
 **In terminal, run:**
 
 ```bash
-curl https://saferemediate-backend.onrender.com/health
+curl https://cyntro-backend.onrender.com/health
 ```
 
 **Expected:** Should return JSON like `{"status":"healthy",...}`
@@ -32,7 +32,7 @@ curl https://saferemediate-backend.onrender.com/health
 4. **Look for "Request URL"**
 
 **What URL do you see?**
-- If it's `https://saferemediate-backend.onrender.com/health` → Good, direct call
+- If it's `https://cyntro-backend.onrender.com/health` → Good, direct call
 - If it's something else → Problem
 
 ---
@@ -57,13 +57,13 @@ Render free tier services sleep after 15 minutes of inactivity. First request wa
 ### Solution 2: CORS Not Configured
 
 Check if backend CORS allows requests from:
-- `https://saferemediate-frontend.vercel.app`
+- `https://cyntro-frontend.vercel.app`
 
 ### Solution 3: Check Request Headers
 
 In Network tab → Headers → Request Headers, check:
-- `Origin: https://saferemediate-frontend.vercel.app`
-- `Referer: https://saferemediate-frontend.vercel.app/`
+- `Origin: https://cyntro-frontend.vercel.app`
+- `Referer: https://cyntro-frontend.vercel.app/`
 
 ---
 
@@ -71,7 +71,7 @@ In Network tab → Headers → Request Headers, check:
 
 1. **Run curl test:**
    ```bash
-   curl https://saferemediate-backend.onrender.com/health
+   curl https://cyntro-backend.onrender.com/health
    ```
 
 2. **Check Request URL in Network tab:**
@@ -79,7 +79,7 @@ In Network tab → Headers → Request Headers, check:
 
 3. **Wait 1-2 minutes and try the Console test again:**
    ```javascript
-   fetch('https://saferemediate-backend.onrender.com/health')
+   fetch('https://cyntro-backend.onrender.com/health')
      .then(r => r.json())
      .then(d => console.log('✅ Backend works:', d))
      .catch(e => console.error('❌ Backend error:', e));

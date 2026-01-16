@@ -15,7 +15,7 @@ window.NEXT_PUBLIC_BACKEND_URL
 ```
 
 **אמור להחזיר:**
-- ✅ `"https://saferemediate-backend.onrender.com"` → מוגדר נכון!
+- ✅ `"https://cyntro-backend.onrender.com"` → מוגדר נכון!
 - ❌ `undefined` → לא מוגדר או לא היה Redeploy
 
 ---
@@ -28,8 +28,8 @@ window.NEXT_PUBLIC_BACKEND_URL
 
 ✅ **נכון (אחרי תיקון):**
 ```
-https://saferemediate-backend.onrender.com/api/findings
-https://saferemediate-backend.onrender.com/api/traffic/gap/...
+https://cyntro-backend.onrender.com/api/findings
+https://cyntro-backend.onrender.com/api/traffic/gap/...
 ```
 
 ❌ **לא נכון (עכשיו):**
@@ -37,7 +37,7 @@ https://saferemediate-backend.onrender.com/api/traffic/gap/...
 /findings
 /metrics
 /nodes
-https://saferemediate-frontend-xxx.vercel.app/metrics
+https://cyntro-frontend-xxx.vercel.app/metrics
 ```
 
 ---

@@ -8,7 +8,7 @@ If requests are still showing as "Pending", we need to check where they're going
 
 ## 📋 Step 1: Check Request URL
 
-1. **Open the site:** https://saferemediate-frontend.vercel.app
+1. **Open the site:** https://cyntro-frontend.vercel.app
 2. **Open DevTools:** Press `F12` or `Cmd+Option+I`
 3. **Go to Network tab**
 4. **Refresh the page:** Press `F5`
@@ -17,8 +17,8 @@ If requests are still showing as "Pending", we need to check where they're going
 7. **Look for "Request URL"**
 
 **What to check:**
-- ✅ Should be: `https://saferemediate-backend.onrender.com/api/...`
-- ❌ If it's: `https://saferemediate-frontend.vercel.app/api/...` → Still using proxy
+- ✅ Should be: `https://cyntro-backend.onrender.com/api/...`
+- ❌ If it's: `https://cyntro-frontend.vercel.app/api/...` → Still using proxy
 - ❌ If it's: `https://web-production-d2b15.up.railway.app/...` → Old Railway URL
 
 ---

@@ -8,7 +8,7 @@
 ## 🔍 Check Vercel Now:
 
 1. **Go to:** https://vercel.com/dashboard
-2. **Find:** `saferemediate-frontend` project
+2. **Find:** `cyntro-frontend` project
 3. **Check:**
    - Is there a new deployment in progress?
    - Are there any build errors?
@@ -19,7 +19,7 @@
 ### Manual Deploy:
 
 1. Go to: https://vercel.com/dashboard
-2. Select: `saferemediate-frontend`
+2. Select: `cyntro-frontend`
 3. Go to: **Deployments** tab
 4. Click: **Redeploy** button (or "..." → Redeploy)
 5. Wait 2-5 minutes
@@ -48,7 +48,7 @@ After deployment:
 
 ---
 
-**Repository:** https://github.com/ashtaralon/saferemediate-frontend
+**Repository:** https://github.com/ashtaralon/cyntro-frontend
 **Latest Commit:** Just pushed trigger file
 
 **Next Step:** Check Vercel dashboard! 🚀

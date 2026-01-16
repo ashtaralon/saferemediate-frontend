@@ -12,7 +12,7 @@ The frontend has been updated to make **direct calls** to Render backend:
 ## 📋 Option 1: Redeploy via Vercel Dashboard (Recommended)
 
 1. **Go to:** https://vercel.com/dashboard
-2. **Select:** `saferemediate-frontend` project
+2. **Select:** `cyntro-frontend` project
 3. **Click:** Deployments tab
 4. **Click:** ⋮ (three dots) on latest deployment
 5. **Click:** Redeploy
@@ -28,7 +28,7 @@ The frontend has been updated to make **direct calls** to Render backend:
 **Run this command in terminal:**
 
 ```bash
-cd /Users/aashtar/Downloads/saferemediate-frontend-main
+cd /Users/aashtar/Downloads/cyntro-frontend-main
 vercel --prod --yes --force
 ```
 
@@ -41,12 +41,12 @@ This will:
 
 ## ✅ After Redeploy - Verify
 
-1. **Open:** https://saferemediate-frontend.vercel.app
+1. **Open:** https://cyntro-frontend.vercel.app
 2. **Open DevTools:** F12 → Network tab
 3. **Refresh:** F5
 4. **Check:** Requests should go to:
-   - ✅ `https://saferemediate-backend.onrender.com/api/...`
-   - ❌ NOT `saferemediate-frontend.vercel.app/api/...`
+   - ✅ `https://cyntro-backend.onrender.com/api/...`
+   - ❌ NOT `cyntro-frontend.vercel.app/api/...`
 
 ---
 

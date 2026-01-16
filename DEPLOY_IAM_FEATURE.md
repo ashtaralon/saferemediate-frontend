@@ -18,7 +18,7 @@
 **Run these commands in your terminal:**
 
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 git push origin main
 ```
 
@@ -38,7 +38,7 @@ git push origin main
 **If you can't push right now, redeploy from Vercel dashboard:**
 
 1. **Go to:** https://vercel.com/dashboard
-2. **Select:** `saferemediate-frontend` project
+2. **Select:** `cyntro-frontend` project
 3. **Go to:** Deployments tab
 4. **Click:** "Redeploy" button (or "..." → Redeploy)
 5. **Note:** This will deploy the last pushed commit, not the new one
@@ -52,7 +52,7 @@ git push origin main
 **Install and deploy directly:**
 
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 npm install -g vercel
 vercel login
 vercel --prod

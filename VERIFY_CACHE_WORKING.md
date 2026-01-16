@@ -4,7 +4,7 @@
 
 You saw:
 ```
-[CACHE] Set: https://saferemediate-backend.onrender.com/api/dashboard/m... (TTL: 30000ms)
+[CACHE] Set: https://cyntro-backend.onrender.com/api/dashboard/m... (TTL: 30000ms)
 ```
 
 This means the cache is working! ✅
@@ -27,8 +27,8 @@ This means the cache is working! ✅
 
 **You should see:**
 ```
-[CACHE] Hit: https://saferemediate-backend.onrender.com/api/dashboard/metrics
-[CACHE] Hit: https://saferemediate-backend.onrender.com/api/graph/nodes
+[CACHE] Hit: https://cyntro-backend.onrender.com/api/dashboard/metrics
+[CACHE] Hit: https://cyntro-backend.onrender.com/api/graph/nodes
 ```
 
 **What this means:**
@@ -47,8 +47,8 @@ This means the cache is working! ✅
 
 **You should see:**
 ```
-[CACHE] Set: https://saferemediate-backend.onrender.com/api/dashboard/metrics (TTL: 30000ms)
-[CACHE] Set: https://saferemediate-backend.onrender.com/api/graph/nodes (TTL: 60000ms)
+[CACHE] Set: https://cyntro-backend.onrender.com/api/dashboard/metrics (TTL: 30000ms)
+[CACHE] Set: https://cyntro-backend.onrender.com/api/graph/nodes (TTL: 60000ms)
 ```
 
 **What this means:**
@@ -101,13 +101,13 @@ This means the cache is working! ✅
 ```javascript
 // Test 1: First call (should hit backend)
 console.time('First call')
-await fetch('https://saferemediate-backend.onrender.com/api/dashboard/metrics')
+await fetch('https://cyntro-backend.onrender.com/api/dashboard/metrics')
 console.timeEnd('First call')
 // Expected: ~500-2000ms
 
 // Test 2: Second call (should use cache)
 console.time('Second call (cached)')
-await fetch('https://saferemediate-backend.onrender.com/api/dashboard/metrics')
+await fetch('https://cyntro-backend.onrender.com/api/dashboard/metrics')
 console.timeEnd('Second call (cached)')
 // Expected: < 10ms (from cache)
 ```

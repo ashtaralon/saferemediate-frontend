@@ -2,13 +2,13 @@
 
 ## 📋 Step 1: Test Backend Directly (Console)
 
-1. **Open:** https://saferemediate-frontend.vercel.app
+1. **Open:** https://cyntro-frontend.vercel.app
 2. **Open DevTools:** Press `F12` or `Cmd+Option+I`
 3. **Go to Console tab**
 4. **Paste this code and press Enter:**
 
 ```javascript
-fetch('https://saferemediate-backend.onrender.com/health')
+fetch('https://cyntro-backend.onrender.com/health')
   .then(r => r.json())
   .then(d => console.log('✅ Backend works:', d))
   .catch(e => console.error('❌ Backend error:', e));
@@ -29,8 +29,8 @@ fetch('https://saferemediate-backend.onrender.com/health')
 5. **Look for "Request URL"** (at the top)
 
 **What to check:**
-- ✅ Should be: `https://saferemediate-backend.onrender.com/api/dashboard/metrics`
-- ❌ If it's: `https://saferemediate-frontend.vercel.app/api/proxy/...` → Still using proxy
+- ✅ Should be: `https://cyntro-backend.onrender.com/api/dashboard/metrics`
+- ❌ If it's: `https://cyntro-frontend.vercel.app/api/proxy/...` → Still using proxy
 - ❌ If it's: `https://web-production-d2b15.up.railway.app/...` → Old Railway URL
 - ❌ If it's: `/api/proxy/...` → Relative URL (using proxy)
 
@@ -74,7 +74,7 @@ fetch('https://saferemediate-backend.onrender.com/health')
 - **Windows:** `Ctrl+Shift+R`
 
 ### Fix 2: Check if Still Using Proxy
-If Request URL shows `/api/proxy/...` or `saferemediate-frontend.vercel.app/api/...`, the code is still using proxy routes.
+If Request URL shows `/api/proxy/...` or `cyntro-frontend.vercel.app/api/...`, the code is still using proxy routes.
 
 ---
 

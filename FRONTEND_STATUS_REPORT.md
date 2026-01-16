@@ -4,7 +4,7 @@
 
 - **All commits pushed to GitHub** ✅
 - **Branch:** main
-- **Remote:** https://github.com/ashtaralon/saferemediate-frontend.git
+- **Remote:** https://github.com/ashtaralon/cyntro-frontend.git
 - **Latest commit:** `d20a172` - Add main README with navigation to MVP documentation
 
 ## 📋 Code Support
@@ -41,12 +41,12 @@ If code is pushed but UI is old:
 
 1. **Verify Backend Response:**
    ```bash
-   curl "https://saferemediate-backend-f.onrender.com/api/least-privilege/issues?systemName=test" | jq '.resources[] | select(.resourceType == "SecurityGroup" or .resourceType == "S3Bucket")'
+   curl "https://cyntro-backend-f.onrender.com/api/least-privilege/issues?systemName=test" | jq '.resources[] | select(.resourceType == "SecurityGroup" or .resourceType == "S3Bucket")'
    ```
 
 2. **Check Vercel Deployment:**
    - Go to Vercel dashboard
-   - Find saferemediate-frontend
+   - Find cyntro-frontend
    - Check if latest commit is deployed
    - Trigger manual redeploy if needed
 

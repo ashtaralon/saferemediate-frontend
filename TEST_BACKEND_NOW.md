@@ -16,7 +16,7 @@ The issue is that **browser requests stay Pending**. This usually means:
 
 **This is the most important check!**
 
-1. **Open:** https://saferemediate-frontend.vercel.app
+1. **Open:** https://cyntro-frontend.vercel.app
 2. **Open DevTools:** F12 → **Network** tab
 3. **Refresh:** F5
 4. **Click on the Pending request** (the one showing "pending" status)
@@ -28,8 +28,8 @@ The issue is that **browser requests stay Pending**. This usually means:
 
 **Common issues:**
 - If it's `/api/proxy/...` → Still using proxy (wrong!)
-- If it's `https://saferemediate-frontend.vercel.app/api/...` → Still using proxy (wrong!)
-- If it's `https://saferemediate-backend.onrender.com/...` → Good! But might be CORS or slow backend
+- If it's `https://cyntro-frontend.vercel.app/api/...` → Still using proxy (wrong!)
+- If it's `https://cyntro-backend.onrender.com/...` → Good! But might be CORS or slow backend
 
 ---
 
@@ -38,8 +38,8 @@ The issue is that **browser requests stay Pending**. This usually means:
 **In Console tab, look for red errors like:**
 
 ```
-Access to fetch at 'https://saferemediate-backend.onrender.com/health' 
-from origin 'https://saferemediate-frontend.vercel.app' 
+Access to fetch at 'https://cyntro-backend.onrender.com/health' 
+from origin 'https://cyntro-frontend.vercel.app' 
 has been blocked by CORS policy
 ```
 
@@ -56,7 +56,7 @@ has been blocked by CORS policy
 1. **Wait 1-2 minutes** after first request
 2. **Try the Console test again:**
    ```javascript
-   fetch('https://saferemediate-backend.onrender.com/health')
+   fetch('https://cyntro-backend.onrender.com/health')
      .then(r => r.json())
      .then(d => console.log('✅ Backend works:', d))
      .catch(e => console.error('❌ Backend error:', e));
@@ -90,7 +90,7 @@ has been blocked by CORS policy
 
 **Open this URL directly in browser:**
 ```
-https://saferemediate-backend.onrender.com/health
+https://cyntro-backend.onrender.com/health
 ```
 
 **What do you see?**

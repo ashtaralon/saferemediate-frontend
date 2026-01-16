@@ -4,8 +4,8 @@
 
 ### 1. **Vercel Project Not Connected to GitHub**
 - Go to: https://vercel.com/dashboard
-- Check if `saferemediate-frontend` project exists
-- If not, click "Add New Project" → Import from GitHub → Select `ashtaralon/saferemediate-frontend`
+- Check if `cyntro-frontend` project exists
+- If not, click "Add New Project" → Import from GitHub → Select `ashtaralon/cyntro-frontend`
 
 ### 2. **Auto-Deployments Disabled**
 - Go to: Project Settings → Git
@@ -30,7 +30,7 @@ Sometimes you need to manually trigger a deployment:
 ## Quick Fix - Manual Deployment:
 
 ```bash
-cd /Users/aashtar/Downloads/saferemediate-frontend-main
+cd /Users/aashtar/Downloads/cyntro-frontend-main
 
 # Option 1: Empty commit to trigger
 git commit --allow-empty -m "Trigger Vercel deployment"
@@ -47,7 +47,7 @@ git push origin main
 
 1. **Visit Vercel Dashboard:**
    - https://vercel.com/dashboard
-   - Find your project: `saferemediate-frontend`
+   - Find your project: `cyntro-frontend`
 
 2. **Check Latest Deployment:**
    - Go to "Deployments" tab
@@ -62,12 +62,12 @@ git push origin main
 ## Required Environment Variables:
 
 Make sure these are set in Vercel:
-- `NEXT_PUBLIC_BACKEND_URL` = `https://saferemediate-backend-f.onrender.com`
+- `NEXT_PUBLIC_BACKEND_URL` = `https://cyntro-backend-f.onrender.com`
 
 To set:
 1. Go to: Project Settings → Environment Variables
 2. Add: `NEXT_PUBLIC_BACKEND_URL`
-3. Value: `https://saferemediate-backend-f.onrender.com`
+3. Value: `https://cyntro-backend-f.onrender.com`
 4. Apply to: Production, Preview, Development
 5. **Redeploy** after adding
 

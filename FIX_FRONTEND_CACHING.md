@@ -20,7 +20,7 @@ Add **caching** and **request deduplication** to `lib/api-client.ts`.
 ### Step 1: Backup Current File
 
 ```bash
-cd /Users/aashtar/Downloads/saferemediate-frontend-main
+cd /Users/aashtar/Downloads/cyntro-frontend-main
 cp lib/api-client.ts lib/api-client.ts.backup
 ```
 
@@ -150,7 +150,7 @@ console.log('Second request (cached):', Date.now() - start2, 'ms')
 ```typescript
 import { clearCache } from '@/lib/api-client'
 
-clearCache('https://saferemediate-backend.onrender.com/api/findings')
+clearCache('https://cyntro-backend.onrender.com/api/findings')
 ```
 
 **Clear all cache:**

@@ -108,7 +108,7 @@ This implementation includes comprehensive documentation across multiple files:
 ## 📁 File Structure
 
 ```
-saferemediate-frontend/
+cyntro-frontend/
 ├── LEAST_PRIVILEGE_ARCHITECTURE.md       # Architecture spec (900+ lines)
 ├── LEAST_PRIVILEGE_API.md                # API reference (800+ lines)
 ├── LEAST_PRIVILEGE_USER_GUIDE.md         # User guide (900+ lines)
@@ -236,8 +236,8 @@ Confidence = (
 - **Summary**: [LEAST_PRIVILEGE_IMPLEMENTATION_SUMMARY.md](./LEAST_PRIVILEGE_IMPLEMENTATION_SUMMARY.md)
 
 ### Contact
-- **Email**: support@saferemediate.com
-- **Docs**: https://docs.saferemediate.com
+- **Email**: support@cyntro.com
+- **Docs**: https://docs.cyntro.com
 - **Issues**: GitHub Issues
 
 ---

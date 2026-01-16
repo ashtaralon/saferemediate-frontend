@@ -12,7 +12,7 @@
 - Promise.all([fetchGapAnalysis(), fetchAutoTagStatus(), fetchSecurityFindings()])
 
 ## 3. fetchGapAnalysis() מבצע:
-- fetch(`${backendUrl}/api/traffic/gap/SafeRemediate-Lambda-Remediation-Role`)
+- fetch(`${backendUrl}/api/traffic/gap/CYNTRO-Lambda-Remediation-Role`)
 - מחזיר: { allowed_actions: 28, used_actions: 0, unused_actions: 28, ... }
 - setGapAnalysis({ allowed: 28, actual: 0, gap: 28, ... })
 - setUnusedActionsList([...28 permissions...])

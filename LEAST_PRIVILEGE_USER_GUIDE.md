@@ -665,9 +665,9 @@ Generate compliance reports regularly:
 
 ### Support Channels
 
-- **Email**: support@saferemediate.com
+- **Email**: support@cyntro.com
 - **Slack**: #least-privilege channel
-- **Documentation**: https://docs.saferemediate.com
+- **Documentation**: https://docs.cyntro.com
 
 ### Reporting Issues
 
@@ -710,4 +710,4 @@ When reporting issues, include:
 
 **Last Updated:** 2025-12-24  
 **Version:** 1.0  
-**Feedback:** support@saferemediate.com
+**Feedback:** support@cyntro.com

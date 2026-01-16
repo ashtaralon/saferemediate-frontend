@@ -3,7 +3,7 @@
 ## Method 1: Browser Console (Easiest)
 
 ### Step 1: Open Your Website
-1. Go to: `https://saferemediate-frontend.vercel.app` (or your deployed URL)
+1. Go to: `https://cyntro-frontend.vercel.app` (or your deployed URL)
 2. Wait for the page to load
 
 ### Step 2: Open Browser Console
@@ -45,7 +45,7 @@ Look at the console output. You should see:
 
 ### Step 1: Start Your Dev Server
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 npm run dev
 ```
 
@@ -61,10 +61,10 @@ npm run dev
 If you prefer terminal:
 
 ```bash
-cd /Users/admin/Documents/Eltro/Platfrom/saferemediate-frontend
+cd /Users/admin/Documents/Eltro/Platfrom/cyntro-frontend
 
 # Test the API
-curl "https://saferemediate-frontend.vercel.app/api/proxy/dependency-map/full?systemName=alon-prod" | \
+curl "https://cyntro-frontend.vercel.app/api/proxy/dependency-map/full?systemName=alon-prod" | \
   node -e "
     const data = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
     const traffic = data.edges.filter(e => 
