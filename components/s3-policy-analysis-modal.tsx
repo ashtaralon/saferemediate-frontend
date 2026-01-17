@@ -698,7 +698,7 @@ function AnalysisTab({
       </div>
 
       {/* Security Issue Alert */}
-      {(unusedCount > 0 || hasPublicAccess) && (
+      {(unusedCount > 0 || hasPublicAccess) ? (
         <div className="mx-6 p-5 bg-red-50 border-2 border-red-200 rounded-xl">
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0 mt-0.5" />
@@ -726,6 +726,19 @@ function AnalysisTab({
                   </span>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mx-6 p-5 bg-green-50 border-2 border-green-200 rounded-xl">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="w-7 h-7 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-xl font-bold text-green-600">Least Privilege Compliant</h3>
+              <p className="mt-2 text-gray-700">
+                This bucket has no unused policies based on {observationDays} days of access analysis.
+                No remediation is needed.
+              </p>
             </div>
           </div>
         </div>
@@ -759,45 +772,66 @@ function AnalysisTab({
           </div>
         </div>
 
-        {/* Issues to Fix */}
-        <div className="border-2 border-red-200 bg-red-50 rounded-xl p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
-              <span className="font-semibold text-red-700">Issues to Fix ({unusedCount})</span>
-            </div>
-            <span className="px-3 py-1 bg-red-100 text-red-600 border border-red-300 rounded-lg text-sm font-medium">
-              Remove these
-            </span>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-            {unusedPolicies.map((policy, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <X className="w-4 h-4 text-red-500 flex-shrink-0" />
-                <span className="font-mono text-gray-700 truncate">{policy.policy_name}</span>
-                {policy.is_public && (
-                  <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded font-medium">
-                    PUBLIC
-                  </span>
-                )}
+        {/* Issues to Fix - only show if there are issues */}
+        {unusedCount > 0 ? (
+          <div className="border-2 border-red-200 bg-red-50 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <span className="font-semibold text-red-700">Issues to Fix ({unusedCount})</span>
               </div>
-            ))}
+              <span className="px-3 py-1 bg-red-100 text-red-600 border border-red-300 rounded-lg text-sm font-medium">
+                Remove these
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+              {unusedPolicies.map((policy, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <X className="w-4 h-4 text-red-500 flex-shrink-0" />
+                  <span className="font-mono text-gray-700 truncate">{policy.policy_name}</span>
+                  {policy.is_public && (
+                    <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded font-medium">
+                      PUBLIC
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="border-2 border-green-200 bg-green-50 rounded-xl p-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <span className="font-semibold text-green-700">No Issues Found</span>
+            </div>
+            <p className="mt-2 text-sm text-green-600">
+              All bucket policies are actively used. No remediation needed.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Recommended Action */}
-      <div className="mx-6 mb-6 p-4 border border-gray-200 rounded-xl">
-        <h3 className="font-bold text-gray-900">Recommended Action</h3>
-        <p className="text-gray-600 mt-1">
-          Remove {unusedCount} unused policies to achieve least privilege compliance. 
-          This will reduce the attack surface by {unusedPercent}% while maintaining all current access patterns.
-        </p>
-        <div className="flex items-center gap-2 mt-3 text-green-600">
-          <Shield className="w-5 h-5" />
-          <span className="font-medium">High confidence remediation - No service disruption expected</span>
+      {/* Recommended Action - only show if there are issues to fix */}
+      {unusedCount > 0 ? (
+        <div className="mx-6 mb-6 p-4 border border-gray-200 rounded-xl">
+          <h3 className="font-bold text-gray-900">Recommended Action</h3>
+          <p className="text-gray-600 mt-1">
+            Remove {unusedCount} unused policies to achieve least privilege compliance.
+            This will reduce the attack surface by {unusedPercent}% while maintaining all current access patterns.
+          </p>
+          <div className="flex items-center gap-2 mt-3 text-green-600">
+            <Shield className="w-5 h-5" />
+            <span className="font-medium">High confidence remediation - No service disruption expected</span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="mx-6 mb-6 p-4 border border-green-200 bg-green-50 rounded-xl">
+          <h3 className="font-bold text-green-700">No Action Required</h3>
+          <p className="text-green-600 mt-1">
+            This bucket is already following least privilege principles. All configured policies are being actively used.
+          </p>
+        </div>
+      )}
     </>
   )
 }

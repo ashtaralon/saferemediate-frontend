@@ -293,12 +293,24 @@ export default function LeastPrivilegeTabEnterprise({
 
   const filteredAndSortedItems = useMemo(() => {
     let filtered = gapItems.filter(item => {
+      // CRITICAL: Filter out resources with nothing to remediate
+      // LP tab should only show resources that have at least 1 actionable item:
+      // - Unused permissions/policies to remove, OR
+      // - High-risk unused items, OR
+      // - Risk tags indicating overly permissive config
+      const hasIssues = item.unusedCount > 0 ||
+                        item.highestRiskUnused.length > 0 ||
+                        item.riskTags.length > 0
+      if (!hasIssues) {
+        return false
+      }
+
       // Confidence threshold
       const confidenceOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 }
       if (confidenceOrder[item.confidence] < confidenceOrder[confidenceThreshold]) {
         return false
       }
-      
+
       // Search
       if (searchQuery) {
         const query = searchQuery.toLowerCase()
@@ -307,7 +319,7 @@ export default function LeastPrivilegeTabEnterprise({
           return false
         }
       }
-      
+
       return true
     })
     
