@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
     // Call the new S3 remediation endpoint with checkpoint support
     const response = await fetch(
-      `${BACKEND_URL}/api/s3-buckets/remediate`,
+      `${BACKEND_URL}/api/s3-remediation/execute`,
       {
         method: 'POST',
         headers: {
