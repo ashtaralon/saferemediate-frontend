@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     console.log('[S3-ROLLBACK] Rolling back checkpoint:', body.checkpoint_id)
 
     const response = await fetch(
-      `${BACKEND_URL}/api/s3-buckets/rollback`,
+      `${BACKEND_URL}/api/s3-remediation/rollback`,
       {
         method: 'POST',
         headers: {
