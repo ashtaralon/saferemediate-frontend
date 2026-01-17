@@ -12,41 +12,75 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const sg_id = searchParams.get('sg_id')
     const limit = searchParams.get('limit') || '50'
-    
+
     const params = new URLSearchParams()
     if (sg_id) params.append('sg_id', sg_id)
     params.append('limit', limit)
 
-    const backendUrl = `${BACKEND_URL}/api/remediation/snapshots?${params.toString()}`
-    console.log("[proxy] snapshots -> " + backendUrl)
+    // Fetch both SG snapshots and S3 checkpoints in parallel
+    const [sgResponse, checkpointsResponse] = await Promise.all([
+      // Security Group snapshots
+      fetch(`${BACKEND_URL}/api/remediation/snapshots?${params.toString()}`, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      }).catch(() => null),
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000)
+      // S3 Bucket checkpoints
+      fetch(`${BACKEND_URL}/api/checkpoints?limit=${limit}`, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      }).catch(() => null)
+    ])
 
-    const response = await fetch(backendUrl, {
-      headers: { "Accept": "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-    })
+    let allSnapshots: any[] = []
 
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error("[proxy] snapshots backend error " + response.status + ": " + errorText)
-      return NextResponse.json({ snapshots: [], total: 0 }, { status: 200 })
+    // Process SG snapshots
+    if (sgResponse?.ok) {
+      const sgData = await sgResponse.json()
+      const sgSnapshots = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
+      allSnapshots.push(...sgSnapshots)
+      console.log("[proxy] SG snapshots:", sgSnapshots.length)
     }
 
-    const data = await response.json()
-    
-    // Wrap in expected format if needed
-    const snapshots = Array.isArray(data) ? data : (data.snapshots || [])
-    
-    console.log("[proxy] snapshots success - count:", snapshots.length)
+    // Process S3 checkpoints and transform to snapshot format
+    if (checkpointsResponse?.ok) {
+      const checkpointsData = await checkpointsResponse.json()
+      const checkpoints = checkpointsData.checkpoints || []
+
+      // Transform checkpoints to match snapshot format
+      const transformedCheckpoints = checkpoints.map((cp: any) => ({
+        snapshot_id: cp.checkpoint_id,
+        id: cp.checkpoint_id,
+        finding_id: cp.resource_id,
+        issue_id: cp.checkpoint_id,
+        resource_type: cp.resource_type,
+        created_at: cp.timestamp,
+        created_by: 'system',
+        reason: 'Pre-remediation checkpoint',
+        status: cp.status === 'ROLLED_BACK' ? 'RESTORED' : 'ACTIVE',
+        system_name: cp.resource_id,
+        current_state: {
+          resource_name: cp.resource_id,
+          checkpoint_type: 'S3Bucket'
+        }
+      }))
+
+      allSnapshots.push(...transformedCheckpoints)
+      console.log("[proxy] S3 checkpoints:", transformedCheckpoints.length)
+    }
+
+    // Sort by created_at descending (newest first)
+    allSnapshots.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0).getTime()
+      const dateB = new Date(b.created_at || 0).getTime()
+      return dateB - dateA
+    })
+
+    console.log("[proxy] total snapshots:", allSnapshots.length)
 
     return NextResponse.json({
-      snapshots,
-      total: snapshots.length
+      snapshots: allSnapshots,
+      total: allSnapshots.length
     }, {
       status: 200,
       headers: {
@@ -62,7 +96,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    
+
     console.log("[proxy] create snapshot for SG:", body.sg_id)
 
     const controller = new AbortController()

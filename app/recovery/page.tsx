@@ -58,7 +58,7 @@ export default function RecoveryTab() {
 
   const handleRestore = async (snapshot: Snapshot) => {
     const snapshotId = snapshot.snapshot_id || snapshot.id;
-    
+
     if (!snapshotId) {
       toast({
         title: 'Error',
@@ -70,14 +70,30 @@ export default function RecoveryTab() {
 
     try {
       setRestoring(snapshotId);
-      
-      // Use proxy route to avoid CORS and ensure proper routing
-      const response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+
+      // Determine the correct rollback endpoint based on resource type
+      let response;
+      if (snapshot.resource_type === 'S3Bucket' || snapshotId.startsWith('S3Bucket-')) {
+        // S3 Bucket checkpoint rollback
+        response = await fetch('/api/proxy/s3-buckets/rollback', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            checkpoint_id: snapshotId,
+            bucket_name: snapshot.finding_id || ''
+          }),
+        });
+      } else {
+        // Security Group snapshot rollback
+        response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
