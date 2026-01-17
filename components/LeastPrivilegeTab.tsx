@@ -725,9 +725,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               if (!showRemediableOnly) return true
               return resource.isRemediable !== false
             })
-            .map((resource) => (
+            .map((resource, index) => (
             <GapResourceCard
-              key={resource.id}
+              key={resource.id || resource.resourceArn || resource.resourceName || `resource-${index}`}
               resource={resource}
               onClick={() => {
                 // Use new IAM Permission Analysis modal for IAM Roles
