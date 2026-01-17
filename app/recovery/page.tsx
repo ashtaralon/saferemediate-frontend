@@ -14,6 +14,11 @@ interface Snapshot {
   reason: string;
   status: string;
   system_name?: string;
+  current_state?: {
+    role_name?: string;
+    resource_name?: string;
+    checkpoint_type?: string;
+  };
 }
 
 export default function RecoveryTab() {
@@ -72,9 +77,23 @@ export default function RecoveryTab() {
       setRestoring(snapshotId);
 
       // Determine the correct rollback endpoint based on resource type
+      // Check both resource_type field AND snapshot ID prefix for S3 buckets
+      const isS3Bucket =
+        snapshot.resource_type === 'S3Bucket' ||
+        snapshotId.startsWith('S3Bucket-') ||
+        snapshot.current_state?.checkpoint_type === 'S3Bucket';
+
+      console.log('[Recovery] Restoring snapshot:', {
+        snapshotId,
+        resource_type: snapshot.resource_type,
+        isS3Bucket,
+        finding_id: snapshot.finding_id
+      });
+
       let response;
-      if (snapshot.resource_type === 'S3Bucket' || snapshotId.startsWith('S3Bucket-')) {
+      if (isS3Bucket) {
         // S3 Bucket checkpoint rollback
+        console.log('[Recovery] Using S3 rollback endpoint');
         response = await fetch('/api/proxy/s3-buckets/rollback', {
           method: 'POST',
           headers: {
@@ -87,6 +106,7 @@ export default function RecoveryTab() {
         });
       } else {
         // Security Group snapshot rollback
+        console.log('[Recovery] Using SG rollback endpoint');
         response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
           method: 'POST',
           headers: {
@@ -165,7 +185,17 @@ export default function RecoveryTab() {
           {snapshots.map((snapshot) => {
             const snapshotId = snapshot.snapshot_id || snapshot.id;
             const isRestoring = restoring === snapshotId;
-            
+            // Determine resource type from multiple sources
+            const resourceType =
+              snapshot.resource_type ||
+              snapshot.current_state?.checkpoint_type ||
+              (snapshotId.startsWith('S3Bucket-') ? 'S3Bucket' : 'SecurityGroup');
+            const resourceName =
+              snapshot.current_state?.resource_name ||
+              snapshot.current_state?.role_name ||
+              snapshot.finding_id ||
+              'Unknown Resource';
+
             return (
               <div
                 key={snapshotId}
@@ -175,10 +205,14 @@ export default function RecoveryTab() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="font-semibold text-lg">
-                        {snapshot.current_state?.role_name || snapshot.current_state?.resource_name || snapshot.finding_id || 'Unknown Resource'}
+                        {resourceName}
                       </h3>
-                      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
-                        {snapshot.resource_type || 'Unknown'}
+                      <span className={`px-2 py-1 text-xs rounded ${
+                        resourceType === 'S3Bucket'
+                          ? 'bg-orange-100 text-orange-800'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {resourceType}
                       </span>
                       <span className={`px-2 py-1 text-xs rounded ${
                         snapshot.status === 'ACTIVE' 
