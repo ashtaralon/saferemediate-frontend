@@ -8,20 +8,21 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     console.log('[S3-REMEDIATE] Executing remediation for bucket:', body.bucket_name)
+    console.log('[S3-REMEDIATE] Policies to remove:', body.policies_to_remove)
 
-    // Use unified remediation endpoint
+    // Call S3 buckets remediate endpoint
     const response = await fetch(
-      `${BACKEND_URL}/api/remediate/execute`,
+      `${BACKEND_URL}/api/s3-buckets/remediate`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          resource_type: 'S3Bucket',
-          resource_id: body.bucket_name,
-          actions: (body.policies_to_remove || []).map((sid: string) => `remove:${sid}`),
-          finding_id: body.finding_id || '',
+          bucket_name: body.bucket_name,
+          policies_to_remove: body.policies_to_remove || [],
+          create_snapshot: body.create_snapshot !== false,
+          snapshot_reason: body.snapshot_reason || `Pre-remediation backup for ${body.bucket_name}`
         })
       }
     )
