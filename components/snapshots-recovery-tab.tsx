@@ -60,16 +60,27 @@ export default function RecoveryTab() {
       if (sgRes.ok) {
         const sgData = await sgRes.json()
         const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
-        // Detect type from resource_type field or snapshot_id prefix
+        // Detect type - PRIORITIZE snapshot_id prefix as it's most reliable
         sgSnapshots = sgList.map((s: any) => {
-          const isS3 = s.resource_type === 'S3Bucket' ||
-                       s.snapshot_id?.startsWith('S3Bucket-') ||
-                       s.current_state?.checkpoint_type === 'S3Bucket'
-          const isIAM = s.resource_type === 'IAMRole' ||
-                        s.snapshot_id?.startsWith('IAMRole-') ||
-                        s.current_state?.checkpoint_type === 'IAMRole'
-          const type = isS3 ? 'S3Bucket' as const : isIAM ? 'IAMRole' as const : 'SecurityGroup' as const
-          return { ...s, type }
+          // Check snapshot_id prefix FIRST (most reliable)
+          if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-')) {
+            return { ...s, type: 'IAMRole' as const }
+          }
+          if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-')) {
+            return { ...s, type: 'S3Bucket' as const }
+          }
+          if (s.snapshot_id?.startsWith('SG-') || s.snapshot_id?.startsWith('sg-')) {
+            return { ...s, type: 'SecurityGroup' as const }
+          }
+          // Fallback to resource_type or checkpoint_type
+          if (s.resource_type === 'IAMRole' || s.current_state?.checkpoint_type === 'IAMRole') {
+            return { ...s, type: 'IAMRole' as const }
+          }
+          if (s.resource_type === 'S3Bucket' || s.current_state?.checkpoint_type === 'S3Bucket') {
+            return { ...s, type: 'S3Bucket' as const }
+          }
+          // Default to SecurityGroup
+          return { ...s, type: 'SecurityGroup' as const }
         })
       }
 
