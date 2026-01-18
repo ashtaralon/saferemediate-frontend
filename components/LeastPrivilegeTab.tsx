@@ -1158,8 +1158,61 @@ function SummaryCard({ icon, label, value, color }: { icon: React.ReactNode, lab
   )
 }
 
-// Unified Gap Resource Card Component - Same design for all resource types
+// Unified Gap Resource Card Component - Polished design for all resource types
 function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick: () => void }) {
+  // Get role-specific icon based on name (for better visual identification)
+  const getRoleIcon = (name: string) => {
+    const lowerName = name.toLowerCase()
+    if (lowerName.includes('lambda')) return '⚡'
+    if (lowerName.includes('ec2')) return '🖥️'
+    if (lowerName.includes('vpc') || lowerName.includes('flow')) return '🌐'
+    if (lowerName.includes('s3')) return '🪣'
+    if (lowerName.includes('cloudtrail') || lowerName.includes('trail')) return '📋'
+    if (lowerName.includes('rds') || lowerName.includes('database')) return '🗄️'
+    if (lowerName.includes('eks') || lowerName.includes('kubernetes')) return '☸️'
+    if (lowerName.includes('ecs') || lowerName.includes('container')) return '📦'
+    if (lowerName.includes('sns') || lowerName.includes('sqs')) return '📨'
+    if (lowerName.includes('kms') || lowerName.includes('key')) return '🔑'
+    return '🔐' // Default IAM role icon
+  }
+
+  // Get service tags from role name
+  const getServiceTags = (name: string): Array<{label: string, color: string}> => {
+    const tags: Array<{label: string, color: string}> = []
+    const lowerName = name.toLowerCase()
+
+    if (lowerName.includes('lambda')) tags.push({ label: 'Lambda', color: 'purple' })
+    if (lowerName.includes('ec2')) tags.push({ label: 'EC2', color: 'blue' })
+    if (lowerName.includes('s3')) tags.push({ label: 'S3', color: 'orange' })
+    if (lowerName.includes('vpc') || lowerName.includes('flow')) tags.push({ label: 'VPC', color: 'cyan' })
+    if (lowerName.includes('cloudtrail') || lowerName.includes('trail')) tags.push({ label: 'Logging', color: 'green' })
+    if (lowerName.includes('rds')) tags.push({ label: 'RDS', color: 'indigo' })
+    if (lowerName.includes('remediat')) tags.push({ label: 'Remediation', color: 'rose' })
+
+    return tags
+  }
+
+  // Get severity based on unused percentage
+  const getSeverity = (unusedPercent: number): { level: string, color: string, bgColor: string, borderColor: string, emoji: string } => {
+    if (unusedPercent >= 80) {
+      return { level: 'CRITICAL', color: 'text-red-800', bgColor: 'bg-red-100', borderColor: 'border-red-500', emoji: '🚨' }
+    } else if (unusedPercent >= 50) {
+      return { level: 'HIGH', color: 'text-orange-800', bgColor: 'bg-orange-100', borderColor: 'border-orange-500', emoji: '⚠️' }
+    } else if (unusedPercent >= 20) {
+      return { level: 'MEDIUM', color: 'text-yellow-800', bgColor: 'bg-yellow-100', borderColor: 'border-yellow-500', emoji: '⚡' }
+    } else {
+      return { level: 'LOW', color: 'text-green-800', bgColor: 'bg-green-100', borderColor: 'border-green-500', emoji: '✓' }
+    }
+  }
+
+  // Get risk-based card styling
+  const getRiskCardStyle = (unusedPercent: number) => {
+    if (unusedPercent >= 80) return 'border-2 border-red-400 bg-red-50/30'
+    if (unusedPercent >= 50) return 'border-2 border-orange-400 bg-orange-50/30'
+    if (unusedPercent >= 20) return 'border-2 border-yellow-400 bg-yellow-50/30'
+    return 'border-2 border-green-400 bg-green-50/30'
+  }
+
   // Get icon based on resource type
   const getResourceIcon = () => {
     if (resource.resourceType === 'IAMRole') return <Shield className="w-5 h-5 text-purple-600" />
@@ -1238,6 +1291,9 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
   }
 
   const metrics = getUsageMetrics()
+  const severity = getSeverity(metrics.unusedPercent)
+  const serviceTags = resource.resourceType === 'IAMRole' ? getServiceTags(resource.resourceName) : []
+  const roleIcon = resource.resourceType === 'IAMRole' ? getRoleIcon(resource.resourceName) : null
 
   // Get LP Score badge color
   const getLPScoreColor = (score: number | null) => {
@@ -1249,77 +1305,128 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
 
   return (
     <div
-      className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow cursor-pointer"
+      className={`rounded-xl shadow-sm p-6 hover:shadow-xl transition-all duration-200 cursor-pointer ${getRiskCardStyle(metrics.unusedPercent)}`}
       onClick={onClick}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${getTypeColor().replace('text-', 'bg-').replace('-700', '-100')}`}>
-            {getResourceIcon()}
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3 flex-1">
+          {/* Role Icon with Service Icon */}
+          <div className={`p-2 rounded-lg ${getTypeColor().replace('text-', 'bg-').replace('-700', '-100')} relative`}>
+            {roleIcon ? (
+              <span className="text-2xl">{roleIcon}</span>
+            ) : (
+              getResourceIcon()
+            )}
           </div>
-          <div>
-            <h3 className="font-semibold text-lg text-gray-900">{resource.resourceName}</h3>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              {resource.region && (
-                <span className="flex items-center gap-1">
-                  <Globe className="w-4 h-4" />
-                  {resource.region}
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="font-semibold text-lg text-gray-900">{resource.resourceName}</h3>
+              {/* Service Tags */}
+              {serviceTags.map((tag, idx) => (
+                <span
+                  key={idx}
+                  className={`px-2 py-0.5 text-xs font-medium rounded
+                    ${tag.color === 'purple' ? 'bg-purple-100 text-purple-700 border border-purple-200' : ''}
+                    ${tag.color === 'blue' ? 'bg-blue-100 text-blue-700 border border-blue-200' : ''}
+                    ${tag.color === 'orange' ? 'bg-orange-100 text-orange-700 border border-orange-200' : ''}
+                    ${tag.color === 'cyan' ? 'bg-cyan-100 text-cyan-700 border border-cyan-200' : ''}
+                    ${tag.color === 'green' ? 'bg-green-100 text-green-700 border border-green-200' : ''}
+                    ${tag.color === 'indigo' ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' : ''}
+                    ${tag.color === 'rose' ? 'bg-rose-100 text-rose-700 border border-rose-200' : ''}
+                  `}
+                >
+                  {tag.label}
                 </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <span className="flex items-center gap-1">📍 {resource.systemName || 'Unknown System'}</span>
+              {resource.region && (
+                <>
+                  <span className="text-gray-300">•</span>
+                  <span className="flex items-center gap-1">
+                    <Globe className="w-3 h-3" />
+                    {resource.region}
+                  </span>
+                </>
               )}
-              <span>•</span>
-              <span>{resource.systemName || 'Unknown System'}</span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {/* LP Score Badge */}
-          <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${getLPScoreColor(metrics.lpScore)}`}>
-            LP Score: {metrics.lpScore !== null && !isNaN(metrics.lpScore) ? `${Math.round(metrics.lpScore)}%` : 'N/A'}
+        {/* Right side badges */}
+        <div className="flex flex-col items-end gap-2">
+          {/* Severity Badge */}
+          <span className={`px-3 py-1 text-xs font-bold rounded-full border ${severity.bgColor} ${severity.color} border-current`}>
+            {severity.emoji} {severity.level}
           </span>
           {/* Resource Type Badge */}
-          <span className={`px-3 py-1.5 rounded-full text-sm font-medium ${getTypeColor()}`}>
-            {resource.resourceType === 'IAMRole' ? 'IAM Role' : 
+          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor()}`}>
+            {resource.resourceType === 'IAMRole' ? 'IAM Role' :
              resource.resourceType === 'SecurityGroup' ? 'Security Group' :
              resource.resourceType === 'S3Bucket' ? 'S3 Bucket' : resource.resourceType}
           </span>
           {/* Non-remediable badge for IAM roles */}
           {resource.resourceType === 'IAMRole' && resource.isRemediable === false && (
-            <span className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
+            <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
               ⚠️ AWS Managed
             </span>
           )}
         </div>
       </div>
 
-      {/* Usage Bar - Unified for all types */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm mb-2">
-          <span className="text-gray-600 font-medium">{metrics.label}</span>
-          <span>
-            <span className="text-green-600 font-medium">{metrics.usedCount} {metrics.usedLabel}</span>
-            <span className="text-gray-400"> • </span>
-            <span className="text-red-600 font-medium">{metrics.unusedCount} {metrics.unusedLabel}</span>
-            <span className="text-gray-400 ml-1">({metrics.unusedPercent}%)</span>
-          </span>
+      {/* LP Score - Prominent Display */}
+      <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col">
+            <span className="text-xs text-gray-500 uppercase font-medium tracking-wide">Least Privilege Score</span>
+            <div className="flex items-center gap-3 mt-1">
+              <span className={`text-4xl font-bold ${metrics.lpScore !== null && metrics.lpScore < 50 ? 'text-red-600' : metrics.lpScore !== null && metrics.lpScore < 75 ? 'text-orange-600' : 'text-green-600'}`}>
+                {metrics.lpScore !== null && !isNaN(metrics.lpScore) ? `${Math.round(metrics.lpScore)}%` : 'N/A'}
+              </span>
+              <div className="flex flex-col text-xs">
+                <span className="text-gray-600">
+                  <span className="font-bold text-green-600">{metrics.usedCount}</span> {metrics.usedLabel}
+                </span>
+                <span className="text-gray-600">
+                  <span className="font-bold text-red-600">{metrics.unusedCount}</span> {metrics.unusedLabel}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
-        
-        {/* Progress bar */}
-        <div className="h-8 bg-gray-100 rounded-lg overflow-hidden flex">
+        <div className={`h-16 w-16 rounded-full flex items-center justify-center ${severity.bgColor} border-4 ${severity.bgColor.replace('bg-', 'border-').replace('-100', '-200')}`}>
+          <span className="text-2xl">{severity.emoji}</span>
+        </div>
+      </div>
+
+      {/* Usage Bar - Enhanced with gradients */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-gray-700">{metrics.label}</span>
+          <span className="text-sm text-gray-500">{metrics.total} total</span>
+        </div>
+
+        {/* Progress bar with gradient */}
+        <div className="relative h-12 rounded-xl overflow-hidden border-2 border-gray-200 shadow-inner">
           {metrics.usedPercent > 0 && (
-            <div 
-              className="bg-green-500 flex items-center justify-center text-white text-sm font-medium transition-all"
+            <div
+              className="absolute left-0 h-full bg-gradient-to-r from-green-400 to-green-600 flex items-center justify-center text-white text-sm font-bold shadow-lg transition-all"
               style={{ width: `${metrics.usedPercent}%` }}
             >
-              {metrics.usedCount > 0 && metrics.usedPercent >= 15 && metrics.usedCount}
+              {metrics.usedCount > 0 && metrics.usedPercent >= 20 && (
+                <span className="drop-shadow-lg">✓ {metrics.usedCount} {metrics.usedLabel}</span>
+              )}
             </div>
           )}
           {metrics.unusedPercent > 0 && (
-            <div 
-              className="bg-red-500 flex items-center justify-center text-white text-sm font-medium transition-all"
+            <div
+              className="absolute right-0 h-full bg-gradient-to-r from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold shadow-lg transition-all"
               style={{ width: `${metrics.unusedPercent}%` }}
             >
-              {metrics.unusedCount > 0 && metrics.unusedPercent >= 15 && metrics.unusedCount}
+              {metrics.unusedCount > 0 && metrics.unusedPercent >= 20 && (
+                <span className="drop-shadow-lg">✗ {metrics.unusedCount} {metrics.unusedLabel} ({metrics.unusedPercent}%)</span>
+              )}
             </div>
           )}
         </div>
@@ -1362,16 +1469,40 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
         </div>
       )}
 
-      {/* Footer */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Clock className="w-4 h-4" />
+      {/* Analysis & Action Summary */}
+      <div className="mb-4 space-y-2">
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <span>📊</span>
           <span>
-            {resource.evidence?.observationDays || 0} days of {(resource.evidence?.dataSources || []).join(', ')}, {resource.evidence?.confidence || 'UNKNOWN'} confidence
+            <strong>Analysis:</strong> {resource.evidence?.observationDays || 365} days | {(resource.evidence?.dataSources || ['Neo4j', 'CloudTrail']).join(' + ')} | {resource.evidence?.confidence || 'LOW'} confidence
           </span>
         </div>
+        <div className={`flex items-center gap-2 text-sm font-medium ${severity.color}`}>
+          <span>💡</span>
+          <span>
+            <strong>Action:</strong> {
+              metrics.unusedPercent >= 80
+                ? `Remove ${metrics.unusedCount} permissions immediately`
+                : metrics.unusedPercent >= 50
+                ? `Review and reduce ${metrics.unusedCount} permissions`
+                : metrics.unusedPercent >= 20
+                ? `Monitor and optimize ${metrics.unusedCount} permissions`
+                : metrics.unusedCount > 0
+                ? `Well-scoped, remove ${metrics.unusedCount} unused permissions`
+                : 'Fully optimized - no action needed'
+            }
+          </span>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <Clock className="w-3 h-3" />
+          <span>Last updated: {resource.evidence?.lastUsed || 'N/A'}</span>
+        </div>
         <button
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2 transition-colors"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2 transition-colors shadow-md hover:shadow-lg"
           onClick={(e) => {
             e.stopPropagation()
             onClick()
