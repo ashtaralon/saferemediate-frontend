@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw, Search, Globe } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
@@ -161,6 +161,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
+  const [searchTerm, setSearchTerm] = useState('')
+  const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const { toast } = useToast()
   
   // Cached fetch for SG gap analysis
@@ -674,49 +676,96 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         />
       </div>
 
-      {/* Resource Type Filter & Stats */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-600">
-            {(() => {
-              // Calculate filtered counts (same logic as display filter)
-              const displayedResources = resources.filter(r => {
-                // Apply remediable filter for IAM
-                if (r.resourceType === 'IAMRole' && showRemediableOnly && r.isRemediable === false) {
-                  return false
-                }
-                return true
-              })
-              const iamCount = displayedResources.filter(r => r.resourceType === 'IAMRole').length
-              const sgCount = displayedResources.filter(r => r.resourceType === 'SecurityGroup').length
-              const s3Count = displayedResources.filter(r => r.resourceType === 'S3Bucket').length
-              
-              return (
-                <>
-                  Showing <strong>{displayedResources.length}</strong> resources:
-                  <span className="ml-2">
-                    {iamCount} IAM Roles, {sgCount} Security Groups, {s3Count} S3 Buckets
-                  </span>
-                </>
-              )
-            })()}
-          </div>
-          {/* Remediable Filter Toggle */}
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showRemediableOnly}
-              onChange={(e) => setShowRemediableOnly(e.target.checked)}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-gray-600">Remediable only</span>
-          </label>
+      {/* Search & Filters */}
+      <div className="flex flex-col gap-3 mb-4">
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name, ARN, ID, or type..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
-        {data.timestamp && (
-          <div className="text-xs text-gray-500">
-            Last updated: {new Date(data.timestamp).toLocaleString()}
+
+        {/* Filter Row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-gray-600">
+              {(() => {
+                // Calculate filtered counts (same logic as display filter)
+                const displayedResources = resources.filter(r => {
+                  // Skip deleted resources
+                  if (deletedResources.has(r.id) || deletedResources.has(r.resourceName)) {
+                    return false
+                  }
+                  // Apply search filter
+                  if (searchTerm) {
+                    const search = searchTerm.toLowerCase()
+                    const matchesName = r.resourceName?.toLowerCase().includes(search)
+                    const matchesArn = r.resourceArn?.toLowerCase().includes(search)
+                    const matchesId = r.id?.toLowerCase().includes(search)
+                    const matchesType = r.resourceType?.toLowerCase().includes(search)
+                    if (!matchesName && !matchesArn && !matchesId && !matchesType) {
+                      return false
+                    }
+                  }
+                  // Apply remediable filter for IAM
+                  if (r.resourceType === 'IAMRole' && showRemediableOnly && r.isRemediable === false) {
+                    return false
+                  }
+                  return true
+                })
+                const iamCount = displayedResources.filter(r => r.resourceType === 'IAMRole').length
+                const sgCount = displayedResources.filter(r => r.resourceType === 'SecurityGroup').length
+                const s3Count = displayedResources.filter(r => r.resourceType === 'S3Bucket').length
+
+                return (
+                  <>
+                    Showing <strong>{displayedResources.length}</strong> resources:
+                    <span className="ml-2">
+                      {iamCount} IAM, {sgCount} SG, {s3Count} S3
+                    </span>
+                  </>
+                )
+              })()}
+            </div>
+            {/* Remediable Filter Toggle */}
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showRemediableOnly}
+                onChange={(e) => setShowRemediableOnly(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-gray-600">Remediable only</span>
+            </label>
+            {/* Clear deleted button */}
+            {deletedResources.size > 0 && (
+              <button
+                onClick={() => setDeletedResources(new Set())}
+                className="text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                Restore {deletedResources.size} dismissed
+              </button>
+            )}
           </div>
-        )}
+          {data.timestamp && (
+            <div className="text-xs text-gray-500">
+              Last updated: {new Date(data.timestamp).toLocaleString()}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Resources List */}
@@ -729,6 +778,20 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           </div>
         ) : (
           resources
+            // Filter out deleted/dismissed resources
+            .filter(resource => {
+              return !deletedResources.has(resource.id) && !deletedResources.has(resource.resourceName)
+            })
+            // Apply search filter
+            .filter(resource => {
+              if (!searchTerm) return true
+              const search = searchTerm.toLowerCase()
+              const matchesName = resource.resourceName?.toLowerCase().includes(search)
+              const matchesArn = resource.resourceArn?.toLowerCase().includes(search)
+              const matchesId = resource.id?.toLowerCase().includes(search)
+              const matchesType = resource.resourceType?.toLowerCase().includes(search)
+              return matchesName || matchesArn || matchesId || matchesType
+            })
             // Filter out "No Action Required" resources based on resource type
             .filter(resource => {
               // IAM Roles: filter by gapCount (unused permissions)
@@ -756,6 +819,19 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             <GapResourceCard
               key={resource.id || resource.resourceArn || resource.resourceName || `resource-${index}`}
               resource={resource}
+              onDelete={(id, name) => {
+                // Add to dismissed set
+                setDeletedResources(prev => {
+                  const next = new Set(prev)
+                  if (id) next.add(id)
+                  if (name) next.add(name)
+                  return next
+                })
+                toast({
+                  title: "Alert dismissed",
+                  description: `${name || id} has been removed from the list. Click "Restore dismissed" to bring it back.`,
+                })
+              }}
               onClick={() => {
                 // Use new IAM Permission Analysis modal for IAM Roles
                 if (resource.resourceType === 'IAMRole') {
@@ -1186,7 +1262,7 @@ function SummaryCard({ icon, label, value, color }: { icon: React.ReactNode, lab
 }
 
 // Unified Gap Resource Card Component - Polished design for all resource types
-function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick: () => void }) {
+function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResource, onClick: () => void, onDelete?: (id: string, name: string) => void }) {
   // Get role-specific icon based on name (for better visual identification)
   const getRoleIcon = (name: string) => {
     const lowerName = name.toLowerCase()
@@ -1383,6 +1459,19 @@ function GapResourceCard({ resource, onClick }: { resource: GapResource, onClick
         </div>
         {/* Right side badges */}
         <div className="flex flex-col items-end gap-2">
+          {/* Delete/Dismiss Button */}
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(resource.id, resource.resourceName)
+              }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              title="Dismiss this alert"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
           {/* Severity Badge */}
           <span className={`px-3 py-1 text-xs font-bold rounded-full border ${severity.bgColor} ${severity.color} border-current`}>
             {severity.emoji} {severity.level}
