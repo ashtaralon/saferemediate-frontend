@@ -278,21 +278,34 @@ export default function RecoveryTab() {
       setRestoring(snapshot.snapshot_id)
       setError(null)
 
-      const endpoint = isIAMRole
-        ? `/api/proxy/iam-snapshots/${snapshot.snapshot_id}/rollback`
-        : isS3Bucket
-          ? `/api/proxy/s3-buckets/rollback`
-          : `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`
+      // Detect if this is a new SG LP snapshot (sg-snap-* format)
+      const isSgLpSnapshot = snapshot.snapshot_id?.startsWith('sg-snap-')
+
+      let endpoint: string
+      let bodyContent: any = undefined
+
+      if (isIAMRole) {
+        endpoint = `/api/proxy/iam-snapshots/${snapshot.snapshot_id}/rollback`
+      } else if (isS3Bucket) {
+        endpoint = `/api/proxy/s3-buckets/rollback`
+        bodyContent = {
+          checkpoint_id: snapshot.snapshot_id,
+          bucket_name: snapshot.finding_id || ''
+        }
+      } else if (isSgLpSnapshot) {
+        // New SG LP snapshot - extract sg_id from snapshot
+        const sgId = snapshot.sg_id || snapshot.finding_id || ''
+        endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+        bodyContent = { snapshot_id: snapshot.snapshot_id }
+      } else {
+        // Old SG remediation endpoint
+        endpoint = `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`
+      }
 
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        ...(isS3Bucket && {
-          body: JSON.stringify({
-            checkpoint_id: snapshot.snapshot_id,
-            bucket_name: snapshot.finding_id || ''
-          })
-        })
+        ...(bodyContent && { body: JSON.stringify(bodyContent) })
       })
 
       if (!res.ok) {

@@ -58,11 +58,18 @@ export async function DELETE(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
 
-    // Detect S3 bucket checkpoints by ID prefix
-    const isS3Checkpoint = snapshotId.startsWith('S3Bucket-')
-    const endpoint = isS3Checkpoint
-      ? `${BACKEND_URL}/api/s3-remediation/checkpoints/${snapshotId}`
-      : `${BACKEND_URL}/api/remediation/snapshots/${snapshotId}`
+    // Detect snapshot type by ID prefix and route to correct endpoint
+    let endpoint: string
+    if (snapshotId.startsWith('S3Bucket-') || snapshotId.startsWith('s3-policy-')) {
+      // S3 bucket checkpoints
+      endpoint = `${BACKEND_URL}/api/s3-remediation/checkpoints/${snapshotId}`
+    } else if (snapshotId.startsWith('sg-snap-')) {
+      // SG LP snapshots (new system)
+      endpoint = `${BACKEND_URL}/api/sg-least-privilege/snapshots/${snapshotId}`
+    } else {
+      // Default to old SG remediation endpoint
+      endpoint = `${BACKEND_URL}/api/remediation/snapshots/${snapshotId}`
+    }
 
     console.log("[proxy] delete endpoint:", endpoint)
 

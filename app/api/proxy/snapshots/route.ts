@@ -17,16 +17,22 @@ export async function GET(req: NextRequest) {
     if (sg_id) params.append('sg_id', sg_id)
     params.append('limit', limit)
 
-    // Fetch both SG snapshots and S3 checkpoints in parallel
-    const [sgResponse, checkpointsResponse] = await Promise.all([
-      // Security Group snapshots
+    // Fetch SG snapshots, S3 checkpoints, and SG LP snapshots in parallel
+    const [sgResponse, checkpointsResponse, sgLpResponse] = await Promise.all([
+      // Security Group snapshots (old endpoint)
       fetch(`${BACKEND_URL}/api/remediation/snapshots?${params.toString()}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store",
       }).catch(() => null),
 
-      // S3 Bucket checkpoints (keep using old endpoint until unified system migrated)
+      // S3 Bucket checkpoints
       fetch(`${BACKEND_URL}/api/s3-remediation/checkpoints?limit=${limit}`, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      }).catch(() => null),
+
+      // SG LP snapshots (new endpoint)
+      fetch(`${BACKEND_URL}/api/sg-least-privilege/snapshots/all?limit=${limit}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store",
       }).catch(() => null)
@@ -67,6 +73,35 @@ export async function GET(req: NextRequest) {
 
       allSnapshots.push(...transformedCheckpoints)
       console.log("[proxy] S3 checkpoints:", transformedCheckpoints.length)
+    }
+
+    // Process SG LP snapshots (new system)
+    if (sgLpResponse?.ok) {
+      const sgLpData = await sgLpResponse.json()
+      const sgLpSnapshots = sgLpData.snapshots || []
+
+      // Transform to match snapshot format
+      const transformedSgLp = sgLpSnapshots.map((snap: any) => ({
+        snapshot_id: snap.snapshot_id,
+        id: snap.snapshot_id,
+        sg_id: snap.sg_id,
+        sg_name: snap.sg_name,
+        finding_id: snap.sg_id,
+        resource_type: 'SecurityGroup',
+        created_at: snap.created_at || snap.timestamp,
+        timestamp: snap.created_at || snap.timestamp,
+        created_by: snap.created_by || 'sg-lp-engine',
+        reason: snap.reason || 'Pre-remediation snapshot',
+        status: snap.status || 'ACTIVE',
+        rules_count: snap.rules_count,
+        current_state: {
+          sg_name: snap.sg_name,
+          checkpoint_type: 'SecurityGroup'
+        }
+      }))
+
+      allSnapshots.push(...transformedSgLp)
+      console.log("[proxy] SG LP snapshots:", transformedSgLp.length)
     }
 
     // Sort by created_at descending (newest first)
