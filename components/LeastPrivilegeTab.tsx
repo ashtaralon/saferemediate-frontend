@@ -729,15 +729,13 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               if (resource.resourceType === 'IAMRole') {
                 return resource.gapCount > 0
               }
-              // S3 Buckets: show if lpScore < 100 (has issues) or has overly permissive policies
+              // S3 Buckets: show all (user can click to analyze policies)
               if (resource.resourceType === 'S3Bucket') {
-                return (resource.lpScore ?? 100) < 100 || resource.gapCount > 0
+                return true
               }
-              // Security Groups: show if has public ingress or exposed rules
+              // Security Groups: show all (user can click to run LP analysis)
               if (resource.resourceType === 'SecurityGroup') {
-                return resource.hasPublicIngress ||
-                       resource.gapCount > 0 ||
-                       (resource.networkExposure?.internetExposedRules ?? 0) > 0
+                return true
               }
               // Default: show all other resource types
               return true
