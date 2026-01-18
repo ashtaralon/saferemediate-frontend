@@ -428,6 +428,19 @@ const RulesTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
                         <div className="text-xs text-slate-500">
                           {rule.traffic.unique_sources} sources
                         </div>
+                        {/* Show sample sources for OVERLY_BROAD rules */}
+                        {rule.status === 'OVERLY_BROAD' && rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {rule.traffic.sample_sources.slice(0, 3).map((ip, idx) => (
+                              <code key={idx} className="px-1 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-xs font-mono">
+                                {ip}
+                              </code>
+                            ))}
+                            {rule.traffic.sample_sources.length > 3 && (
+                              <span className="text-xs text-slate-500">+{rule.traffic.sample_sources.length - 3}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-slate-500 italic">No traffic</span>
@@ -578,9 +591,87 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
         )}
       </div>
 
+      {/* What Will Be Tightened (0.0.0.0/0 with real traffic) */}
+      {analysis.recommendations.tighten.length > 0 && (
+        <div className="bg-orange-500/5 rounded-xl p-5 border border-orange-500/20">
+          <h3 className="text-sm font-medium text-orange-400 mb-4 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            What Will Be Tightened (Replace 0.0.0.0/0 with observed IPs)
+          </h3>
+          <div className="space-y-4">
+            {analysis.recommendations.tighten.map((rule) => (
+              <div key={rule.rule_id} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                      TIGHTEN
+                    </span>
+                    <span className="text-slate-300 font-medium">
+                      {rule.protocol}/{rule.port_range}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    {rule.traffic.connection_count.toLocaleString()} connections from {rule.traffic.unique_sources} sources
+                  </span>
+                </div>
+
+                {/* Current Rule */}
+                <div className="mb-3 p-3 bg-red-500/10 rounded-lg border border-red-500/30">
+                  <div className="text-xs text-red-400 font-medium mb-1">CURRENT (Overly Broad)</div>
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-red-400" />
+                    <code className="text-red-300 font-mono text-sm">{rule.source}</code>
+                    <span className="text-slate-500 text-xs">← Open to entire internet</span>
+                  </div>
+                </div>
+
+                {/* Observed Traffic */}
+                {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
+                  <div className="mb-3 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+                    <div className="text-xs text-emerald-400 font-medium mb-2">OBSERVED TRAFFIC FROM</div>
+                    <div className="flex flex-wrap gap-2">
+                      {rule.traffic.sample_sources.slice(0, 10).map((ip, idx) => (
+                        <code key={idx} className="px-2 py-1 bg-emerald-500/20 text-emerald-300 rounded text-xs font-mono">
+                          {ip}
+                        </code>
+                      ))}
+                      {rule.traffic.sample_sources.length > 10 && (
+                        <span className="px-2 py-1 bg-slate-700 text-slate-400 rounded text-xs">
+                          +{rule.traffic.sample_sources.length - 10} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recommendation */}
+                <div className="p-3 bg-indigo-500/10 rounded-lg border border-indigo-500/30">
+                  <div className="text-xs text-indigo-400 font-medium mb-1">💡 RECOMMENDATION</div>
+                  <div className="text-sm text-slate-300">
+                    Replace <code className="text-red-400 font-mono">{rule.source}</code> with specific IPs/CIDRs:
+                  </div>
+                  {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {rule.traffic.sample_sources.slice(0, 5).map((ip, idx) => (
+                        <code key={idx} className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-xs font-mono">
+                          {ip}/32
+                        </code>
+                      ))}
+                      {rule.traffic.sample_sources.length > 5 && (
+                        <span className="text-xs text-slate-500">+{rule.traffic.sample_sources.length - 5} more</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* What Will Be Removed */}
       <div className="bg-red-500/5 rounded-xl p-5 border border-red-500/20">
-        <h3 className="text-sm font-medium text-red-400 mb-4">What Will Be Removed</h3>
+        <h3 className="text-sm font-medium text-red-400 mb-4">What Will Be Removed (No Traffic Observed)</h3>
         {analysis.recommendations.delete.length > 0 ? (
           <div className="space-y-2">
             {analysis.recommendations.delete.map((rule) => (
