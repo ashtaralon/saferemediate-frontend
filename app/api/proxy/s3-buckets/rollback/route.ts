@@ -9,16 +9,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     console.log('[S3-ROLLBACK] Rolling back checkpoint:', body.checkpoint_id)
 
+    // Use unified remediation endpoint
     const response = await fetch(
-      `${BACKEND_URL}/api/s3-remediation/rollback`,
+      `${BACKEND_URL}/api/remediate/rollback`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          checkpoint_id: body.checkpoint_id,
-          bucket_name: body.bucket_name || ''
+          checkpoint_id: body.checkpoint_id
         })
       }
     )

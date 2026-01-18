@@ -25,8 +25,8 @@ export async function GET(req: NextRequest) {
         cache: "no-store",
       }).catch(() => null),
 
-      // S3 Bucket checkpoints
-      fetch(`${BACKEND_URL}/api/checkpoints?limit=${limit}`, {
+      // S3 Bucket checkpoints (using unified remediation endpoint)
+      fetch(`${BACKEND_URL}/api/remediate/checkpoints?limit=${limit}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store",
       }).catch(() => null)

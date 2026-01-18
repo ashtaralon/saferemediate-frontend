@@ -9,19 +9,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     console.log('[S3-REMEDIATE] Executing remediation for bucket:', body.bucket_name)
 
-    // Call the new S3 remediation endpoint with checkpoint support
+    // Use unified remediation endpoint
     const response = await fetch(
-      `${BACKEND_URL}/api/s3-remediation/execute`,
+      `${BACKEND_URL}/api/remediate/execute`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          bucket_name: body.bucket_name,
-          policies_to_remove: body.policies_to_remove || [],
+          resource_type: 'S3Bucket',
+          resource_id: body.bucket_name,
+          actions: (body.policies_to_remove || []).map((sid: string) => `remove:${sid}`),
           finding_id: body.finding_id || '',
-          create_checkpoint: body.create_checkpoint !== false // Default to true
         })
       }
     )
