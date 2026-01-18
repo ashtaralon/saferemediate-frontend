@@ -251,20 +251,20 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
         onClick={onClose}
       />
 
-      {/* Modal */}
+      {/* Modal - Solid dark background for readability */}
       <div
         className="relative w-full max-w-2xl max-h-[90vh] overflow-auto rounded-xl border shadow-2xl"
         style={{
-          background: "var(--bg-secondary)",
-          borderColor: "var(--border-subtle)",
+          background: "#1e1e2f",
+          borderColor: "#3d3d5c",
         }}
       >
         {/* Header */}
         <div
           className="sticky top-0 flex items-center justify-between p-4 border-b"
           style={{
-            background: "var(--bg-secondary)",
-            borderColor: "var(--border-subtle)"
+            background: "#1e1e2f",
+            borderColor: "#3d3d5c"
           }}
         >
           <div className="flex items-center gap-3">
@@ -275,10 +275,10 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               {getActionIcon(event.action_type)}
             </div>
             <div>
-              <h2 className="font-semibold" style={{ color: "var(--text-primary)" }}>
+              <h2 className="font-semibold text-white">
                 Remediation Event
               </h2>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              <p className="text-xs text-gray-400">
                 {event.event_id}
               </p>
             </div>
@@ -287,7 +287,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors"
           >
-            <XCircle className="w-5 h-5" style={{ color: "var(--text-secondary)" }} />
+            <XCircle className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
@@ -297,11 +297,11 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           <div
             className="rounded-lg p-4 border"
             style={{
-              background: "var(--bg-primary)",
-              borderColor: "var(--border-subtle)",
+              background: "#252538",
+              borderColor: "#3d3d5c",
             }}
           >
-            <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+            <p className="text-sm text-white">
               {event.summary}
             </p>
           </div>
@@ -310,29 +310,29 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-3">
               <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
                   Date & Time
                 </p>
-                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                <p className="text-sm font-medium text-white">
                   {formatDateTime(event.timestamp)}
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
                   Resource
                 </p>
                 <div className="flex items-center gap-2">
                   {getResourceIcon(event.resource_type)}
-                  <p className="text-sm font-medium font-mono" style={{ color: "var(--text-primary)" }}>
+                  <p className="text-sm font-medium font-mono text-white">
                     {event.resource_id}
                   </p>
                 </div>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
                   Action Type
                 </p>
-                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                <p className="text-sm font-medium text-white">
                   {event.action_type.replace(/_/g, " ")}
                 </p>
               </div>
@@ -340,7 +340,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
 
             <div className="space-y-3">
               <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
                   Status
                 </p>
                 <span
@@ -358,18 +358,18 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </span>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
                   Confidence
                 </p>
-                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                <p className="text-sm font-medium text-white">
                   {Math.round(event.confidence_score * 100)}%
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
                   Approved By
                 </p>
-                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                <p className="text-sm font-medium text-white">
                   {event.approved_by}
                 </p>
               </div>
@@ -381,20 +381,20 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             <div
               className="rounded-lg p-4 border"
               style={{
-                background: "var(--bg-primary)",
-                borderColor: "var(--border-subtle)",
+                background: "#252538",
+                borderColor: "#3d3d5c",
               }}
             >
-              <h3 className="text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+              <h3 className="text-sm font-medium mb-2 text-white">
                 Details
               </h3>
               <div className="space-y-1">
                 {Object.entries(event.metadata).filter(([k]) => k !== 'rules_count' && k !== 'removed_permissions').map(([key, value]) => (
                   <div key={key} className="flex justify-between text-sm">
-                    <span style={{ color: "var(--text-secondary)" }}>
+                    <span className="text-gray-400">
                       {key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
                     </span>
-                    <span className="font-mono" style={{ color: "var(--text-primary)" }}>
+                    <span className="font-mono text-white">
                       {typeof value === "object" ? JSON.stringify(value) : String(value)}
                     </span>
                   </div>
@@ -406,8 +406,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           {/* Diff Toggle */}
           <button
             onClick={() => setShowDiff(!showDiff)}
-            className="flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80"
-            style={{ color: "var(--action-primary)" }}
+            className="flex items-center gap-2 text-sm font-medium transition-colors hover:opacity-80 text-purple-400"
           >
             {showDiff ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             {showDiff ? "Hide" : "Show"} State Changes
@@ -419,24 +418,24 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               <div
                 className="rounded-lg p-3 border"
                 style={{
-                  background: "rgba(239, 68, 68, 0.1)",
-                  borderColor: "rgba(239, 68, 68, 0.3)",
+                  background: "#3d1f1f",
+                  borderColor: "#6b2c2c",
                 }}
               >
                 <p className="text-xs font-medium mb-2 text-red-400">Before</p>
-                <pre className="text-xs overflow-auto max-h-40" style={{ color: "var(--text-secondary)" }}>
+                <pre className="text-xs overflow-auto max-h-40 text-gray-300">
                   {JSON.stringify(event.before_state, null, 2)}
                 </pre>
               </div>
               <div
                 className="rounded-lg p-3 border"
                 style={{
-                  background: "rgba(16, 185, 129, 0.1)",
-                  borderColor: "rgba(16, 185, 129, 0.3)",
+                  background: "#1f3d2a",
+                  borderColor: "#2c6b3d",
                 }}
               >
                 <p className="text-xs font-medium mb-2 text-emerald-400">After</p>
-                <pre className="text-xs overflow-auto max-h-40" style={{ color: "var(--text-secondary)" }}>
+                <pre className="text-xs overflow-auto max-h-40 text-gray-300">
                   {JSON.stringify(event.after_state, null, 2)}
                 </pre>
               </div>
@@ -448,18 +447,18 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
         <div
           className="sticky bottom-0 flex items-center justify-between p-4 border-t"
           style={{
-            background: "var(--bg-secondary)",
-            borderColor: "var(--border-subtle)",
+            background: "#1e1e2f",
+            borderColor: "#3d3d5c",
           }}
         >
           <div className="flex items-center gap-2">
             {event.snapshot_id && (
-              <span className="text-xs px-2 py-1 rounded bg-blue-500/10 text-blue-400">
+              <span className="text-xs px-2 py-1 rounded bg-blue-900/50 text-blue-400">
                 Snapshot: {event.snapshot_id.slice(0, 20)}...
               </span>
             )}
             {event.source && (
-              <span className={`text-xs px-2 py-1 rounded ${event.source === 'neo4j' ? 'bg-purple-500/10 text-purple-400' : 'bg-green-500/10 text-green-400'}`}>
+              <span className={`text-xs px-2 py-1 rounded ${event.source === 'neo4j' ? 'bg-purple-900/50 text-purple-400' : 'bg-green-900/50 text-green-400'}`}>
                 {event.source === 'neo4j' ? 'Neo4j Event' : 'Checkpoint'}
               </span>
             )}
@@ -467,8 +466,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-white/5"
-              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-600 text-gray-300 transition-colors hover:bg-white/5"
             >
               Close
             </button>
