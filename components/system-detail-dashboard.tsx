@@ -101,6 +101,16 @@ const RealDataArchitectureMap = dynamic(() => import("./real-data-architecture-m
   ),
 })
 
+const RemediationTimeline = dynamic(() => import("./remediation-timeline").then((mod) => ({ default: mod.RemediationTimeline })), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">Loading Timeline...</span>
+    </div>
+  ),
+})
+
 const AWSTopologyMapLive = dynamic(() => import("./aws-topology-map-live"), {
   ssr: false,
   loading: () => (
@@ -789,7 +799,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "behavioral", label: "Behavioral", icon: Activity },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
-    { id: "security-posture", label: "Security Posture", icon: Shield }, // NEW: Single pane of glass
+    { id: "security-posture", label: "Security Posture", icon: Shield },
+    { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
   ]
 
   const resourceTypes = [
@@ -1555,6 +1566,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               // Store highlightPath in state to pass to dependency-map-tab
               setHighlightPath(highlightPath)
               setGraphEngine('architectural')
+            }}
+          />
+        </div>
+      )}
+
+      {activeTab === "history" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <RemediationTimeline
+            systemId={systemName}
+            onRollback={(eventId) => {
+              console.log("Rolled back event:", eventId)
+              // Optionally refresh other tabs after rollback
             }}
           />
         </div>
