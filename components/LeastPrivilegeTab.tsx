@@ -723,8 +723,25 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           </div>
         ) : (
           resources
-            // Filter out "No Action Required" resources (gapCount === 0)
-            .filter(resource => resource.gapCount > 0)
+            // Filter out "No Action Required" resources based on resource type
+            .filter(resource => {
+              // IAM Roles: filter by gapCount (unused permissions)
+              if (resource.resourceType === 'IAMRole') {
+                return resource.gapCount > 0
+              }
+              // S3 Buckets: show if lpScore < 100 (has issues) or has overly permissive policies
+              if (resource.resourceType === 'S3Bucket') {
+                return (resource.lpScore ?? 100) < 100 || resource.gapCount > 0
+              }
+              // Security Groups: show if has public ingress or exposed rules
+              if (resource.resourceType === 'SecurityGroup') {
+                return resource.hasPublicIngress ||
+                       resource.gapCount > 0 ||
+                       (resource.networkExposure?.internetExposedRules ?? 0) > 0
+              }
+              // Default: show all other resource types
+              return true
+            })
             // Only filter based on remediable toggle (only affects IAM Roles)
             .filter(resource => {
               if (resource.resourceType !== 'IAMRole') return true
