@@ -675,15 +675,106 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
 
   const handleSimulate = async () => {
     if (!analysis) return;
-    
+
     const rulesToRemediate = analysis.recommendations.delete;
     if (rulesToRemediate.length === 0) {
       alert('No rules to remediate');
       return;
     }
 
-    // Navigate to simulation or show simulation modal
-    console.log('Simulating remediation for', rulesToRemediate.length, 'rules');
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rules: rulesToRemediate.map(r => ({
+            rule_id: r.rule_id,
+            direction: r.direction,
+            protocol: r.protocol.toLowerCase(),
+            from_port: r.from_port,
+            to_port: r.to_port,
+            source: r.source,
+            action: 'DELETE'
+          })),
+          create_snapshot: true,
+          dry_run: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Simulation failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Simulation result:', result);
+
+      // Show simulation results
+      const safetyStatus = result.safety?.is_safe ? '✅ SAFE' : '⚠️ WARNING';
+      const warnings = result.safety?.warnings?.join('\n') || 'None';
+      const commands = result.cli_commands?.join('\n') || 'No commands';
+
+      alert(`${safetyStatus} to apply\n\nRules to remove: ${result.summary?.rules_to_change || 0}\n\nWarnings:\n${warnings}\n\nCLI Commands:\n${commands}`);
+    } catch (err: any) {
+      console.error('Simulation error:', err);
+      alert(`Simulation failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyFix = async () => {
+    if (!analysis) return;
+
+    const rulesToRemediate = analysis.recommendations.delete;
+    if (rulesToRemediate.length === 0) {
+      alert('No rules to remediate');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to remove ${rulesToRemediate.length} unused rules from ${analysis.sg_name}?\n\nThis will create a snapshot for rollback.`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/remediate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rules: rulesToRemediate.map(r => ({
+            rule_id: r.rule_id,
+            direction: r.direction,
+            protocol: r.protocol.toLowerCase(),
+            from_port: r.from_port,
+            to_port: r.to_port,
+            source: r.source,
+            action: 'DELETE'
+          })),
+          create_snapshot: true,
+          dry_run: false
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || `Remediation failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Remediation result:', result);
+
+      alert(`✅ Remediation successful!\n\nRules removed: ${result.summary?.rules_removed || 0}\nSnapshot ID: ${result.snapshot_id || 'N/A'}`);
+
+      // Refresh analysis and notify parent
+      await fetchAnalysis();
+      onRemediate?.(sgId, rulesToRemediate);
+    } catch (err: any) {
+      console.error('Remediation error:', err);
+      alert(`❌ Remediation failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExportTerraform = () => {
@@ -813,11 +904,19 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
           <div className="flex gap-3">
             <button
               onClick={handleSimulate}
-              disabled={!analysis || analysis.recommendations.delete.length === 0}
+              disabled={!analysis || analysis.recommendations.delete.length === 0 || loading}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Play className="w-4 h-4" />
               Simulate
+            </button>
+            <button
+              onClick={handleApplyFix}
+              disabled={!analysis || analysis.recommendations.delete.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              {loading ? 'Applying...' : 'Apply Fix Now'}
             </button>
             <button
               onClick={handleExportTerraform}
@@ -826,14 +925,6 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             >
               <Download className="w-4 h-4" />
               Export Terraform
-            </button>
-            <button
-              onClick={() => onRemediate?.(sgId, analysis?.recommendations.delete || [])}
-              disabled={!analysis || analysis.recommendations.delete.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              Request Approval
             </button>
           </div>
         </div>
