@@ -88,12 +88,13 @@ export function IAMPermissionAnalysisModal({
     }
   }, [isOpen, roleName])
 
-  const fetchGapAnalysis = async () => {
+  const fetchGapAnalysis = async (forceRefresh = false) => {
     setLoading(true)
     setError(null)
     try {
-      console.log('[IAM-Modal] Fetching gap analysis for:', roleName)
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+      console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
+      const refreshParam = forceRefresh ? '&refresh=true' : ''
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90${refreshParam}`)
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -776,9 +777,18 @@ export function IAMPermissionAnalysisModal({
               <span className="text-gray-500"> - IAMRole - {systemName}</span>
             </p>
           </div>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchGapAnalysis(true)}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+              title="Refresh data"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
+            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}

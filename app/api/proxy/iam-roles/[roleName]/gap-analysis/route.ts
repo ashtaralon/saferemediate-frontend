@@ -18,7 +18,7 @@ export async function GET(
   const { roleName } = await params
   const url = new URL(req.url)
   const days = url.searchParams.get("days") ?? "90"
-  const forceRefresh = url.searchParams.get("refresh") === "true"
+  const forceRefresh = url.searchParams.get("refresh") === "true" || url.searchParams.get("force_refresh") === "true"
   
   const cacheKey = `${roleName}-${days}`
   const now = Date.now()
