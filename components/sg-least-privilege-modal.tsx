@@ -617,8 +617,35 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact'>('summary');
+  const [syncing, setSyncing] = useState(false);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com';
+
+  const handleSyncFlowLogs = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch(`/api/proxy/sg-least-privilege/sync-flow-logs?days=30`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Sync failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[SG-LP] Flow logs synced:', data);
+
+      // Refresh analysis after sync
+      await fetchAnalysis();
+
+      alert(`Flow logs synced! ${data.security_groups_processed || 0} Security Groups updated.`);
+    } catch (err: any) {
+      console.error('Sync error:', err);
+      alert(`Sync failed: ${err.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchAnalysis = useCallback(async () => {
     setLoading(true);
@@ -706,12 +733,23 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
               SecurityGroup • {systemName || 'Unknown System'}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-          >
-            <XCircle className="w-5 h-5 text-slate-400" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSyncFlowLogs}
+              disabled={syncing}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
+              title="Sync VPC Flow Logs to correlate traffic with Security Groups"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync Flow Logs'}
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <XCircle className="w-5 h-5 text-slate-400" />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
