@@ -524,8 +524,15 @@ function SnapshotCard({
   const inboundRules = snapshot.rules_count?.inbound ?? snapshot.current_state?.rules_count?.inbound ?? 0
   const outboundRules = snapshot.rules_count?.outbound ?? snapshot.current_state?.rules_count?.outbound ?? 0
 
-  // IAM-specific fields
-  const roleName = snapshot.role_name || 'Unknown Role'
+  // IAM-specific fields - extract role name from snapshot_id if not provided
+  let roleName = snapshot.role_name || snapshot.current_state?.role_name || snapshot.before_state?.role_name
+  if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
+    // Extract from snapshot ID: IAMRole-{roleName}-{hash}
+    const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
+    parts.pop() // Remove the hash
+    roleName = parts.join('-') || 'Unknown Role'
+  }
+  roleName = roleName || 'Unknown Role'
   const roleArn = snapshot.role_arn || 'N/A'
   const permissionsCount = snapshot.permissions_count || 0
   const removedPermissions = snapshot.removed_permissions || []
