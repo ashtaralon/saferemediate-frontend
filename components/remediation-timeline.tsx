@@ -27,6 +27,9 @@ import {
   Eye,
   FileText,
   Calendar,
+  Database,
+  Key,
+  RefreshCw,
 } from "lucide-react"
 
 // ============================================================================
@@ -55,6 +58,8 @@ interface RemediationEvent {
   before_state: Record<string, any>
   after_state: Record<string, any>
   summary: string
+  // Source tracking
+  source?: "neo4j" | "snapshot"
   // Snapshot-specific fields for rollback
   sg_id?: string
   sg_name?: string
@@ -126,18 +131,33 @@ const getStatusColor = (status: string) => {
 const getActionIcon = (actionType: string) => {
   switch (actionType) {
     case "PERMISSION_REMOVAL":
-      return <Shield className="w-4 h-4" />
+      return <Key className="w-4 h-4" />
     case "ROLLBACK":
       return <RotateCcw className="w-4 h-4" />
     case "SG_RULE_REMOVED":
-      return <AlertTriangle className="w-4 h-4" />
+      return <Shield className="w-4 h-4" />
+    case "S3_POLICY_REMOVED":
+      return <Database className="w-4 h-4" />
+    default:
+      return <CheckCircle className="w-4 h-4" />
+  }
+}
+
+const getResourceIcon = (resourceType: string) => {
+  switch (resourceType) {
+    case "IAMRole":
+      return <Key className="w-4 h-4 text-purple-400" />
+    case "SecurityGroup":
+      return <Shield className="w-4 h-4 text-blue-400" />
+    case "S3Bucket":
+      return <Database className="w-4 h-4 text-orange-400" />
     default:
       return <CheckCircle className="w-4 h-4" />
   }
 }
 
 // ============================================================================
-// CUSTOM TOOLTIP COMPONENT
+// CUSTOM CHART COMPONENTS
 // ============================================================================
 
 // Custom dot component for checkpoints
@@ -193,7 +213,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         </p>
         {data.events > 0 && (
           <p className="text-xs mt-1 px-2 py-1 rounded bg-purple-500/20 text-purple-400 font-medium">
-            📍 {data.events} Checkpoint{data.events > 1 ? 's' : ''} on this date
+            📍 {data.events} Event{data.events > 1 ? 's' : ''} on this date
           </p>
         )}
         <div className="mt-2 space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -242,9 +262,9 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
         {/* Header */}
         <div
           className="sticky top-0 flex items-center justify-between p-4 border-b"
-          style={{ 
+          style={{
             background: "var(--bg-secondary)",
-            borderColor: "var(--border-subtle)" 
+            borderColor: "var(--border-subtle)"
           }}
         >
           <div className="flex items-center gap-3">
@@ -301,9 +321,12 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
                   Resource
                 </p>
-                <p className="text-sm font-medium font-mono" style={{ color: "var(--text-primary)" }}>
-                  {event.resource_id}
-                </p>
+                <div className="flex items-center gap-2">
+                  {getResourceIcon(event.resource_type)}
+                  <p className="text-sm font-medium font-mono" style={{ color: "var(--text-primary)" }}>
+                    {event.resource_id}
+                  </p>
+                </div>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
@@ -366,7 +389,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 Details
               </h3>
               <div className="space-y-1">
-                {Object.entries(event.metadata).map(([key, value]) => (
+                {Object.entries(event.metadata).filter(([k]) => k !== 'rules_count' && k !== 'removed_permissions').map(([key, value]) => (
                   <div key={key} className="flex justify-between text-sm">
                     <span style={{ color: "var(--text-secondary)" }}>
                       {key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
@@ -432,7 +455,12 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           <div className="flex items-center gap-2">
             {event.snapshot_id && (
               <span className="text-xs px-2 py-1 rounded bg-blue-500/10 text-blue-400">
-                Snapshot: {event.snapshot_id.slice(0, 16)}...
+                Snapshot: {event.snapshot_id.slice(0, 20)}...
+              </span>
+            )}
+            {event.source && (
+              <span className={`text-xs px-2 py-1 rounded ${event.source === 'neo4j' ? 'bg-purple-500/10 text-purple-400' : 'bg-green-500/10 text-green-400'}`}>
+                {event.source === 'neo4j' ? 'Neo4j Event' : 'Checkpoint'}
               </span>
             )}
           </div>
@@ -476,7 +504,7 @@ export function RemediationTimeline({
   const [summary, setSummary] = useState<TimelineSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
+
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "90d" | "1y">("30d")
   const [selectedEvent, setSelectedEvent] = useState<RemediationEvent | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -501,7 +529,6 @@ export function RemediationTimeline({
     if (isIAMRole) {
       resourceType = 'IAMRole'
       actionType = 'PERMISSION_REMOVAL'
-      // Extract role name from snapshot_id if not provided
       let roleName = snapshot.role_name || snapshot.current_state?.role_name
       if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
         const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
@@ -515,7 +542,7 @@ export function RemediationTimeline({
       resourceType = 'S3Bucket'
       actionType = 'S3_POLICY_REMOVED'
       resourceId = snapshot.finding_id || snapshot.current_state?.resource_name || 'Unknown Bucket'
-      summary = `Policy checkpoint created for ${resourceId}`
+      summary = `Policy checkpoint for ${resourceId}`
     } else {
       resourceId = snapshot.sg_name || snapshot.sg_id || snapshot.finding_id || 'Unknown SG'
       const rulesRemoved = snapshot.rules_count?.inbound || 0
@@ -542,7 +569,7 @@ export function RemediationTimeline({
       before_state: snapshot.current_state || {},
       after_state: {},
       summary,
-      // Keep original fields for rollback
+      source: 'snapshot',
       sg_id: snapshot.sg_id,
       sg_name: snapshot.sg_name,
       role_name: snapshot.role_name || resourceId,
@@ -551,125 +578,133 @@ export function RemediationTimeline({
     }
   }
 
-  // Fetch timeline data
+  // Fetch timeline data from both Neo4j API and snapshots
   useEffect(() => {
     const fetchTimeline = async () => {
       setLoading(true)
       setError(null)
 
       try {
-        // Calculate date range based on period
         const periodDays = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - periodDays[selectedPeriod])
+        const today = new Date()
 
-        // Fetch real snapshots from both SG and IAM endpoints
-        const [sgRes, iamRes] = await Promise.all([
+        // Fetch from both sources in parallel
+        const [neo4jRes, sgRes, iamRes] = await Promise.all([
+          // 1. Neo4j Timeline API (primary source for recorded events)
+          fetch(`${apiBaseUrl}/api/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200`)
+            .catch(() => null),
+          // 2. Snapshots (to include any checkpoints not yet in Neo4j)
           fetch('/api/proxy/snapshots', { cache: 'no-store' }).catch(() => null),
           fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
         ])
 
-        let allSnapshots: any[] = []
+        let allEvents: RemediationEvent[] = []
+        let neo4jChartData: ChartDataPoint[] = []
+        let neo4jSummary: TimelineSummary | null = null
 
-        // Process SG/S3 snapshots
+        // Process Neo4j timeline data (primary)
+        if (neo4jRes && neo4jRes.ok) {
+          const neo4jData = await neo4jRes.json()
+          const neo4jEvents = (neo4jData.events || []).map((e: any) => ({
+            ...e,
+            source: 'neo4j' as const
+          }))
+          allEvents.push(...neo4jEvents)
+          neo4jChartData = neo4jData.chart_data || []
+          neo4jSummary = neo4jData.summary || null
+        }
+
+        // Process snapshots (secondary - fill in any missing)
+        let snapshotEvents: RemediationEvent[] = []
+
         if (sgRes && sgRes.ok) {
           const sgData = await sgRes.json()
           const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
-          // Detect and assign types
           const typedSnapshots = sgList.map((s: any) => {
-            if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-')) {
+            if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-') || s.resource_type === 'IAMRole') {
               return { ...s, type: 'IAMRole' }
             }
-            if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-')) {
-              return { ...s, type: 'S3Bucket' }
-            }
-            if (s.resource_type === 'IAMRole' || s.current_state?.checkpoint_type === 'IAMRole') {
-              return { ...s, type: 'IAMRole' }
-            }
-            if (s.resource_type === 'S3Bucket' || s.current_state?.checkpoint_type === 'S3Bucket') {
+            if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-') || s.resource_type === 'S3Bucket') {
               return { ...s, type: 'S3Bucket' }
             }
             return { ...s, type: 'SecurityGroup' }
           })
-          allSnapshots.push(...typedSnapshots)
+          snapshotEvents.push(...typedSnapshots.map(convertSnapshotToEvent))
         }
 
-        // Process IAM snapshots
         if (iamRes && iamRes.ok) {
           const iamData = await iamRes.json()
           const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
-          const iamSnapshots = iamList.map((s: any) => ({ ...s, type: 'IAMRole' }))
-          allSnapshots.push(...iamSnapshots)
+          snapshotEvents.push(...iamList.map((s: any) => convertSnapshotToEvent({ ...s, type: 'IAMRole' })))
         }
+
+        // Merge: Add snapshot events not already in Neo4j (by snapshot_id)
+        const neo4jSnapshotIds = new Set(allEvents.map(e => e.snapshot_id).filter(Boolean))
+        const uniqueSnapshotEvents = snapshotEvents.filter(e => !neo4jSnapshotIds.has(e.snapshot_id))
+        allEvents.push(...uniqueSnapshotEvents)
 
         // Filter by date range
-        const filteredSnapshots = allSnapshots.filter(s => {
-          const ts = new Date(s.timestamp || s.created_at || 0)
-          return ts >= startDate
+        allEvents = allEvents.filter(e => {
+          const ts = new Date(e.timestamp)
+          return ts >= startDate && ts <= today
         })
-
-        // Convert to RemediationEvent format
-        const snapshotEvents = filteredSnapshots.map(convertSnapshotToEvent)
 
         // Sort by timestamp (newest first)
-        snapshotEvents.sort((a, b) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        )
+        allEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
-        // Generate chart data from snapshots
-        const chartDataMap = new Map<string, ChartDataPoint>()
-        const today = new Date()
+        // Generate chart data if Neo4j didn't provide it
+        let finalChartData = neo4jChartData
+        if (finalChartData.length === 0 && allEvents.length > 0) {
+          const chartDataMap = new Map<string, ChartDataPoint>()
 
-        // Initialize all days in period
-        for (let i = periodDays[selectedPeriod]; i >= 0; i--) {
-          const date = new Date(today)
-          date.setDate(date.getDate() - i)
-          const dateKey = date.toISOString().split('T')[0]
-          chartDataMap.set(dateKey, {
-            date: dateKey,
-            events: 0,
-            permissions_removed: 0,
-            security_score: 60 + ((periodDays[selectedPeriod] - i) / periodDays[selectedPeriod]) * 35,
-            score_delta: 0,
+          for (let i = periodDays[selectedPeriod]; i >= 0; i--) {
+            const date = new Date(today)
+            date.setDate(date.getDate() - i)
+            const dateKey = date.toISOString().split('T')[0]
+            chartDataMap.set(dateKey, {
+              date: dateKey,
+              events: 0,
+              permissions_removed: 0,
+              security_score: 60 + ((periodDays[selectedPeriod] - i) / periodDays[selectedPeriod]) * 35,
+              score_delta: 0,
+            })
+          }
+
+          allEvents.forEach(event => {
+            const dateKey = event.timestamp.split('T')[0]
+            const existing = chartDataMap.get(dateKey)
+            if (existing) {
+              existing.events += 1
+              existing.permissions_removed += event.metadata.permissions_removed || 0
+              existing.score_delta += 1
+            }
           })
+
+          finalChartData = Array.from(chartDataMap.values())
         }
 
-        // Populate with actual events
-        snapshotEvents.forEach(event => {
-          const dateKey = event.timestamp.split('T')[0]
-          const existing = chartDataMap.get(dateKey)
-          if (existing) {
-            existing.events += 1
-            existing.permissions_removed += event.metadata.permissions_removed || 0
-            existing.score_delta += 1
-          }
-        })
-
-        // Convert map to array
-        const chartDataArray = Array.from(chartDataMap.values())
-
-        // Calculate summary
-        const summaryData: TimelineSummary = {
-          total_events: snapshotEvents.length,
-          total_permissions_removed: snapshotEvents.reduce((acc, e) => acc + (e.metadata.permissions_removed || 0), 0),
-          completed_events: snapshotEvents.filter(e => e.status === 'completed').length,
-          rollback_events: snapshotEvents.filter(e => e.status === 'rolled_back').length,
-          avg_confidence: snapshotEvents.length > 0
-            ? Math.round(snapshotEvents.reduce((acc, e) => acc + e.confidence_score * 100, 0) / snapshotEvents.length)
+        // Calculate summary if Neo4j didn't provide it
+        const finalSummary: TimelineSummary = neo4jSummary || {
+          total_events: allEvents.length,
+          total_permissions_removed: allEvents.reduce((acc, e) => acc + (e.metadata.permissions_removed || 0), 0),
+          completed_events: allEvents.filter(e => e.status === 'completed').length,
+          rollback_events: allEvents.filter(e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK').length,
+          avg_confidence: allEvents.length > 0
+            ? Math.round(allEvents.reduce((acc, e) => acc + e.confidence_score * 100, 0) / allEvents.length)
             : 0,
           period_start: startDate.toISOString().split('T')[0],
           period_end: today.toISOString().split('T')[0],
         }
 
-        setEvents(snapshotEvents)
-        setChartData(chartDataArray)
-        setSummary(summaryData)
+        setEvents(allEvents)
+        setChartData(finalChartData)
+        setSummary(finalSummary)
 
       } catch (err: any) {
         console.error("Timeline fetch error:", err)
         setError(err.message)
-
-        // Use empty state on error
         setEvents([])
         setChartData([])
         setSummary(null)
@@ -681,7 +716,7 @@ export function RemediationTimeline({
     fetchTimeline()
   }, [selectedPeriod, systemId, resourceId, apiBaseUrl, refreshKey])
 
-  // Handle rollback - uses correct endpoint based on resource type
+  // Handle rollback - uses correct endpoint based on source and resource type
   const handleRollback = async (eventId: string) => {
     const event = events.find(e => e.event_id === eventId)
     if (!event) {
@@ -692,14 +727,7 @@ export function RemediationTimeline({
     const resourceName = event.resource_id
     const resourceType = event.resource_type
 
-    let confirmMessage = "Are you sure you want to rollback this remediation? This will restore the previous state."
-    if (resourceType === 'IAMRole') {
-      confirmMessage = `⚠️ Restore IAM Role snapshot?\n\nThis will restore permissions to ${resourceName}\n\nContinue?`
-    } else if (resourceType === 'S3Bucket') {
-      confirmMessage = `⚠️ Restore S3 Bucket checkpoint?\n\nThis will restore the bucket policy for ${resourceName}\n\nContinue?`
-    } else {
-      confirmMessage = `⚠️ Restore Security Group snapshot?\n\nThis will restore rules for ${resourceName}\n\nContinue?`
-    }
+    let confirmMessage = `⚠️ Restore ${resourceType} to previous state?\n\nResource: ${resourceName}\n\nThis will undo the remediation. Continue?`
 
     if (!confirm(confirmMessage)) {
       return
@@ -710,7 +738,13 @@ export function RemediationTimeline({
       let bodyContent: any = undefined
       const snapshotId = event.snapshot_id || eventId
 
-      if (resourceType === 'IAMRole') {
+      // If it's a Neo4j event, use the timeline rollback API
+      if (event.source === 'neo4j') {
+        endpoint = `${apiBaseUrl}/api/remediation-history/events/${eventId}/rollback`
+        bodyContent = { approved_by: "user@cyntro.io" }
+      }
+      // Otherwise, use the snapshot-specific endpoints
+      else if (resourceType === 'IAMRole') {
         endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
       } else if (resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
@@ -719,7 +753,6 @@ export function RemediationTimeline({
           bucket_name: event.bucket_name || event.resource_id || ''
         }
       } else {
-        // Security Group - check if it's a new LP snapshot format
         const isSgLpSnapshot = snapshotId?.startsWith('sg-snap-')
         if (isSgLpSnapshot) {
           const sgId = event.sg_id || event.resource_id || ''
@@ -743,26 +776,15 @@ export function RemediationTimeline({
 
       const result = await response.json()
 
-      if (result.success) {
-        let successMessage = '✅ Restored Successfully!'
-        if (resourceType === 'IAMRole') {
-          successMessage = `✅ Restored Successfully!\n\nIAM Role: ${result.role_name || resourceName}\nPermissions restored: ${result.permissions_restored || 'All'}`
-        } else if (resourceType === 'S3Bucket') {
-          successMessage = `✅ Restored Successfully!\n\nS3 Bucket: ${result.bucket_name || resourceName}\nPolicy restored from checkpoint`
-        } else {
-          successMessage = `✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id || resourceName}\nRules restored: ${result.rules_restored || 'All'}`
-        }
-        alert(successMessage)
+      if (result.success !== false) {
+        alert(`✅ Restored Successfully!\n\n${resourceType}: ${resourceName}\n\nThe resource has been restored to its previous state.`)
       } else {
         throw new Error(result.error || 'Rollback failed')
       }
 
-      // Refresh data
       setShowModal(false)
       setSelectedEvent(null)
       onRollback?.(eventId)
-
-      // Refresh timeline
       refreshTimeline()
     } catch (err: any) {
       alert(`❌ Rollback failed: ${err.message}`)
@@ -774,16 +796,19 @@ export function RemediationTimeline({
     try {
       const response = await fetch(`${apiBaseUrl}/api/remediation-history/export?format=csv`)
       const data = await response.json()
-      
-      // Download CSV
-      const blob = new Blob([data.content], { type: "text/csv" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = data.filename
-      a.click()
+
+      if (data.content) {
+        const blob = new Blob([typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2)],
+          { type: data.format === 'csv' ? "text/csv" : "application/json" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = data.filename || `remediation_history_${new Date().toISOString().split('T')[0]}.${data.format || 'json'}`
+        a.click()
+      }
     } catch (err) {
       console.error("Export failed:", err)
+      alert("Export failed. Please try again.")
     }
   }
 
@@ -805,7 +830,7 @@ export function RemediationTimeline({
               Remediation Timeline
             </h2>
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-              All checkpoints from Security Groups, IAM Roles & S3 Buckets with one-click rollback
+              Complete audit trail with one-click rollback
             </p>
           </div>
 
@@ -836,7 +861,7 @@ export function RemediationTimeline({
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
               title="Refresh timeline"
             >
-              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
 
@@ -855,7 +880,7 @@ export function RemediationTimeline({
         {summary && (
           <div className="grid grid-cols-4 gap-4 mt-4">
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Checkpoints</p>
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Total Events</p>
               <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
                 {summary.total_events}
               </p>
@@ -867,15 +892,15 @@ export function RemediationTimeline({
               </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Rollbacks Used</p>
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Rollbacks</p>
               <p className="text-xl font-bold text-orange-400">
                 {summary.rollback_events}
               </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Available</p>
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Avg Confidence</p>
               <p className="text-xl font-bold" style={{ color: "var(--action-primary)" }}>
-                {summary.completed_events}
+                {summary.avg_confidence}%
               </p>
             </div>
           </div>
@@ -898,14 +923,14 @@ export function RemediationTimeline({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
-              <XAxis 
-                dataKey="date" 
-                tick={{ fill: "#9CA3AF", fontSize: 11 }} 
+              <XAxis
+                dataKey="date"
+                tick={{ fill: "#9CA3AF", fontSize: 11 }}
                 tickFormatter={formatDate}
                 axisLine={{ stroke: "#374151" }}
               />
-              <YAxis 
-                domain={[0, 100]} 
+              <YAxis
+                domain={[0, 100]}
                 tick={{ fill: "#9CA3AF", fontSize: 11 }}
                 axisLine={{ stroke: "#374151" }}
               />
@@ -920,7 +945,7 @@ export function RemediationTimeline({
                 dot={<CheckpointDot />}
                 activeDot={{ r: 6, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
               />
-              {/* Vertical lines for checkpoint events */}
+              {/* Vertical lines for events */}
               {chartData.filter(d => d.events > 0).map((point, idx) => (
                 <ReferenceLine
                   key={idx}
@@ -929,12 +954,6 @@ export function RemediationTimeline({
                   strokeDasharray="5 5"
                   strokeWidth={2}
                   opacity={0.7}
-                  label={{
-                    value: `📍`,
-                    position: 'top',
-                    fill: '#8B5CF6',
-                    fontSize: 12
-                  }}
                 />
               ))}
             </AreaChart>
@@ -950,29 +969,29 @@ export function RemediationTimeline({
       <div className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
         <div className="p-4">
           <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>
-            Checkpoints & Remediations ({events.length})
+            Remediation Events ({events.length})
           </h3>
-          
+
           {events.length === 0 ? (
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--text-secondary)" }} />
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No checkpoints found in this period
+                No remediation events in this period
               </p>
               <p className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
-                Checkpoints are created automatically when you remediate Security Groups, IAM Roles, or S3 Buckets
+                Events are recorded when you remediate Security Groups, IAM Roles, or S3 Buckets
               </p>
             </div>
           ) : (
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {events.slice(0, 10).map((event) => (
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {events.map((event) => (
                 <div
                   key={event.event_id}
                   className="flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:border-opacity-70"
                   style={{
                     background: "var(--bg-primary)",
-                    borderColor: hoveredEventId === event.event_id 
-                      ? getStatusColor(event.status) 
+                    borderColor: hoveredEventId === event.event_id
+                      ? getStatusColor(event.status)
                       : "var(--border-subtle)",
                   }}
                   onMouseEnter={() => setHoveredEventId(event.event_id)}
@@ -983,19 +1002,27 @@ export function RemediationTimeline({
                   }}
                 >
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: getStatusColor(event.status) }}
-                    />
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ background: getStatusColor(event.status) }}
+                      />
+                      {getResourceIcon(event.resource_type)}
+                    </div>
                     <div>
                       <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                         {event.summary}
                       </p>
                       <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                        {formatDateTime(event.timestamp)} • {event.approved_by} • 
-                        <span className="text-emerald-400 ml-1">
-                          {Math.round(event.confidence_score * 100)}% confidence
-                        </span>
+                        {formatDateTime(event.timestamp)} • {event.approved_by}
+                        {event.source === 'neo4j' && (
+                          <span className="text-purple-400 ml-2">● Neo4j</span>
+                        )}
+                        {event.confidence_score > 0 && (
+                          <span className="text-emerald-400 ml-2">
+                            {Math.round(event.confidence_score * 100)}% confidence
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
