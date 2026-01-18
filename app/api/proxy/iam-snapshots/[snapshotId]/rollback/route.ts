@@ -8,37 +8,39 @@ export async function POST(
 ) {
   try {
     const { snapshotId } = await params;
-    
+
     console.log(`[IAM-ROLLBACK] Rolling back IAM snapshot: ${snapshotId}`);
-    
-    // New endpoint: /api/iam-roles/snapshots/{id}/rollback
-    // Requires body with region
+
+    // Call the IAM rollback endpoint with checkpoint_id
     const response = await fetch(
-      `${BACKEND_URL}/api/iam-roles/snapshots/${snapshotId}/rollback`,
+      `${BACKEND_URL}/api/iam-roles/rollback`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ region: 'eu-west-1' })
+        body: JSON.stringify({
+          checkpoint_id: snapshotId,
+          role_name: ''  // Will be read from checkpoint
+        })
       }
     );
-    
+
     const data = await response.json();
-    
+
     if (!response.ok) {
       console.error(`[IAM-ROLLBACK] Error:`, data);
       return NextResponse.json(
-        { error: data.detail || data.error || 'Rollback failed' },
+        { error: data.detail || data.error || 'Rollback failed', success: false },
         { status: response.status }
       );
     }
-    
+
     console.log(`[IAM-ROLLBACK] Success:`, data);
-    return NextResponse.json(data);
-    
+    return NextResponse.json({ success: true, ...data });
+
   } catch (error: any) {
     console.error(`[IAM-ROLLBACK] Exception:`, error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: error.message || 'Internal server error', success: false },
       { status: 500 }
     );
   }
