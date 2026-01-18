@@ -77,21 +77,42 @@ export default function RecoveryTab() {
       setRestoring(snapshotId);
 
       // Determine the correct rollback endpoint based on resource type
-      // Check both resource_type field AND snapshot ID prefix for S3 buckets
+      // Check snapshot ID prefix FIRST (most reliable), then resource_type field
+      const isIAMRole =
+        snapshotId.startsWith('IAMRole-') ||
+        snapshotId.startsWith('iam-') ||
+        snapshot.resource_type === 'IAMRole' ||
+        snapshot.current_state?.checkpoint_type === 'IAMRole';
+
       const isS3Bucket =
-        snapshot.resource_type === 'S3Bucket' ||
         snapshotId.startsWith('S3Bucket-') ||
+        snapshotId.startsWith('s3-') ||
+        snapshot.resource_type === 'S3Bucket' ||
         snapshot.current_state?.checkpoint_type === 'S3Bucket';
 
       console.log('[Recovery] Restoring snapshot:', {
         snapshotId,
         resource_type: snapshot.resource_type,
+        isIAMRole,
         isS3Bucket,
         finding_id: snapshot.finding_id
       });
 
       let response;
-      if (isS3Bucket) {
+      if (isIAMRole) {
+        // IAM Role checkpoint rollback
+        console.log('[Recovery] Using IAM rollback endpoint');
+        response = await fetch('/api/proxy/iam-roles/rollback', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            checkpoint_id: snapshotId,
+            role_name: snapshot.finding_id || ''
+          }),
+        });
+      } else if (isS3Bucket) {
         // S3 Bucket checkpoint rollback
         console.log('[Recovery] Using S3 rollback endpoint');
         response = await fetch('/api/proxy/s3-buckets/rollback', {
@@ -105,7 +126,7 @@ export default function RecoveryTab() {
           }),
         });
       } else {
-        // Security Group snapshot rollback
+        // Security Group snapshot rollback (default)
         console.log('[Recovery] Using SG rollback endpoint');
         response = await fetch(`/api/proxy/remediation/rollback/${snapshotId}`, {
           method: 'POST',
