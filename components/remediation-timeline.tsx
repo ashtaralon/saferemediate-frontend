@@ -132,6 +132,43 @@ const getActionIcon = (actionType: string) => {
 // CUSTOM TOOLTIP COMPONENT
 // ============================================================================
 
+// Custom dot component for checkpoints
+const CheckpointDot = (props: any) => {
+  const { cx, cy, payload } = props
+  const hasEvents = payload?.events > 0
+
+  return (
+    <g>
+      {/* Base dot for all points */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={hasEvents ? 8 : 4}
+        fill={hasEvents ? "#8B5CF6" : "#10B981"}
+        stroke={hasEvents ? "#A78BFA" : "#34D399"}
+        strokeWidth={2}
+        style={{ cursor: hasEvents ? "pointer" : "default" }}
+      />
+      {/* Inner dot for events (checkpoint indicator) */}
+      {hasEvents && (
+        <>
+          <circle cx={cx} cy={cy} r={4} fill="#ffffff" />
+          <text
+            x={cx}
+            y={cy - 15}
+            textAnchor="middle"
+            fill="#8B5CF6"
+            fontSize={10}
+            fontWeight="bold"
+          >
+            {payload.events}
+          </text>
+        </>
+      )}
+    </g>
+  )
+}
+
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload
@@ -146,8 +183,13 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         <p className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>
           {label}
         </p>
+        {data.events > 0 && (
+          <p className="text-xs mt-1 px-2 py-1 rounded bg-purple-500/20 text-purple-400 font-medium">
+            📍 {data.events} Checkpoint{data.events > 1 ? 's' : ''} on this date
+          </p>
+        )}
         <div className="mt-2 space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-          <p>Security Score: <span className="font-medium text-emerald-400">{data.security_score}</span></p>
+          <p>Security Score: <span className="font-medium text-emerald-400">{Math.round(data.security_score)}%</span></p>
           <p>Events: <span className="font-medium">{data.events}</span></p>
           <p>Permissions Removed: <span className="font-medium text-blue-400">{data.permissions_removed}</span></p>
         </div>
@@ -431,6 +473,12 @@ export function RemediationTimeline({
   const [selectedEvent, setSelectedEvent] = useState<RemediationEvent | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Manual refresh function
+  const refreshTimeline = () => {
+    setRefreshKey(prev => prev + 1)
+  }
 
   // Fetch timeline data
   useEffect(() => {
@@ -440,13 +488,15 @@ export function RemediationTimeline({
 
       try {
         const params = new URLSearchParams()
+        if (systemId) params.append("system_id", systemId)
         if (resourceId) params.append("resource_id", resourceId)
-        
+
         // Calculate date range based on period
         const periodDays = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - periodDays[selectedPeriod])
         params.append("start_date", startDate.toISOString())
+        params.append("end_date", new Date().toISOString())
         params.append("limit", "200")
 
         const response = await fetch(`${apiBaseUrl}/api/remediation-history/timeline?${params}`)
@@ -474,7 +524,7 @@ export function RemediationTimeline({
     }
 
     fetchTimeline()
-  }, [selectedPeriod, resourceId, apiBaseUrl])
+  }, [selectedPeriod, systemId, resourceId, apiBaseUrl, refreshKey])
 
   // Handle rollback
   const handleRollback = async (eventId: string) => {
@@ -566,6 +616,17 @@ export function RemediationTimeline({
             ))}
 
             <button
+              onClick={refreshTimeline}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
+              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+              title="Refresh timeline"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+
+            <button
               onClick={handleExport}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors hover:bg-white/5"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
@@ -644,15 +705,24 @@ export function RemediationTimeline({
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#securityGradient)"
+                dot={<CheckpointDot />}
+                activeDot={{ r: 6, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
               />
-              {/* Event markers */}
+              {/* Vertical lines for checkpoint events */}
               {chartData.filter(d => d.events > 0).map((point, idx) => (
                 <ReferenceLine
                   key={idx}
                   x={point.date}
                   stroke="#8B5CF6"
-                  strokeDasharray="3 3"
-                  opacity={0.5}
+                  strokeDasharray="5 5"
+                  strokeWidth={2}
+                  opacity={0.7}
+                  label={{
+                    value: `📍`,
+                    position: 'top',
+                    fill: '#8B5CF6',
+                    fontSize: 12
+                  }}
                 />
               ))}
             </AreaChart>
