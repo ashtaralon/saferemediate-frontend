@@ -79,6 +79,7 @@ export function IAMPermissionAnalysisModal({
   const [simulating, setSimulating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
+  const [detachManagedPolicies, setDetachManagedPolicies] = useState(true)
   const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
 
   // Fetch gap analysis data when modal opens
@@ -267,17 +268,34 @@ export function IAMPermissionAnalysisModal({
           role_name: roleName,
           permissions_to_remove: permissionsToRemove,
           create_snapshot: createSnapshot,
+          detach_managed_policies: detachManagedPolicies,
           snapshot_reason: `Pre-remediation backup - removing ${permissionsToRemove.length} permissions`
         })
       })
       
       const result = await response.json()
       
-      if (result.success && result.permissions_removed > 0) {
-        // Show success toast with snapshot info
+      const totalRemoved = result.total_permissions_removed || result.permissions_removed || 0
+      const managedDetached = result.managed_policies_detached || 0
+
+      if (result.success && (totalRemoved > 0 || managedDetached > 0)) {
+        // Build description with details
+        let desc = ''
+        if (result.permissions_removed > 0) {
+          desc += `Removed ${result.permissions_removed} permissions from inline policies`
+        }
+        if (managedDetached > 0) {
+          if (desc) desc += '. '
+          desc += `Detached ${managedDetached} managed policies`
+        }
+        if (createSnapshot) {
+          desc += '. Snapshot created for rollback.'
+        }
+
+        // Show success toast with details
         toast({
           title: "✅ Remediation Applied Successfully",
-          description: `Removed ${result.permissions_removed} permissions from ${roleName}${createSnapshot ? '. Snapshot created for rollback.' : ''}`,
+          description: desc || `Remediated ${roleName}`,
           variant: "default"
         })
         
@@ -321,10 +339,12 @@ export function IAMPermissionAnalysisModal({
         
         // Close modal
         handleClose()
-      } else if (result.permissions_removed === 0) {
+      } else if (totalRemoved === 0 && managedDetached === 0) {
         toast({
           title: "⚠️ No Permissions Removed",
-          description: "Role may only have AWS managed policies that require manual handling",
+          description: detachManagedPolicies
+            ? "No matching permissions found in role policies"
+            : "Role may only have AWS managed policies. Enable 'Detach Managed Policies' to remove them.",
           variant: "default"
         })
       } else if (!result.success) {
@@ -732,15 +752,25 @@ export function IAMPermissionAnalysisModal({
               ← BACK
             </button>
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
+              <label className="flex items-center gap-2 cursor-pointer" title="Create a snapshot before making changes so you can rollback if needed">
+                <input
+                  type="checkbox"
                   checked={createSnapshot}
                   onChange={(e) => setCreateSnapshot(e.target.checked)}
                   disabled={applying}
                   className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                 />
-                <span className="text-sm text-gray-600">Create rollback checkpoint first</span>
+                <span className="text-sm text-gray-600">Create rollback checkpoint</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer" title="Detach AWS managed policies that contain unused permissions. Required for roles with only managed policies.">
+                <input
+                  type="checkbox"
+                  checked={detachManagedPolicies}
+                  onChange={(e) => setDetachManagedPolicies(e.target.checked)}
+                  disabled={applying}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span className="text-sm text-gray-600">Detach managed policies</span>
               </label>
               <button
                 onClick={handleApplyFix}
