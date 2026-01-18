@@ -58,14 +58,19 @@ export async function DELETE(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
 
-    const response = await fetch(
-      `${BACKEND_URL}/api/remediation/snapshots/${snapshotId}`,
-      {
-        method: "DELETE",
-        cache: "no-store",
-        signal: controller.signal,
-      }
-    )
+    // Detect S3 bucket checkpoints by ID prefix
+    const isS3Checkpoint = snapshotId.startsWith('S3Bucket-')
+    const endpoint = isS3Checkpoint
+      ? `${BACKEND_URL}/api/s3-remediation/checkpoints/${snapshotId}`
+      : `${BACKEND_URL}/api/remediation/snapshots/${snapshotId}`
+
+    console.log("[proxy] delete endpoint:", endpoint)
+
+    const response = await fetch(endpoint, {
+      method: "DELETE",
+      cache: "no-store",
+      signal: controller.signal,
+    })
 
     clearTimeout(timeoutId)
 
@@ -76,9 +81,9 @@ export async function DELETE(
     }
 
     const data = await response.json()
-    console.log("[proxy] snapshot deleted:", data.deleted)
+    console.log("[proxy] snapshot deleted:", snapshotId)
 
-    return NextResponse.json(data, { status: 200 })
+    return NextResponse.json({ success: true, deleted: snapshotId, ...data }, { status: 200 })
   } catch (error: any) {
     console.error("[proxy] delete snapshot error:", error)
     return NextResponse.json({ error: error.message }, { status: 500 })
