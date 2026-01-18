@@ -48,11 +48,19 @@ interface RemediationEvent {
   metadata: {
     permissions_removed?: number
     reason?: string
+    rules_count?: { inbound: number; outbound: number }
+    removed_permissions?: string[]
     [key: string]: any
   }
   before_state: Record<string, any>
   after_state: Record<string, any>
   summary: string
+  // Snapshot-specific fields for rollback
+  sg_id?: string
+  sg_name?: string
+  role_name?: string
+  role_arn?: string
+  bucket_name?: string
 }
 
 interface ChartDataPoint {
@@ -480,6 +488,69 @@ export function RemediationTimeline({
     setRefreshKey(prev => prev + 1)
   }
 
+  // Convert snapshot to RemediationEvent format
+  const convertSnapshotToEvent = (snapshot: any): RemediationEvent => {
+    const isIAMRole = snapshot.type === 'IAMRole' || snapshot.snapshot_id?.startsWith('IAMRole-') || snapshot.snapshot_id?.startsWith('iam-')
+    const isS3Bucket = snapshot.type === 'S3Bucket' || snapshot.snapshot_id?.startsWith('S3Bucket-') || snapshot.snapshot_id?.startsWith('s3-')
+
+    let resourceType = 'SecurityGroup'
+    let actionType = 'SG_RULE_REMOVED'
+    let resourceId = snapshot.sg_id || snapshot.sg_name || ''
+    let summary = ''
+
+    if (isIAMRole) {
+      resourceType = 'IAMRole'
+      actionType = 'PERMISSION_REMOVAL'
+      // Extract role name from snapshot_id if not provided
+      let roleName = snapshot.role_name || snapshot.current_state?.role_name
+      if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
+        const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
+        parts.pop()
+        roleName = parts.join('-') || 'Unknown Role'
+      }
+      resourceId = roleName || 'Unknown Role'
+      const permsRemoved = snapshot.removed_permissions?.length || snapshot.permissions_count || 0
+      summary = `Removed ${permsRemoved} permissions from ${resourceId}`
+    } else if (isS3Bucket) {
+      resourceType = 'S3Bucket'
+      actionType = 'S3_POLICY_REMOVED'
+      resourceId = snapshot.finding_id || snapshot.current_state?.resource_name || 'Unknown Bucket'
+      summary = `Policy checkpoint created for ${resourceId}`
+    } else {
+      resourceId = snapshot.sg_name || snapshot.sg_id || snapshot.finding_id || 'Unknown SG'
+      const rulesRemoved = snapshot.rules_count?.inbound || 0
+      summary = `Removed ${rulesRemoved} inbound rules from ${resourceId}`
+    }
+
+    return {
+      event_id: snapshot.snapshot_id,
+      timestamp: snapshot.timestamp || snapshot.created_at || new Date().toISOString(),
+      resource_type: resourceType,
+      resource_id: resourceId,
+      action_type: actionType,
+      status: snapshot.restored_at ? 'rolled_back' : 'completed',
+      confidence_score: 0.95,
+      approved_by: snapshot.triggered_by || 'system',
+      snapshot_id: snapshot.snapshot_id,
+      rollback_available: true,
+      metadata: {
+        reason: snapshot.reason || 'Remediation backup',
+        rules_count: snapshot.rules_count,
+        removed_permissions: snapshot.removed_permissions,
+        permissions_removed: snapshot.removed_permissions?.length || snapshot.permissions_count || 0,
+      },
+      before_state: snapshot.current_state || {},
+      after_state: {},
+      summary,
+      // Keep original fields for rollback
+      sg_id: snapshot.sg_id,
+      sg_name: snapshot.sg_name,
+      role_name: snapshot.role_name || resourceId,
+      role_arn: snapshot.role_arn,
+      bucket_name: isS3Bucket ? resourceId : undefined,
+    }
+  }
+
   // Fetch timeline data
   useEffect(() => {
     const fetchTimeline = async () => {
@@ -487,37 +558,121 @@ export function RemediationTimeline({
       setError(null)
 
       try {
-        const params = new URLSearchParams()
-        if (systemId) params.append("system_id", systemId)
-        if (resourceId) params.append("resource_id", resourceId)
-
         // Calculate date range based on period
         const periodDays = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }
         const startDate = new Date()
         startDate.setDate(startDate.getDate() - periodDays[selectedPeriod])
-        params.append("start_date", startDate.toISOString())
-        params.append("end_date", new Date().toISOString())
-        params.append("limit", "200")
 
-        const response = await fetch(`${apiBaseUrl}/api/remediation-history/timeline?${params}`)
-        
-        if (!response.ok) {
-          throw new Error("Failed to fetch timeline data")
+        // Fetch real snapshots from both SG and IAM endpoints
+        const [sgRes, iamRes] = await Promise.all([
+          fetch('/api/proxy/snapshots', { cache: 'no-store' }).catch(() => null),
+          fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
+        ])
+
+        let allSnapshots: any[] = []
+
+        // Process SG/S3 snapshots
+        if (sgRes && sgRes.ok) {
+          const sgData = await sgRes.json()
+          const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
+          // Detect and assign types
+          const typedSnapshots = sgList.map((s: any) => {
+            if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-')) {
+              return { ...s, type: 'IAMRole' }
+            }
+            if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-')) {
+              return { ...s, type: 'S3Bucket' }
+            }
+            if (s.resource_type === 'IAMRole' || s.current_state?.checkpoint_type === 'IAMRole') {
+              return { ...s, type: 'IAMRole' }
+            }
+            if (s.resource_type === 'S3Bucket' || s.current_state?.checkpoint_type === 'S3Bucket') {
+              return { ...s, type: 'S3Bucket' }
+            }
+            return { ...s, type: 'SecurityGroup' }
+          })
+          allSnapshots.push(...typedSnapshots)
         }
 
-        const data = await response.json()
-        
-        setEvents(data.events || [])
-        setChartData(data.chart_data || [])
-        setSummary(data.summary || null)
+        // Process IAM snapshots
+        if (iamRes && iamRes.ok) {
+          const iamData = await iamRes.json()
+          const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
+          const iamSnapshots = iamList.map((s: any) => ({ ...s, type: 'IAMRole' }))
+          allSnapshots.push(...iamSnapshots)
+        }
+
+        // Filter by date range
+        const filteredSnapshots = allSnapshots.filter(s => {
+          const ts = new Date(s.timestamp || s.created_at || 0)
+          return ts >= startDate
+        })
+
+        // Convert to RemediationEvent format
+        const snapshotEvents = filteredSnapshots.map(convertSnapshotToEvent)
+
+        // Sort by timestamp (newest first)
+        snapshotEvents.sort((a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        )
+
+        // Generate chart data from snapshots
+        const chartDataMap = new Map<string, ChartDataPoint>()
+        const today = new Date()
+
+        // Initialize all days in period
+        for (let i = periodDays[selectedPeriod]; i >= 0; i--) {
+          const date = new Date(today)
+          date.setDate(date.getDate() - i)
+          const dateKey = date.toISOString().split('T')[0]
+          chartDataMap.set(dateKey, {
+            date: dateKey,
+            events: 0,
+            permissions_removed: 0,
+            security_score: 60 + ((periodDays[selectedPeriod] - i) / periodDays[selectedPeriod]) * 35,
+            score_delta: 0,
+          })
+        }
+
+        // Populate with actual events
+        snapshotEvents.forEach(event => {
+          const dateKey = event.timestamp.split('T')[0]
+          const existing = chartDataMap.get(dateKey)
+          if (existing) {
+            existing.events += 1
+            existing.permissions_removed += event.metadata.permissions_removed || 0
+            existing.score_delta += 1
+          }
+        })
+
+        // Convert map to array
+        const chartDataArray = Array.from(chartDataMap.values())
+
+        // Calculate summary
+        const summaryData: TimelineSummary = {
+          total_events: snapshotEvents.length,
+          total_permissions_removed: snapshotEvents.reduce((acc, e) => acc + (e.metadata.permissions_removed || 0), 0),
+          completed_events: snapshotEvents.filter(e => e.status === 'completed').length,
+          rollback_events: snapshotEvents.filter(e => e.status === 'rolled_back').length,
+          avg_confidence: snapshotEvents.length > 0
+            ? Math.round(snapshotEvents.reduce((acc, e) => acc + e.confidence_score * 100, 0) / snapshotEvents.length)
+            : 0,
+          period_start: startDate.toISOString().split('T')[0],
+          period_end: today.toISOString().split('T')[0],
+        }
+
+        setEvents(snapshotEvents)
+        setChartData(chartDataArray)
+        setSummary(summaryData)
+
       } catch (err: any) {
         console.error("Timeline fetch error:", err)
         setError(err.message)
-        
-        // Use mock data for demo
-        setEvents(mockEvents)
-        setChartData(mockChartData)
-        setSummary(mockSummary)
+
+        // Use empty state on error
+        setEvents([])
+        setChartData([])
+        setSummary(null)
       } finally {
         setLoading(false)
       }
@@ -526,32 +681,91 @@ export function RemediationTimeline({
     fetchTimeline()
   }, [selectedPeriod, systemId, resourceId, apiBaseUrl, refreshKey])
 
-  // Handle rollback
+  // Handle rollback - uses correct endpoint based on resource type
   const handleRollback = async (eventId: string) => {
-    if (!confirm("Are you sure you want to rollback this remediation? This will restore the previous state.")) {
+    const event = events.find(e => e.event_id === eventId)
+    if (!event) {
+      alert("Event not found")
+      return
+    }
+
+    const resourceName = event.resource_id
+    const resourceType = event.resource_type
+
+    let confirmMessage = "Are you sure you want to rollback this remediation? This will restore the previous state."
+    if (resourceType === 'IAMRole') {
+      confirmMessage = `⚠️ Restore IAM Role snapshot?\n\nThis will restore permissions to ${resourceName}\n\nContinue?`
+    } else if (resourceType === 'S3Bucket') {
+      confirmMessage = `⚠️ Restore S3 Bucket checkpoint?\n\nThis will restore the bucket policy for ${resourceName}\n\nContinue?`
+    } else {
+      confirmMessage = `⚠️ Restore Security Group snapshot?\n\nThis will restore rules for ${resourceName}\n\nContinue?`
+    }
+
+    if (!confirm(confirmMessage)) {
       return
     }
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/remediation-history/events/${eventId}/rollback`, {
+      let endpoint: string
+      let bodyContent: any = undefined
+      const snapshotId = event.snapshot_id || eventId
+
+      if (resourceType === 'IAMRole') {
+        endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
+      } else if (resourceType === 'S3Bucket') {
+        endpoint = `/api/proxy/s3-buckets/rollback`
+        bodyContent = {
+          checkpoint_id: snapshotId,
+          bucket_name: event.bucket_name || event.resource_id || ''
+        }
+      } else {
+        // Security Group - check if it's a new LP snapshot format
+        const isSgLpSnapshot = snapshotId?.startsWith('sg-snap-')
+        if (isSgLpSnapshot) {
+          const sgId = event.sg_id || event.resource_id || ''
+          endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+          bodyContent = { snapshot_id: snapshotId }
+        } else {
+          endpoint = `/api/proxy/remediation/rollback/${snapshotId}`
+        }
+      }
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approved_by: "user@cyntro.io" }),
+        ...(bodyContent && { body: JSON.stringify(bodyContent) })
       })
 
       if (!response.ok) {
-        throw new Error("Rollback failed")
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.detail || `Rollback failed: ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        let successMessage = '✅ Restored Successfully!'
+        if (resourceType === 'IAMRole') {
+          successMessage = `✅ Restored Successfully!\n\nIAM Role: ${result.role_name || resourceName}\nPermissions restored: ${result.permissions_restored || 'All'}`
+        } else if (resourceType === 'S3Bucket') {
+          successMessage = `✅ Restored Successfully!\n\nS3 Bucket: ${result.bucket_name || resourceName}\nPolicy restored from checkpoint`
+        } else {
+          successMessage = `✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id || resourceName}\nRules restored: ${result.rules_restored || 'All'}`
+        }
+        alert(successMessage)
+      } else {
+        throw new Error(result.error || 'Rollback failed')
       }
 
       // Refresh data
       setShowModal(false)
       setSelectedEvent(null)
       onRollback?.(eventId)
-      
-      // Refetch timeline
-      window.location.reload()
+
+      // Refresh timeline
+      refreshTimeline()
     } catch (err: any) {
-      alert(`Rollback failed: ${err.message}`)
+      alert(`❌ Rollback failed: ${err.message}`)
     }
   }
 
@@ -591,7 +805,7 @@ export function RemediationTimeline({
               Remediation Timeline
             </h2>
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
-              Track all security remediations with one-click rollback
+              All checkpoints from Security Groups, IAM Roles & S3 Buckets with one-click rollback
             </p>
           </div>
 
@@ -641,7 +855,7 @@ export function RemediationTimeline({
         {summary && (
           <div className="grid grid-cols-4 gap-4 mt-4">
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Total Events</p>
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Checkpoints</p>
               <p className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
                 {summary.total_events}
               </p>
@@ -653,17 +867,15 @@ export function RemediationTimeline({
               </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Success Rate</p>
-              <p className="text-xl font-bold text-blue-400">
-                {summary.completed_events > 0
-                  ? Math.round((summary.completed_events / summary.total_events) * 100)
-                  : 0}%
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Rollbacks Used</p>
+              <p className="text-xl font-bold text-orange-400">
+                {summary.rollback_events}
               </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: "var(--bg-primary)" }}>
-              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Avg Confidence</p>
+              <p className="text-xs" style={{ color: "var(--text-secondary)" }}>Available</p>
               <p className="text-xl font-bold" style={{ color: "var(--action-primary)" }}>
-                {summary.avg_confidence}%
+                {summary.completed_events}
               </p>
             </div>
           </div>
@@ -738,14 +950,17 @@ export function RemediationTimeline({
       <div className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
         <div className="p-4">
           <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>
-            Recent Remediations
+            Checkpoints & Remediations ({events.length})
           </h3>
           
           {events.length === 0 ? (
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--text-secondary)" }} />
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                No remediation events yet
+                No checkpoints found in this period
+              </p>
+              <p className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
+                Checkpoints are created automatically when you remediate Security Groups, IAM Roles, or S3 Buckets
               </p>
             </div>
           ) : (
@@ -820,86 +1035,6 @@ export function RemediationTimeline({
       />
     </div>
   )
-}
-
-// ============================================================================
-// MOCK DATA FOR DEMO
-// ============================================================================
-
-const mockEvents: RemediationEvent[] = [
-  {
-    event_id: "rem-abc123def456",
-    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    resource_type: "IAMRole",
-    resource_id: "cyntro-demo-ec2-s3-role",
-    action_type: "PERMISSION_REMOVAL",
-    status: "completed",
-    confidence_score: 0.94,
-    approved_by: "alon@cyntro.io",
-    snapshot_id: "snapshot-xyz789",
-    execution_id: "exec-123",
-    rollback_available: true,
-    metadata: { permissions_removed: 26, reason: "Unused for 90 days" },
-    before_state: { allowed_actions: ["s3:*", "ec2:*"] },
-    after_state: { allowed_actions: ["s3:GetObject", "s3:ListBucket"] },
-    summary: "Removed 26 unused permissions from cyntro-demo-ec2-s3-role",
-  },
-  {
-    event_id: "rem-def456ghi789",
-    timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    resource_type: "SecurityGroup",
-    resource_id: "sg-0abc123def456",
-    action_type: "SG_RULE_REMOVED",
-    status: "completed",
-    confidence_score: 0.98,
-    approved_by: "security-bot",
-    snapshot_id: "snapshot-sg-001",
-    execution_id: "exec-456",
-    rollback_available: true,
-    metadata: { rule_removed: "0.0.0.0/0:22" },
-    before_state: { ingress_rules: [{ port: 22, cidr: "0.0.0.0/0" }] },
-    after_state: { ingress_rules: [] },
-    summary: "Removed SSH access from 0.0.0.0/0 in sg-0abc123def456",
-  },
-  {
-    event_id: "rem-ghi789jkl012",
-    timestamp: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    resource_type: "S3Bucket",
-    resource_id: "cyntro-analytics-bucket",
-    action_type: "S3_POLICY_REMOVED",
-    status: "completed",
-    confidence_score: 0.91,
-    approved_by: "alon@cyntro.io",
-    snapshot_id: "snapshot-s3-002",
-    execution_id: "exec-789",
-    rollback_available: true,
-    metadata: { policy_removed: "PublicReadAccess" },
-    before_state: { public_access: true },
-    after_state: { public_access: false },
-    summary: "Removed public access policy from cyntro-analytics-bucket",
-  },
-]
-
-const mockChartData: ChartDataPoint[] = Array.from({ length: 30 }, (_, i) => {
-  const date = new Date()
-  date.setDate(date.getDate() - (29 - i))
-  return {
-    date: date.toISOString().split("T")[0],
-    events: Math.random() > 0.7 ? Math.floor(Math.random() * 3) + 1 : 0,
-    permissions_removed: Math.floor(Math.random() * 10),
-    security_score: Math.min(100, 60 + i * 1.2 + Math.random() * 5),
-    score_delta: Math.floor(Math.random() * 3),
-  }
-})
-
-const mockSummary: TimelineSummary = {
-  total_events: 45,
-  total_permissions_removed: 234,
-  completed_events: 43,
-  rollback_events: 2,
-  avg_confidence: 93.5,
-  period_start: "2024-12-15",
-  period_end: "2025-01-15",
 }
 
 export default RemediationTimeline
