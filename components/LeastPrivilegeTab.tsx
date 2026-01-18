@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from '@/hooks/use-toast'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
 import { S3PolicyAnalysisModal } from '@/components/s3-policy-analysis-modal'
+import { SGLeastPrivilegeModal } from '@/components/sg-least-privilege-modal'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -156,6 +157,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [s3ModalOpen, setS3ModalOpen] = useState(false)
   const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
   const [selectedS3Resource, setSelectedS3Resource] = useState<GapResource | null>(null)
+  const [sgModalOpen, setSgModalOpen] = useState(false)
+  const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
+  const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const { toast } = useToast()
   
@@ -739,8 +743,22 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                   setSelectedS3Bucket(resource.resourceName)
                   setSelectedS3Resource(resource)
                   setS3ModalOpen(true)
+                } else if (resource.resourceType === 'SecurityGroup') {
+                  // Use new SG Least Privilege modal for Security Groups
+                  let sgId = resource.id
+                  if (!sgId?.startsWith('sg-')) {
+                    if (resource.resourceName?.startsWith('sg-')) {
+                      sgId = resource.resourceName
+                    } else if (resource.resourceArn?.includes('security-group/')) {
+                      const match = resource.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
+                      if (match) sgId = match[1]
+                    }
+                  }
+                  setSelectedSGId(sgId)
+                  setSelectedSGName(resource.resourceName)
+                  setSgModalOpen(true)
                 } else {
-                  // Use drawer for Security Groups and other resources
+                  // Use drawer for other resources (Network ACLs, etc.)
                   setSelectedResource(resource)
                   setDrawerOpen(true)
                 }
@@ -1095,6 +1113,24 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           console.log('[S3] Apply fix requested:', data)
         }}
         onRemediationSuccess={handleRemediationSuccess}
+      />
+
+      {/* Security Group Least Privilege Modal */}
+      <SGLeastPrivilegeModal
+        isOpen={sgModalOpen}
+        onClose={() => {
+          setSgModalOpen(false)
+          setSelectedSGId(null)
+          setSelectedSGName(null)
+        }}
+        sgId={selectedSGId || ''}
+        sgName={selectedSGName || undefined}
+        systemName={systemName}
+        onRemediate={(sgId, rules) => {
+          console.log('[SG] Remediate requested:', sgId, rules)
+          // Refresh data after remediation
+          handleRemediationSuccess()
+        }}
       />
     </div>
   )
