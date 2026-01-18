@@ -453,8 +453,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       }
     })
     
-    // Also clear the cache for this resource (for IAM roles)
+    // Also clear the cache for this resource
     setIamGapAnalysisCache(prev => {
+      const { [resourceName]: _, ...rest } = prev
+      return rest
+    })
+
+    // Also clear SG cache if it's a Security Group
+    setSgGapAnalysisCache(prev => {
       const { [resourceName]: _, ...rest } = prev
       return rest
     })
@@ -1043,21 +1049,22 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                   })
                   setSimulationModalOpen(false)
                   setSimulationResult(null)
-                  
-                  // Clear cache for this SG and refresh data
+
+                  // Clear cache for this SG
                   setSgGapAnalysisCache(prev => {
                     const newCache = { ...prev }
                     delete newCache[sgId]
                     return newCache
                   })
-                  
-                  // Refresh the main data
-                  setRefreshing(true)
-                  try {
-                    await fetchGaps()
-                  } finally {
-                    setRefreshing(false)
-                  }
+
+                  // Remove the remediated SG from the list immediately
+                  // Use the resource name or ID to find and remove it
+                  const sgIdentifier = selectedResource.resourceName || selectedResource.id || sgId
+                  handleRemediationSuccess(sgIdentifier)
+
+                  // Close the drawer if open
+                  setDrawerOpen(false)
+                  setSelectedResource(null)
                 } else {
                   toast({
                     title: '❌ Remediation Had Errors',
@@ -1145,8 +1152,13 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         systemName={systemName}
         onRemediate={(sgId, rules) => {
           console.log('[SG] Remediate requested:', sgId, rules)
-          // Refresh data after remediation
-          handleRemediationSuccess()
+          // Remove remediated SG from the list using sgId or sgName
+          handleRemediationSuccess(selectedSGId || selectedSGName || sgId)
+          // Also clear the SG cache
+          setSgGapAnalysisCache(prev => {
+            const { [sgId]: _, ...rest } = prev
+            return rest
+          })
         }}
       />
     </div>
