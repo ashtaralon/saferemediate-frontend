@@ -619,8 +619,6 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact'>('summary');
   const [syncing, setSyncing] = useState(false);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend.onrender.com';
-
   const handleSyncFlowLogs = async () => {
     setSyncing(true);
     try {
@@ -652,7 +650,8 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(`${apiUrl}/api/sg-least-privilege/${sgId}/analysis?days=365`);
+      // Use proxy endpoint
+      const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/analysis?days=365`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch analysis: ${response.status}`);
@@ -666,7 +665,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [sgId, apiUrl]);
+  }, [sgId]);
 
   useEffect(() => {
     if (isOpen && sgId) {
