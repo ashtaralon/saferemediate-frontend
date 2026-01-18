@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock } from 'lucide-react'
+import { Shield, Calendar, User, ArrowDownToLine, ArrowUpFromLine, RotateCcw, RefreshCw, Trash2, MapPin, Server, Key, Lock, Database } from 'lucide-react'
 
 interface Snapshot {
   snapshot_id: string
@@ -24,7 +24,7 @@ interface Snapshot {
   created_at?: string
   current_state?: any
   // IAM Role fields
-  type?: 'SecurityGroup' | 'IAMRole'
+  type?: 'SecurityGroup' | 'IAMRole' | 'S3Bucket'
   role_name?: string
   role_arn?: string
   permissions_count?: number
@@ -55,12 +55,18 @@ export default function RecoveryTab() {
         fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
       ])
 
-      // Process SG snapshots
+      // Process SG snapshots (includes S3 bucket checkpoints)
       let sgSnapshots: Snapshot[] = []
       if (sgRes.ok) {
         const sgData = await sgRes.json()
         const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
-        sgSnapshots = sgList.map((s: any) => ({ ...s, type: 'SecurityGroup' as const }))
+        // Detect type from resource_type field or snapshot_id prefix
+        sgSnapshots = sgList.map((s: any) => {
+          const isS3 = s.resource_type === 'S3Bucket' ||
+                       s.snapshot_id?.startsWith('S3Bucket-') ||
+                       s.current_state?.checkpoint_type === 'S3Bucket'
+          return { ...s, type: isS3 ? 'S3Bucket' as const : 'SecurityGroup' as const }
+        })
       }
 
       // Process IAM snapshots
@@ -236,13 +242,18 @@ export default function RecoveryTab() {
 
   async function handleRestore(snapshot: Snapshot) {
     const isIAMRole = snapshot.type === 'IAMRole'
-    const resourceName = isIAMRole 
+    const isS3Bucket = snapshot.type === 'S3Bucket'
+    const resourceName = isIAMRole
       ? (snapshot.role_name || 'IAM Role')
-      : (snapshot.sg_name || snapshot.sg_id || 'Security Group')
+      : isS3Bucket
+        ? (snapshot.finding_id || snapshot.current_state?.resource_name || 'S3 Bucket')
+        : (snapshot.sg_name || snapshot.sg_id || 'Security Group')
 
     const confirmMessage = isIAMRole
       ? `⚠️ Restore IAM Role snapshot?\n\nThis will:\n• Restore ${snapshot.permissions_count || 'all'} permissions to ${resourceName}\n• Re-add any removed permissions\n\nContinue?`
-      : `⚠️ Restore Security Group snapshot?\n\nThis will:\n• Remove ALL current inbound rules from ${resourceName}\n• Restore ${snapshot.rules_count?.inbound || 'all'} inbound rules from this snapshot\n\nContinue?`
+      : isS3Bucket
+        ? `⚠️ Restore S3 Bucket checkpoint?\n\nThis will:\n• Restore the bucket policy for ${resourceName}\n• Re-add any removed policy statements\n\nContinue?`
+        : `⚠️ Restore Security Group snapshot?\n\nThis will:\n• Remove ALL current inbound rules from ${resourceName}\n• Restore ${snapshot.rules_count?.inbound || 'all'} inbound rules from this snapshot\n\nContinue?`
 
     if (!confirm(confirmMessage)) {
       return
@@ -254,11 +265,19 @@ export default function RecoveryTab() {
 
       const endpoint = isIAMRole
         ? `/api/proxy/iam-snapshots/${snapshot.snapshot_id}/rollback`
-        : `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`
+        : isS3Bucket
+          ? `/api/proxy/s3-buckets/rollback`
+          : `/api/proxy/remediation/rollback/${snapshot.snapshot_id}`
 
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        ...(isS3Bucket && {
+          body: JSON.stringify({
+            checkpoint_id: snapshot.snapshot_id,
+            bucket_name: snapshot.finding_id || ''
+          })
+        })
       })
 
       if (!res.ok) {
@@ -271,6 +290,8 @@ export default function RecoveryTab() {
       if (result.success) {
         if (isIAMRole) {
           alert(`✅ Restored Successfully!\n\nIAM Role: ${result.role_name || resourceName}\nPermissions restored: ${result.permissions_restored || 'All'}`)
+        } else if (isS3Bucket) {
+          alert(`✅ Restored Successfully!\n\nS3 Bucket: ${result.bucket_name || resourceName}\nPolicy restored from checkpoint`)
         } else {
           alert(`✅ Restored Successfully!\n\nSecurity Group: ${result.sg_name || result.sg_id}\nRules restored: ${result.rules_restored}`)
         }
@@ -358,7 +379,7 @@ export default function RecoveryTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Recovery & Rollback</h2>
-          <p className="text-gray-600 mt-1">Restore Security Groups and IAM Roles to previous snapshots</p>
+          <p className="text-gray-600 mt-1">Restore Security Groups, S3 Buckets, and IAM Roles to previous snapshots</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
@@ -452,8 +473,8 @@ export default function RecoveryTab() {
 }
 
 // Snapshot Card Component
-function SnapshotCard({ 
-  snapshot, 
+function SnapshotCard({
+  snapshot,
   onRestore,
   onDelete,
   onToggleSelect,
@@ -462,7 +483,7 @@ function SnapshotCard({
   isDeleting,
   formatDate,
   getTimeAgo
-}: { 
+}: {
   snapshot: Snapshot
   onRestore: () => void
   onDelete: () => void
@@ -474,28 +495,32 @@ function SnapshotCard({
   getTimeAgo: (ts: string | undefined) => string
 }) {
   const isIAMRole = snapshot.type === 'IAMRole'
+  const isS3Bucket = snapshot.type === 'S3Bucket'
   const timestamp = snapshot.timestamp || snapshot.created_at
   const region = snapshot.region || 'eu-west-1'
   const triggeredBy = snapshot.triggered_by || 'system'
   const reason = snapshot.reason || snapshot.current_state?.reason || 'Remediation backup'
   const status = snapshot.status || 'available'
-  
+
   // SG-specific fields
   const sgName = snapshot.sg_name || snapshot.current_state?.sg_name || 'Unknown Security Group'
   const sgId = snapshot.sg_id || snapshot.current_state?.sg_id || snapshot.finding_id || 'N/A'
   const vpcId = snapshot.vpc_id || snapshot.current_state?.vpc_id || 'N/A'
   const inboundRules = snapshot.rules_count?.inbound ?? snapshot.current_state?.rules_count?.inbound ?? 0
   const outboundRules = snapshot.rules_count?.outbound ?? snapshot.current_state?.rules_count?.outbound ?? 0
-  
+
   // IAM-specific fields
   const roleName = snapshot.role_name || 'Unknown Role'
   const roleArn = snapshot.role_arn || 'N/A'
   const permissionsCount = snapshot.permissions_count || 0
   const removedPermissions = snapshot.removed_permissions || []
 
+  // S3-specific fields
+  const bucketName = snapshot.finding_id || snapshot.current_state?.resource_name || 'Unknown Bucket'
+
   // Common display values
-  const resourceName = isIAMRole ? roleName : sgName
-  const resourceId = isIAMRole ? roleArn : sgId
+  const resourceName = isIAMRole ? roleName : isS3Bucket ? bucketName : sgName
+  const resourceId = isIAMRole ? roleArn : isS3Bucket ? snapshot.snapshot_id : sgId
 
   return (
     <div className={`bg-white border-2 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden ${
@@ -503,9 +528,11 @@ function SnapshotCard({
     }`}>
       {/* Header */}
       <div className={`px-4 py-3 border-b border-gray-100 ${
-        isIAMRole 
-          ? 'bg-gradient-to-r from-purple-50 to-violet-50' 
-          : 'bg-gradient-to-r from-blue-50 to-indigo-50'
+        isIAMRole
+          ? 'bg-gradient-to-r from-purple-50 to-violet-50'
+          : isS3Bucket
+            ? 'bg-gradient-to-r from-orange-50 to-amber-50'
+            : 'bg-gradient-to-r from-blue-50 to-indigo-50'
       }`}>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -517,10 +544,12 @@ function SnapshotCard({
               className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
             />
             <div className={`p-2 rounded-lg ${
-              isIAMRole ? 'bg-purple-100' : 'bg-blue-100'
+              isIAMRole ? 'bg-purple-100' : isS3Bucket ? 'bg-orange-100' : 'bg-blue-100'
             }`}>
               {isIAMRole ? (
                 <Key className="w-5 h-5 text-purple-600" />
+              ) : isS3Bucket ? (
+                <Database className="w-5 h-5 text-orange-600" />
               ) : (
                 <Shield className="w-5 h-5 text-blue-600" />
               )}
@@ -532,11 +561,13 @@ function SnapshotCard({
           </div>
           <div className="flex items-center gap-2">
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-              isIAMRole 
+              isIAMRole
                 ? 'bg-purple-100 text-purple-700'
-                : 'bg-blue-100 text-blue-700'
+                : isS3Bucket
+                  ? 'bg-orange-100 text-orange-700'
+                  : 'bg-blue-100 text-blue-700'
             }`}>
-              {isIAMRole ? 'IAM Role' : 'Security Group'}
+              {isIAMRole ? 'IAM Role' : isS3Bucket ? 'S3 Bucket' : 'Security Group'}
             </span>
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
               status === 'available' 
@@ -561,6 +592,13 @@ function SnapshotCard({
             {removedPermissions.length > 0 && (
               <span className="text-red-600">({removedPermissions.length} removed)</span>
             )}
+          </div>
+        ) : isS3Bucket ? (
+          /* S3 Bucket Details */
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Database className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-500">Bucket:</span>
+            <span className="font-mono text-xs bg-orange-50 px-2 py-0.5 rounded text-orange-700">{bucketName}</span>
           </div>
         ) : (
           /* Security Group Details */
@@ -608,6 +646,14 @@ function SnapshotCard({
               </div>
             </div>
           )
+        ) : isS3Bucket ? (
+          /* S3 Bucket Policy Info */
+          <div className="flex items-center gap-4 py-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg">
+              <Database className="w-4 h-4 text-orange-600" />
+              <span className="text-sm font-medium text-orange-700">Policy checkpoint saved</span>
+            </div>
+          </div>
         ) : (
           /* SG Rules Count */
           <div className="flex items-center gap-4 py-2">
@@ -664,11 +710,13 @@ function SnapshotCard({
             onClick={onRestore}
             disabled={isRestoring || isDeleting}
             className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
-              isRestoring 
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+              isRestoring
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : isIAMRole
                   ? 'bg-purple-600 text-white hover:bg-purple-700'
-                  : 'bg-red-600 text-white hover:bg-red-700'
+                  : isS3Bucket
+                    ? 'bg-orange-600 text-white hover:bg-orange-700'
+                    : 'bg-red-600 text-white hover:bg-red-700'
             }`}
           >
             {isRestoring ? (
