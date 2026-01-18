@@ -55,7 +55,7 @@ export default function RecoveryTab() {
         fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
       ])
 
-      // Process SG snapshots (includes S3 bucket checkpoints)
+      // Process SG snapshots (includes S3 bucket and IAM checkpoints)
       let sgSnapshots: Snapshot[] = []
       if (sgRes.ok) {
         const sgData = await sgRes.json()
@@ -65,7 +65,11 @@ export default function RecoveryTab() {
           const isS3 = s.resource_type === 'S3Bucket' ||
                        s.snapshot_id?.startsWith('S3Bucket-') ||
                        s.current_state?.checkpoint_type === 'S3Bucket'
-          return { ...s, type: isS3 ? 'S3Bucket' as const : 'SecurityGroup' as const }
+          const isIAM = s.resource_type === 'IAMRole' ||
+                        s.snapshot_id?.startsWith('IAMRole-') ||
+                        s.current_state?.checkpoint_type === 'IAMRole'
+          const type = isS3 ? 'S3Bucket' as const : isIAM ? 'IAMRole' as const : 'SecurityGroup' as const
+          return { ...s, type }
         })
       }
 
