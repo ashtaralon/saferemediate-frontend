@@ -206,16 +206,38 @@ export default function RecoveryTab() {
           {snapshots.map((snapshot) => {
             const snapshotId = snapshot.snapshot_id || snapshot.id;
             const isRestoring = restoring === snapshotId;
-            // Determine resource type from multiple sources
-            const resourceType =
-              snapshot.resource_type ||
-              snapshot.current_state?.checkpoint_type ||
-              (snapshotId.startsWith('S3Bucket-') ? 'S3Bucket' : 'SecurityGroup');
-            const resourceName =
-              snapshot.current_state?.resource_name ||
-              snapshot.current_state?.role_name ||
-              snapshot.finding_id ||
-              'Unknown Resource';
+            // Determine resource type from snapshot ID prefix first (most reliable)
+            let resourceType = 'SecurityGroup';
+            if (snapshotId.startsWith('IAMRole-') || snapshotId.startsWith('iam-')) {
+              resourceType = 'IAM Role';
+            } else if (snapshotId.startsWith('S3Bucket-') || snapshotId.startsWith('s3-')) {
+              resourceType = 'S3 Bucket';
+            } else if (snapshot.resource_type) {
+              resourceType = snapshot.resource_type;
+            } else if (snapshot.current_state?.checkpoint_type) {
+              resourceType = snapshot.current_state.checkpoint_type;
+            }
+
+            // Extract resource name - for IAM roles, extract from snapshot ID
+            let resourceName = 'Unknown Resource';
+            if (snapshotId.startsWith('IAMRole-')) {
+              // Extract role name from snapshot ID: IAMRole-{roleName}-{hash}
+              const parts = snapshotId.replace('IAMRole-', '').split('-');
+              parts.pop(); // Remove the hash at the end
+              resourceName = parts.join('-') || 'Unknown Role';
+            } else if (snapshotId.startsWith('S3Bucket-')) {
+              // Extract bucket name from snapshot ID: S3Bucket-{bucketName}-{hash}
+              const parts = snapshotId.replace('S3Bucket-', '').split('-');
+              parts.pop(); // Remove the hash
+              resourceName = parts.join('-') || 'Unknown Bucket';
+            } else {
+              resourceName =
+                snapshot.current_state?.resource_name ||
+                snapshot.current_state?.role_name ||
+                snapshot.before_state?.role_name ||
+                snapshot.finding_id ||
+                'Unknown Resource';
+            }
 
             return (
               <div
@@ -229,8 +251,10 @@ export default function RecoveryTab() {
                         {resourceName}
                       </h3>
                       <span className={`px-2 py-1 text-xs rounded ${
-                        resourceType === 'S3Bucket'
+                        resourceType === 'S3 Bucket' || resourceType === 'S3Bucket'
                           ? 'bg-orange-100 text-orange-800'
+                          : resourceType === 'IAM Role' || resourceType === 'IAMRole'
+                          ? 'bg-purple-100 text-purple-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}>
                         {resourceType}
