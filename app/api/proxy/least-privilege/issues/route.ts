@@ -101,13 +101,78 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json()
-    
+
+    // Check if we got any Security Groups from the backend
+    const sgCount = (data.resources || []).filter((r: any) => r.resourceType === 'SecurityGroup').length
+    console.log(`[LP Proxy] Backend returned ${sgCount} SecurityGroups`)
+
+    // If no SGs from backend, fetch from infrastructure endpoint and merge
+    if (sgCount === 0) {
+      try {
+        console.log('[LP Proxy] Fetching SGs from infrastructure endpoint...')
+        const sgRes = await fetch(`${BACKEND_URL}/api/infrastructure/security-groups`, {
+          cache: "no-store",
+          headers: { "Accept": "application/json" },
+        })
+
+        if (sgRes.ok) {
+          const sgData = await sgRes.json()
+          const sgs = Array.isArray(sgData) ? sgData : []
+          console.log(`[LP Proxy] Got ${sgs.length} SGs from infrastructure`)
+
+          // Transform SGs to LP resource format
+          const sgResources = sgs.map((sg: any) => ({
+            id: sg.id,
+            resourceType: 'SecurityGroup',
+            resourceName: sg.name || sg.id,
+            resourceId: sg.id,
+            resourceArn: `arn:aws:ec2:eu-west-1:745783559495:security-group/${sg.id}`,
+            systemName: sg.tags?.SystemName || systemName,
+            vpcId: sg.vpc_id,
+            hasPublicIngress: sg.ingress_rules > 0,
+            lpScore: 50, // Default score - click to analyze
+            allowedCount: sg.ingress_rules || 0,
+            usedCount: 0,
+            gapCount: sg.ingress_rules || 0,
+            gapPercent: 100,
+            severity: 'MEDIUM',
+            confidence: 'LOW',
+            gapCategory: 'network',
+            observationDays: parseInt(observationDays),
+            title: `Security Group: ${sg.name || sg.id}`,
+            description: `${sg.ingress_rules || 0} inbound rules, ${sg.egress_rules || 0} outbound rules`,
+            remediation: 'Click to run LP analysis',
+            sgDescription: sg.description,
+            evidence: {
+              dataSources: ['AWS EC2'],
+              observationDays: parseInt(observationDays),
+              confidence: 'LOW',
+              needsAnalysis: true
+            }
+          }))
+
+          // Merge SGs into resources
+          data.resources = [...(data.resources || []), ...sgResources]
+
+          // Update summary counts
+          if (data.summary) {
+            data.summary.totalResources = (data.summary.totalResources || 0) + sgResources.length
+            data.summary.networkIssuesCount = (data.summary.networkIssuesCount || 0) + sgResources.length
+          }
+
+          console.log(`[LP Proxy] Merged ${sgResources.length} SGs, total resources: ${data.resources.length}`)
+        }
+      } catch (sgError) {
+        console.error('[LP Proxy] Failed to fetch SGs from infrastructure:', sgError)
+      }
+    }
+
     // Update cache
     cachedData = { cacheKey, data }
     cacheTimestamp = now
-    
+
     console.log(`[LP Proxy] Cached ${data.resources?.length || 0} resources`)
-    
+
     return NextResponse.json({
       ...data,
       fromCache: false
