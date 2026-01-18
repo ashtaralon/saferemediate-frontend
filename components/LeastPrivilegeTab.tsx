@@ -723,6 +723,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           </div>
         ) : (
           resources
+            // Filter out "No Action Required" resources (gapCount === 0)
+            .filter(resource => resource.gapCount > 0)
             // Only filter based on remediable toggle (only affects IAM Roles)
             .filter(resource => {
               if (resource.resourceType !== 'IAMRole') return true
