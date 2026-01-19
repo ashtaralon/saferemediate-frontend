@@ -62,101 +62,106 @@ interface IAMPermissionAnalysisModalProps {
   onRemediationSuccess?: (roleName: string) => void
 }
 
-// Detect if a role is an AWS service role where CloudTrail may not capture usage
-function detectServiceRole(roleName: string): { isServiceRole: boolean; serviceType: string | null; warning: string | null; severity: 'high' | 'medium' | 'low' } {
+// Analyze role and return specific, real warning based on actual role characteristics
+interface ServiceRoleAnalysis {
+  isServiceRole: boolean
+  severity: 'critical' | 'high' | 'medium' | 'info' | null
+  title: string | null
+  explanation: string | null
+  affectedPermissions: string[] | null
+  recommendation: string | null
+}
+
+function analyzeRole(roleName: string, unusedPermissions: string[], cloudtrailEvents: number): ServiceRoleAnalysis {
   const lowerName = roleName.toLowerCase()
 
-  // Service-linked roles (AWS managed) - HIGH severity, never modify
-  if (roleName.startsWith('AWSServiceRoleFor')) {
-    return {
-      isServiceRole: true,
-      serviceType: 'Service-Linked Role',
-      warning: 'This is an AWS service-linked role. CloudTrail may not capture internal AWS service-to-service API calls. These roles are AWS-managed and should not be modified.',
-      severity: 'high'
-    }
-  }
-
-  // VPC Flow Logs roles - HIGH severity
+  // VPC Flow Logs Role - Specific analysis
   if (lowerName.includes('flowlog') || lowerName.includes('flow-log') || lowerName.includes('vpcflowlogs')) {
+    const flowLogPermissions = unusedPermissions.filter(p =>
+      p.includes('logs:') || p.includes('CreateLog') || p.includes('PutLog') || p.includes('DescribeLog')
+    )
     return {
       isServiceRole: true,
-      serviceType: 'VPC Flow Logs',
-      warning: 'This role is used by VPC Flow Logs to write logs to CloudWatch/S3. These internal AWS operations are NOT recorded in CloudTrail. Do not remove permissions.',
-      severity: 'high'
+      severity: 'critical',
+      title: `${roleName} is actively used by VPC Flow Logs`,
+      explanation: `This role allows VPC Flow Logs to publish network traffic data to CloudWatch Logs. AWS invokes these permissions internally every time flow log data is written - but these calls are made by the vpc-flow-logs.amazonaws.com service principal and are NOT recorded in your CloudTrail.`,
+      affectedPermissions: flowLogPermissions.length > 0 ? flowLogPermissions : ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogGroups', 'logs:DescribeLogStreams'],
+      recommendation: 'Do NOT remove these permissions. Your VPC Flow Logs will stop working immediately if these permissions are removed.'
     }
   }
 
-  // CloudTrail roles - HIGH severity
+  // CloudTrail Role - Specific analysis
   if (lowerName.includes('cloudtrail')) {
+    const cloudtrailPermissions = unusedPermissions.filter(p =>
+      p.includes('s3:') || p.includes('logs:') || p.includes('kms:')
+    )
     return {
       isServiceRole: true,
-      serviceType: 'CloudTrail',
-      warning: 'This role is used by CloudTrail itself to write audit logs. CloudTrail cannot log its own internal operations. Do not remove permissions.',
-      severity: 'high'
+      severity: 'critical',
+      title: `${roleName} is used by CloudTrail for audit logging`,
+      explanation: `This role allows CloudTrail to write audit logs to S3 and/or CloudWatch Logs. CloudTrail cannot log its own API calls (this would create infinite recursion), so these permission usages will never appear in CloudTrail data.`,
+      affectedPermissions: cloudtrailPermissions.length > 0 ? cloudtrailPermissions : ['s3:PutObject', 's3:GetBucketAcl'],
+      recommendation: 'Do NOT remove these permissions. Removing them will break your audit logging and compliance requirements.'
     }
   }
 
-  // AWS Config roles - HIGH severity
-  if (lowerName.includes('config') && (lowerName.includes('role') || lowerName.includes('aws'))) {
-    return {
-      isServiceRole: true,
-      serviceType: 'AWS Config',
-      warning: 'This role is used by AWS Config for configuration recording. Internal operations may not appear in CloudTrail.',
-      severity: 'high'
-    }
-  }
-
-  // Lambda roles - MEDIUM severity (need to verify function is invoked)
+  // Lambda Role - Specific analysis
   if (lowerName.includes('lambda')) {
     return {
       isServiceRole: true,
-      serviceType: 'Lambda',
-      warning: 'Lambda role permissions are only used when the function is invoked. If the function runs infrequently (e.g., scheduled jobs, event-driven), permissions may appear unused. Verify the function\'s invocation history before removing permissions.',
-      severity: 'medium'
+      severity: 'high',
+      title: `${roleName} is a Lambda execution role`,
+      explanation: `Lambda execution roles are only used when the function is invoked. If this Lambda function runs on a schedule (e.g., daily/weekly), during specific events, or hasn't been triggered recently, the permissions will appear unused even though they're required.`,
+      affectedPermissions: null,
+      recommendation: `Check the Lambda function's invocation history in CloudWatch Metrics before removing permissions. If the function has been invoked in the last 90 days, these permissions are likely needed.`
     }
   }
 
-  // AutoScaling roles - HIGH severity
-  if (lowerName.includes('autoscaling') || lowerName.includes('auto-scaling')) {
+  // Service-linked roles
+  if (roleName.startsWith('AWSServiceRoleFor')) {
+    const serviceName = roleName.replace('AWSServiceRoleFor', '')
     return {
       isServiceRole: true,
-      serviceType: 'Auto Scaling',
-      warning: 'This role is used by Auto Scaling. Scale events may not all be captured in CloudTrail.',
-      severity: 'high'
+      severity: 'critical',
+      title: `AWS-Managed Service-Linked Role for ${serviceName}`,
+      explanation: `This is an AWS service-linked role that is created and managed by AWS. The ${serviceName} service uses this role internally, and these operations are not visible in CloudTrail.`,
+      affectedPermissions: null,
+      recommendation: 'Service-linked roles cannot be modified. AWS manages these permissions automatically.'
     }
   }
 
-  // Replication roles - HIGH severity
-  if (lowerName.includes('replication')) {
+  // EC2 Instance roles with no activity
+  if ((lowerName.includes('ec2') || lowerName.includes('instance')) && cloudtrailEvents === 0) {
     return {
-      isServiceRole: true,
-      serviceType: 'Replication',
-      warning: 'This role is used for data replication. Replication operations are internal and may not appear in CloudTrail.',
-      severity: 'high'
+      isServiceRole: false,
+      severity: 'info',
+      title: `${roleName} shows no API activity`,
+      explanation: `This appears to be an EC2 instance role. If the EC2 instance is running but not making AWS API calls (e.g., only serving web traffic), the role permissions won't appear in CloudTrail. However, if the instance IS making API calls that require these permissions, they should appear.`,
+      affectedPermissions: null,
+      recommendation: 'Verify the EC2 instance is running and check if your application actually needs these AWS permissions. If the instance is stopped or terminated, these permissions can likely be removed.'
     }
   }
 
-  // EventBridge / Events roles - MEDIUM severity
-  if (lowerName.includes('events') || lowerName.includes('eventbridge')) {
+  // Generic 0 CloudTrail events warning
+  if (cloudtrailEvents === 0 && unusedPermissions.length > 0) {
     return {
-      isServiceRole: true,
-      serviceType: 'EventBridge',
-      warning: 'This role is used by EventBridge for event routing. Some internal operations may not be captured.',
-      severity: 'medium'
+      isServiceRole: false,
+      severity: 'medium',
+      title: `No CloudTrail activity recorded for ${roleName}`,
+      explanation: `This role has ${unusedPermissions.length} permissions configured but 0 API calls were recorded in CloudTrail over the observation period. This could mean: (1) the role is genuinely unused, (2) the role is used by an AWS service that doesn't log to CloudTrail, or (3) the role is used infrequently.`,
+      affectedPermissions: null,
+      recommendation: 'Investigate how this role is used before removing permissions. Check if it\'s attached to any EC2 instances, Lambda functions, or other AWS services.'
     }
   }
 
-  // Backup roles - HIGH severity
-  if (lowerName.includes('backup')) {
-    return {
-      isServiceRole: true,
-      serviceType: 'AWS Backup',
-      warning: 'This role is used by AWS Backup. Backup operations run on a schedule and may not appear in recent CloudTrail data.',
-      severity: 'high'
-    }
+  return {
+    isServiceRole: false,
+    severity: null,
+    title: null,
+    explanation: null,
+    affectedPermissions: null,
+    recommendation: null
   }
-
-  return { isServiceRole: false, serviceType: null, warning: null, severity: 'low' }
 }
 
 export function IAMPermissionAnalysisModal({
@@ -931,47 +936,103 @@ export function IAMPermissionAnalysisModal({
             </p>
           </div>
 
-          {/* Service Role Warning */}
+          {/* Service Role Warning - Real, specific analysis */}
           {(() => {
-            const serviceRoleInfo = detectServiceRole(roleName)
-            // Show warning if it's a service role OR if there are 0 CloudTrail events with unused permissions
-            const showWarning = serviceRoleInfo.isServiceRole || (cloudtrailEvents === 0 && unusedCount > 0)
+            const analysis = analyzeRole(roleName, gapData?.unused_permissions || [], cloudtrailEvents)
 
-            if (!showWarning) return null
+            if (!analysis.severity) return null
 
-            const isHighSeverity = serviceRoleInfo.severity === 'high'
-            const borderColor = isHighSeverity ? 'border-red-500' : 'border-amber-500'
-            const bgColor = isHighSeverity ? 'bg-red-50' : 'bg-amber-50'
-            const iconColor = isHighSeverity ? 'text-red-600' : 'text-amber-600'
-            const titleColor = isHighSeverity ? 'text-red-800' : 'text-amber-800'
-            const textColor = isHighSeverity ? 'text-red-700' : 'text-amber-700'
-            const badgeBg = isHighSeverity ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
+            // Severity-based styling
+            const styles = {
+              critical: {
+                border: 'border-red-500',
+                bg: 'bg-red-50',
+                icon: 'text-red-600',
+                title: 'text-red-900',
+                text: 'text-red-700',
+                badge: 'bg-red-600 text-white',
+                badgeText: 'DO NOT MODIFY'
+              },
+              high: {
+                border: 'border-orange-500',
+                bg: 'bg-orange-50',
+                icon: 'text-orange-600',
+                title: 'text-orange-900',
+                text: 'text-orange-700',
+                badge: 'bg-orange-500 text-white',
+                badgeText: 'VERIFY FIRST'
+              },
+              medium: {
+                border: 'border-amber-500',
+                bg: 'bg-amber-50',
+                icon: 'text-amber-600',
+                title: 'text-amber-900',
+                text: 'text-amber-700',
+                badge: 'bg-amber-500 text-white',
+                badgeText: 'INVESTIGATION NEEDED'
+              },
+              info: {
+                border: 'border-blue-500',
+                bg: 'bg-blue-50',
+                icon: 'text-blue-600',
+                title: 'text-blue-900',
+                text: 'text-blue-700',
+                badge: 'bg-blue-500 text-white',
+                badgeText: 'REVIEW RECOMMENDED'
+              }
+            }
+
+            const style = styles[analysis.severity]
 
             return (
-              <div className={`mx-6 mt-4 p-4 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
+              <div className={`mx-6 mt-4 p-5 border-l-4 ${style.border} ${style.bg} rounded-r-lg`}>
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className={`w-5 h-5 ${iconColor} flex-shrink-0 mt-0.5`} />
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`font-semibold ${titleColor}`}>
-                        {serviceRoleInfo.serviceType ? `${serviceRoleInfo.serviceType} Role Detected` : 'Limited CloudTrail Visibility'}
-                      </span>
-                      <span className={`px-2 py-0.5 ${badgeBg} text-xs rounded-full font-medium`}>
-                        {isHighSeverity ? 'Do Not Modify' : 'Verify Before Modifying'}
+                  <AlertTriangle className={`w-6 h-6 ${style.icon} flex-shrink-0 mt-0.5`} />
+                  <div className="flex-1">
+                    {/* Title with badge */}
+                    <div className="flex items-start justify-between gap-3">
+                      <h4 className={`font-bold ${style.title} text-base`}>
+                        {analysis.title}
+                      </h4>
+                      <span className={`px-2.5 py-1 ${style.badge} text-xs rounded font-bold whitespace-nowrap`}>
+                        {style.badgeText}
                       </span>
                     </div>
-                    <p className={`text-sm ${textColor} mt-1`}>
-                      {serviceRoleInfo.warning ||
-                        'This role shows 0 permission checks in CloudTrail but has configured permissions. This typically means the role is used by AWS services internally, and those API calls are not recorded in CloudTrail.'}
+
+                    {/* Explanation */}
+                    <p className={`text-sm ${style.text} mt-2 leading-relaxed`}>
+                      {analysis.explanation}
                     </p>
-                    {isHighSeverity ? (
-                      <p className="text-sm text-red-600 mt-2 font-bold">
-                        🛑 This role is used by AWS services internally. Removing permissions will break the service.
-                      </p>
-                    ) : (
-                      <p className={`text-sm ${textColor} mt-2 font-medium`}>
-                        ⚠️ Verify the service is truly unused before removing permissions.
-                      </p>
+
+                    {/* Affected Permissions */}
+                    {analysis.affectedPermissions && analysis.affectedPermissions.length > 0 && (
+                      <div className="mt-3">
+                        <p className={`text-xs font-semibold ${style.title} mb-1`}>
+                          Permissions used by AWS internally:
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {analysis.affectedPermissions.slice(0, 5).map((perm, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-white/60 border border-current/20 rounded text-xs font-mono">
+                              {perm}
+                            </span>
+                          ))}
+                          {analysis.affectedPermissions.length > 5 && (
+                            <span className="px-2 py-0.5 text-xs">
+                              +{analysis.affectedPermissions.length - 5} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recommendation */}
+                    {analysis.recommendation && (
+                      <div className={`mt-3 p-3 rounded ${analysis.severity === 'critical' ? 'bg-red-100' : 'bg-white/50'}`}>
+                        <p className={`text-sm font-semibold ${analysis.severity === 'critical' ? 'text-red-800' : style.text}`}>
+                          {analysis.severity === 'critical' ? '🛑 ' : '💡 '}
+                          {analysis.recommendation}
+                        </p>
+                      </div>
                     )}
                   </div>
                 </div>
