@@ -62,106 +62,45 @@ interface IAMPermissionAnalysisModalProps {
   onRemediationSuccess?: (roleName: string) => void
 }
 
-// Analyze role and return specific, real warning based on actual role characteristics
-interface ServiceRoleAnalysis {
-  isServiceRole: boolean
-  severity: 'critical' | 'high' | 'medium' | 'info' | null
-  title: string | null
-  explanation: string | null
-  affectedPermissions: string[] | null
-  recommendation: string | null
+// Service role analysis from backend (trust policy based)
+interface BackendServiceRoleAnalysis {
+  is_service_role: boolean
+  service_principals: string[]
+  analysis: {
+    service_principal: string
+    service_name: string
+    severity: 'critical' | 'high' | 'medium'
+    cloudtrail_visible: boolean | null
+    title: string
+    description: string
+    why_no_cloudtrail: string
+    recommendation: string
+    affected_permissions: string[] | null
+  } | null
+  error?: string
 }
 
-function analyzeRole(roleName: string, unusedPermissions: string[], cloudtrailEvents: number): ServiceRoleAnalysis {
-  const lowerName = roleName.toLowerCase()
-
-  // VPC Flow Logs Role - Specific analysis
-  if (lowerName.includes('flowlog') || lowerName.includes('flow-log') || lowerName.includes('vpcflowlogs')) {
-    const flowLogPermissions = unusedPermissions.filter(p =>
-      p.includes('logs:') || p.includes('CreateLog') || p.includes('PutLog') || p.includes('DescribeLog')
-    )
+// Fallback client-side analysis when backend doesn't provide trust policy data
+function fallbackAnalyzeRole(roleName: string, cloudtrailEvents: number, unusedCount: number): BackendServiceRoleAnalysis | null {
+  // Only provide fallback for obvious cases when backend analysis is unavailable
+  if (cloudtrailEvents === 0 && unusedCount > 0) {
     return {
-      isServiceRole: true,
-      severity: 'critical',
-      title: `${roleName} is actively used by VPC Flow Logs`,
-      explanation: `This role allows VPC Flow Logs to publish network traffic data to CloudWatch Logs. AWS invokes these permissions internally every time flow log data is written - but these calls are made by the vpc-flow-logs.amazonaws.com service principal and are NOT recorded in your CloudTrail.`,
-      affectedPermissions: flowLogPermissions.length > 0 ? flowLogPermissions : ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogGroups', 'logs:DescribeLogStreams'],
-      recommendation: 'Do NOT remove these permissions. Your VPC Flow Logs will stop working immediately if these permissions are removed.'
+      is_service_role: false,
+      service_principals: [],
+      analysis: {
+        service_principal: 'unknown',
+        service_name: 'Unknown',
+        severity: 'medium',
+        cloudtrail_visible: null,
+        title: `No CloudTrail activity recorded for ${roleName}`,
+        description: `This role has ${unusedCount} permissions configured but 0 API calls were recorded in CloudTrail.`,
+        why_no_cloudtrail: 'This could mean: (1) the role is genuinely unused, (2) the role is used by an AWS service that doesn\'t log to CloudTrail, or (3) the role is used infrequently.',
+        recommendation: 'Investigate how this role is used before removing permissions.',
+        affected_permissions: null
+      }
     }
   }
-
-  // CloudTrail Role - Specific analysis
-  if (lowerName.includes('cloudtrail')) {
-    const cloudtrailPermissions = unusedPermissions.filter(p =>
-      p.includes('s3:') || p.includes('logs:') || p.includes('kms:')
-    )
-    return {
-      isServiceRole: true,
-      severity: 'critical',
-      title: `${roleName} is used by CloudTrail for audit logging`,
-      explanation: `This role allows CloudTrail to write audit logs to S3 and/or CloudWatch Logs. CloudTrail cannot log its own API calls (this would create infinite recursion), so these permission usages will never appear in CloudTrail data.`,
-      affectedPermissions: cloudtrailPermissions.length > 0 ? cloudtrailPermissions : ['s3:PutObject', 's3:GetBucketAcl'],
-      recommendation: 'Do NOT remove these permissions. Removing them will break your audit logging and compliance requirements.'
-    }
-  }
-
-  // Lambda Role - Specific analysis
-  if (lowerName.includes('lambda')) {
-    return {
-      isServiceRole: true,
-      severity: 'high',
-      title: `${roleName} is a Lambda execution role`,
-      explanation: `Lambda execution roles are only used when the function is invoked. If this Lambda function runs on a schedule (e.g., daily/weekly), during specific events, or hasn't been triggered recently, the permissions will appear unused even though they're required.`,
-      affectedPermissions: null,
-      recommendation: `Check the Lambda function's invocation history in CloudWatch Metrics before removing permissions. If the function has been invoked in the last 90 days, these permissions are likely needed.`
-    }
-  }
-
-  // Service-linked roles
-  if (roleName.startsWith('AWSServiceRoleFor')) {
-    const serviceName = roleName.replace('AWSServiceRoleFor', '')
-    return {
-      isServiceRole: true,
-      severity: 'critical',
-      title: `AWS-Managed Service-Linked Role for ${serviceName}`,
-      explanation: `This is an AWS service-linked role that is created and managed by AWS. The ${serviceName} service uses this role internally, and these operations are not visible in CloudTrail.`,
-      affectedPermissions: null,
-      recommendation: 'Service-linked roles cannot be modified. AWS manages these permissions automatically.'
-    }
-  }
-
-  // EC2 Instance roles with no activity
-  if ((lowerName.includes('ec2') || lowerName.includes('instance')) && cloudtrailEvents === 0) {
-    return {
-      isServiceRole: false,
-      severity: 'info',
-      title: `${roleName} shows no API activity`,
-      explanation: `This appears to be an EC2 instance role. If the EC2 instance is running but not making AWS API calls (e.g., only serving web traffic), the role permissions won't appear in CloudTrail. However, if the instance IS making API calls that require these permissions, they should appear.`,
-      affectedPermissions: null,
-      recommendation: 'Verify the EC2 instance is running and check if your application actually needs these AWS permissions. If the instance is stopped or terminated, these permissions can likely be removed.'
-    }
-  }
-
-  // Generic 0 CloudTrail events warning
-  if (cloudtrailEvents === 0 && unusedPermissions.length > 0) {
-    return {
-      isServiceRole: false,
-      severity: 'medium',
-      title: `No CloudTrail activity recorded for ${roleName}`,
-      explanation: `This role has ${unusedPermissions.length} permissions configured but 0 API calls were recorded in CloudTrail over the observation period. This could mean: (1) the role is genuinely unused, (2) the role is used by an AWS service that doesn't log to CloudTrail, or (3) the role is used infrequently.`,
-      affectedPermissions: null,
-      recommendation: 'Investigate how this role is used before removing permissions. Check if it\'s attached to any EC2 instances, Lambda functions, or other AWS services.'
-    }
-  }
-
-  return {
-    isServiceRole: false,
-    severity: null,
-    title: null,
-    explanation: null,
-    affectedPermissions: null,
-    recommendation: null
-  }
+  return null
 }
 
 export function IAMPermissionAnalysisModal({
@@ -936,11 +875,13 @@ export function IAMPermissionAnalysisModal({
             </p>
           </div>
 
-          {/* Service Role Warning - Real, specific analysis */}
+          {/* Service Role Warning - Based on backend trust policy analysis */}
           {(() => {
-            const analysis = analyzeRole(roleName, gapData?.unused_permissions || [], cloudtrailEvents)
+            // Use backend analysis if available, otherwise fallback to client-side
+            const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+            const analysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
 
-            if (!analysis.severity) return null
+            if (!analysis) return null
 
             // Severity-based styling
             const styles = {
@@ -970,55 +911,64 @@ export function IAMPermissionAnalysisModal({
                 text: 'text-amber-700',
                 badge: 'bg-amber-500 text-white',
                 badgeText: 'INVESTIGATION NEEDED'
-              },
-              info: {
-                border: 'border-blue-500',
-                bg: 'bg-blue-50',
-                icon: 'text-blue-600',
-                title: 'text-blue-900',
-                text: 'text-blue-700',
-                badge: 'bg-blue-500 text-white',
-                badgeText: 'REVIEW RECOMMENDED'
               }
             }
 
-            const style = styles[analysis.severity]
+            const severity = analysis.severity || 'medium'
+            const style = styles[severity] || styles.medium
 
             return (
               <div className={`mx-6 mt-4 p-5 border-l-4 ${style.border} ${style.bg} rounded-r-lg`}>
                 <div className="flex items-start gap-3">
                   <AlertTriangle className={`w-6 h-6 ${style.icon} flex-shrink-0 mt-0.5`} />
                   <div className="flex-1">
-                    {/* Title with badge */}
+                    {/* Title with badge and service principal */}
                     <div className="flex items-start justify-between gap-3">
-                      <h4 className={`font-bold ${style.title} text-base`}>
-                        {analysis.title}
-                      </h4>
+                      <div>
+                        <h4 className={`font-bold ${style.title} text-base`}>
+                          {analysis.title}
+                        </h4>
+                        {backendAnalysis?.service_principals && backendAnalysis.service_principals.length > 0 && (
+                          <p className="text-xs text-gray-500 mt-0.5 font-mono">
+                            Trust Policy: {backendAnalysis.service_principals.join(', ')}
+                          </p>
+                        )}
+                      </div>
                       <span className={`px-2.5 py-1 ${style.badge} text-xs rounded font-bold whitespace-nowrap`}>
                         {style.badgeText}
                       </span>
                     </div>
 
-                    {/* Explanation */}
+                    {/* Description */}
                     <p className={`text-sm ${style.text} mt-2 leading-relaxed`}>
-                      {analysis.explanation}
+                      {analysis.description}
                     </p>
 
+                    {/* Why no CloudTrail */}
+                    {analysis.why_no_cloudtrail && (
+                      <div className="mt-3 p-3 bg-white/50 rounded border border-current/10">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">Why permissions appear unused:</p>
+                        <p className={`text-sm ${style.text}`}>
+                          {analysis.why_no_cloudtrail}
+                        </p>
+                      </div>
+                    )}
+
                     {/* Affected Permissions */}
-                    {analysis.affectedPermissions && analysis.affectedPermissions.length > 0 && (
+                    {analysis.affected_permissions && analysis.affected_permissions.length > 0 && (
                       <div className="mt-3">
                         <p className={`text-xs font-semibold ${style.title} mb-1`}>
-                          Permissions used by AWS internally:
+                          Permissions used by {analysis.service_name} internally:
                         </p>
                         <div className="flex flex-wrap gap-1">
-                          {analysis.affectedPermissions.slice(0, 5).map((perm, i) => (
+                          {analysis.affected_permissions.slice(0, 6).map((perm, i) => (
                             <span key={i} className="px-2 py-0.5 bg-white/60 border border-current/20 rounded text-xs font-mono">
                               {perm}
                             </span>
                           ))}
-                          {analysis.affectedPermissions.length > 5 && (
+                          {analysis.affected_permissions.length > 6 && (
                             <span className="px-2 py-0.5 text-xs">
-                              +{analysis.affectedPermissions.length - 5} more
+                              +{analysis.affected_permissions.length - 6} more
                             </span>
                           )}
                         </div>
@@ -1027,9 +977,9 @@ export function IAMPermissionAnalysisModal({
 
                     {/* Recommendation */}
                     {analysis.recommendation && (
-                      <div className={`mt-3 p-3 rounded ${analysis.severity === 'critical' ? 'bg-red-100' : 'bg-white/50'}`}>
-                        <p className={`text-sm font-semibold ${analysis.severity === 'critical' ? 'text-red-800' : style.text}`}>
-                          {analysis.severity === 'critical' ? '🛑 ' : '💡 '}
+                      <div className={`mt-3 p-3 rounded ${severity === 'critical' ? 'bg-red-100' : 'bg-white/50'}`}>
+                        <p className={`text-sm font-semibold ${severity === 'critical' ? 'text-red-800' : style.text}`}>
+                          {severity === 'critical' ? '🛑 ' : '💡 '}
                           {analysis.recommendation}
                         </p>
                       </div>
