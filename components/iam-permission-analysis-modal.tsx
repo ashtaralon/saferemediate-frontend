@@ -431,12 +431,39 @@ export function IAMPermissionAnalysisModal({
   const calculateSafetyScore = () => {
     if (!gapData) return 95
     let score = 95
-    // Reduce score if there are high-risk unused permissions
-    const highRiskCount = gapData.high_risk_unused?.length ?? 0
-    score -= highRiskCount * 2
-    // Reduce score if low CloudTrail events
-    if (cloudtrailEvents < 10) score -= 5
-    return Math.max(80, Math.min(100, score))
+
+    // Check if this is a known service role from backend analysis
+    const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+    const isKnownServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.cloudtrail_visible === false
+
+    // CRITICAL: If NO CloudTrail events AND unused permissions exist, we have NO evidence
+    // This is NOT safe - we don't know if the role is unused or just not logged
+    if (cloudtrailEvents === 0 && unusedCount > 0) {
+      if (isKnownServiceRole) {
+        // Known AWS service role - severely reduce confidence
+        score = 15 // Very low - this is a service role that won't log to CloudTrail
+      } else {
+        // Unknown role with no activity - needs investigation
+        score = 35 // Low confidence - could be unused OR service role
+      }
+    } else {
+      // We have CloudTrail data - base confidence on that
+      // Reduce score if there are high-risk unused permissions
+      const highRiskCount = gapData.high_risk_unused?.length ?? 0
+      score -= highRiskCount * 2
+      // Reduce score if low CloudTrail events (but not zero)
+      if (cloudtrailEvents > 0 && cloudtrailEvents < 10) score -= 5
+    }
+
+    return Math.max(10, Math.min(100, score))
+  }
+
+  // Determine if remediation should be blocked
+  const shouldBlockRemediation = () => {
+    const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+    // Block if it's a critical service role
+    if (backendAnalysis?.analysis?.severity === 'critical') return true
+    return false
   }
 
   const safetyScore = calculateSafetyScore()
@@ -544,15 +571,59 @@ export function IAMPermissionAnalysisModal({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Safety Score Banner */}
-            <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl text-center">
-              <div className="flex items-center justify-center gap-3">
-                <CheckSquare className="w-10 h-10 text-green-500" />
-                <span className="text-5xl font-bold text-green-600">{safetyScore}%</span>
-                <span className="text-2xl font-bold text-green-600">SAFE TO APPLY</span>
-              </div>
-              <p className="text-green-600 mt-2">No production services will be affected</p>
-            </div>
+            {/* Safety Score Banner - Dynamic based on confidence */}
+            {(() => {
+              const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+              const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
+              const noCloudTrailData = cloudtrailEvents === 0 && unusedCount > 0
+
+              if (isServiceRole) {
+                // CRITICAL: Service role - DO NOT MODIFY
+                return (
+                  <div className="p-6 bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <XCircle className="w-10 h-10 text-red-600" />
+                      <span className="text-5xl font-bold text-red-600">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-red-600">DO NOT APPLY</span>
+                    </div>
+                    <p className="text-red-700 mt-2 font-semibold">
+                      This is an AWS service role. Removing permissions will break {backendAnalysis?.analysis?.service_name}.
+                    </p>
+                  </div>
+                )
+              } else if (noCloudTrailData) {
+                // WARNING: No CloudTrail evidence - Investigation needed
+                return (
+                  <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-amber-600" />
+                      <span className="text-5xl font-bold text-amber-600">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-amber-600">LOW CONFIDENCE</span>
+                    </div>
+                    <p className="text-amber-700 mt-2 font-semibold">
+                      No CloudTrail activity recorded. Cannot verify if permissions are truly unused.
+                    </p>
+                    <p className="text-amber-600 text-sm mt-1">
+                      The role may be used by an AWS service that doesn't log to CloudTrail, or used infrequently.
+                    </p>
+                  </div>
+                )
+              } else {
+                // SAFE: We have CloudTrail evidence
+                return (
+                  <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <CheckSquare className="w-10 h-10 text-green-500" />
+                      <span className="text-5xl font-bold text-green-600">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-green-600">SAFE TO APPLY</span>
+                    </div>
+                    <p className="text-green-600 mt-2">
+                      {cloudtrailEvents.toLocaleString()} CloudTrail events analyzed - No production services will be affected
+                    </p>
+                  </div>
+                )
+              }
+            })()}
 
             {/* What Will Change */}
             <div>
@@ -753,32 +824,75 @@ export function IAMPermissionAnalysisModal({
             <div className="p-4 bg-gray-50 rounded-xl">
               <h3 className="font-bold text-gray-900 mb-3">Confidence Factors:</h3>
               <div className="space-y-2">
-                {[
-                  { label: `${observationDays} days of CloudTrail analysis`, score: 99 },
-                  { label: 'All unused permissions verified', score: 100 },
-                  { 
-                    label: gapData?.dependency_context?.has_critical_dependencies 
-                      ? 'Critical dependencies detected (reduced confidence)' 
-                      : 'No production dependencies detected', 
-                    score: gapData?.dependency_context?.has_critical_dependencies ? 75 : 100,
-                    warning: gapData?.dependency_context?.has_critical_dependencies
-                  },
-                  { label: 'Similar fixes applied successfully', score: 98 }
-                ].map((factor, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 text-sm">
-                      {factor.warning ? (
-                        <AlertTriangle className="w-4 h-4 text-amber-500" />
-                      ) : (
-                        <Check className="w-4 h-4 text-green-500" />
-                      )}
-                      {factor.label}
-                    </span>
-                    <span className={`font-semibold ${factor.warning ? 'text-amber-600' : 'text-green-600'}`}>
-                      {factor.score}%
-                    </span>
-                  </div>
-                ))}
+                {(() => {
+                  const noCloudTrailData = cloudtrailEvents === 0 && unusedCount > 0
+                  const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+                  const isServiceRole = backendAnalysis?.is_service_role
+
+                  const factors = noCloudTrailData ? [
+                    {
+                      label: `${observationDays} days analyzed - NO CloudTrail events found`,
+                      score: 0,
+                      warning: true,
+                      critical: true
+                    },
+                    {
+                      label: isServiceRole
+                        ? `Role is used by AWS service (${backendAnalysis?.analysis?.service_name})`
+                        : 'Permissions unverified - may be used by AWS service',
+                      score: isServiceRole ? 0 : 20,
+                      warning: true,
+                      critical: isServiceRole
+                    },
+                    {
+                      label: gapData?.dependency_context?.has_critical_dependencies
+                        ? 'Critical dependencies detected'
+                        : 'No production dependencies in graph',
+                      score: gapData?.dependency_context?.has_critical_dependencies ? 50 : 80,
+                      warning: gapData?.dependency_context?.has_critical_dependencies
+                    },
+                    {
+                      label: 'Investigation recommended before remediation',
+                      score: 30,
+                      warning: true
+                    }
+                  ] : [
+                    { label: `${observationDays} days of CloudTrail analysis`, score: 99 },
+                    { label: `${cloudtrailEvents.toLocaleString()} API events verified`, score: 100 },
+                    {
+                      label: gapData?.dependency_context?.has_critical_dependencies
+                        ? 'Critical dependencies detected (reduced confidence)'
+                        : 'No production dependencies detected',
+                      score: gapData?.dependency_context?.has_critical_dependencies ? 75 : 100,
+                      warning: gapData?.dependency_context?.has_critical_dependencies
+                    },
+                    { label: 'Similar fixes applied successfully', score: 98 }
+                  ]
+
+                  return factors.map((factor, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <span className="flex items-center gap-2 text-sm">
+                        {factor.critical ? (
+                          <XCircle className="w-4 h-4 text-red-500" />
+                        ) : factor.warning ? (
+                          <AlertTriangle className="w-4 h-4 text-amber-500" />
+                        ) : (
+                          <Check className="w-4 h-4 text-green-500" />
+                        )}
+                        <span className={factor.critical ? 'text-red-700 font-medium' : ''}>
+                          {factor.label}
+                        </span>
+                      </span>
+                      <span className={`font-semibold ${
+                        factor.critical ? 'text-red-600' :
+                        factor.warning ? 'text-amber-600' :
+                        'text-green-600'
+                      }`}>
+                        {factor.score}%
+                      </span>
+                    </div>
+                  ))
+                })()}
               </div>
             </div>
           </div>
@@ -813,20 +927,61 @@ export function IAMPermissionAnalysisModal({
                 />
                 <span className="text-sm text-gray-600">Detach managed policies</span>
               </label>
-              <button
-                onClick={handleApplyFix}
-                disabled={applying || selectedPermissionsToRemove.size === 0}
-                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {applying ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Applying...
-                  </>
-                ) : (
-                  `APPLY FIX (${selectedPermissionsToRemove.size} permissions)`
-                )}
-              </button>
+              {(() => {
+                const blocked = shouldBlockRemediation()
+                const lowConfidence = safetyScore < 50
+
+                if (blocked) {
+                  return (
+                    <button
+                      disabled
+                      className="px-6 py-2.5 bg-gray-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+                      title="Cannot modify AWS service roles"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      BLOCKED - Service Role
+                    </button>
+                  )
+                } else if (lowConfidence) {
+                  return (
+                    <button
+                      onClick={handleApplyFix}
+                      disabled={applying || selectedPermissionsToRemove.size === 0}
+                      className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg font-bold hover:from-amber-600 hover:to-orange-600 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      title="Low confidence - proceed with caution"
+                    >
+                      {applying ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle className="w-4 h-4" />
+                          APPLY ANYWAY ({selectedPermissionsToRemove.size})
+                        </>
+                      )}
+                    </button>
+                  )
+                } else {
+                  return (
+                    <button
+                      onClick={handleApplyFix}
+                      disabled={applying || selectedPermissionsToRemove.size === 0}
+                      className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {applying ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        `APPLY FIX (${selectedPermissionsToRemove.size} permissions)`
+                      )}
+                    </button>
+                  )
+                }
+              })()}
             </div>
           </div>
         </div>
