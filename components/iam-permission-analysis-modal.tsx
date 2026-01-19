@@ -1241,17 +1241,55 @@ export function IAMPermissionAnalysisModal({
           </div>
 
           {/* Recommended Action */}
-          <div className="mx-6 mb-6 p-4 border border-gray-200 rounded-xl">
-            <h3 className="font-bold text-gray-900">Recommended Action</h3>
-            <p className="text-gray-600 mt-1">
-              Remove {unusedCount} unused permissions to achieve least privilege compliance. 
-              This will reduce the attack surface by {unusedPercent}% while maintaining all current functionality.
-            </p>
-            <div className="flex items-center gap-2 mt-3 text-green-600">
-              <Shield className="w-5 h-5" />
-              <span className="font-medium">High confidence remediation - No service disruption expected</span>
-            </div>
-          </div>
+          {(() => {
+            const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
+            const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+            const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
+
+            if (isServiceRole) {
+              return (
+                <div className="mx-6 mb-6 p-4 border-2 border-red-300 bg-red-50 rounded-xl">
+                  <h3 className="font-bold text-red-800">Do Not Remediate</h3>
+                  <p className="text-red-700 mt-1">
+                    This is an AWS service role used by {backendAnalysis?.analysis?.service_name}.
+                    Removing permissions will break the service.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 text-red-600">
+                    <XCircle className="w-5 h-5" />
+                    <span className="font-medium">Remediation blocked - Service role detected</span>
+                  </div>
+                </div>
+              )
+            } else if (noUsageData) {
+              return (
+                <div className="mx-6 mb-6 p-4 border-2 border-amber-300 bg-amber-50 rounded-xl">
+                  <h3 className="font-bold text-amber-800">Investigation Required</h3>
+                  <p className="text-amber-700 mt-1">
+                    Cannot verify if permissions are truly unused. This role may be used by EC2 instances,
+                    Lambda functions, or other services that don't fully log to our data sources.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 text-amber-600">
+                    <AlertTriangle className="w-5 h-5" />
+                    <span className="font-medium">Low confidence - Investigate before removing permissions</span>
+                  </div>
+                </div>
+              )
+            } else {
+              return (
+                <div className="mx-6 mb-6 p-4 border border-gray-200 rounded-xl">
+                  <h3 className="font-bold text-gray-900">Recommended Action</h3>
+                  <p className="text-gray-600 mt-1">
+                    Remove {unusedCount} unused permissions to achieve least privilege compliance.
+                    This will reduce the attack surface by {unusedPercent}% while maintaining all current functionality.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 text-green-600">
+                    <Shield className="w-5 h-5" />
+                    <span className="font-medium">High confidence remediation - No service disruption expected</span>
+                  </div>
+                </div>
+              )
+            }
+          })()}
         </div>
 
         {/* Footer */}
