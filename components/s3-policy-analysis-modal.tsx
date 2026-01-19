@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, Check,
   CheckSquare, Loader2, RefreshCw, XCircle, Database, Globe,
-  FileText, Lock, Users, Eye, Activity
+  FileText, Lock, Users, Eye, Activity, Play, Zap
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -75,7 +75,7 @@ interface S3PolicyAnalysisModalProps {
   onRemediationSuccess?: (bucketName: string) => void
 }
 
-type TabType = 'analysis' | 'policies' | 'evidence' | 'access'
+type TabType = 'analysis' | 'policies' | 'evidence' | 'access' | 'simulate'
 
 interface AccessData {
   dataEventsStatus: string
@@ -597,7 +597,8 @@ export function S3PolicyAnalysisModal({
               { id: 'analysis' as const, label: 'Usage Analysis', icon: Eye },
               { id: 'access' as const, label: 'Who Accessed', icon: Users },
               { id: 'policies' as const, label: 'Policies', icon: FileText },
-              { id: 'evidence' as const, label: 'Evidence', icon: Shield }
+              { id: 'evidence' as const, label: 'Evidence', icon: Shield },
+              { id: 'simulate' as const, label: 'Simulate', icon: Zap }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -653,6 +654,16 @@ export function S3PolicyAnalysisModal({
               observationDays={observationDays}
               s3Events={s3Events}
               confidence={gapData?.confidence || 'MEDIUM'}
+            />
+          )}
+          {activeTab === 'simulate' && (
+            <SimulationTab
+              bucketName={bucketName}
+              systemName={systemName}
+              onSimulationComplete={() => {
+                fetchAccessData()
+                setActiveTab('access')
+              }}
             />
           )}
         </div>
@@ -1326,6 +1337,320 @@ function EvidenceTab({
             <span>ACL permissions verified</span>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Simulation Tab Component - For demo purposes
+interface SimulationEvent {
+  event_id: string
+  event_name: string
+  action_type: string
+  principal: string
+  timestamp: string
+  status: string
+}
+
+function SimulationTab({
+  bucketName,
+  systemName,
+  onSimulationComplete
+}: {
+  bucketName: string
+  systemName: string
+  onSimulationComplete: () => void
+}) {
+  const { toast } = useToast()
+  const [principalName, setPrincipalName] = useState('demo-user')
+  const [patternType, setPatternType] = useState<'normal' | 'suspicious' | 'bulk-exfiltration' | 'privilege-escalation'>('normal')
+  const [eventCount, setEventCount] = useState(20)
+  const [isRunning, setIsRunning] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [events, setEvents] = useState<SimulationEvent[]>([])
+  const [completed, setCompleted] = useState(false)
+
+  const patterns = [
+    { value: 'normal', label: 'Normal', description: 'Regular read/write mix (low risk)', color: 'green' },
+    { value: 'suspicious', label: 'Suspicious', description: 'Unusual access patterns (medium risk)', color: 'yellow' },
+    { value: 'bulk-exfiltration', label: 'Bulk Exfiltration', description: 'Mass data extraction (high risk)', color: 'orange' },
+    { value: 'privilege-escalation', label: 'Privilege Escalation', description: 'Policy modification attempts (critical)', color: 'red' }
+  ]
+
+  const runSimulation = async () => {
+    setIsRunning(true)
+    setProgress(0)
+    setEvents([])
+    setCompleted(false)
+
+    try {
+      const response = await fetch('/api/proxy/simulate/s3-access', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify({
+          principal_name: principalName,
+          pattern_type: patternType,
+          bucket_name: bucketName,
+          event_count: eventCount,
+          time_spread_days: 7,
+          system_name: systemName
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Simulation failed: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+
+      if (!reader) {
+        throw new Error('No response body')
+      }
+
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+
+              if (data.event_name) {
+                // S3 event
+                setEvents(prev => [...prev.slice(-9), {
+                  event_id: data.event_id,
+                  event_name: data.event_name,
+                  action_type: data.action_type,
+                  principal: data.principal,
+                  timestamp: data.timestamp,
+                  status: data.status
+                }])
+              }
+
+              if (data.percentage !== undefined) {
+                setProgress(data.percentage)
+              }
+
+              if (data.completed_at) {
+                setCompleted(true)
+                setProgress(100)
+                toast({
+                  title: "Simulation Complete",
+                  description: `Generated ${data.total_events} events for ${principalName}`,
+                })
+                setTimeout(() => {
+                  onSimulationComplete()
+                }, 1500)
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Simulation error:', error)
+      toast({
+        title: "Simulation Failed",
+        description: error.message || 'Failed to run simulation',
+        variant: "destructive"
+      })
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
+  const cleanupPrincipal = async () => {
+    try {
+      const response = await fetch(`/api/proxy/simulate/principal/${principalName}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Cleanup Complete",
+          description: `Removed ${principalName} and all access records`,
+        })
+        onSimulationComplete()
+      } else {
+        throw new Error('Cleanup failed')
+      }
+    } catch (error: any) {
+      toast({
+        title: "Cleanup Failed",
+        description: error.message,
+        variant: "destructive"
+      })
+    }
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg p-4">
+        <div className="flex items-start gap-3">
+          <Zap className="w-6 h-6 text-purple-600 flex-shrink-0" />
+          <div>
+            <h4 className="font-bold text-purple-900">S3 Access Simulation</h4>
+            <p className="text-sm text-purple-700 mt-1">
+              Generate simulated S3 access events for demo purposes. Events are saved to Neo4j and will appear in the "Who Accessed" tab.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Configuration */}
+      <div className="space-y-4">
+        <h3 className="font-bold text-lg">Configuration</h3>
+
+        {/* Principal Name */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Principal Name</label>
+          <input
+            type="text"
+            value={principalName}
+            onChange={(e) => setPrincipalName(e.target.value)}
+            placeholder="e.g., demo-user, suspicious-actor"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            disabled={isRunning}
+          />
+        </div>
+
+        {/* Pattern Type */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Access Pattern</label>
+          <div className="grid grid-cols-2 gap-3">
+            {patterns.map((pattern) => (
+              <button
+                key={pattern.value}
+                onClick={() => setPatternType(pattern.value as any)}
+                disabled={isRunning}
+                className={`p-3 rounded-lg border-2 text-left transition-all ${
+                  patternType === pattern.value
+                    ? pattern.color === 'green' ? 'border-green-500 bg-green-50' :
+                      pattern.color === 'yellow' ? 'border-yellow-500 bg-yellow-50' :
+                      pattern.color === 'orange' ? 'border-orange-500 bg-orange-50' :
+                      'border-red-500 bg-red-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                } disabled:opacity-50`}
+              >
+                <div className="font-semibold text-gray-900">{pattern.label}</div>
+                <div className="text-xs text-gray-500 mt-1">{pattern.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Event Count */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Event Count: <span className="font-bold text-purple-600">{eventCount}</span>
+          </label>
+          <input
+            type="range"
+            min="10"
+            max="100"
+            step="10"
+            value={eventCount}
+            onChange={(e) => setEventCount(parseInt(e.target.value))}
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            disabled={isRunning}
+          />
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>10</span>
+            <span>50</span>
+            <span>100</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Progress / Events */}
+      {(isRunning || events.length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-lg">Live Events</h3>
+            <span className="text-sm text-gray-500">{progress}% complete</span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-300 ${completed ? 'bg-green-500' : 'bg-purple-500'}`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          {/* Events List */}
+          <div className="bg-gray-900 rounded-lg p-3 max-h-48 overflow-y-auto font-mono text-xs">
+            {events.map((event, idx) => (
+              <div key={event.event_id || idx} className="flex items-center gap-2 py-1">
+                <span className={`px-1.5 py-0.5 rounded ${
+                  event.status === 'saved' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                }`}>
+                  {event.status === 'saved' ? '✓' : '✗'}
+                </span>
+                <span className={`px-1.5 py-0.5 rounded ${
+                  event.action_type === 'read' ? 'bg-blue-600 text-white' :
+                  event.action_type === 'write' ? 'bg-green-600 text-white' :
+                  event.action_type === 'delete' ? 'bg-orange-600 text-white' :
+                  'bg-purple-600 text-white'
+                }`}>
+                  {event.action_type}
+                </span>
+                <span className="text-gray-400">{event.event_name}</span>
+                <span className="text-gray-600 ml-auto">{event.principal}</span>
+              </div>
+            ))}
+            {isRunning && !completed && (
+              <div className="flex items-center gap-2 py-1 text-gray-400">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Generating events...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 pt-4 border-t">
+        <button
+          onClick={runSimulation}
+          disabled={isRunning || !principalName.trim()}
+          className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {isRunning ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Running Simulation...
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4" />
+              Run Simulation
+            </>
+          )}
+        </button>
+
+        {events.length > 0 && !isRunning && (
+          <button
+            onClick={cleanupPrincipal}
+            className="px-4 py-2.5 border border-red-300 text-red-600 rounded-lg font-medium hover:bg-red-50 flex items-center gap-2"
+          >
+            <XCircle className="w-4 h-4" />
+            Cleanup
+          </button>
+        )}
       </div>
     </div>
   )
