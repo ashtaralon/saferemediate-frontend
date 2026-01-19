@@ -92,9 +92,9 @@ function fallbackAnalyzeRole(roleName: string, cloudtrailEvents: number, unusedC
         service_name: 'Unknown',
         severity: 'medium',
         cloudtrail_visible: null,
-        title: `No CloudTrail activity recorded for ${roleName}`,
-        description: `This role has ${unusedCount} permissions configured but 0 API calls were recorded in CloudTrail.`,
-        why_no_cloudtrail: 'This could mean: (1) the role is genuinely unused, (2) the role is used by an AWS service that doesn\'t log to CloudTrail, or (3) the role is used infrequently.',
+        title: `No usage data collected for ${roleName}`,
+        description: `This role has ${unusedCount} permissions configured but no API activity was recorded.`,
+        why_no_cloudtrail: 'This could mean: (1) the role is genuinely unused, (2) the role is used by an internal AWS service, or (3) the role is used infrequently.',
         recommendation: 'Investigate how this role is used before removing permissions.',
         affected_permissions: null
       }
@@ -476,7 +476,7 @@ export function IAMPermissionAnalysisModal({
         <div className="relative w-[600px] bg-white rounded-2xl shadow-2xl p-8 text-center">
           <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-purple-600" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">Analyzing Permissions</h2>
-          <p className="text-gray-500">Fetching CloudTrail data for <span className="font-bold text-gray-700">{roleName}</span>...</p>
+          <p className="text-gray-500">Analyzing usage data for <span className="font-bold text-gray-700">{roleName}</span>...</p>
         </div>
       </div>
     )
@@ -592,7 +592,7 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 )
               } else if (noCloudTrailData) {
-                // WARNING: No CloudTrail evidence - Investigation needed
+                // WARNING: Insufficient data - Investigation needed
                 return (
                   <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
@@ -601,15 +601,15 @@ export function IAMPermissionAnalysisModal({
                       <span className="text-2xl font-bold text-amber-600">LOW CONFIDENCE</span>
                     </div>
                     <p className="text-amber-700 mt-2 font-semibold">
-                      No CloudTrail activity recorded. Cannot verify if permissions are truly unused.
+                      Insufficient usage data collected. Cannot verify if permissions are truly unused.
                     </p>
                     <p className="text-amber-600 text-sm mt-1">
-                      The role may be used by an AWS service that doesn't log to CloudTrail, or used infrequently.
+                      This role may be used by an internal AWS service, or used infrequently outside the observation period.
                     </p>
                   </div>
                 )
               } else {
-                // SAFE: We have CloudTrail evidence
+                // SAFE: We have sufficient evidence
                 return (
                   <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
@@ -618,7 +618,7 @@ export function IAMPermissionAnalysisModal({
                       <span className="text-2xl font-bold text-green-600">SAFE TO APPLY</span>
                     </div>
                     <p className="text-green-600 mt-2">
-                      {cloudtrailEvents.toLocaleString()} CloudTrail events analyzed - No production services will be affected
+                      {cloudtrailEvents.toLocaleString()} API events analyzed - No production services will be affected
                     </p>
                   </div>
                 )
@@ -831,7 +831,7 @@ export function IAMPermissionAnalysisModal({
 
                   const factors = noCloudTrailData ? [
                     {
-                      label: `${observationDays} days analyzed - NO CloudTrail events found`,
+                      label: `${observationDays} days analyzed - No usage data collected`,
                       score: 0,
                       warning: true,
                       critical: true
@@ -839,7 +839,7 @@ export function IAMPermissionAnalysisModal({
                     {
                       label: isServiceRole
                         ? `Role is used by AWS service (${backendAnalysis?.analysis?.service_name})`
-                        : 'Permissions unverified - may be used by AWS service',
+                        : 'Permissions unverified - may be used by internal service',
                       score: isServiceRole ? 0 : 20,
                       warning: true,
                       critical: isServiceRole
@@ -857,7 +857,7 @@ export function IAMPermissionAnalysisModal({
                       warning: true
                     }
                   ] : [
-                    { label: `${observationDays} days of CloudTrail analysis`, score: 99 },
+                    { label: `${observationDays} days of usage analysis`, score: 99 },
                     { label: `${cloudtrailEvents.toLocaleString()} API events verified`, score: 100 },
                     {
                       label: gapData?.dependency_context?.has_critical_dependencies
@@ -1023,10 +1023,10 @@ export function IAMPermissionAnalysisModal({
           <div className="mx-6 mt-4 p-4 border-l-4 border-blue-500 bg-blue-50 rounded-r-lg">
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-blue-600" />
-              <span className="font-semibold text-gray-900">{observationDays}-Day Recording Period</span>
+              <span className="font-semibold text-gray-900">{observationDays}-Day Observation Period</span>
             </div>
             <p className="text-sm text-gray-600 mt-1">
-              Tracked from {formatDate(startDate)} to {formatDate(endDate)} - {cloudtrailEvents.toLocaleString()} permission checks analyzed
+              Tracked from {formatDate(startDate)} to {formatDate(endDate)} - {cloudtrailEvents.toLocaleString()} API events analyzed
             </p>
           </div>
 
