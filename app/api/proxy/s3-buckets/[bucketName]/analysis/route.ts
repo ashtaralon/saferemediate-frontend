@@ -18,8 +18,21 @@ export async function GET(
   const window = searchParams.get("window") || "365d"
 
   try {
-    // Attempt to fetch S3 bucket data from backend
-    // The backend would need to implement these endpoints
+    // Call the comprehensive analysis endpoint that includes access data from Neo4j
+    const analysisRes = await fetch(
+      `${BACKEND_URL}/api/s3-buckets/${encodeURIComponent(bucketName)}/analysis?window=${window}`,
+      {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      }
+    )
+
+    if (analysisRes.ok) {
+      const data = await analysisRes.json()
+      return NextResponse.json(data)
+    }
+
+    // Fallback: If the new endpoint isn't available, try the old approach
     const [bucketInfoRes, policyRes, aclRes, dataEventsRes, changesRes] = await Promise.allSettled([
       fetch(`${BACKEND_URL}/api/s3/${encodeURIComponent(bucketName)}/info`, {
         headers: { Accept: "application/json" },
