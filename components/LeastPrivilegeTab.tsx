@@ -162,6 +162,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
+  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const { toast } = useToast()
   
@@ -699,72 +700,99 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         </div>
 
         {/* Filter Row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-gray-600">
-              {(() => {
-                // Calculate filtered counts (same logic as display filter)
-                const displayedResources = resources.filter(r => {
-                  // Skip deleted resources
-                  if (deletedResources.has(r.id) || deletedResources.has(r.resourceName)) {
-                    return false
-                  }
-                  // Apply search filter
-                  if (searchTerm) {
-                    const search = searchTerm.toLowerCase()
-                    const matchesName = r.resourceName?.toLowerCase().includes(search)
-                    const matchesArn = r.resourceArn?.toLowerCase().includes(search)
-                    const matchesId = r.id?.toLowerCase().includes(search)
-                    const matchesType = r.resourceType?.toLowerCase().includes(search)
-                    if (!matchesName && !matchesArn && !matchesId && !matchesType) {
-                      return false
-                    }
-                  }
-                  // Apply remediable filter for IAM
-                  if (r.resourceType === 'IAMRole' && showRemediableOnly && r.isRemediable === false) {
-                    return false
-                  }
-                  return true
-                })
-                const iamCount = displayedResources.filter(r => r.resourceType === 'IAMRole').length
-                const sgCount = displayedResources.filter(r => r.resourceType === 'SecurityGroup').length
-                const s3Count = displayedResources.filter(r => r.resourceType === 'S3Bucket').length
+        <div className="flex flex-col gap-3">
+          {/* Resource Type Filter Chips */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 mr-1">Filter:</span>
+            {(() => {
+              // Calculate counts for filter chips
+              const baseResources = resources.filter(r => {
+                if (deletedResources.has(r.id) || deletedResources.has(r.resourceName)) return false
+                if (searchTerm) {
+                  const search = searchTerm.toLowerCase()
+                  const matchesName = r.resourceName?.toLowerCase().includes(search)
+                  const matchesArn = r.resourceArn?.toLowerCase().includes(search)
+                  const matchesId = r.id?.toLowerCase().includes(search)
+                  if (!matchesName && !matchesArn && !matchesId) return false
+                }
+                if (r.resourceType === 'IAMRole' && showRemediableOnly && r.isRemediable === false) return false
+                return true
+              })
+              const allCount = baseResources.length
+              const iamCount = baseResources.filter(r => r.resourceType === 'IAMRole').length
+              const sgCount = baseResources.filter(r => r.resourceType === 'SecurityGroup').length
+              const s3Count = baseResources.filter(r => r.resourceType === 'S3Bucket').length
 
-                return (
-                  <>
-                    Showing <strong>{displayedResources.length}</strong> resources:
-                    <span className="ml-2">
-                      {iamCount} IAM, {sgCount} SG, {s3Count} S3
-                    </span>
-                  </>
-                )
-              })()}
+              const filters: Array<{ key: 'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket', label: string, count: number, icon: React.ReactNode, color: string }> = [
+                { key: 'all', label: 'All', count: allCount, icon: null, color: 'gray' },
+                { key: 'IAMRole', label: 'IAM Roles', count: iamCount, icon: <Shield className="w-3.5 h-3.5" />, color: 'purple' },
+                { key: 'SecurityGroup', label: 'Security Groups', count: sgCount, icon: <Network className="w-3.5 h-3.5" />, color: 'blue' },
+                { key: 'S3Bucket', label: 'S3 Buckets', count: s3Count, icon: <Database className="w-3.5 h-3.5" />, color: 'green' }
+              ]
+
+              return filters.map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setResourceTypeFilter(f.key)}
+                  className={`
+                    flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all
+                    ${resourceTypeFilter === f.key
+                      ? f.key === 'all'
+                        ? 'bg-gray-800 text-white'
+                        : f.key === 'IAMRole'
+                          ? 'bg-purple-600 text-white'
+                          : f.key === 'SecurityGroup'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-green-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }
+                  `}
+                >
+                  {f.icon}
+                  <span>{f.label}</span>
+                  <span className={`
+                    ml-1 px-1.5 py-0.5 rounded-full text-xs
+                    ${resourceTypeFilter === f.key
+                      ? 'bg-white/20 text-white'
+                      : 'bg-gray-200 text-gray-600'
+                    }
+                  `}>
+                    {f.count}
+                  </span>
+                </button>
+              ))
+            })()}
+          </div>
+
+          {/* Secondary filters row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              {/* Remediable Filter Toggle */}
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showRemediableOnly}
+                  onChange={(e) => setShowRemediableOnly(e.target.checked)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-gray-600">Remediable only</span>
+              </label>
+              {/* Clear deleted button */}
+              {deletedResources.size > 0 && (
+                <button
+                  onClick={() => setDeletedResources(new Set())}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline"
+                >
+                  Restore {deletedResources.size} dismissed
+                </button>
+              )}
             </div>
-            {/* Remediable Filter Toggle */}
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showRemediableOnly}
-                onChange={(e) => setShowRemediableOnly(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-gray-600">Remediable only</span>
-            </label>
-            {/* Clear deleted button */}
-            {deletedResources.size > 0 && (
-              <button
-                onClick={() => setDeletedResources(new Set())}
-                className="text-xs text-blue-600 hover:text-blue-800 underline"
-              >
-                Restore {deletedResources.size} dismissed
-              </button>
+            {data.timestamp && (
+              <div className="text-xs text-gray-500">
+                Last updated: {new Date(data.timestamp).toLocaleString()}
+              </div>
             )}
           </div>
-          {data.timestamp && (
-            <div className="text-xs text-gray-500">
-              Last updated: {new Date(data.timestamp).toLocaleString()}
-            </div>
-          )}
         </div>
       </div>
 
@@ -781,6 +809,11 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             // Filter out deleted/dismissed resources
             .filter(resource => {
               return !deletedResources.has(resource.id) && !deletedResources.has(resource.resourceName)
+            })
+            // Apply resource type filter
+            .filter(resource => {
+              if (resourceTypeFilter === 'all') return true
+              return resource.resourceType === resourceTypeFilter
             })
             // Apply search filter
             .filter(resource => {
