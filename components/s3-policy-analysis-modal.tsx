@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { 
-  X, Calendar, CheckCircle, AlertTriangle, Shield, Check, 
+import {
+  X, Calendar, CheckCircle, AlertTriangle, Shield, Check,
   CheckSquare, Loader2, RefreshCw, XCircle, Database, Globe,
-  FileText, Lock, Users, Eye
+  FileText, Lock, Users, Eye, AlertOctagon, Skull, TrendingDown
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -1089,6 +1089,90 @@ function AccessBlockSetting({ label, enabled }: { label: string; enabled: boolea
   )
 }
 
+// Suspicious pattern detection
+interface SuspiciousAnalysis {
+  isSuspicious: boolean
+  riskLevel: 'critical' | 'high' | 'medium' | 'low'
+  reasons: string[]
+  score: number
+}
+
+function analyzePrincipalBehavior(actionCounts: Array<{ action: string; count: number }>): SuspiciousAnalysis {
+  const reasons: string[] = []
+  let score = 0
+
+  // Get action counts
+  const actions = actionCounts.reduce((acc, ac) => {
+    acc[ac.action] = ac.count
+    return acc
+  }, {} as Record<string, number>)
+
+  const totalActions = Object.values(actions).reduce((a, b) => a + b, 0)
+
+  // Check for suspicious patterns
+  const suspiciousActions = ['DeleteObject', 'DeleteObjects', 'PutBucketPolicy', 'PutBucketAcl',
+    'PutObjectAcl', 'DeleteBucketPolicy', 'PutPublicAccessBlock', 'GetBucketAcl', 'GetBucketPolicy']
+
+  const deleteActions = (actions['DeleteObject'] || 0) + (actions['DeleteObjects'] || 0)
+  const policyActions = (actions['PutBucketPolicy'] || 0) + (actions['PutBucketAcl'] || 0) +
+    (actions['DeleteBucketPolicy'] || 0) + (actions['PutPublicAccessBlock'] || 0)
+  const aclReconActions = (actions['GetBucketAcl'] || 0) + (actions['GetBucketPolicy'] || 0) +
+    (actions['PutObjectAcl'] || 0)
+
+  // Heavy delete operations (>20% of total)
+  if (deleteActions > 0 && (deleteActions / totalActions) > 0.15) {
+    reasons.push(`High delete activity (${Math.round((deleteActions / totalActions) * 100)}% of actions)`)
+    score += 30
+  }
+
+  // Policy modification attempts
+  if (policyActions > 0) {
+    reasons.push(`Policy modification attempts (${policyActions} operations)`)
+    score += 40
+  }
+
+  // ACL reconnaissance
+  if (aclReconActions > 0) {
+    reasons.push(`ACL/Policy reconnaissance (${aclReconActions} operations)`)
+    score += 20
+  }
+
+  // Bulk data access (potential exfiltration)
+  const readActions = (actions['GetObject'] || 0)
+  if (readActions > 1000 && (readActions / totalActions) > 0.8) {
+    reasons.push(`Potential data exfiltration (${readActions.toLocaleString()} GetObject calls)`)
+    score += 35
+  }
+
+  // Determine risk level
+  let riskLevel: 'critical' | 'high' | 'medium' | 'low' = 'low'
+  if (score >= 60) riskLevel = 'critical'
+  else if (score >= 40) riskLevel = 'high'
+  else if (score >= 20) riskLevel = 'medium'
+
+  return {
+    isSuspicious: score >= 20,
+    riskLevel,
+    reasons,
+    score
+  }
+}
+
+// Get color class for action based on risk
+function getActionColorClass(action: string): string {
+  const dangerousActions = ['DeleteObject', 'DeleteObjects', 'PutBucketPolicy', 'PutBucketAcl',
+    'DeleteBucketPolicy', 'PutPublicAccessBlock']
+  const warningActions = ['GetBucketAcl', 'GetBucketPolicy', 'PutObjectAcl', 'GetObjectAcl']
+
+  if (dangerousActions.includes(action)) {
+    return 'bg-red-100 text-red-700 border border-red-200'
+  }
+  if (warningActions.includes(action)) {
+    return 'bg-amber-100 text-amber-700 border border-amber-200'
+  }
+  return 'bg-gray-100 text-gray-700'
+}
+
 // Access Tab Component - Shows who accessed the bucket
 function AccessTab({
   accessData,
@@ -1124,10 +1208,25 @@ function AccessTab({
     )
   }
 
+  // Analyze all principals for suspicious behavior
+  const principalsWithAnalysis = (accessData.topPrincipals || []).map(principal => ({
+    ...principal,
+    analysis: analyzePrincipalBehavior(principal.actionCounts || [])
+  }))
+
+  // Sort: suspicious first, then by total actions
+  principalsWithAnalysis.sort((a, b) => {
+    if (a.analysis.isSuspicious && !b.analysis.isSuspicious) return -1
+    if (!a.analysis.isSuspicious && b.analysis.isSuspicious) return 1
+    return b.analysis.score - a.analysis.score
+  })
+
+  const suspiciousCount = principalsWithAnalysis.filter(p => p.analysis.isSuspicious).length
+
   return (
     <div className="p-6 space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-center">
           <div className="text-3xl font-bold text-blue-600">
             {accessData.totalRequests?.toLocaleString() || 0}
@@ -1140,6 +1239,14 @@ function AccessTab({
           </div>
           <div className="text-sm text-green-600 mt-1">Unique Users</div>
         </div>
+        {suspiciousCount > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+            <div className="text-3xl font-bold text-red-600">
+              {suspiciousCount}
+            </div>
+            <div className="text-sm text-red-600 mt-1">Suspicious Users</div>
+          </div>
+        )}
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
           <div className="text-sm font-medium text-gray-900">
             {accessData.lastActivity
@@ -1150,6 +1257,22 @@ function AccessTab({
         </div>
       </div>
 
+      {/* Suspicious Activity Alert */}
+      {suspiciousCount > 0 && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertOctagon className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-bold text-red-700">Suspicious Activity Detected</h4>
+              <p className="text-sm text-red-600 mt-1">
+                {suspiciousCount} principal{suspiciousCount > 1 ? 's' : ''} showing unusual access patterns.
+                Review the flagged users below for potential security concerns.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Principals */}
       <div className="space-y-4">
         <h3 className="font-bold text-lg flex items-center gap-2">
@@ -1157,35 +1280,120 @@ function AccessTab({
           Who Accessed This Bucket
         </h3>
 
-        {accessData.topPrincipals && accessData.topPrincipals.length > 0 ? (
+        {principalsWithAnalysis.length > 0 ? (
           <div className="space-y-3">
-            {accessData.topPrincipals.map((principal, idx) => (
-              <div key={idx} className="bg-white border rounded-lg p-4 shadow-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <Users className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-gray-900">{principal.principal}</div>
-                    <div className="text-xs text-gray-500">IAM Principal</div>
-                  </div>
-                </div>
+            {principalsWithAnalysis.map((principal, idx) => {
+              const { analysis } = principal
+              const isSuspicious = analysis.isSuspicious
 
-                <div className="flex flex-wrap gap-2">
-                  {principal.actionCounts?.slice(0, 6).map((ac, acIdx) => (
-                    <span
-                      key={acIdx}
-                      className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-xs"
-                    >
-                      <span className="font-mono text-gray-700">{ac.action}</span>
-                      <span className="text-gray-500 font-semibold">
-                        ({ac.count?.toLocaleString()})
+              return (
+                <div
+                  key={idx}
+                  className={`bg-white border-2 rounded-lg p-4 shadow-sm transition-all ${
+                    isSuspicious
+                      ? analysis.riskLevel === 'critical'
+                        ? 'border-red-400 bg-red-50/50'
+                        : analysis.riskLevel === 'high'
+                        ? 'border-orange-400 bg-orange-50/50'
+                        : 'border-amber-400 bg-amber-50/50'
+                      : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        isSuspicious
+                          ? analysis.riskLevel === 'critical'
+                            ? 'bg-red-100'
+                            : analysis.riskLevel === 'high'
+                            ? 'bg-orange-100'
+                            : 'bg-amber-100'
+                          : 'bg-blue-100'
+                      }`}>
+                        {isSuspicious ? (
+                          analysis.riskLevel === 'critical' ? (
+                            <Skull className="w-5 h-5 text-red-600" />
+                          ) : (
+                            <AlertTriangle className={`w-5 h-5 ${
+                              analysis.riskLevel === 'high' ? 'text-orange-600' : 'text-amber-600'
+                            }`} />
+                          )
+                        ) : (
+                          <Users className="w-5 h-5 text-blue-600" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900 flex items-center gap-2">
+                          {principal.principal}
+                          {isSuspicious && (
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${
+                              analysis.riskLevel === 'critical'
+                                ? 'bg-red-600 text-white'
+                                : analysis.riskLevel === 'high'
+                                ? 'bg-orange-500 text-white'
+                                : 'bg-amber-500 text-white'
+                            }`}>
+                              {analysis.riskLevel} risk
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">IAM Principal</div>
+                      </div>
+                    </div>
+
+                    {isSuspicious && (
+                      <div className="text-right">
+                        <div className={`text-2xl font-bold ${
+                          analysis.riskLevel === 'critical'
+                            ? 'text-red-600'
+                            : analysis.riskLevel === 'high'
+                            ? 'text-orange-600'
+                            : 'text-amber-600'
+                        }`}>
+                          {analysis.score}
+                        </div>
+                        <div className="text-xs text-gray-500">Risk Score</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Suspicious Reasons */}
+                  {isSuspicious && analysis.reasons.length > 0 && (
+                    <div className={`mb-3 p-2 rounded-lg text-sm ${
+                      analysis.riskLevel === 'critical'
+                        ? 'bg-red-100 text-red-700'
+                        : analysis.riskLevel === 'high'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      <div className="font-medium mb-1 flex items-center gap-1">
+                        <TrendingDown className="w-4 h-4" />
+                        Suspicious Indicators:
+                      </div>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        {analysis.reasons.map((reason, rIdx) => (
+                          <li key={rIdx}>{reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    {principal.actionCounts?.slice(0, 8).map((ac, acIdx) => (
+                      <span
+                        key={acIdx}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${getActionColorClass(ac.action)}`}
+                      >
+                        <span className="font-mono">{ac.action}</span>
+                        <span className="font-semibold">
+                          ({ac.count?.toLocaleString()})
+                        </span>
                       </span>
-                    </span>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="text-center py-8 text-gray-500">
