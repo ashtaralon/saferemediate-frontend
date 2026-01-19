@@ -62,6 +62,76 @@ interface IAMPermissionAnalysisModalProps {
   onRemediationSuccess?: (roleName: string) => void
 }
 
+// Detect if a role is an AWS service role where CloudTrail may not capture usage
+function detectServiceRole(roleName: string): { isServiceRole: boolean; serviceType: string | null; warning: string | null } {
+  const lowerName = roleName.toLowerCase()
+
+  // Service-linked roles (AWS managed)
+  if (roleName.startsWith('AWSServiceRoleFor')) {
+    return {
+      isServiceRole: true,
+      serviceType: 'Service-Linked Role',
+      warning: 'This is an AWS service-linked role. CloudTrail may not capture internal AWS service-to-service API calls.'
+    }
+  }
+
+  // VPC Flow Logs roles
+  if (lowerName.includes('flowlog') || lowerName.includes('flow-log') || lowerName.includes('vpcflowlogs')) {
+    return {
+      isServiceRole: true,
+      serviceType: 'VPC Flow Logs',
+      warning: 'This role is used by VPC Flow Logs to write logs. These internal AWS operations are not recorded in CloudTrail.'
+    }
+  }
+
+  // CloudTrail roles
+  if (lowerName.includes('cloudtrail')) {
+    return {
+      isServiceRole: true,
+      serviceType: 'CloudTrail',
+      warning: 'This role is used by CloudTrail itself. CloudTrail does not log its own internal operations.'
+    }
+  }
+
+  // AWS Config roles
+  if (lowerName.includes('config') && (lowerName.includes('role') || lowerName.includes('aws'))) {
+    return {
+      isServiceRole: true,
+      serviceType: 'AWS Config',
+      warning: 'This role is used by AWS Config. Some internal operations may not appear in CloudTrail.'
+    }
+  }
+
+  // Lambda execution roles (basic)
+  if (lowerName.includes('lambda') && lowerName.includes('execution')) {
+    return {
+      isServiceRole: true,
+      serviceType: 'Lambda Execution',
+      warning: 'Lambda execution role permissions are used at function invocation time. Ensure the function is actively invoked before removing permissions.'
+    }
+  }
+
+  // AutoScaling roles
+  if (lowerName.includes('autoscaling') || lowerName.includes('auto-scaling')) {
+    return {
+      isServiceRole: true,
+      serviceType: 'Auto Scaling',
+      warning: 'This role is used by Auto Scaling. Scale events may not all be captured in CloudTrail.'
+    }
+  }
+
+  // Replication roles
+  if (lowerName.includes('replication')) {
+    return {
+      isServiceRole: true,
+      serviceType: 'Replication',
+      warning: 'This role is used for data replication. Replication operations are internal and may not appear in CloudTrail.'
+    }
+  }
+
+  return { isServiceRole: false, serviceType: null, warning: null }
+}
+
 export function IAMPermissionAnalysisModal({
   isOpen,
   onClose,
@@ -833,6 +903,40 @@ export function IAMPermissionAnalysisModal({
               Tracked from {formatDate(startDate)} to {formatDate(endDate)} - {cloudtrailEvents.toLocaleString()} permission checks analyzed
             </p>
           </div>
+
+          {/* Service Role Warning */}
+          {(() => {
+            const serviceRoleInfo = detectServiceRole(roleName)
+            // Show warning if it's a service role OR if there are 0 CloudTrail events with unused permissions
+            const showWarning = serviceRoleInfo.isServiceRole || (cloudtrailEvents === 0 && unusedCount > 0)
+
+            if (!showWarning) return null
+
+            return (
+              <div className="mx-6 mt-4 p-4 border-l-4 border-amber-500 bg-amber-50 rounded-r-lg">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-amber-800">
+                        {serviceRoleInfo.serviceType ? `${serviceRoleInfo.serviceType} Role Detected` : 'Limited CloudTrail Visibility'}
+                      </span>
+                      <span className="px-2 py-0.5 bg-amber-200 text-amber-800 text-xs rounded-full font-medium">
+                        Analysis May Be Incomplete
+                      </span>
+                    </div>
+                    <p className="text-sm text-amber-700 mt-1">
+                      {serviceRoleInfo.warning ||
+                        'This role shows 0 permission checks in CloudTrail but has configured permissions. This typically means the role is used by AWS services internally, and those API calls are not recorded in CloudTrail.'}
+                    </p>
+                    <p className="text-sm text-amber-600 mt-2 font-medium">
+                      ⚠️ Do not remove permissions without verifying the role is truly unused. The permissions may be actively used by AWS services.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-4 p-6">
