@@ -154,6 +154,111 @@ function formatProtocol(proto: string): string {
 }
 
 // =============================================================================
+// ORPHAN WARNING BANNER
+// =============================================================================
+
+interface OrphanWarningBannerProps {
+  sgId: string
+}
+
+function OrphanWarningBanner({ sgId }: OrphanWarningBannerProps) {
+  const [orphanStatus, setOrphanStatus] = React.useState<{
+    is_orphan: boolean
+    severity: string
+    message: string
+    attachment_count: number
+  } | null>(null)
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    const fetchOrphanStatus = async () => {
+      try {
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
+        const response = await fetch(`${API_BASE}/api/sg-least-privilege/${sgId}/analysis`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.orphan_status) {
+            setOrphanStatus(data.orphan_status)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch orphan status:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchOrphanStatus()
+  }, [sgId])
+
+  if (loading || !orphanStatus || !orphanStatus.is_orphan) {
+    return null
+  }
+
+  const isCritical = orphanStatus.severity === 'CRITICAL'
+
+  return (
+    <div
+      style={{
+        padding: '16px 20px',
+        marginBottom: '24px',
+        borderRadius: '8px',
+        backgroundColor: isCritical ? '#fef2f2' : '#fef3c7',
+        border: `2px solid ${isCritical ? '#dc2626' : '#f59e0b'}`,
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '12px',
+      }}
+    >
+      <AlertTriangle
+        size={24}
+        style={{
+          color: isCritical ? '#dc2626' : '#f59e0b',
+          flexShrink: 0,
+          marginTop: '2px'
+        }}
+      />
+      <div style={{ flex: 1 }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginBottom: '4px'
+        }}>
+          <span style={{
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            backgroundColor: isCritical ? '#dc2626' : '#f59e0b',
+            color: 'white',
+          }}>
+            {orphanStatus.severity} - ORPHAN SG
+          </span>
+        </div>
+        <div style={{
+          fontWeight: 600,
+          color: isCritical ? '#991b1b' : '#92400e',
+          marginBottom: '4px',
+          fontSize: '15px'
+        }}>
+          {orphanStatus.message}
+        </div>
+        <div style={{
+          fontSize: '13px',
+          color: isCritical ? '#b91c1c' : '#b45309'
+        }}>
+          This Security Group has {orphanStatus.attachment_count} attachments.
+          {isCritical
+            ? ' It has public ingress rules and poses a security risk.'
+            : ' Consider deleting it to reduce your attack surface.'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// =============================================================================
 // SECTION COMPONENTS
 // =============================================================================
 
@@ -1000,6 +1105,9 @@ export function SGInspectorTemplate({ sgId, initialWindow = 30 }: SGInspectorTem
         onRefresh={refetch}
         loading={loading}
       />
+
+      {/* Orphan Warning Banner */}
+      <OrphanWarningBanner sgId={sgId} />
 
       {/* 2) Gap Analysis Card - Shows UNOBSERVED ports and recommendations */}
       {showGapCard && (
