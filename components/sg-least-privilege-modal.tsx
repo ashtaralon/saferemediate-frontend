@@ -709,6 +709,36 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact'>('summary');
   const [syncing, setSyncing] = useState(false);
+  const [orphanStatus, setOrphanStatus] = useState<{
+    is_orphan: boolean;
+    severity: string;
+    message: string;
+    attachment_count: number;
+  } | null>(null);
+
+  // Fetch orphan status when modal opens
+  useEffect(() => {
+    const fetchOrphanStatus = async () => {
+      if (!isOpen || !sgId) return;
+      try {
+        const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/analysis`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.orphan_status) {
+            setOrphanStatus({
+              is_orphan: result.orphan_status.is_orphan,
+              severity: result.orphan_status.severity,
+              message: result.orphan_status.recommendation || 'Orphan Security Group',
+              attachment_count: result.orphan_status.attachment_count || 0,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch orphan status:', err);
+      }
+    };
+    fetchOrphanStatus();
+  }, [isOpen, sgId]);
 
   const handleSyncFlowLogs = async () => {
     setSyncing(true);
@@ -955,6 +985,51 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             </button>
           ))}
         </div>
+
+        {/* Orphan Warning Banner */}
+        {orphanStatus?.is_orphan && (
+          <div
+            className={`mx-6 mt-4 p-4 rounded-lg border-2 flex items-start gap-3 ${
+              orphanStatus.severity === 'CRITICAL'
+                ? 'bg-red-500/20 border-red-500'
+                : 'bg-amber-500/20 border-amber-500'
+            }`}
+          >
+            <AlertTriangle
+              className={`w-6 h-6 flex-shrink-0 ${
+                orphanStatus.severity === 'CRITICAL' ? 'text-red-400' : 'text-amber-400'
+              }`}
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-bold text-white ${
+                    orphanStatus.severity === 'CRITICAL' ? 'bg-red-600' : 'bg-amber-600'
+                  }`}
+                >
+                  {orphanStatus.severity} - ORPHAN SG
+                </span>
+              </div>
+              <p
+                className={`font-medium ${
+                  orphanStatus.severity === 'CRITICAL' ? 'text-red-300' : 'text-amber-300'
+                }`}
+              >
+                {orphanStatus.message}
+              </p>
+              <p
+                className={`text-sm mt-1 ${
+                  orphanStatus.severity === 'CRITICAL' ? 'text-red-400' : 'text-amber-400'
+                }`}
+              >
+                This Security Group has {orphanStatus.attachment_count} attachments.
+                {orphanStatus.severity === 'CRITICAL'
+                  ? ' It has public ingress rules and poses a security risk.'
+                  : ' Consider deleting it to reduce your attack surface.'}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="p-6 max-h-[60vh] overflow-y-auto">
