@@ -1,0 +1,71 @@
+import { NextRequest, NextResponse } from "next/server"
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_API_URL || "https://saferemediate-backend-f.onrender.com"
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ sgId: string }> }
+) {
+  const { sgId } = await params
+  const { searchParams } = new URL(request.url)
+
+  // Get query parameters
+  const days = searchParams.get("days") || "90"
+
+  const backendUrl = `${BACKEND_URL}/api/security-groups/${encodeURIComponent(sgId)}/analysis?days=${days}`
+
+  console.log(`[SG Analysis Proxy] Fetching: ${backendUrl}`)
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
+
+    const response = await fetch(backendUrl, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[SG Analysis Proxy] Backend error ${response.status}: ${errorText}`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Backend returned ${response.status}`,
+          detail: errorText,
+        },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    console.log(`[SG Analysis Proxy] Success for ${sgId}`)
+    return NextResponse.json(data)
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      console.error(`[SG Analysis Proxy] Request timed out for ${sgId}`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Request timed out",
+        },
+        { status: 504 }
+      )
+    }
+
+    console.error(`[SG Analysis Proxy] Error for ${sgId}:`, error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to fetch analysis data",
+      },
+      { status: 500 }
+    )
+  }
+}

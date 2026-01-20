@@ -1,7 +1,7 @@
 import { FlowStripView } from "@/components/security-posture"
 
 export const metadata = {
-  title: "Flow Analysis | SafeRemediate",
+  title: "Flow Analysis | Cyntro",
 }
 
 export default function FlowAnalysisPage() {

@@ -1913,7 +1913,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
             🔒
           </div>
-          <h1 className="text-base font-semibold">SafeRemediate</h1>
+          <h1 className="text-base font-semibold">Cyntro</h1>
         </div>
         <span className="px-2.5 py-1 text-xs font-semibold rounded" style={{ background: 'rgba(59, 130, 246, 0.2)', border: '1px solid #3b82f6', color: '#3b82f6' }}>
           {systemName}

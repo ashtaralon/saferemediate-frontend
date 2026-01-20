@@ -1,7 +1,7 @@
 import { SecurityPosture } from "@/components/security-posture"
 
 export const metadata = {
-  title: "Security Posture | SafeRemediate",
+  title: "Security Posture | Cyntro",
 }
 
 export default function SecurityOverviewPage() {

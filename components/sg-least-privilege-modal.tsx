@@ -707,9 +707,113 @@ interface ComparisonTabProps {
     message: string;
     attachment_count: number;
   } | null;
+  sgId: string;
 }
 
-const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus }) => {
+interface ResourceAttachment {
+  resource_type: string;
+  resource_id: string;
+  resource_name?: string;
+  description?: string;
+  iam_role?: string;
+  iam_role_issues?: number;
+}
+
+const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, sgId }) => {
+  const [attachments, setAttachments] = useState<ResourceAttachment[]>([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(true);
+
+  // Fetch resource attachments and their IAM roles
+  useEffect(() => {
+    const fetchResourceContext = async () => {
+      setLoadingAttachments(true);
+      try {
+        // Fetch SG detailed analysis which includes attachments from orphan detection
+        const sgResponse = await fetch(`/api/proxy/security-groups/${sgId}/analysis?days=90`);
+        if (sgResponse.ok) {
+          const sgData = await sgResponse.json();
+          // Get attachments from current_state (orphan detection endpoint)
+          const rawAttachments = sgData.current_state?.attachments || [];
+
+          // For each EC2 instance, try to get the IAM role
+          const enrichedAttachments: ResourceAttachment[] = await Promise.all(
+            rawAttachments.map(async (att: any) => {
+              const attachment: ResourceAttachment = {
+                resource_type: att.resource_type || att.type || 'unknown',
+                resource_id: att.resource_id || att.id || 'unknown',
+                resource_name: att.resource_name || att.name,
+                description: att.description,
+              };
+
+              // If it's an EC2 instance, fetch its details to get IAM role
+              if (attachment.resource_id?.startsWith('i-')) {
+                try {
+                  const resourceResponse = await fetch(`/api/proxy/resource-view/${attachment.resource_id}`);
+                  if (resourceResponse.ok) {
+                    const resourceData = await resourceResponse.json();
+                    attachment.resource_name = attachment.resource_name || resourceData.resource?.name;
+
+                    // Find IAM role from instance profile or connections
+                    const iamRole = resourceData.resource?.iam_role ||
+                                    resourceData.resource?.instance_profile?.role ||
+                                    resourceData.resource?.metadata?.iam_role;
+
+                    if (iamRole) {
+                      attachment.iam_role = iamRole;
+                    } else {
+                      // Try to find from connections
+                      const roleConnection = resourceData.connections?.inbound?.find(
+                        (conn: any) => conn.source?.arn?.includes('assumed-role')
+                      );
+                      if (roleConnection?.source?.arn) {
+                        const roleName = roleConnection.source.arn.split('/')[1];
+                        attachment.iam_role = roleName;
+                      }
+                    }
+
+                    // Get LP issues for this role if found
+                    if (attachment.iam_role) {
+                      try {
+                        const lpResponse = await fetch('/api/proxy/least-privilege/issues');
+                        if (lpResponse.ok) {
+                          const lpData = await lpResponse.json();
+                          const roleIssue = lpData.resources?.find(
+                            (r: any) => r.resourceType === 'IAMRole' && r.resourceName === attachment.iam_role
+                          );
+                          if (roleIssue) {
+                            attachment.iam_role_issues = roleIssue.gapCount || 0;
+                          }
+                        }
+                      } catch (e) {
+                        console.error('Error fetching LP issues:', e);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.error('Error fetching resource details:', e);
+                }
+              }
+
+              return attachment;
+            })
+          );
+
+          setAttachments(enrichedAttachments);
+        } else {
+          console.error('Failed to fetch SG inspector:', sgResponse.status);
+        }
+      } catch (error) {
+        console.error('Error fetching resource context:', error);
+      } finally {
+        setLoadingAttachments(false);
+      }
+    };
+
+    if (sgId) {
+      fetchResourceContext();
+    }
+  }, [sgId]);
+
   // Build comparison data
   const buildComparisonData = () => {
     const rows: Array<{
@@ -789,7 +893,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus })
           <h3 className="text-lg font-semibold text-slate-100">CSPM vs Behavioral Analysis</h3>
         </div>
         <p className="text-sm text-slate-400">
-          Compare what traditional CSPM tools detect (static configuration) vs SafeRemediate's behavioral analysis (actual traffic patterns).
+          Compare what traditional CSPM tools detect (static configuration) vs Cyntro's behavioral analysis (actual traffic patterns).
         </p>
       </div>
 
@@ -808,7 +912,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus })
           <div className="px-4 py-3 bg-indigo-500/10">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-indigo-400" />
-              <span className="text-sm font-medium text-indigo-300">SafeRemediate</span>
+              <span className="text-sm font-medium text-indigo-300">Cyntro</span>
             </div>
             <span className="text-xs text-indigo-400/70">Behavioral Traffic Analysis</span>
           </div>
@@ -913,7 +1017,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus })
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="w-5 h-5 text-emerald-400" />
           <h4 className="font-semibold text-emerald-300">
-            SafeRemediate found {uniqueInsightsCount + (isOrphan ? 1 : 0)} issues CSPM tools would miss
+            Cyntro found {uniqueInsightsCount + (isOrphan ? 1 : 0)} issues CSPM tools would miss
           </h4>
         </div>
         <div className="space-y-2">
@@ -946,9 +1050,91 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus })
         </div>
       </div>
 
+      {/* Resource Context Section */}
+      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
+        <div className="flex items-center gap-2 mb-4">
+          <Cloud className="w-5 h-5 text-blue-400" />
+          <h4 className="text-sm font-semibold text-slate-200">Resource Context</h4>
+          <span className="text-xs text-slate-500">
+            ({loadingAttachments ? 'Loading...' : `${attachments.length} attached resource${attachments.length !== 1 ? 's' : ''}`})
+          </span>
+        </div>
+
+        {loadingAttachments ? (
+          <div className="flex items-center gap-2 text-slate-400 text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            Loading resource attachments...
+          </div>
+        ) : attachments.length === 0 ? (
+          <div className="text-sm text-slate-500">
+            {isOrphan ? (
+              <div className="flex items-center gap-2 text-purple-400">
+                <AlertTriangle className="w-4 h-4" />
+                No resources attached - this is an orphan Security Group
+              </div>
+            ) : (
+              'No resource attachments found'
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {attachments.map((att, idx) => (
+              <div key={idx} className="bg-slate-700/30 rounded-lg p-3 border border-slate-600/30">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-400">
+                      {att.resource_id?.startsWith('i-') ? 'EC2' : att.resource_type}
+                    </span>
+                    <span className="text-sm text-slate-200 font-medium">
+                      {att.resource_name || att.resource_id}
+                    </span>
+                  </div>
+                  <code className="text-xs text-slate-500 font-mono">{att.resource_id}</code>
+                </div>
+
+                {att.description && (
+                  <p className="text-xs text-slate-400 mb-2">{att.description}</p>
+                )}
+
+                {att.iam_role && (
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-600/30">
+                    <Shield className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-xs text-slate-400">IAM Role:</span>
+                    <span className="text-xs text-amber-300 font-medium">{att.iam_role}</span>
+                    {att.iam_role_issues !== undefined && att.iam_role_issues > 0 && (
+                      <span className="px-1.5 py-0.5 rounded text-xs bg-red-500/20 text-red-400">
+                        {att.iam_role_issues} LP issues
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Summary for non-orphan SGs */}
+        {!isOrphan && attachments.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-700/30">
+            <div className="text-xs text-slate-400">
+              <span className="text-slate-300 font-medium">Summary:</span> This SG protects{' '}
+              <span className="text-blue-400">{attachments.filter(a => a.resource_id?.startsWith('i-')).length} EC2 instances</span>
+              {attachments.some(a => a.iam_role) && (
+                <>
+                  {' '}using{' '}
+                  <span className="text-amber-400">
+                    {new Set(attachments.map(a => a.iam_role).filter(Boolean)).size} unique IAM role{new Set(attachments.map(a => a.iam_role).filter(Boolean)).size !== 1 ? 's' : ''}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Explanation Box */}
       <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/30">
-        <h4 className="text-sm font-medium text-slate-400 mb-2">How SafeRemediate differs from CSPM:</h4>
+        <h4 className="text-sm font-medium text-slate-400 mb-2">How Cyntro differs from CSPM:</h4>
         <div className="grid grid-cols-2 gap-4 text-xs">
           <div>
             <div className="text-slate-500 mb-1">CSPM Tools:</div>
@@ -960,7 +1146,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus })
             </ul>
           </div>
           <div>
-            <div className="text-indigo-400 mb-1">SafeRemediate adds:</div>
+            <div className="text-indigo-400 mb-1">Cyntro adds:</div>
             <ul className="space-y-1 text-indigo-300">
               <li>• Actual traffic analysis ({analysis.summary.observation_days}d)</li>
               <li>• Unused rule detection</li>
@@ -1338,7 +1524,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
               {activeTab === 'rules' && <RulesTab analysis={analysis} />}
               {activeTab === 'evidence' && <EvidenceTab analysis={analysis} />}
               {activeTab === 'impact' && <ImpactTab analysis={analysis} />}
-              {activeTab === 'comparison' && <ComparisonTab analysis={analysis} orphanStatus={orphanStatus} />}
+              {activeTab === 'comparison' && <ComparisonTab analysis={analysis} orphanStatus={orphanStatus} sgId={sgId} />}
             </>
           ) : null}
         </div>

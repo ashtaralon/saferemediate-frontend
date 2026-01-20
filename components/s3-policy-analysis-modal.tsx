@@ -598,7 +598,7 @@ export function S3PolicyAnalysisModal({
               { id: 'access' as const, label: 'Who Accessed', icon: Users },
               { id: 'policies' as const, label: 'Policies', icon: FileText },
               { id: 'evidence' as const, label: 'Evidence', icon: Shield },
-              { id: 'simulate' as const, label: 'Simulate', icon: Zap }
+              { id: 'simulate' as const, label: 'Simulate', icon: Zap, comingSoon: true }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -611,6 +611,11 @@ export function S3PolicyAnalysisModal({
               >
                 <tab.icon className="w-4 h-4" />
                 {tab.label}
+                {tab.comingSoon && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-700 rounded">
+                    SOON
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -657,14 +662,24 @@ export function S3PolicyAnalysisModal({
             />
           )}
           {activeTab === 'simulate' && (
-            <SimulationTab
-              bucketName={bucketName}
-              systemName={systemName}
-              onSimulationComplete={() => {
-                fetchAccessData()
-                setActiveTab('access')
-              }}
-            />
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
+                <Zap className="w-8 h-8 text-amber-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">S3 Remediation Coming Soon</h3>
+              <p className="text-gray-600 max-w-md mx-auto mb-6">
+                S3 bucket policy remediation is currently under development.
+                For now, you can view the access analysis and manually update bucket policies based on the recommendations.
+              </p>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 max-w-md mx-auto">
+                <h4 className="font-semibold text-slate-700 mb-2">What's available now:</h4>
+                <ul className="text-sm text-slate-600 text-left space-y-1">
+                  <li>✓ View who accessed this bucket</li>
+                  <li>✓ See which policies are used vs unused</li>
+                  <li>✓ Analyze access patterns over time</li>
+                </ul>
+              </div>
+            </div>
           )}
         </div>
 
@@ -676,19 +691,15 @@ export function S3PolicyAnalysisModal({
           >
             CLOSE
           </button>
-          <button 
-            onClick={handleSimulate}
-            disabled={simulating || unusedCount === 0}
-            className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+          <button
+            disabled={true}
+            className="px-6 py-2.5 bg-slate-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
           >
-            {simulating ? (
-              <>
-                <Loader2 className="w-4 h-4 inline mr-2 animate-spin" />
-                Simulating...
-              </>
-            ) : (
-              'SIMULATE FIX'
-            )}
+            <Zap className="w-4 h-4" />
+            REMEDIATE
+            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-400 text-amber-900 rounded">
+              COMING SOON
+            </span>
           </button>
         </div>
       </div>
@@ -791,6 +802,19 @@ function AnalysisTab({
             </div>
           </div>
         </div>
+      ) : totalPolicies === 0 ? (
+        <div className="mx-6 p-5 bg-slate-50 border-2 border-slate-200 rounded-xl">
+          <div className="flex items-start gap-3">
+            <FileText className="w-7 h-7 text-slate-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-xl font-bold text-slate-600">No Bucket Policy Configured</h3>
+              <p className="mt-2 text-gray-600">
+                This bucket has no bucket policy. Access is controlled via IAM policies attached to roles/users.
+                Check the IAM roles in the Least Privilege dashboard for access analysis.
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="mx-6 p-5 bg-green-50 border-2 border-green-200 rounded-xl">
           <div className="flex items-start gap-3">
@@ -860,6 +884,16 @@ function AnalysisTab({
               ))}
             </div>
           </div>
+        ) : totalPolicies === 0 ? (
+          <div className="border-2 border-slate-200 bg-slate-50 rounded-xl p-4">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-slate-400" />
+              <span className="font-semibold text-slate-600">No Bucket Policies to Analyze</span>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">
+              This bucket relies on IAM policies for access control. Review IAM roles for least privilege analysis.
+            </p>
+          </div>
         ) : (
           <div className="border-2 border-green-200 bg-green-50 rounded-xl p-4">
             <div className="flex items-center gap-2">
@@ -885,6 +919,13 @@ function AnalysisTab({
             <Shield className="w-5 h-5" />
             <span className="font-medium">High confidence remediation - No service disruption expected</span>
           </div>
+        </div>
+      ) : totalPolicies === 0 ? (
+        <div className="mx-6 mb-6 p-4 border border-slate-200 bg-slate-50 rounded-xl">
+          <h3 className="font-bold text-slate-600">No Bucket Policy Analysis Available</h3>
+          <p className="text-slate-500 mt-1">
+            Access to this bucket is controlled via IAM policies. Check the Least Privilege dashboard to analyze IAM roles that access this bucket.
+          </p>
         </div>
       ) : (
         <div className="mx-6 mb-6 p-4 border border-green-200 bg-green-50 rounded-xl">
