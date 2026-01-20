@@ -27,6 +27,9 @@ interface GapResource {
   isRemediable?: boolean
   remediableReason?: string
   isServiceLinkedRole?: boolean
+  // Orphan status for Security Groups
+  isOrphan?: boolean
+  attachmentCount?: number
   lpScore: number | null  // null for Security Groups (use networkExposure instead)
   allowedCount: number
   usedCount: number | null  // null for Security Groups
@@ -345,7 +348,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             severity: r.severity || 'medium',
             confidence: r.confidence || 0,
             observationDays: r.observationDays || 365,
-            title: r.title || (isSecurityGroup 
+            title: r.title || (isSecurityGroup
               ? `${r.resourceName} has network exposure risk`
               : `${r.resourceName} has ${r.gapCount || 0} unused permissions`),
             description: r.description || '',
@@ -354,7 +357,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             // Remediable status (for IAM roles)
             isRemediable: r.isRemediable ?? r.is_remediable ?? true,
             remediableReason: r.remediableReason ?? r.remediable_reason ?? '',
-            isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false
+            isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false,
+            // Orphan status (for Security Groups)
+            isOrphan: r.isOrphan ?? r.is_orphan ?? false,
+            attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0
           }
         })
         // Filter out service linked roles only
@@ -1328,8 +1334,22 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
     return tags
   }
 
-  // Get severity based on unused percentage
+  // Get severity - use API severity for orphan SGs, otherwise calculate from unused percentage
   const getSeverity = (unusedPercent: number): { level: string, color: string, bgColor: string, borderColor: string, emoji: string } => {
+    // For orphan Security Groups, use the API's severity
+    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
+      const apiSeverity = (resource.severity || '').toUpperCase()
+      if (apiSeverity === 'CRITICAL') {
+        return { level: 'CRITICAL', color: 'text-red-800', bgColor: 'bg-red-100', borderColor: 'border-red-500', emoji: '🚨' }
+      } else if (apiSeverity === 'HIGH') {
+        return { level: 'HIGH', color: 'text-orange-800', bgColor: 'bg-orange-100', borderColor: 'border-orange-500', emoji: '⚠️' }
+      } else if (apiSeverity === 'MEDIUM') {
+        return { level: 'MEDIUM', color: 'text-yellow-800', bgColor: 'bg-yellow-100', borderColor: 'border-yellow-500', emoji: '⚡' }
+      } else {
+        return { level: 'LOW', color: 'text-green-800', bgColor: 'bg-green-100', borderColor: 'border-green-500', emoji: '✓' }
+      }
+    }
+    // Default: calculate severity from unused percentage
     if (unusedPercent >= 80) {
       return { level: 'CRITICAL', color: 'text-red-800', bgColor: 'bg-red-100', borderColor: 'border-red-500', emoji: '🚨' }
     } else if (unusedPercent >= 50) {
@@ -1509,6 +1529,12 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
           <span className={`px-3 py-1 text-xs font-bold rounded-full border ${severity.bgColor} ${severity.color} border-current`}>
             {severity.emoji} {severity.level}
           </span>
+          {/* Orphan Badge for Security Groups */}
+          {resource.resourceType === 'SecurityGroup' && resource.isOrphan && (
+            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold border border-purple-300">
+              👻 ORPHAN
+            </span>
+          )}
           {/* Resource Type Badge */}
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor()}`}>
             {resource.resourceType === 'IAMRole' ? 'IAM Role' :
