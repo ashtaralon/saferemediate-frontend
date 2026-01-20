@@ -182,41 +182,133 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [simDays, setSimDays] = useState(420)
   const [simEventsPerDay, setSimEventsPerDay] = useState(3)
 
+  // Dynamic simulator state
+  const [simConnectionType, setSimConnectionType] = useState<'network' | 'api'>('api')
+  const [simPort, setSimPort] = useState(443)
+  const [simProtocol, setSimProtocol] = useState('TCP')
+  const [simApiOperations, setSimApiOperations] = useState<string[]>(['s3:GetObject', 's3:PutObject', 's3:GetObjectTagging', 's3:ListBucket', 's3:DeleteObject', 's3:HeadObject'])
+  const [availableServices, setAvailableServices] = useState<Array<{id: string, name: string, type: string}>>([])
+  const [servicesLoading, setServicesLoading] = useState(false)
+
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
 
-  const DEMO_SCENARIOS = [
-    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 420, eventsPerDay: 3 },
-    { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 180, eventsPerDay: 10 },
-    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", iamRole: "", days: 90, eventsPerDay: 25 },
+  // Common ports for network traffic
+  const COMMON_PORTS = [
+    { port: 443, name: 'HTTPS', protocol: 'TCP' },
+    { port: 80, name: 'HTTP', protocol: 'TCP' },
+    { port: 22, name: 'SSH', protocol: 'TCP' },
+    { port: 3306, name: 'MySQL', protocol: 'TCP' },
+    { port: 5432, name: 'PostgreSQL', protocol: 'TCP' },
+    { port: 6379, name: 'Redis', protocol: 'TCP' },
+    { port: 27017, name: 'MongoDB', protocol: 'TCP' },
+    { port: 8080, name: 'HTTP Alt', protocol: 'TCP' },
   ]
+
+  // API operations by target service type
+  const API_OPERATIONS: Record<string, string[]> = {
+    S3: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:ListBucket', 's3:GetObjectTagging', 's3:HeadObject'],
+    DynamoDB: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:Scan'],
+    Lambda: ['lambda:InvokeFunction', 'lambda:GetFunction', 'lambda:ListFunctions'],
+    SQS: ['sqs:SendMessage', 'sqs:ReceiveMessage', 'sqs:DeleteMessage'],
+    SNS: ['sns:Publish', 'sns:Subscribe', 'sns:ListTopics'],
+    RDS: ['rds:DescribeDBInstances', 'rds:CreateDBSnapshot'],
+    SecretsManager: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+    KMS: ['kms:Encrypt', 'kms:Decrypt', 'kms:GenerateDataKey'],
+  }
+
+  const DEMO_SCENARIOS = [
+    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 420, eventsPerDay: 3, connectionType: 'api' as const },
+    { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 180, eventsPerDay: 10, connectionType: 'api' as const },
+    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", iamRole: "", days: 90, eventsPerDay: 25, connectionType: 'api' as const },
+    { name: "EC2 → RDS (MySQL)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-rds", iamRole: "", days: 90, eventsPerDay: 50, connectionType: 'network' as const, port: 3306 },
+  ]
+
+  // Fetch available services from Neo4j
+  const fetchAvailableServices = async () => {
+    setServicesLoading(true)
+    try {
+      const res = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const nodes = data.nodes || []
+      const services = nodes.map((node: any) => ({
+        id: node.id,
+        name: node.name || node.id,
+        type: node.type || 'Unknown',
+      }))
+      services.sort((a: any, b: any) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name))
+      setAvailableServices(services)
+    } catch (err) {
+      console.error('Failed to fetch services:', err)
+    } finally {
+      setServicesLoading(false)
+    }
+  }
+
+  // Get target service type for operations
+  const getTargetServiceType = (): string => {
+    const target = simTarget.toLowerCase()
+    if (target.includes('s3') || target.includes('bucket')) return 'S3'
+    if (target.includes('dynamodb') || target.includes('dynamo')) return 'DynamoDB'
+    if (target.includes('lambda')) return 'Lambda'
+    if (target.includes('sqs') || target.includes('queue')) return 'SQS'
+    if (target.includes('sns') || target.includes('topic')) return 'SNS'
+    if (target.includes('rds') || target.includes('mysql') || target.includes('postgres')) return 'RDS'
+    if (target.includes('secret')) return 'SecretsManager'
+    if (target.includes('kms') || target.includes('key')) return 'KMS'
+    return 'S3' // Default
+  }
 
   const simulateTraffic = async () => {
     setIsSimulatingTraffic(true)
     try {
-      const s3Operations = "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
+      let trafficData: any = { success: true }
+      let trafficMessage = ''
 
-      // Simulate S3 traffic
-      const trafficParams = new URLSearchParams({
-        source: simSource,
-        target: simTarget,
-        days: simDays.toString(),
-        events_per_day: simEventsPerDay.toString(),
-        operations: s3Operations
-      })
+      if (simConnectionType === 'network') {
+        // Simulate Network Traffic (VPC Flow Logs)
+        const trafficParams = new URLSearchParams({
+          source: simSource,
+          target: simTarget,
+          days: simDays.toString(),
+          events_per_day: simEventsPerDay.toString(),
+          port: simPort.toString(),
+          protocol: simProtocol,
+        })
 
-      const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${trafficParams}`, {
-        method: 'POST'
-      })
+        const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-network-traffic?${trafficParams}`, {
+          method: 'POST'
+        })
 
-      const trafficData = await trafficResponse.json()
+        trafficData = await trafficResponse.json()
+        trafficMessage = `Network traffic simulated: ${simSource} → ${simTarget} on port ${simPort}/${simProtocol}`
+      } else {
+        // Simulate API Call Traffic (CloudTrail)
+        const operations = simApiOperations.join(',')
+
+        const trafficParams = new URLSearchParams({
+          source: simSource,
+          target: simTarget,
+          days: simDays.toString(),
+          events_per_day: simEventsPerDay.toString(),
+          operations: operations
+        })
+
+        const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${trafficParams}`, {
+          method: 'POST'
+        })
+
+        trafficData = await trafficResponse.json()
+        trafficMessage = trafficData.message || `API traffic simulated with ${simApiOperations.length} operations`
+      }
 
       // Also simulate IAM role usage if a role is specified
       let iamMessage = ''
-      if (simIamRole && simIamRole.trim()) {
+      if (simIamRole && simIamRole.trim() && simConnectionType === 'api') {
         const iamParams = new URLSearchParams({
           role_name: simIamRole,
-          actions: s3Operations,
-          days: Math.min(simDays, 90).toString(), // IAM analysis typically uses 90 days
+          actions: simApiOperations.join(','),
+          days: Math.min(simDays, 90).toString(),
           events_per_action: Math.max(100, simEventsPerDay * 10).toString()
         })
 
@@ -226,7 +318,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
         const iamData = await iamResponse.json()
         if (iamData.success) {
-          iamMessage = ` IAM role ${simIamRole} updated: ${iamData.details.used_count} used, ${iamData.details.unused_count} unused permissions.`
+          iamMessage = ` IAM role ${simIamRole} updated: ${iamData.details?.used_count || 0} used, ${iamData.details?.unused_count || 0} unused permissions.`
           console.log('IAM usage simulated:', iamData)
         }
       }
@@ -235,10 +327,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         console.log('Traffic simulated:', trafficData)
         toast({
           title: "Simulation Complete!",
-          description: `${trafficData.message}.${iamMessage} Refresh to see updates.`,
+          description: `${trafficMessage}.${iamMessage} Refresh to see updates.`,
         })
         setShowTrafficSimulator(false)
-        // Trigger a refresh of the data
         handleRefresh()
       } else {
         toast({
@@ -265,6 +356,17 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     setSimIamRole(scenario.iamRole || '')
     setSimDays(scenario.days)
     setSimEventsPerDay(scenario.eventsPerDay)
+    if ('connectionType' in scenario) {
+      setSimConnectionType(scenario.connectionType)
+    }
+    if ('port' in scenario && scenario.port) {
+      setSimPort(scenario.port)
+    }
+  }
+
+  const openTrafficSimulator = () => {
+    setShowTrafficSimulator(true)
+    fetchAvailableServices()
   }
 
   const resetDemo = async () => {
@@ -756,8 +858,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         </div>
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setShowTrafficSimulator(true)}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2 transition-colors"
+            onClick={openTrafficSimulator}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium flex items-center gap-2 transition-colors"
             title="Simulate traffic between AWS resources"
           >
             <Zap className="w-4 h-4" />
@@ -1418,18 +1520,49 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
       {/* Traffic Simulator Modal */}
       {showTrafficSimulator && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTrafficSimulator(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white flex items-center justify-between">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowTrafficSimulator(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[650px] max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Zap className="h-5 w-5" />
-                Simulate Traffic
+                Dynamic Traffic Simulator
               </h2>
               <button onClick={() => setShowTrafficSimulator(false)} className="p-1 hover:bg-white/20 rounded">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-80px)]">
+              {/* Connection Type Toggle */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Connection Type</label>
+                <div className="flex bg-slate-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setSimConnectionType('api')}
+                    className={`flex-1 px-4 py-2.5 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                      simConnectionType === 'api'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    API Call (CloudTrail)
+                  </button>
+                  <button
+                    onClick={() => setSimConnectionType('network')}
+                    className={`flex-1 px-4 py-2.5 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                      simConnectionType === 'network'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-800'
+                    }`}
+                  >
+                    <Globe className="w-4 h-4" />
+                    Network (VPC Flow Logs)
+                  </button>
+                </div>
+              </div>
+
               {/* Quick Scenarios */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Quick Scenarios</label>
@@ -1438,7 +1571,11 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     <button
                       key={i}
                       onClick={() => applyScenario(scenario)}
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"
+                      className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                        scenario.connectionType === 'network'
+                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+                          : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
+                      }`}
                     >
                       {scenario.name}
                     </button>
@@ -1446,42 +1583,217 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 </div>
               </div>
 
-              {/* Source */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Source Resource</label>
-                <input
-                  type="text"
-                  value={simSource}
-                  onChange={(e) => setSimSource(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="e.g., SafeRemediate-Test-App-1"
-                />
+              {/* Source & Target Row */}
+              <div className="grid grid-cols-2 gap-4">
+                {/* Source */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Source Service</label>
+                  {servicesLoading ? (
+                    <div className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 text-sm flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading services...
+                    </div>
+                  ) : availableServices.length > 0 ? (
+                    <select
+                      value={simSource}
+                      onChange={(e) => setSimSource(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    >
+                      <option value="">Select source...</option>
+                      {['EC2', 'Lambda', 'ECS'].map(type => {
+                        const services = availableServices.filter(s => s.type.includes(type))
+                        if (services.length === 0) return null
+                        return (
+                          <optgroup key={type} label={type}>
+                            {services.map(s => (
+                              <option key={s.id} value={s.name}>{s.name}</option>
+                            ))}
+                          </optgroup>
+                        )
+                      })}
+                      <optgroup label="Other">
+                        {availableServices
+                          .filter(s => !['EC2', 'Lambda', 'ECS'].some(t => s.type.includes(t)))
+                          .slice(0, 20)
+                          .map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                          ))}
+                      </optgroup>
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={simSource}
+                      onChange={(e) => setSimSource(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="e.g., SafeRemediate-Test-App-1"
+                    />
+                  )}
+                  <input
+                    type="text"
+                    value={simSource}
+                    onChange={(e) => setSimSource(e.target.value)}
+                    className="w-full mt-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Or type custom name..."
+                  />
+                </div>
+
+                {/* Target */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Destination Service</label>
+                  {servicesLoading ? (
+                    <div className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 text-sm flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading services...
+                    </div>
+                  ) : availableServices.length > 0 ? (
+                    <select
+                      value={simTarget}
+                      onChange={(e) => setSimTarget(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    >
+                      <option value="">Select destination...</option>
+                      {['S3', 'RDS', 'DynamoDB', 'ElastiCache', 'Lambda'].map(type => {
+                        const services = availableServices.filter(s => s.type.includes(type.replace('Bucket', '')))
+                        if (services.length === 0) return null
+                        return (
+                          <optgroup key={type} label={type}>
+                            {services.map(s => (
+                              <option key={s.id} value={s.name}>{s.name}</option>
+                            ))}
+                          </optgroup>
+                        )
+                      })}
+                      <optgroup label="Other">
+                        {availableServices
+                          .filter(s => !['S3', 'RDS', 'DynamoDB', 'ElastiCache', 'Lambda'].some(t => s.type.includes(t)))
+                          .slice(0, 20)
+                          .map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                          ))}
+                      </optgroup>
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={simTarget}
+                      onChange={(e) => setSimTarget(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="e.g., my-bucket-name"
+                    />
+                  )}
+                  <input
+                    type="text"
+                    value={simTarget}
+                    onChange={(e) => setSimTarget(e.target.value)}
+                    className="w-full mt-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Or type custom name..."
+                  />
+                </div>
               </div>
 
-              {/* Target */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Target S3 Bucket</label>
-                <input
-                  type="text"
-                  value={simTarget}
-                  onChange={(e) => setSimTarget(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="e.g., my-bucket-name"
-                />
-              </div>
+              {/* Network Traffic Options */}
+              {simConnectionType === 'network' && (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-4">
+                  <div className="text-sm font-medium text-emerald-700 flex items-center gap-2">
+                    <Globe className="w-4 h-4" />
+                    Network Traffic Settings
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Port</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={simPort}
+                          onChange={(e) => {
+                            const port = parseInt(e.target.value)
+                            setSimPort(port)
+                            const preset = COMMON_PORTS.find(p => p.port === port)
+                            if (preset) setSimProtocol(preset.protocol)
+                          }}
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                        >
+                          {COMMON_PORTS.map(p => (
+                            <option key={p.port} value={p.port}>{p.port} ({p.name})</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          value={simPort}
+                          onChange={(e) => setSimPort(parseInt(e.target.value) || 443)}
+                          className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          min="1"
+                          max="65535"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Protocol</label>
+                      <select
+                        value={simProtocol}
+                        onChange={(e) => setSimProtocol(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                      >
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                        <option value="ICMP">ICMP</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              {/* IAM Role */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">IAM Role (optional)</label>
-                <input
-                  type="text"
-                  value={simIamRole}
-                  onChange={(e) => setSimIamRole(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  placeholder="e.g., cyntro-demo-ec2-s3-role"
-                />
-                <p className="text-xs text-slate-500 mt-1">If specified, marks S3 permissions as used for this role</p>
-              </div>
+              {/* API Call Options */}
+              {simConnectionType === 'api' && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-4">
+                  <div className="text-sm font-medium text-blue-700 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    API Operations (CloudTrail)
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Select Operations</label>
+                    <div className="flex flex-wrap gap-2">
+                      {(API_OPERATIONS[getTargetServiceType()] || API_OPERATIONS.S3).map(op => (
+                        <button
+                          key={op}
+                          onClick={() => {
+                            if (simApiOperations.includes(op)) {
+                              setSimApiOperations(simApiOperations.filter(o => o !== op))
+                            } else {
+                              setSimApiOperations([...simApiOperations, op])
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            simApiOperations.includes(op)
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300'
+                          }`}
+                        >
+                          {op}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      Selected: {simApiOperations.length} operations
+                    </div>
+                  </div>
+
+                  {/* IAM Role for API */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">IAM Role (optional)</label>
+                    <input
+                      type="text"
+                      value={simIamRole}
+                      onChange={(e) => setSimIamRole(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="e.g., cyntro-demo-ec2-s3-role"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">If specified, marks permissions as used for this role</p>
+                  </div>
+                </div>
+              )}
 
               {/* Days & Events */}
               <div className="grid grid-cols-2 gap-4">
@@ -1491,10 +1803,11 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     type="number"
                     value={simDays}
                     onChange={(e) => setSimDays(parseInt(e.target.value) || 30)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                     min="1"
                     max="730"
                   />
+                  <div className="text-xs text-slate-500 mt-1">1-730 days (2 years max)</div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Events per Day</label>
@@ -1502,17 +1815,45 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     type="number"
                     value={simEventsPerDay}
                     onChange={(e) => setSimEventsPerDay(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                     min="1"
-                    max="100"
+                    max="1000"
                   />
+                  <div className="text-xs text-slate-500 mt-1">Average events per day</div>
                 </div>
               </div>
 
               {/* Summary */}
-              <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-600">
-                <strong>Will simulate:</strong> {simDays * simEventsPerDay} total events over {simDays} days ({Math.round(simDays/30)} months)
-                {simIamRole && <><br/><strong>IAM Role:</strong> {simIamRole} will have S3 permissions marked as used</>}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="text-sm font-medium text-slate-700 mb-2">Simulation Summary</div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Total Events:</span>
+                    <span className="font-medium">{(simDays * simEventsPerDay).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Time Period:</span>
+                    <span className="font-medium">{Math.round(simDays / 30)} months</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Type:</span>
+                    <span className={`font-medium ${simConnectionType === 'network' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                      {simConnectionType === 'network' ? `Network (${simPort}/${simProtocol})` : `API (${simApiOperations.length} ops)`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Flow:</span>
+                    <span className="font-medium truncate max-w-[180px]" title={`${simSource} → ${simTarget}`}>
+                      {simSource || '?'} → {simTarget || '?'}
+                    </span>
+                  </div>
+                </div>
+                {simIamRole && simConnectionType === 'api' && (
+                  <div className="mt-2 pt-2 border-t border-slate-200 text-sm">
+                    <span className="text-slate-500">IAM Role:</span>{' '}
+                    <span className="font-medium text-purple-600">{simIamRole}</span>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
@@ -1520,29 +1861,36 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 <button
                   onClick={resetDemo}
                   disabled={isSimulatingTraffic}
-                  className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                   title="Reset to 0% usage for fresh demo"
                 >
-                  🔄 Reset
+                  🔄 Reset Demo
                 </button>
                 <button
                   onClick={() => setShowTrafficSimulator(false)}
-                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                  className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={simulateTraffic}
                   disabled={isSimulatingTraffic || !simSource || !simTarget}
-                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className={`flex-1 px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+                    simConnectionType === 'network'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white'
+                      : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white'
+                  }`}
                 >
                   {isSimulatingTraffic ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Working...
+                      Simulating...
                     </>
                   ) : (
-                    'Simulate Traffic'
+                    <>
+                      <Zap className="h-4 w-4" />
+                      Simulate Traffic
+                    </>
                   )}
                 </button>
               </div>
