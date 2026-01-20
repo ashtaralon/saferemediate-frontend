@@ -266,7 +266,51 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     setSimDays(scenario.days)
     setSimEventsPerDay(scenario.eventsPerDay)
   }
-  
+
+  const resetDemo = async () => {
+    if (!confirm('Reset demo data? This will:\n\n• Set IAM role to 0% usage (55 unused permissions)\n• Clear all simulated S3 traffic\n\nContinue?')) {
+      return
+    }
+
+    setIsSimulatingTraffic(true)
+    try {
+      const params = new URLSearchParams({
+        role_name: simIamRole || 'cyntro-demo-ec2-s3-role',
+        clear_traffic: 'true'
+      })
+
+      const response = await fetch(`${BACKEND_URL}/api/debug/reset-demo?${params}`, {
+        method: 'POST'
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        toast({
+          title: "Demo Reset!",
+          description: data.message,
+        })
+        setShowTrafficSimulator(false)
+        handleRefresh()
+      } else {
+        toast({
+          title: "Error",
+          description: data.detail || 'Unknown error',
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error('Error resetting demo:', error)
+      toast({
+        title: "Error",
+        description: `Failed to reset: ${error}`,
+        variant: "destructive"
+      })
+    } finally {
+      setIsSimulatingTraffic(false)
+    }
+  }
+
   // Cached fetch for SG gap analysis
   const fetchSGGapAnalysis = async (sgId: string, forceRefresh = false) => {
     // Return cached data if available and not forcing refresh
@@ -1489,6 +1533,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               {/* Actions */}
               <div className="flex gap-3 pt-2">
                 <button
+                  onClick={resetDemo}
+                  disabled={isSimulatingTraffic}
+                  className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  title="Reset to 0% usage for fresh demo"
+                >
+                  🔄 Reset
+                </button>
+                <button
                   onClick={() => setShowTrafficSimulator(false)}
                   className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
                 >
@@ -1502,7 +1554,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                   {isSimulatingTraffic ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Simulating...
+                      Working...
                     </>
                   ) : (
                     'Simulate Traffic'
