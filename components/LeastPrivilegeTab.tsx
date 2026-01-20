@@ -57,6 +57,10 @@ interface GapResource {
     riskLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM'
     reason: string
   }>
+  // S3 Bucket traffic data
+  accessorCount?: number
+  totalHits?: number
+  principals?: string[]
   evidence: {
     dataSources: string[]
     observationDays: number
@@ -426,7 +430,11 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false,
             // Orphan status (for Security Groups)
             isOrphan: r.isOrphan ?? r.is_orphan ?? false,
-            attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0
+            attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0,
+            // S3 Bucket traffic data
+            accessorCount: r.accessorCount ?? r.accessor_count ?? 0,
+            totalHits: r.totalHits ?? r.total_hits ?? 0,
+            principals: r.principals || []
           }
         })
         // Filter out service linked roles only
@@ -1810,6 +1818,40 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* S3 Bucket Traffic Info */}
+      {resource.resourceType === 'S3Bucket' && (resource.accessorCount ?? 0) > 0 && (
+        <div className="mb-4 p-3 bg-cyan-50 border border-cyan-200 rounded-lg">
+          <div className="text-sm font-medium text-cyan-700 mb-2">📊 Observed Traffic:</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold text-cyan-700">{resource.accessorCount}</span>
+              <span className="text-xs text-cyan-600">principals<br/>accessing</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold text-cyan-700">{(resource.totalHits ?? 0).toLocaleString()}</span>
+              <span className="text-xs text-cyan-600">total<br/>accesses</span>
+            </div>
+          </div>
+          {(resource.principals?.length ?? 0) > 0 && (
+            <div className="mt-2 pt-2 border-t border-cyan-200">
+              <div className="text-xs text-cyan-600 mb-1">Accessed by:</div>
+              <div className="flex flex-wrap gap-1">
+                {[...new Set(resource.principals)].slice(0, 3).map((principal, idx) => (
+                  <span key={idx} className="px-2 py-0.5 bg-cyan-100 text-cyan-800 rounded text-xs font-medium">
+                    {principal}
+                  </span>
+                ))}
+                {[...new Set(resource.principals)].length > 3 && (
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                    +{[...new Set(resource.principals)].length - 3} more
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
