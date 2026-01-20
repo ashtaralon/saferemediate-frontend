@@ -168,6 +168,72 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const { toast } = useToast()
+
+  // Traffic Simulator state
+  const [showTrafficSimulator, setShowTrafficSimulator] = useState(false)
+  const [isSimulatingTraffic, setIsSimulatingTraffic] = useState(false)
+  const [simSource, setSimSource] = useState("SafeRemediate-Test-App-1")
+  const [simTarget, setSimTarget] = useState("cyntro-demo-prod-data-745783559495")
+  const [simDays, setSimDays] = useState(420)
+  const [simEventsPerDay, setSimEventsPerDay] = useState(3)
+
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+
+  const DEMO_SCENARIOS = [
+    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", days: 420, eventsPerDay: 3 },
+    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "saferemediate-analytics-745783559495", days: 180, eventsPerDay: 10 },
+    { name: "EC2 → S3 (Logs)", source: "SafeRemediate-Test-App-1", target: "saferemediate-logs-745783559495", days: 90, eventsPerDay: 50 },
+  ]
+
+  const simulateTraffic = async () => {
+    setIsSimulatingTraffic(true)
+    try {
+      const params = new URLSearchParams({
+        source: simSource,
+        target: simTarget,
+        days: simDays.toString(),
+        events_per_day: simEventsPerDay.toString(),
+        operations: "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
+      })
+
+      const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, {
+        method: 'POST'
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        console.log('Traffic simulated:', data)
+        toast({
+          title: "Traffic Simulated!",
+          description: `${data.message}. Refresh the graph to see the new connection.`,
+        })
+        setShowTrafficSimulator(false)
+      } else {
+        toast({
+          title: "Error",
+          description: data.detail || 'Unknown error',
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error('Error simulating traffic:', error)
+      toast({
+        title: "Error",
+        description: `Failed to simulate traffic: ${error}`,
+        variant: "destructive"
+      })
+    } finally {
+      setIsSimulatingTraffic(false)
+    }
+  }
+
+  const applyScenario = (scenario: typeof DEMO_SCENARIOS[0]) => {
+    setSimSource(scenario.source)
+    setSimTarget(scenario.target)
+    setSimDays(scenario.days)
+    setSimEventsPerDay(scenario.eventsPerDay)
+  }
   
   // Cached fetch for SG gap analysis
   const fetchSGGapAnalysis = async (sgId: string, forceRefresh = false) => {
@@ -624,6 +690,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowTrafficSimulator(true)}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium flex items-center gap-2 transition-colors"
+            title="Simulate traffic between AWS resources"
+          >
+            <Zap className="w-4 h-4" />
+            Simulate Traffic
+          </button>
           <button
             onClick={handleRefreshAll}
             disabled={analyzing || refreshing || loading}
@@ -1276,6 +1350,119 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           })
         }}
       />
+
+      {/* Traffic Simulator Modal */}
+      {showTrafficSimulator && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTrafficSimulator(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white flex items-center justify-between">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Zap className="h-5 w-5" />
+                Simulate Traffic
+              </h2>
+              <button onClick={() => setShowTrafficSimulator(false)} className="p-1 hover:bg-white/20 rounded">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Quick Scenarios */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Quick Scenarios</label>
+                <div className="flex flex-wrap gap-2">
+                  {DEMO_SCENARIOS.map((scenario, i) => (
+                    <button
+                      key={i}
+                      onClick={() => applyScenario(scenario)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm transition-colors"
+                    >
+                      {scenario.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Source */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Source Resource</label>
+                <input
+                  type="text"
+                  value={simSource}
+                  onChange={(e) => setSimSource(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g., SafeRemediate-Test-App-1"
+                />
+              </div>
+
+              {/* Target */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Target S3 Bucket</label>
+                <input
+                  type="text"
+                  value={simTarget}
+                  onChange={(e) => setSimTarget(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g., my-bucket-name"
+                />
+              </div>
+
+              {/* Days & Events */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Days of History</label>
+                  <input
+                    type="number"
+                    value={simDays}
+                    onChange={(e) => setSimDays(parseInt(e.target.value) || 30)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    min="1"
+                    max="730"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Events per Day</label>
+                  <input
+                    type="number"
+                    value={simEventsPerDay}
+                    onChange={(e) => setSimEventsPerDay(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    min="1"
+                    max="100"
+                  />
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-600">
+                <strong>Will simulate:</strong> {simDays * simEventsPerDay} total events over {simDays} days ({Math.round(simDays/30)} months)
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowTrafficSimulator(false)}
+                  className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={simulateTraffic}
+                  disabled={isSimulatingTraffic || !simSource || !simTarget}
+                  className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSimulatingTraffic ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Simulating...
+                    </>
+                  ) : (
+                    'Simulate Traffic'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
