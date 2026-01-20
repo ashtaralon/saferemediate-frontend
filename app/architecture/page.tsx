@@ -10,8 +10,8 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediat
 // Predefined simulation scenarios for demo
 const DEMO_SCENARIOS = [
   { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", days: 420, eventsPerDay: 3 },
-  { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "saferemediate-analytics-745783559495", days: 180, eventsPerDay: 10 },
-  { name: "EC2 → S3 (Logs)", source: "SafeRemediate-Test-App-1", target: "saferemediate-logs-745783559495", days: 90, eventsPerDay: 50 },
+  { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", days: 180, eventsPerDay: 10 },
+  { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", days: 90, eventsPerDay: 25 },
   { name: "Custom...", source: "", target: "", days: 30, eventsPerDay: 5 },
 ]
 

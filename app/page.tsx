@@ -421,8 +421,8 @@ export default function HomePage() {
   // Demo scenarios for traffic simulation
   const DEMO_SCENARIOS = [
     { name: "EC2 → S3 (Prod)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", days: 420, eventsPerDay: 3 },
-    { name: "Lambda → S3", source: "analytics-lambda", target: "saferemediate-analytics-745783559495", days: 180, eventsPerDay: 10 },
-    { name: "EC2 → Logs", source: "SafeRemediate-Test-App-1", target: "saferemediate-logs-745783559495", days: 90, eventsPerDay: 50 },
+    { name: "EC2 → Analytics", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", days: 180, eventsPerDay: 10 },
+    { name: "Lambda → Analytics", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", days: 90, eventsPerDay: 25 },
   ]
 
   const simulateTraffic = async () => {
