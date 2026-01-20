@@ -634,27 +634,18 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     try {
       setAnalyzing(true)
 
-      console.log('[RefreshAll] Starting refresh - only fetching LP issues (no individual gap-analysis calls)')
-      
-      // Only refresh least privilege issues - this gets ALL data we need for the list view
-      // Individual gap-analysis calls are now made ON-DEMAND when user opens a modal
-      try {
-        await fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}&force_refresh=true`)
-        console.log('[RefreshAll] LP issues refreshed successfully')
-      } catch (e) {
-        console.warn('[RefreshAll] LP issues refresh failed:', e)
-      }
-      
-      // Reload the main data
-      await fetchGaps(true, true) // Force cache refresh
-      
+      console.log('[RefreshAll] Starting refresh from Neo4j (no AWS calls)')
+
+      // Reload the main data from Neo4j only (no force_refresh to avoid AWS calls)
+      await fetchGaps(true, false)
+
       // Clear caches to ensure fresh data on next modal access
       setSgGapAnalysisCache({})
       setIamGapAnalysisCache({})
-      
+
       toast({
-        title: '✅ All resources refreshed',
-        description: `Refreshed all resources from AWS. Click on a resource for detailed analysis.`,
+        title: '✅ Data refreshed',
+        description: `Refreshed all resources from database.`,
       })
     } catch (err) {
       console.error('[RefreshAll] Error:', err)
@@ -716,22 +707,16 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           <DialogHeader>
             <DialogTitle>Refresh All Resources</DialogTitle>
             <DialogDescription className="pt-2">
-              This will refresh all resources from AWS including Security Groups, IAM Roles, and Least Privilege analysis.
+              This will refresh all resources from the database including Security Groups, IAM Roles, and Least Privilege analysis.
               <br />
               <br />
-              <strong>No changes will be applied automatically.</strong>
-              <br />
-              <span className="text-xs text-gray-500">Note: If deep analysis is not available, existing data will be refreshed.</span>
+              <strong>Simulated data will be preserved.</strong>
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-3">
             <div className="flex items-center justify-between py-2 border-b">
               <span className="text-sm font-medium text-gray-600">System:</span>
               <span className="text-sm text-gray-900">{systemName}</span>
-            </div>
-            <div className="flex items-center justify-between py-2 border-b">
-              <span className="text-sm font-medium text-gray-600">Region:</span>
-              <span className="text-sm text-gray-900">{defaultRegion}</span>
             </div>
           </div>
           <DialogFooter>
@@ -748,7 +733,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
             >
               {analyzing && <Loader2 className="w-4 h-4 animate-spin" />}
-              Start Analysis
+              Refresh
             </button>
           </DialogFooter>
         </DialogContent>
@@ -782,10 +767,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             onClick={handleRefreshAll}
             disabled={analyzing || refreshing || loading}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Refresh all resources from AWS"
+            title="Refresh all resources from database"
           >
             <RefreshCw className={`w-4 h-4 ${analyzing ? 'animate-spin' : ''}`} />
-            {analyzing ? 'Refreshing AWS...' : 'Refresh All'}
+            {analyzing ? 'Refreshing...' : 'Refresh All'}
           </button>
           <button
             onClick={handleRefresh}
