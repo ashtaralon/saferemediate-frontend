@@ -376,6 +376,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
         { selector: 'edge[type="internet"]', style: { 'line-color': '#fca5a5', 'target-arrow-color': '#ef4444', 'line-style': 'dashed', 'line-dash-pattern': [8, 4] }},
         { selector: 'edge[type="iam_trust"]', style: { 'line-color': '#c4b5fd', 'target-arrow-color': '#8b5cf6', 'line-style': 'dashed', 'line-dash-pattern': [6, 3] }},
         { selector: 'edge[type="network"]', style: { 'line-color': '#fdba74', 'target-arrow-color': '#f97316' }},
+        { selector: 'edge[type="s3_access"]', style: { 'line-color': '#22d3ee', 'target-arrow-color': '#06b6d4', 'width': 3, 'line-style': 'solid' }},
         { selector: '.highlighted', style: { 'border-width': 6, 'border-color': '#fbbf24', 'z-index': 999 }},
         { selector: 'edge.highlighted', style: { 'width': 4, 'line-color': '#fbbf24', 'target-arrow-color': '#fbbf24', 'z-index': 999 }},
         { selector: '.dimmed', style: { 'opacity': 0.15 }},
@@ -483,6 +484,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
               <div className="flex items-center gap-2"><div className="w-5 h-0.5 bg-red-400" style={{borderStyle:'dashed'}}/><span className="text-slate-600">Internet</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-0.5 bg-purple-400" style={{borderStyle:'dashed'}}/><span className="text-slate-600">IAM Trust</span></div>
               <div className="flex items-center gap-2"><div className="w-5 h-0.5 bg-orange-400"/><span className="text-slate-600">Network</span></div>
+              <div className="flex items-center gap-2"><div className="w-5 h-0.5 bg-cyan-400"/><span className="text-slate-600">S3 Access</span></div>
             </div>
           </div>
           {showDataFlow && (
