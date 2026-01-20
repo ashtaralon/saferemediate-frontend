@@ -37,6 +37,9 @@ import {
   Activity,
   Database,
   Cloud,
+  Columns,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 
 // =============================================================================
@@ -693,6 +696,285 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
 };
 
 // =============================================================================
+// COMPARISON TAB - CSPM vs Behavioral Analysis
+// =============================================================================
+
+interface ComparisonTabProps {
+  analysis: SGAnalysis;
+  orphanStatus: {
+    is_orphan: boolean;
+    severity: string;
+    message: string;
+    attachment_count: number;
+  } | null;
+}
+
+const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus }) => {
+  // Build comparison data
+  const buildComparisonData = () => {
+    const rows: Array<{
+      id: string;
+      ruleInfo: string;
+      cspmDetects: string;
+      cspmSeverity: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+      behavioralInsight: string;
+      recommendation: string;
+      action: string;
+      isUniqueInsight: boolean;
+    }> = [];
+
+    // Analyze each rule
+    analysis.rules.forEach((rule) => {
+      const isPublic = rule.is_public;
+      const hasTraffic = rule.traffic.connection_count > 0;
+      const isUnused = rule.status === 'UNUSED';
+      const isOverlyBroad = rule.status === 'OVERLY_BROAD';
+
+      // What CSPM would detect
+      let cspmDetects = '';
+      let cspmSeverity: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' = 'NONE';
+
+      if (isPublic) {
+        cspmDetects = `Open ${rule.protocol}/${rule.port_range} to 0.0.0.0/0`;
+        cspmSeverity = 'HIGH';
+      } else {
+        cspmDetects = `${rule.protocol}/${rule.port_range} from ${rule.source}`;
+        cspmSeverity = 'LOW';
+      }
+
+      // What SafeRemediate adds (behavioral insight)
+      let behavioralInsight = '';
+      let isUniqueInsight = false;
+
+      if (isUnused) {
+        behavioralInsight = `0 connections in ${analysis.summary.observation_days} days`;
+        isUniqueInsight = true;
+      } else if (isOverlyBroad && rule.traffic.sample_sources?.length) {
+        behavioralInsight = `Only ${rule.traffic.unique_sources} IPs connected: ${rule.traffic.sample_sources.slice(0, 3).join(', ')}${rule.traffic.sample_sources.length > 3 ? '...' : ''}`;
+        isUniqueInsight = true;
+      } else if (hasTraffic) {
+        behavioralInsight = `${rule.traffic.connection_count.toLocaleString()} connections from ${rule.traffic.unique_sources} sources`;
+        isUniqueInsight = false;
+      }
+
+      rows.push({
+        id: rule.rule_id,
+        ruleInfo: `${rule.protocol}/${rule.port_range} from ${rule.source}`,
+        cspmDetects,
+        cspmSeverity,
+        behavioralInsight,
+        recommendation: rule.recommendation.reason,
+        action: rule.recommendation.action,
+        isUniqueInsight,
+      });
+    });
+
+    return rows;
+  };
+
+  const comparisonRows = buildComparisonData();
+
+  // Calculate summary stats
+  const uniqueInsightsCount = comparisonRows.filter(r => r.isUniqueInsight).length;
+  const unusedRulesCount = analysis.recommendations.delete.length;
+  const overlyBroadCount = analysis.recommendations.tighten.length;
+  const isOrphan = orphanStatus?.is_orphan || false;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-xl p-5 border border-indigo-500/20">
+        <div className="flex items-center gap-3 mb-2">
+          <Sparkles className="w-5 h-5 text-indigo-400" />
+          <h3 className="text-lg font-semibold text-slate-100">CSPM vs Behavioral Analysis</h3>
+        </div>
+        <p className="text-sm text-slate-400">
+          Compare what traditional CSPM tools detect (static configuration) vs SafeRemediate's behavioral analysis (actual traffic patterns).
+        </p>
+      </div>
+
+      {/* Side-by-Side Comparison Table */}
+      <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+        <div className="grid grid-cols-2 divide-x divide-slate-700/50">
+          {/* CSPM Header */}
+          <div className="px-4 py-3 bg-slate-700/30">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-slate-400" />
+              <span className="text-sm font-medium text-slate-300">CSPM Tools</span>
+            </div>
+            <span className="text-xs text-slate-500">Static Configuration Analysis</span>
+          </div>
+          {/* SafeRemediate Header */}
+          <div className="px-4 py-3 bg-indigo-500/10">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-indigo-400" />
+              <span className="text-sm font-medium text-indigo-300">SafeRemediate</span>
+            </div>
+            <span className="text-xs text-indigo-400/70">Behavioral Traffic Analysis</span>
+          </div>
+        </div>
+
+        {/* Comparison Rows */}
+        <div className="divide-y divide-slate-700/30">
+          {comparisonRows.map((row) => (
+            <div key={row.id} className="grid grid-cols-2 divide-x divide-slate-700/30">
+              {/* CSPM Column */}
+              <div className="px-4 py-3">
+                <div className="flex items-start gap-2">
+                  {row.cspmSeverity === 'HIGH' ? (
+                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                  )}
+                  <div>
+                    <div className="text-sm text-slate-300">{row.cspmDetects}</div>
+                    {row.cspmSeverity === 'HIGH' && (
+                      <span className="text-xs text-red-400">Flags: Public Internet Access</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* SafeRemediate Column */}
+              <div className={`px-4 py-3 ${row.isUniqueInsight ? 'bg-amber-500/5' : ''}`}>
+                <div className="flex items-start gap-2">
+                  {row.isUniqueInsight ? (
+                    <Zap className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                  )}
+                  <div>
+                    <div className="text-sm text-slate-300">{row.cspmDetects}</div>
+                    {row.behavioralInsight && (
+                      <div className={`text-xs mt-1 ${row.isUniqueInsight ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        + {row.behavioralInsight}
+                      </div>
+                    )}
+                    {row.isUniqueInsight && (
+                      <div className="mt-1">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          row.action === 'DELETE' ? 'bg-red-500/20 text-red-400' :
+                          row.action === 'TIGHTEN' ? 'bg-orange-500/20 text-orange-400' :
+                          'bg-slate-500/20 text-slate-400'
+                        }`}>
+                          → {row.action}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Orphan SG Row (if applicable) */}
+          {isOrphan && (
+            <div className="grid grid-cols-2 divide-x divide-slate-700/30 bg-purple-500/5">
+              {/* CSPM Column */}
+              <div className="px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <XCircle className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="text-sm text-slate-500">Cannot detect orphan SGs</div>
+                    <span className="text-xs text-slate-600">No behavioral analysis</span>
+                  </div>
+                </div>
+              </div>
+              {/* SafeRemediate Column */}
+              <div className="px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <Zap className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="text-sm text-purple-300 flex items-center gap-2">
+                      👻 ORPHAN SG Detected
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+                        orphanStatus?.severity === 'CRITICAL' ? 'bg-red-500/30 text-red-400' : 'bg-amber-500/30 text-amber-400'
+                      }`}>
+                        {orphanStatus?.severity}
+                      </span>
+                    </div>
+                    <div className="text-xs text-purple-400 mt-1">
+                      + {orphanStatus?.attachment_count} attachments found
+                    </div>
+                    <div className="mt-1">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400">
+                        → DELETE SG
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Summary Box */}
+      <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 rounded-xl p-5 border border-emerald-500/20">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="w-5 h-5 text-emerald-400" />
+          <h4 className="font-semibold text-emerald-300">
+            SafeRemediate found {uniqueInsightsCount + (isOrphan ? 1 : 0)} issues CSPM tools would miss
+          </h4>
+        </div>
+        <div className="space-y-2">
+          {unusedRulesCount > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              <div className="w-2 h-2 rounded-full bg-red-400"></div>
+              <span className="text-slate-300">{unusedRulesCount} unused rule{unusedRulesCount > 1 ? 's' : ''}</span>
+              <span className="text-red-400 text-xs">(DELETE)</span>
+            </div>
+          )}
+          {overlyBroadCount > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              <div className="w-2 h-2 rounded-full bg-orange-400"></div>
+              <span className="text-slate-300">{overlyBroadCount} overly broad rule{overlyBroadCount > 1 ? 's' : ''}</span>
+              <span className="text-orange-400 text-xs">(TIGHTEN)</span>
+            </div>
+          )}
+          {isOrphan && (
+            <div className="flex items-center gap-2 text-sm">
+              <div className="w-2 h-2 rounded-full bg-purple-400"></div>
+              <span className="text-slate-300">Orphan Security Group detected</span>
+              <span className="text-purple-400 text-xs">(DELETE SG)</span>
+            </div>
+          )}
+          {uniqueInsightsCount === 0 && !isOrphan && (
+            <div className="text-sm text-slate-400">
+              All rules are actively used and properly scoped.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Explanation Box */}
+      <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/30">
+        <h4 className="text-sm font-medium text-slate-400 mb-2">How SafeRemediate differs from CSPM:</h4>
+        <div className="grid grid-cols-2 gap-4 text-xs">
+          <div>
+            <div className="text-slate-500 mb-1">CSPM Tools:</div>
+            <ul className="space-y-1 text-slate-400">
+              <li>• Check if ports are open</li>
+              <li>• Flag 0.0.0.0/0 rules</li>
+              <li>• Compliance benchmarks</li>
+              <li>• Point-in-time config</li>
+            </ul>
+          </div>
+          <div>
+            <div className="text-indigo-400 mb-1">SafeRemediate adds:</div>
+            <ul className="space-y-1 text-indigo-300">
+              <li>• Actual traffic analysis ({analysis.summary.observation_days}d)</li>
+              <li>• Unused rule detection</li>
+              <li>• Orphan SG detection</li>
+              <li>• Specific IP recommendations</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
@@ -707,7 +989,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [analysis, setAnalysis] = useState<SGAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact' | 'comparison'>('summary');
   const [syncing, setSyncing] = useState(false);
   const [orphanStatus, setOrphanStatus] = useState<{
     is_orphan: boolean;
@@ -970,6 +1252,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             { id: 'rules', label: 'Rules', icon: Shield },
             { id: 'evidence', label: 'Evidence', icon: Database },
             { id: 'impact', label: 'Impact', icon: AlertTriangle },
+            { id: 'comparison', label: 'CSPM vs Behavioral', icon: Columns },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1055,6 +1338,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
               {activeTab === 'rules' && <RulesTab analysis={analysis} />}
               {activeTab === 'evidence' && <EvidenceTab analysis={analysis} />}
               {activeTab === 'impact' && <ImpactTab analysis={analysis} />}
+              {activeTab === 'comparison' && <ComparisonTab analysis={analysis} orphanStatus={orphanStatus} />}
             </>
           ) : null}
         </div>
