@@ -1054,6 +1054,275 @@ function buildFullStackFlows(
   return flows
 }
 
+// Unified System Node for full-system view
+interface UnifiedSystemNode {
+  id: string
+  type: NodeType
+  name: string
+  shortName: string
+  rawType: string // Original type from Neo4j
+  gaps?: number
+  traffic?: { inbound: number; outbound: number }
+  iamRole?: string
+}
+
+// Unified System Edge
+interface UnifiedSystemEdge {
+  id: string
+  source: string
+  target: string
+  port?: number
+  protocol?: string
+  requestCount: number
+  bytesTotal?: number
+  label: string
+}
+
+// AWS Type to Icon mapping based on actual Neo4j types
+const AWS_TYPE_TO_ICON: Record<string, string> = {
+  'LambdaFunction': 'λ',
+  'Lambda': 'λ',
+  'EC2': '🖥️',
+  'EC2Instance': '🖥️',
+  'RDSInstance': '🗄️',
+  'RDS': '🗄️',
+  'S3Bucket': '📦',
+  'S3': '📦',
+  'DynamoDBTable': '⚡',
+  'DynamoDB': '⚡',
+  'ApiGateway': '🚪',
+  'SQSQueue': '📨',
+  'SNSTopic': '📢',
+  'EventBus': '📅',
+  'EventBridge': '📅',
+  'KMSKey': '🔐',
+  'SecretsManager': '🔐',
+  'CloudTrailTrail': '📋',
+  'CloudWatchLogGroup': '📊',
+  'InternetGateway': '🌐',
+  'ALB': '⚖️',
+  'ELB': '⚖️',
+  'LoadBalancer': '⚖️',
+  'VPCEndpoint': '🔌',
+  'NetworkACL': '🚧',
+  'RouteTable': '🛤️',
+  'AthenaWorkgroup': '🔍',
+  'StepFunctions': '🔄',
+  // Fallbacks
+  'AWSService': '☁️',
+  'AWS': '☁️',
+  'Service': '⚙️',
+  'IAM': '👤',
+  'default': '📦',
+}
+
+// Tier assignment based on Neo4j types
+const TYPE_TO_TIER: Record<string, string> = {
+  'InternetGateway': 'Internet',
+  'ALB': 'Load Balancers',
+  'ELB': 'Load Balancers',
+  'LoadBalancer': 'Load Balancers',
+  'EC2': 'Compute',
+  'EC2Instance': 'Compute',
+  'LambdaFunction': 'Compute',
+  'Lambda': 'Compute',
+  'RDSInstance': 'Databases',
+  'RDS': 'Databases',
+  'DynamoDBTable': 'Databases',
+  'DynamoDB': 'Databases',
+  'AthenaWorkgroup': 'Databases',
+  'S3Bucket': 'Storage',
+  'S3': 'Storage',
+  'ApiGateway': 'APIs & Messaging',
+  'SQSQueue': 'APIs & Messaging',
+  'SNSTopic': 'APIs & Messaging',
+  'EventBus': 'APIs & Messaging',
+  'StepFunctions': 'APIs & Messaging',
+  'KMSKey': 'Security',
+  'SecretsManager': 'Security',
+  'IAM': 'Security',
+  'NetworkACL': 'Network',
+  'RouteTable': 'Network',
+  'VPCEndpoint': 'Network',
+  'CloudTrailTrail': 'Monitoring',
+  'CloudWatchLogGroup': 'Monitoring',
+}
+
+// Build a unified system view that shows all services connected as one stack
+function buildUnifiedSystemView(
+  graphNodes: any[],
+  graphEdges: any[],
+  sgData: any[],
+  iamGaps: any[],
+  xrayServices: XRayService[] = []
+): { nodes: UnifiedSystemNode[]; edges: UnifiedSystemEdge[]; tiers: { name: string; nodeIds: string[] }[] } {
+  console.log('[buildUnifiedSystemView] Input:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
+
+  const nodesMap = new Map<string, UnifiedSystemNode>()
+  const nodeIdSet = new Set<string>() // Track unique node IDs
+
+  // Tier structure - ordered from external to internal
+  const tierOrder = ['Internet', 'Load Balancers', 'Compute', 'Databases', 'Storage', 'APIs & Messaging', 'Security']
+  const tierNodeIds: Map<string, Set<string>> = new Map(tierOrder.map(name => [name, new Set()]))
+
+  // Types to skip (infrastructure/non-application nodes)
+  const skipTypes = new Set(['IAM', 'SecurityGroup', 'NetworkACL', 'RouteTable', 'CloudTrailTrail', 'CloudWatchLogGroup', 'AWSService', 'AWS', 'Service', 'AthenaWorkgroup', 'VPC', 'Subnet'])
+
+  // Helper to extract clean display name
+  const getDisplayName = (name: string, type: string): string => {
+    if (!name || name === 'Unknown') {
+      // Try to extract from ARN or ID
+      if (name?.includes(':')) {
+        const parts = name.split(':')
+        return parts[parts.length - 1].substring(0, 20)
+      }
+      return type
+    }
+    // Remove common prefixes
+    let clean = name
+      .replace(/^SafeRemediate-/i, '')
+      .replace(/^saferemediate-/i, '')
+      .replace(/^arn:aws:[^:]+:[^:]*:[^:]*:/i, '')
+
+    // Truncate if too long
+    if (clean.length > 20) {
+      clean = clean.substring(0, 18) + '...'
+    }
+    return clean || type
+  }
+
+  // Helper to get tier for a type
+  const getTierName = (nodeType: string): string => {
+    const t = nodeType.toLowerCase()
+    if (t.includes('internet') || t.includes('gateway')) return 'Internet'
+    if (t.includes('alb') || t.includes('elb') || t.includes('loadbalancer')) return 'Load Balancers'
+    if (t.includes('lambda') || t.includes('ec2') || t.includes('ecs') || t.includes('fargate')) return 'Compute'
+    if (t.includes('rds') || t.includes('dynamodb') || t.includes('aurora') || t.includes('database')) return 'Databases'
+    if (t.includes('s3') || t.includes('bucket') || t.includes('efs')) return 'Storage'
+    if (t.includes('api') || t.includes('sqs') || t.includes('sns') || t.includes('event')) return 'APIs & Messaging'
+    if (t.includes('kms') || t.includes('secret') || t.includes('iam')) return 'Security'
+    return 'Compute' // Default
+  }
+
+  // Helper to get internal NodeType
+  const getInternalType = (rawType: string): NodeType => {
+    const t = rawType.toLowerCase()
+    if (t.includes('lambda')) return 'lambda'
+    if (t.includes('dynamodb')) return 'dynamodb'
+    if (t.includes('rds') || t.includes('aurora')) return 'database'
+    if (t.includes('s3') || t.includes('bucket')) return 'storage'
+    if (t.includes('api')) return 'api_gateway'
+    if (t.includes('sqs')) return 'sqs'
+    if (t.includes('sns')) return 'sns'
+    if (t.includes('internet') || t.includes('gateway')) return 'internet'
+    if (t.includes('alb') || t.includes('elb')) return 'alb'
+    if (t.includes('event')) return 'eventbridge'
+    if (t.includes('kms') || t.includes('secret')) return 'secrets_manager'
+    return 'compute'
+  }
+
+  // Process nodes - deduplicate by ID
+  graphNodes.forEach(node => {
+    const nodeType = node.type || 'Unknown'
+    const nodeId = node.id || node.arn || node.name || ''
+
+    // Skip if already processed or should be skipped
+    if (!nodeId || nodeIdSet.has(nodeId) || skipTypes.has(nodeType)) {
+      return
+    }
+    nodeIdSet.add(nodeId)
+
+    const nodeName = node.name || ''
+    const displayName = getDisplayName(nodeName, nodeType)
+    const tierName = getTierName(nodeType)
+    const internalType = getInternalType(nodeType)
+
+    // Find IAM role gaps
+    const nodeGaps = iamGaps
+      .filter(gap => node.iam_role && gap.role_name &&
+        (node.iam_role.toLowerCase().includes(gap.role_name.toLowerCase().split('-')[0]) ||
+         gap.role_name.toLowerCase().includes(nodeName.toLowerCase().split('-')[0])))
+      .reduce((sum, gap) => sum + (gap.unused_permissions || 0), 0)
+
+    const unifiedNode: UnifiedSystemNode = {
+      id: nodeId,
+      type: internalType,
+      rawType: nodeType,
+      name: nodeName || nodeId,
+      shortName: displayName,
+      gaps: nodeGaps,
+      iamRole: node.iam_role,
+    }
+
+    nodesMap.set(nodeId, unifiedNode)
+    tierNodeIds.get(tierName)?.add(nodeId)
+  })
+
+  // Build edges - only include edges where BOTH source and target exist in our nodes
+  const edges: UnifiedSystemEdge[] = []
+  const edgeSet = new Set<string>() // Deduplicate edges
+
+  graphEdges.forEach((edge, idx) => {
+    const sourceId = edge.source || ''
+    const targetId = edge.target || ''
+
+    // Skip self-loops and edges without both endpoints
+    if (!sourceId || !targetId || sourceId === targetId) return
+    if (!nodesMap.has(sourceId) || !nodesMap.has(targetId)) return
+
+    // Deduplicate edges (same source-target pair)
+    const edgeKey = `${sourceId}->${targetId}`
+    if (edgeSet.has(edgeKey)) return
+    edgeSet.add(edgeKey)
+
+    // Determine label based on port
+    let label = ''
+    const port = edge.port
+    if (port === 5432) label = ':5432 PostgreSQL'
+    else if (port === 3306) label = ':3306 MySQL'
+    else if (port === 443) label = ':443 HTTPS'
+    else if (port === 80) label = ':80 HTTP'
+    else if (port === 22) label = ':22 SSH'
+    else if (port === 6379) label = ':6379 Redis'
+    else if (port) label = `:${port}`
+    else if (edge.protocol) label = edge.protocol
+    else label = edge.kind || 'Traffic'
+
+    edges.push({
+      id: `edge-${idx}`,
+      source: sourceId,
+      target: targetId,
+      port: port,
+      protocol: edge.protocol,
+      requestCount: edge.flows || edge.requestCount || 1,
+      bytesTotal: edge.bytes_total,
+      label,
+    })
+  })
+
+  // Build tier array with unique node IDs, filter out empty tiers
+  const tiers = tierOrder
+    .map(name => ({
+      name,
+      nodeIds: Array.from(tierNodeIds.get(name) || [])
+    }))
+    .filter(t => t.nodeIds.length > 0)
+
+  console.log('[buildUnifiedSystemView] Output:', nodesMap.size, 'unique nodes,', edges.length, 'unique edges,', tiers.length, 'tiers')
+  console.log('[buildUnifiedSystemView] Tiers:', tiers.map(t => `${t.name}(${t.nodeIds.length})`).join(', '))
+
+  return {
+    nodes: Array.from(nodesMap.values()),
+    edges,
+    tiers,
+  }
+}
+
+// Get icon for AWS type
+function getAwsIcon(rawType: string): string {
+  return AWS_TYPE_TO_ICON[rawType] || AWS_TYPE_TO_ICON['default']
+}
+
 // Helper to format relative time from ISO date string
 function formatRelativeTime(dateStr: string): string {
   try {
@@ -1231,6 +1500,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [trafficData, setTrafficData] = useState<TrafficDataResponse | null>(null)
   const [detailLoading, setDetailLoading] = useState(false) // Loading state for "What Happened" section
   const [sgGapData, setSgGapData] = useState<Map<string, SGGapAnalysisResponse>>(new Map()) // SG gap analysis cache
+  const [viewMode, setViewMode] = useState<'isolated' | 'full-system'>('isolated') // Toggle between individual flows and unified system view
 
   const fetchData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading if not background refresh AND no cached data
@@ -1883,6 +2153,12 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
     withGaps: flows.filter(f => f.totalGaps > 0).length,
   }), [flows])
 
+  // Build unified system view data when in full-system mode
+  const unifiedSystem = useMemo(() => {
+    if (viewMode !== 'full-system') return null
+    return buildUnifiedSystemView(rawGraphData.nodes, rawGraphData.edges, sgData, iamGaps, xrayServices)
+  }, [viewMode, rawGraphData, sgData, iamGaps, xrayServices])
+
   const formatTimeAgo = (dateStr: string) => {
     const diff = Date.now() - new Date(dateStr).getTime()
     const mins = Math.floor(diff / 60000)
@@ -1936,6 +2212,37 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
               {tw}
             </button>
           ))}
+        </div>
+        <div className="w-px h-7" style={{ background: 'rgba(148, 163, 184, 0.2)' }} />
+        {/* View Mode Toggle: Isolated vs Full System */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide" style={{ color: '#64748b' }}>View</span>
+          <button
+            onClick={() => setViewMode('isolated')}
+            className="px-3 py-1.5 text-xs rounded-md transition-colors flex items-center gap-1.5"
+            style={{
+              border: '1px solid',
+              borderColor: viewMode === 'isolated' ? '#3b82f6' : 'rgba(148, 163, 184, 0.2)',
+              background: viewMode === 'isolated' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+              color: viewMode === 'isolated' ? '#3b82f6' : '#94a3b8',
+            }}
+          >
+            <span>☰</span>
+            Isolated
+          </button>
+          <button
+            onClick={() => setViewMode('full-system')}
+            className="px-3 py-1.5 text-xs rounded-md transition-colors flex items-center gap-1.5"
+            style={{
+              border: '1px solid',
+              borderColor: viewMode === 'full-system' ? '#8b5cf6' : 'rgba(148, 163, 184, 0.2)',
+              background: viewMode === 'full-system' ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+              color: viewMode === 'full-system' ? '#8b5cf6' : '#94a3b8',
+            }}
+          >
+            <span>⬡</span>
+            Full System
+          </button>
         </div>
         <div className="ml-auto flex items-center gap-5 text-sm">
           <div className="flex items-center gap-1.5">
@@ -2044,10 +2351,165 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
           </div>
         </div>
 
-        {/* Center Pane - Flows */}
+        {/* Center Pane - Flows or Unified System */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4">
-            {flows.map(flow => (
+            {viewMode === 'full-system' && unifiedSystem ? (
+              /* Unified System View - Single Connected Stack */
+              <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.1)' }}>
+                {/* Unified System Header */}
+                <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.05)' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold">Full System Architecture</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa' }}>
+                      {unifiedSystem.nodes.length} services
+                    </span>
+                  </div>
+                  <div className="flex gap-3 text-xs" style={{ color: '#64748b' }}>
+                    <span style={{ color: '#10b981' }}>● Live</span>
+                    {unifiedSystem.edges.filter(e => e.hasGaps).length > 0 && (
+                      <span style={{ color: '#f59e0b' }}>⚠ {unifiedSystem.edges.filter(e => e.hasGaps).length} paths with gaps</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tiered Visualization */}
+                <div className="px-6 py-8">
+                  {unifiedSystem.tiers.map((tier, tierIdx) => (
+                    <div key={tier.name} className="mb-8 last:mb-0">
+                      {/* Tier Label */}
+                      <div className="text-[10px] uppercase tracking-wider mb-4 flex items-center gap-2" style={{ color: '#64748b' }}>
+                        <span className="w-2 h-2 rounded-full" style={{
+                          background: tierIdx === 0 ? '#ef4444' : tierIdx === 1 ? '#f59e0b' : tierIdx === 2 ? '#10b981' : tierIdx === 3 ? '#3b82f6' : '#8b5cf6'
+                        }} />
+                        {tier.name}
+                      </div>
+
+                      {/* Nodes in this tier */}
+                      <div className="flex flex-wrap gap-4 items-center justify-center">
+                        {tier.nodeIds.map(nodeId => {
+                          const node = unifiedSystem.nodes.find(n => n.id === nodeId)
+                          if (!node) return null
+
+                          // Find edges connected to this node
+                          const outgoingEdges = unifiedSystem.edges.filter(e => e.source === nodeId)
+                          const incomingEdges = unifiedSystem.edges.filter(e => e.target === nodeId)
+
+                          return (
+                            <div key={nodeId} className="flex items-center gap-2">
+                              {/* Node */}
+                              <div className="flex flex-col items-center gap-1.5 min-w-[100px]">
+                                <div
+                                  className="w-14 h-14 rounded-xl flex items-center justify-center text-2xl relative"
+                                  style={{
+                                    background: 'rgba(30, 41, 59, 0.95)',
+                                    border: `2px solid ${node.gaps && node.gaps > 0 ? '#f59e0b' : '#10b981'}`,
+                                    boxShadow: `0 0 12px ${node.gaps && node.gaps > 0 ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                                  }}
+                                >
+                                  {getAwsIcon(node.rawType)}
+                                </div>
+                                <span className="text-xs font-semibold text-center max-w-[120px] truncate">{node.shortName}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(100, 116, 139, 0.2)', color: '#94a3b8' }}>
+                                  {node.rawType}
+                                </span>
+                                {/* Show traffic stats */}
+                                {(outgoingEdges.length > 0 || incomingEdges.length > 0) && (
+                                  <div className="text-[9px] flex gap-2" style={{ color: '#64748b' }}>
+                                    {incomingEdges.length > 0 && <span>↓{incomingEdges.reduce((s, e) => s + e.requestCount, 0).toLocaleString()}</span>}
+                                    {outgoingEdges.length > 0 && <span>↑{outgoingEdges.reduce((s, e) => s + e.requestCount, 0).toLocaleString()}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                    </div>
+                  ))}
+                </div>
+
+                {/* Observed Connections */}
+                {unifiedSystem.edges.length > 0 && (
+                  <div className="px-6 py-4 border-t" style={{ borderColor: 'rgba(148, 163, 184, 0.1)' }}>
+                    <div className="text-[10px] uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: '#64748b' }}>
+                      <span className="w-2 h-2 rounded-full" style={{ background: '#10b981' }} />
+                      Observed Connections ({unifiedSystem.edges.length})
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[400px] overflow-y-auto">
+                      {unifiedSystem.edges.map(edge => {
+                        const sourceNode = unifiedSystem.nodes.find(n => n.id === edge.source)
+                        const targetNode = unifiedSystem.nodes.find(n => n.id === edge.target)
+                        if (!sourceNode || !targetNode) return null
+                        return (
+                          <div
+                            key={edge.id}
+                            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs"
+                            style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.1)' }}
+                          >
+                            {/* Source */}
+                            <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
+                              <span className="text-lg flex-shrink-0">{getAwsIcon(sourceNode.rawType)}</span>
+                              <span className="truncate font-medium" title={sourceNode.name}>{sourceNode.shortName}</span>
+                            </div>
+                            {/* Arrow with stats */}
+                            <div className="flex items-center gap-1 flex-shrink-0 px-2">
+                              <span className="text-[10px] font-bold" style={{ color: '#10b981' }}>{edge.requestCount.toLocaleString()}</span>
+                              <span style={{ color: '#10b981' }}>→</span>
+                              <span className="text-[9px] font-mono" style={{ color: '#64748b' }}>{edge.label}</span>
+                            </div>
+                            {/* Target */}
+                            <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
+                              <span className="text-lg flex-shrink-0">{getAwsIcon(targetNode.rawType)}</span>
+                              <span className="truncate font-medium" title={targetNode.name}>{targetNode.shortName}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Summary Footer */}
+                <div className="px-4 py-3 flex flex-wrap gap-4 text-xs border-t" style={{ borderColor: 'rgba(148, 163, 184, 0.1)', color: '#64748b' }}>
+                  <div className="flex items-center gap-2">
+                    <span>λ</span>
+                    <span>Lambda</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>🖥️</span>
+                    <span>EC2</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>🗄️</span>
+                    <span>RDS</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>⚡</span>
+                    <span>DynamoDB</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>📦</span>
+                    <span>S3</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>🚪</span>
+                    <span>API Gateway</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>📨</span>
+                    <span>SQS</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>🔐</span>
+                    <span>KMS</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+            /* Isolated Flows View - Individual Flow Strips */
+            flows.map(flow => (
               <div
                 key={flow.id}
                 onClick={() => handleSelectFlow(flow)}
@@ -2187,7 +2649,8 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
                   ))}
                 </div>
               </div>
-            ))}
+            ))
+            )}
           </div>
 
           {/* Legend */}

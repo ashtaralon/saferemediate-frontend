@@ -58,6 +58,25 @@ const ComprehensiveFlowViz = dynamic(
   }
 )
 
+// Lazy load AWSArchitectureDiagram (Full Map Connections with AWS icons and force-directed layout) with SSR disabled
+const AWSArchitectureDiagram = dynamic(
+  () => import('./dependency-map/aws-architecture-diagram'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
+        <div className="text-center">
+          <div className="relative w-16 h-16 mx-auto mb-4">
+            <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
+          </div>
+          <p className="text-slate-400">Loading AWS Architecture...</p>
+        </div>
+      </div>
+    )
+  }
+)
+
 // Lazy load FlowStripView (Full Stack Flows with SG + IAM checkpoints) with SSR disabled
 const FlowStripView = dynamic(
   () => import('./security-posture/flow-strip/FlowStripView').then(mod => ({ default: mod.FlowStripView })),
@@ -563,7 +582,7 @@ export default function DependencyMapTab({
             ) : activeView === 'graph' ? (
               <span>
                 {graphEngine === 'comprehensive'
-                  ? 'Full 6-tier map • EC2, SGs, IAM Roles, Databases, Storage with all edge types'
+                  ? 'AWS Architecture Map • Force-directed layout with official AWS icons • Click nodes for details'
                   : graphEngine === 'observed'
                   ? 'Traffic-only view • Real network flows from VPC Flow Logs'
                   : graphEngine === 'architectural'
@@ -634,11 +653,17 @@ export default function DependencyMapTab({
         ) : activeView === 'graph' ? (
           graphEngine === 'comprehensive' ? (
             <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
-                <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+              <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
+                <div className="text-center">
+                  <div className="relative w-16 h-16 mx-auto mb-4">
+                    <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
+                    <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
+                  </div>
+                  <p className="text-slate-400">Loading AWS Architecture...</p>
+                </div>
               </div>
             }>
-              <ComprehensiveFlowViz
+              <AWSArchitectureDiagram
                 systemName={systemName}
                 onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
                 onRefresh={fetchGraphData}
