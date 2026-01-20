@@ -178,45 +178,72 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [isSimulatingTraffic, setIsSimulatingTraffic] = useState(false)
   const [simSource, setSimSource] = useState("SafeRemediate-Test-App-1")
   const [simTarget, setSimTarget] = useState("cyntro-demo-prod-data-745783559495")
+  const [simIamRole, setSimIamRole] = useState("cyntro-demo-ec2-s3-role")
   const [simDays, setSimDays] = useState(420)
   const [simEventsPerDay, setSimEventsPerDay] = useState(3)
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
 
   const DEMO_SCENARIOS = [
-    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", days: 420, eventsPerDay: 3 },
-    { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", days: 180, eventsPerDay: 10 },
-    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", days: 90, eventsPerDay: 25 },
+    { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 420, eventsPerDay: 3 },
+    { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 180, eventsPerDay: 10 },
+    { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", iamRole: "", days: 90, eventsPerDay: 25 },
   ]
 
   const simulateTraffic = async () => {
     setIsSimulatingTraffic(true)
     try {
-      const params = new URLSearchParams({
+      const s3Operations = "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
+
+      // Simulate S3 traffic
+      const trafficParams = new URLSearchParams({
         source: simSource,
         target: simTarget,
         days: simDays.toString(),
         events_per_day: simEventsPerDay.toString(),
-        operations: "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
+        operations: s3Operations
       })
 
-      const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, {
+      const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${trafficParams}`, {
         method: 'POST'
       })
 
-      const data = await response.json()
+      const trafficData = await trafficResponse.json()
 
-      if (data.success) {
-        console.log('Traffic simulated:', data)
+      // Also simulate IAM role usage if a role is specified
+      let iamMessage = ''
+      if (simIamRole && simIamRole.trim()) {
+        const iamParams = new URLSearchParams({
+          role_name: simIamRole,
+          actions: s3Operations,
+          days: Math.min(simDays, 90).toString(), // IAM analysis typically uses 90 days
+          events_per_action: Math.max(100, simEventsPerDay * 10).toString()
+        })
+
+        const iamResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-iam-usage?${iamParams}`, {
+          method: 'POST'
+        })
+
+        const iamData = await iamResponse.json()
+        if (iamData.success) {
+          iamMessage = ` IAM role ${simIamRole} updated: ${iamData.details.used_count} used, ${iamData.details.unused_count} unused permissions.`
+          console.log('IAM usage simulated:', iamData)
+        }
+      }
+
+      if (trafficData.success) {
+        console.log('Traffic simulated:', trafficData)
         toast({
-          title: "Traffic Simulated!",
-          description: `${data.message}. Refresh the graph to see the new connection.`,
+          title: "Simulation Complete!",
+          description: `${trafficData.message}.${iamMessage} Refresh to see updates.`,
         })
         setShowTrafficSimulator(false)
+        // Trigger a refresh of the data
+        handleRefresh()
       } else {
         toast({
           title: "Error",
-          description: data.detail || 'Unknown error',
+          description: trafficData.detail || 'Unknown error',
           variant: "destructive"
         })
       }
@@ -235,6 +262,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const applyScenario = (scenario: typeof DEMO_SCENARIOS[0]) => {
     setSimSource(scenario.source)
     setSimTarget(scenario.target)
+    setSimIamRole(scenario.iamRole || '')
     setSimDays(scenario.days)
     setSimEventsPerDay(scenario.eventsPerDay)
   }
@@ -1413,6 +1441,19 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 />
               </div>
 
+              {/* IAM Role */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">IAM Role (optional)</label>
+                <input
+                  type="text"
+                  value={simIamRole}
+                  onChange={(e) => setSimIamRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="e.g., cyntro-demo-ec2-s3-role"
+                />
+                <p className="text-xs text-slate-500 mt-1">If specified, marks S3 permissions as used for this role</p>
+              </div>
+
               {/* Days & Events */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -1442,6 +1483,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               {/* Summary */}
               <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-600">
                 <strong>Will simulate:</strong> {simDays * simEventsPerDay} total events over {simDays} days ({Math.round(simDays/30)} months)
+                {simIamRole && <><br/><strong>IAM Role:</strong> {simIamRole} will have S3 permissions marked as used</>}
               </div>
 
               {/* Actions */}
