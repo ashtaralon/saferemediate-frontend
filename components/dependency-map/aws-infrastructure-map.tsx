@@ -5,11 +5,8 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 // ============================================
 // NEO4J CONFIGURATION
 // ============================================
-const NEO4J_CONFIG = {
-  uri: 'https://4e9962b7.databases.neo4j.io',
-  username: 'neo4j',
-  password: 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
-};
+// Using Next.js API proxy to avoid CORS and secure credentials
+const NEO4J_PROXY_URL = '/api/proxy/neo4j/query'
 
 // ============================================
 // AWS ICON COMPONENT
@@ -206,17 +203,20 @@ export default function Neo4jAWSMap() {
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [playing, speed]);
 
-  // Query Neo4j
+  // Query Neo4j via Next.js API proxy
   const query = async (cypher: string) => {
-    const res = await fetch(`${NEO4J_CONFIG.uri}/db/neo4j/tx/commit`, {
+    const res = await fetch(NEO4J_PROXY_URL, {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + btoa(`${NEO4J_CONFIG.username}:${NEO4J_CONFIG.password}`),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ statements: [{ statement: cypher }] })
+      body: JSON.stringify({ cypher }),
+      cache: 'no-store',
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(errorData.error || `HTTP ${res.status}`);
+    }
     return res.json();
   };
 
