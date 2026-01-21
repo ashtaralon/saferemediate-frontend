@@ -5,8 +5,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 // ============================================
 // NEO4J CONFIGURATION
 // ============================================
-// Using Next.js API proxy to handle CORS (routes through /api/proxy/graph/query)
-const NEO4J_PROXY_URL = '/api/proxy/graph/query'
+// Using Next.js API route to avoid CORS (routes through /api/neo4j/query)
 
 // ============================================
 // AWS ICON COMPONENT
@@ -109,7 +108,7 @@ interface GraphEdge {
 }
 
 interface SelectedItem extends Partial<GraphNode>, Partial<GraphEdge> {
-  type: 'node' | 'edge';
+  itemType: 'node' | 'edge';
 }
 
 // ============================================
@@ -203,20 +202,19 @@ export default function Neo4jAWSMap() {
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [playing, speed]);
 
-  // Query Neo4j via Next.js API proxy
+  // Query Neo4j via API route (avoids CORS)
   const query = async (cypher: string) => {
-    const res = await fetch(NEO4J_PROXY_URL, {
+    const res = await fetch('/api/neo4j/query', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ cypher }),
-      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cypher })
     });
+    
     if (!res.ok) {
-      const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.error || `HTTP ${res.status}`);
     }
+    
     return res.json();
   };
 
@@ -485,16 +483,16 @@ export default function Neo4jAWSMap() {
                   edge={e}
                   src={s}
                   tgt={t}
-                  selected={selected?.id === e.id && selected?.type === 'edge'}
+                  selected={selected?.id === e.id && selected?.itemType === 'edge'}
                   time={animTime}
-                  onClick={() => setSelected({ ...e, type: 'edge' })}
+                  onClick={() => setSelected({ ...e, itemType: 'edge' })}
                 />
               );
             })}
 
             {/* Nodes */}
             {filteredNodes.map(n => {
-              const isSelected = selected?.id === n.id && selected?.type === 'node';
+              const isSelected = selected?.id === n.id && selected?.itemType === 'node';
               const connCount = edges.filter(e => e.source === n.id || e.target === n.id).length;
               const hasFlow = edges.some(e => (e.source === n.id || e.target === n.id) && getConnectionStyle(e.type).animated);
               const color = getCategoryColor(n.label);
@@ -504,7 +502,7 @@ export default function Neo4jAWSMap() {
                   key={n.id} 
                   className="interactive cursor-pointer"
                   transform={`translate(${n.x},${n.y})`} 
-                  onClick={() => setSelected({ ...n, type: 'node' })}
+                  onClick={() => setSelected({ ...n, itemType: 'node' })}
                 >
                   {hasFlow && playing && (
                     <circle r="38" fill="none" stroke={color} strokeWidth="1.5" strokeOpacity="0.25" strokeDasharray="8 4">
@@ -568,11 +566,11 @@ export default function Neo4jAWSMap() {
         {selected && (
           <div className="absolute top-2 right-2 w-56 bg-slate-800/95 rounded-lg border border-slate-700 overflow-hidden shadow-xl">
             <div className="px-2.5 py-1.5 border-b border-slate-700 flex justify-between items-center">
-              <span className="text-white text-xs font-medium">{selected.type === 'node' ? 'Node' : 'Connection'}</span>
+              <span className="text-white text-xs font-medium">{selected.itemType === 'node' ? 'Node' : 'Connection'}</span>
               <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-white text-sm">×</button>
             </div>
             <div className="p-2.5 max-h-48 overflow-auto">
-              {selected.type === 'node' && (
+              {selected.itemType === 'node' && (
                 <>
                   <div className="flex gap-2 mb-2">
                     <AWSIcon type={selected.label || ''} size={36} />
@@ -594,7 +592,7 @@ export default function Neo4jAWSMap() {
                   </div>
                 </>
               )}
-              {selected.type === 'edge' && (
+              {selected.itemType === 'edge' && (
                 <>
                   <div className="text-white text-[10px] mb-2">
                     {nodes.find(n => n.id === selected.source)?.name} 
