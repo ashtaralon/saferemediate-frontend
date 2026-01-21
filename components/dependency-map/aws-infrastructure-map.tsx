@@ -5,8 +5,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 // ============================================
 // NEO4J CONFIGURATION
 // ============================================
-// Using Next.js API proxy to avoid CORS and secure credentials
-const NEO4J_PROXY_URL = '/api/proxy/neo4j/query'
+// Using backend API proxy (more reliable than direct Neo4j HTTP)
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+const NEO4J_PROXY_URL = `${BACKEND_URL}/api/graph/query`
 
 // ============================================
 // AWS ICON COMPONENT
