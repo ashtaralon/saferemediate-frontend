@@ -77,6 +77,23 @@ const AWSArchitectureDiagram = dynamic(
   }
 )
 
+// Lazy load Neo4jAWSMap (Neo4j-powered dynamic visualization with animated flows) with SSR disabled
+const Neo4jAWSMap = dynamic(
+  () => import('./dependency-map/aws-infrastructure-map'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+          <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
+        </div>
+      </div>
+    )
+  }
+)
+
 // Lazy load FlowStripView (Full Stack Flows with SG + IAM checkpoints) with SSR disabled
 const FlowStripView = dynamic(
   () => import('./security-posture/flow-strip/FlowStripView').then(mod => ({ default: mod.FlowStripView })),
@@ -104,8 +121,8 @@ interface Resource {
 interface Props {
   systemName: string
   highlightPath?: { source: string; target: string; port?: string }
-  defaultGraphEngine?: 'logical' | 'architectural' | 'observed' | 'comprehensive'
-  onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive') => void
+  defaultGraphEngine?: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'
+  onGraphEngineChange?: (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j') => void
   onHighlightPathClear?: () => void
 }
 
@@ -119,7 +136,7 @@ export default function DependencyMapTab({
   onHighlightPathClear
 }: Props) {
   const [activeView, setActiveView] = useState<ViewType>('graph')
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive'>(defaultGraphEngine)
+  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j'>(defaultGraphEngine || 'comprehensive')
   
   // Update graph engine when prop changes
   useEffect(() => {
@@ -139,7 +156,7 @@ export default function DependencyMapTab({
     }
   }, [highlightPath, onHighlightPathClear])
   
-  const handleGraphEngineChange = (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive') => {
+  const handleGraphEngineChange = (engine: 'logical' | 'architectural' | 'observed' | 'comprehensive' | 'neo4j') => {
     setGraphEngine(engine)
     if (onGraphEngineChange) {
       onGraphEngineChange(engine)
@@ -534,6 +551,18 @@ export default function DependencyMapTab({
                 <Layers className="w-4 h-4" />
                 Arch
               </button>
+              <button
+                onClick={() => handleGraphEngineChange('neo4j')}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  graphEngine === 'neo4j'
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Neo4j Map - Real-time animated data flows from Neo4j database"
+              >
+                <Activity className="w-4 h-4" />
+                Neo4j
+              </button>
             </div>
           )}
         </div>
@@ -587,6 +616,8 @@ export default function DependencyMapTab({
                   ? 'Traffic-only view • Real network flows from VPC Flow Logs'
                   : graphEngine === 'architectural'
                   ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
+                  : graphEngine === 'neo4j'
+                  ? 'Neo4j-powered visualization • Animated data flows with real-time updates • Drag to pan, scroll to zoom'
                   : 'Graph theory view with all connections • Double-click a node for details'}
               </span>
             ) : (
@@ -651,7 +682,18 @@ export default function DependencyMapTab({
             height={550}
           />
         ) : activeView === 'graph' ? (
-          graphEngine === 'comprehensive' ? (
+          graphEngine === 'neo4j' ? (
+            <React.Suspense fallback={
+              <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+                <div className="text-center">
+                  <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+                </div>
+              </div>
+            }>
+              <Neo4jAWSMap />
+            </React.Suspense>
+          ) : graphEngine === 'comprehensive' ? (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
                 <div className="text-center">

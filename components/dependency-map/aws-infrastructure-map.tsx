@@ -1,57 +1,72 @@
-'use client'
+'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
-// No wrapper needed - component handles its own sizing
+// ============================================
+// NEO4J CONFIGURATION
+// ============================================
+const NEO4J_CONFIG = {
+  uri: 'https://4e9962b7.databases.neo4j.io',
+  username: 'neo4j',
+  password: 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
+};
 
-// AWS Icons as simple colored boxes with labels for reliability
-const AWSIcon = ({ type, size = 36 }) => {
-  const colors = {
+// ============================================
+// AWS ICON COMPONENT
+// ============================================
+const AWSIcon = ({ type, size = 32 }: { type: string; size?: number }) => {
+  const colors: Record<string, string> = {
     EC2: '#ED7100', EC2Instance: '#ED7100', Lambda: '#ED7100', LambdaFunction: '#ED7100',
     RDSInstance: '#3B48CC', DynamoDB: '#3B48CC', DynamoDBTable: '#3B48CC',
     S3Bucket: '#1B660F', S3: '#1B660F',
-    IAMRole: '#DD344C', IAMPolicy: '#DD344C', SecurityGroup: '#DD344C', KMSKey: '#DD344C',
-    VPC: '#8C4FFF', Subnet: '#8C4FFF', InternetGateway: '#8C4FFF', RouteTable: '#8C4FFF',
+    IAMRole: '#DD344C', IAMPolicy: '#DD344C', SecurityGroup: '#DD344C', KMSKey: '#DD344C', Principal: '#DD344C',
+    VPC: '#8C4FFF', Subnet: '#8C4FFF', InternetGateway: '#8C4FFF', RouteTable: '#8C4FFF', NetworkEndpoint: '#8C4FFF',
     APIGateway: '#E7157B', ApiGateway: '#E7157B', SQSQueue: '#E7157B', EventBus: '#E7157B',
   };
   
-  const icons = {
+  const icons: Record<string, string> = {
     EC2: '🖥️', EC2Instance: '🖥️', Lambda: 'λ', LambdaFunction: 'λ',
     RDSInstance: '🗄️', DynamoDB: '📊', DynamoDBTable: '📊',
     S3Bucket: '🪣', S3: '🪣',
-    IAMRole: '👤', IAMPolicy: '📋', SecurityGroup: '🛡️', KMSKey: '🔑',
-    VPC: '🌐', Subnet: '📦', InternetGateway: '🌍', RouteTable: '🗺️',
-    APIGateway: '🔌', ApiGateway: '🔌', SQSQueue: '📬', EventBus: '📡',
+    IAMRole: '👤', IAMPolicy: '📋', SecurityGroup: '🛡️', KMSKey: '🔑', Principal: '👤',
+    VPC: '🌐', Subnet: '📦', InternetGateway: '🌍', RouteTable: '🗺️', NetworkEndpoint: '🔌',
+    APIGateway: '⚡', ApiGateway: '⚡', SQSQueue: '📬', EventBus: '📡',
   };
   
   const color = colors[type] || '#545B64';
   const icon = icons[type] || '☁️';
   
   return (
-    <div style={{
-      width: size, height: size,
-      backgroundColor: color,
-      borderRadius: 6,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: size * 0.5,
-    }}>
+    <div 
+      className="flex items-center justify-center rounded-md"
+      style={{ width: size, height: size, backgroundColor: color, fontSize: size * 0.5 }}
+    >
       {icon}
     </div>
   );
 };
 
-// Connection style based on type
-const getConnectionStyle = (type) => {
-  const styles = {
+// ============================================
+// CONNECTION STYLES
+// ============================================
+interface ConnectionStyle {
+  color: string;
+  animated: boolean;
+  speed?: number;
+}
+
+const getConnectionStyle = (type: string): ConnectionStyle => {
+  const styles: Record<string, ConnectionStyle> = {
     ACTUAL_TRAFFIC: { color: '#10B981', animated: true, speed: 1.5 },
     OBSERVED_TRAFFIC: { color: '#10B981', animated: true, speed: 1.2 },
+    ALLOWS_TRAFFIC_TO: { color: '#3B82F6', animated: true, speed: 1 },
     API_CALL: { color: '#EC4899', animated: true, speed: 2 },
     ACTUAL_API_CALL: { color: '#EC4899', animated: true, speed: 2.5 },
     RUNTIME_CALLS: { color: '#F59E0B', animated: true, speed: 2 },
     ACTUAL_S3_ACCESS: { color: '#1B660F', animated: true, speed: 1.5 },
+    S3_OPERATION: { color: '#1B660F', animated: true, speed: 1.2 },
     ASSUMES_ROLE: { color: '#DD344C', animated: true, speed: 0.5 },
+    CAN_ASSUME: { color: '#DD344C', animated: true, speed: 0.5 },
     CAN_ACCESS: { color: '#DD344C', animated: true, speed: 0.8 },
     IN_VPC: { color: '#8C4FFF', animated: false },
     IN_SUBNET: { color: '#8C4FFF', animated: false },
@@ -61,69 +76,114 @@ const getConnectionStyle = (type) => {
   return styles[type] || { color: '#94A3B8', animated: false };
 };
 
-// Neo4j config - TODO: Move to environment variables
-const NEO4J = {
-  uri: process.env.NEXT_PUBLIC_NEO4J_URI || 'https://4e9962b7.databases.neo4j.io',
-  user: process.env.NEXT_PUBLIC_NEO4J_USER || 'neo4j',
-  pass: process.env.NEXT_PUBLIC_NEO4J_PASS || 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
+const getCategoryColor = (label: string): string => {
+  const colors: Record<string, string> = {
+    EC2: '#ED7100', EC2Instance: '#ED7100', Lambda: '#ED7100', LambdaFunction: '#ED7100',
+    RDSInstance: '#3B48CC', DynamoDBTable: '#3B48CC',
+    S3Bucket: '#1B660F',
+    IAMRole: '#DD344C', IAMPolicy: '#DD344C', SecurityGroup: '#DD344C', KMSKey: '#DD344C',
+    VPC: '#8C4FFF', Subnet: '#8C4FFF', InternetGateway: '#8C4FFF',
+    APIGateway: '#E7157B', ApiGateway: '#E7157B', SQSQueue: '#E7157B',
+  };
+  return colors[label] || '#545B64';
 };
 
-// Animated Edge Component
-const AnimatedEdge = ({ edge, src, tgt, selected, time, onClick }) => {
+// ============================================
+// TYPES
+// ============================================
+interface GraphNode {
+  id: string;
+  label: string;
+  name: string;
+  fullName: string;
+  props: Record<string, any>;
+  x: number;
+  y: number;
+  vx?: number;
+  vy?: number;
+}
+
+interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  props: Record<string, any>;
+}
+
+interface SelectedItem extends Partial<GraphNode>, Partial<GraphEdge> {
+  type: 'node' | 'edge';
+}
+
+// ============================================
+// ANIMATED EDGE COMPONENT
+// ============================================
+const AnimatedEdge = ({ 
+  edge, 
+  src, 
+  tgt, 
+  selected, 
+  time, 
+  onClick 
+}: { 
+  edge: GraphEdge; 
+  src: GraphNode; 
+  tgt: GraphNode; 
+  selected: boolean; 
+  time: number; 
+  onClick: () => void;
+}) => {
   const style = getConnectionStyle(edge.type);
   const dx = tgt.x - src.x;
   const dy = tgt.y - src.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist < 1) return null;
   
-  const off = 40;
+  const off = 36;
   const x1 = src.x + (dx / dist) * off;
   const y1 = src.y + (dy / dist) * off;
   const x2 = tgt.x - (dx / dist) * off;
   const y2 = tgt.y - (dy / dist) * off;
   
-  // Particles
-  const particles = [];
-  if (style.animated) {
+  const particles: { x: number; y: number; o: number }[] = [];
+  if (style.animated && style.speed) {
     for (let i = 0; i < 3; i++) {
       const p = ((time * style.speed * 0.001) + i / 3) % 1;
-      particles.push({
-        x: x1 + (x2 - x1) * p,
-        y: y1 + (y2 - y1) * p,
-        o: 0.4 + p * 0.6
-      });
+      particles.push({ x: x1 + (x2 - x1) * p, y: y1 + (y2 - y1) * p, o: 0.4 + p * 0.6 });
     }
   }
   
   return (
-    <g onClick={onClick} style={{ cursor: 'pointer' }}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} 
-        stroke={style.color} strokeWidth={selected ? 3 : 1.5} strokeOpacity={selected ? 0.9 : 0.4} />
-      {style.animated && (
-        <line x1={x1} y1={y1} x2={x2} y2={y2} 
-          stroke={style.color} strokeWidth={4} strokeOpacity={0.15} />
-      )}
+    <g onClick={onClick} className="cursor-pointer">
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={style.color} strokeWidth={selected ? 3 : 1.5} strokeOpacity={selected ? 0.9 : 0.4} />
+      {style.animated && <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={style.color} strokeWidth={4} strokeOpacity={0.12} />}
       {particles.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={4} fill={style.color} opacity={p.o} />
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={5} fill={style.color} opacity={p.o * 0.3} />
+          <circle cx={p.x} cy={p.y} r={2.5} fill={style.color} opacity={p.o} />
+        </g>
       ))}
       <polygon
-        points="0,-4 8,0 0,4"
+        points="0,-3 6,0 0,3"
         fill={style.color}
+        opacity={selected ? 1 : 0.7}
         transform={`translate(${x2},${y2}) rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI})`}
       />
     </g>
   );
 };
 
-// Main Component
-export default function AWSInfraMap() {
-  const [nodes, setNodes] = useState([]);
-  const [edges, setEdges] = useState([]);
+// ============================================
+// MAIN COMPONENT
+// ============================================
+export default function Neo4jAWSMap() {
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
+  const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [zoom, setZoom] = useState(0.5);
-  const [pan, setPan] = useState({ x: 50, y: 50 });
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SelectedItem | null>(null);
+  const [zoom, setZoom] = useState(0.45);
+  const [pan, setPan] = useState({ x: 20, y: 20 });
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [viewMode, setViewMode] = useState('traffic');
@@ -131,25 +191,27 @@ export default function AWSInfraMap() {
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [stats, setStats] = useState({ nodes: 0, rels: 0 });
-  const animRef = useRef();
+  const [searchTerm, setSearchTerm] = useState('');
+  const animRef = useRef<number>();
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Animation loop
   useEffect(() => {
     if (!playing) return;
-    const tick = (t) => {
+    const tick = (t: number) => {
       setAnimTime(t * speed);
       animRef.current = requestAnimationFrame(tick);
     };
     animRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animRef.current);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [playing, speed]);
 
   // Query Neo4j
-  const query = async (cypher) => {
-    const res = await fetch(`${NEO4J.uri}/db/neo4j/tx/commit`, {
+  const query = async (cypher: string) => {
+    const res = await fetch(`${NEO4J_CONFIG.uri}/db/neo4j/tx/commit`, {
       method: 'POST',
       headers: {
-        'Authorization': 'Basic ' + btoa(`${NEO4J.user}:${NEO4J.pass}`),
+        'Authorization': 'Basic ' + btoa(`${NEO4J_CONFIG.username}:${NEO4J_CONFIG.password}`),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ statements: [{ statement: cypher }] })
@@ -159,38 +221,36 @@ export default function AWSInfraMap() {
   };
 
   // Load data
-  const load = useCallback(async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
     try {
-      // Get counts
       const countRes = await query('MATCH (n) WITH count(n) as nc MATCH ()-[r]->() RETURN nc, count(r)');
       const counts = countRes.results?.[0]?.data?.[0]?.row || [0, 0];
       setStats({ nodes: counts[0], rels: counts[1] });
 
-      // Build queries based on view mode
-      let nq, eq;
-      const limit = 400;
+      let nq: string, eq: string;
+      const limit = 300;
       
       if (viewMode === 'traffic') {
         nq = `MATCH (n) WHERE n:EC2Instance OR n:Lambda OR n:LambdaFunction OR n:APIGateway OR n:ApiGateway OR n:RDSInstance OR n:S3Bucket OR n:DynamoDBTable OR n:SQSQueue
               RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
         eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['ACTUAL_TRAFFIC','OBSERVED_TRAFFIC','API_CALL','ACTUAL_API_CALL','RUNTIME_CALLS','ACTUAL_S3_ACCESS']
-              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1200`;
+              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 800`;
       } else if (viewMode === 'security') {
         nq = `MATCH (n) WHERE n:IAMRole OR n:IAMPolicy OR n:SecurityGroup OR n:Principal OR n:KMSKey
               RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
         eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['ASSUMES_ROLE','CAN_ASSUME','USES_ROLE','HAS_POLICY','CAN_ACCESS']
-              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1200`;
+              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 800`;
       } else if (viewMode === 'network') {
         nq = `MATCH (n) WHERE n:VPC OR n:Subnet OR n:InternetGateway OR n:RouteTable OR n:SecurityGroup
               RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
         eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['IN_VPC','IN_SUBNET','CONTAINS','HAS_IGW','USES_ROUTE_TABLE']
-              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1200`;
+              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 800`;
       } else {
         nq = `MATCH (n) RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
-        eq = `MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1500`;
+        eq = `MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1000`;
       }
 
       const nodesRes = await query(nq);
@@ -199,132 +259,126 @@ export default function AWSInfraMap() {
       const nodeData = nodesRes.results?.[0]?.data || [];
       const edgeData = edgesRes.results?.[0]?.data || [];
 
-      // Process nodes
       const cols = Math.ceil(Math.sqrt(nodeData.length));
-      const spacing = 160;
+      const spacing = 140;
       
-      const procNodes = nodeData.map((r, i) => {
+      const procNodes: GraphNode[] = nodeData.map((r: any, i: number) => {
         const [id, labels, props] = r.row;
         const label = labels[0] || 'Unknown';
-        const name = props.name || props.Name || props.id || 
-                     props.arn?.split('/').pop() || props.arn?.split(':').pop() || 
-                     `${label}-${id}`;
+        const name = props.name || props.Name || props.id || props.arn?.split('/').pop() || props.arn?.split(':').pop() || `${label}-${id}`;
         return {
-          id: String(id),
-          label,
-          name: name.length > 25 ? name.slice(0, 25) + '...' : name,
-          fullName: name,
-          props,
-          x: 200 + (i % cols) * spacing,
-          y: 200 + Math.floor(i / cols) * spacing,
+          id: String(id), label,
+          name: name.length > 20 ? name.slice(0, 20) + '...' : name,
+          fullName: name, props,
+          x: 150 + (i % cols) * spacing,
+          y: 150 + Math.floor(i / cols) * spacing,
           vx: 0, vy: 0
         };
       });
 
       const nodeIds = new Set(procNodes.map(n => n.id));
-      
-      const procEdges = edgeData
-        .map(r => ({
-          id: String(r.row[4]),
-          source: String(r.row[0]),
-          target: String(r.row[1]),
-          type: r.row[2],
-          props: r.row[3] || {}
-        }))
-        .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+      const procEdges: GraphEdge[] = edgeData
+        .map((r: any) => ({ id: String(r.row[4]), source: String(r.row[0]), target: String(r.row[1]), type: r.row[2], props: r.row[3] || {} }))
+        .filter((e: GraphEdge) => nodeIds.has(e.source) && nodeIds.has(e.target));
 
       // Force layout
       const nodeMap = new Map(procNodes.map(n => [n.id, n]));
-      
       for (let iter = 0; iter < 80; iter++) {
         const t = 1 - iter / 80;
-        
-        // Repulsion
         procNodes.forEach(n1 => {
           procNodes.forEach(n2 => {
             if (n1.id === n2.id) return;
-            const dx = n1.x - n2.x;
-            const dy = n1.y - n2.y;
+            const dx = n1.x - n2.x, dy = n1.y - n2.y;
             const d = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
             const f = 8000 / (d * d);
-            n1.vx += (dx/d) * f * t;
-            n1.vy += (dy/d) * f * t;
+            n1.vx = (n1.vx || 0) + (dx/d) * f * t;
+            n1.vy = (n1.vy || 0) + (dy/d) * f * t;
           });
         });
-        
-        // Attraction
         procEdges.forEach(e => {
-          const s = nodeMap.get(e.source);
-          const g = nodeMap.get(e.target);
+          const s = nodeMap.get(e.source), g = nodeMap.get(e.target);
           if (!s || !g) return;
-          const dx = g.x - s.x;
-          const dy = g.y - s.y;
+          const dx = g.x - s.x, dy = g.y - s.y;
           const f = Math.sqrt(dx*dx + dy*dy) * 0.004 * t;
-          s.vx += dx * f; s.vy += dy * f;
-          g.vx -= dx * f; g.vy -= dy * f;
+          s.vx = (s.vx || 0) + dx * f; s.vy = (s.vy || 0) + dy * f;
+          g.vx = (g.vx || 0) - dx * f; g.vy = (g.vy || 0) - dy * f;
         });
-        
-        // Update
         procNodes.forEach(n => {
-          n.x += n.vx * 0.1;
-          n.y += n.vy * 0.1;
-          n.vx *= 0.85;
-          n.vy *= 0.85;
-          n.x = Math.max(100, Math.min(4000, n.x));
-          n.y = Math.max(100, Math.min(3000, n.y));
+          n.x += (n.vx || 0) * 0.1; n.y += (n.vy || 0) * 0.1;
+          n.vx = (n.vx || 0) * 0.85; n.vy = (n.vy || 0) * 0.85;
+          n.x = Math.max(80, Math.min(4000, n.x));
+          n.y = Math.max(80, Math.min(3000, n.y));
         });
       }
 
       setNodes(procNodes);
       setEdges(procEdges);
       setLoading(false);
-    } catch (err) {
+    } catch (err: any) {
+      console.error(err);
       setError(err.message);
       setLoading(false);
     }
   }, [viewMode]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Filter nodes by search
+  const filteredNodes = useMemo(() => {
+    if (!searchTerm) return nodes;
+    const term = searchTerm.toLowerCase();
+    return nodes.filter(n => 
+      n.name.toLowerCase().includes(term) || 
+      n.label.toLowerCase().includes(term) ||
+      n.fullName.toLowerCase().includes(term)
+    );
+  }, [nodes, searchTerm]);
+
+  const filteredNodeIds = useMemo(() => new Set(filteredNodes.map(n => n.id)), [filteredNodes]);
+  const filteredEdges = useMemo(() => 
+    edges.filter(e => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target)), 
+    [edges, filteredNodeIds]
+  );
 
   // Mouse handlers
-  const onMouseDown = (e) => {
-    if (e.target.closest('.interactive')) return;
+  const onMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.interactive')) return;
     setDragging(true);
     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
-  const onMouseMove = (e) => {
-    if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  const onMouseMove = (e: React.MouseEvent) => { 
+    if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); 
   };
   const onMouseUp = () => setDragging(false);
-  const onWheel = (e) => {
-    e.preventDefault();
-    setZoom(z => Math.max(0.1, Math.min(2, z * (e.deltaY > 0 ? 0.9 : 1.1))));
+  const onWheel = (e: React.WheelEvent) => { 
+    e.preventDefault(); 
+    setZoom(z => Math.max(0.1, Math.min(2, z * (e.deltaY > 0 ? 0.92 : 1.08)))); 
   };
 
-  // Count animated
-  const animCount = edges.filter(e => getConnectionStyle(e.type).animated).length;
+  const animCount = filteredEdges.filter(e => getConnectionStyle(e.type).animated).length;
 
+  // Loading state
   if (loading) {
     return (
-      <div style={{ height: '100%', minHeight: '400px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', color: 'white' }}>
-          <div style={{ width: 60, height: 60, border: '4px solid #f97316', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }} />
-          <h2 style={{ margin: 0 }}>Loading Infrastructure Map</h2>
-          <p style={{ color: '#94a3b8', marginTop: 8 }}>Connecting to Neo4j...</p>
+      <div className="h-full w-full flex items-center justify-center bg-slate-900">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-white text-sm font-medium">Loading from Neo4j...</p>
+          <p className="text-slate-400 text-xs mt-1">Fetching {viewMode} data</p>
         </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
+  // Error state
   if (error) {
     return (
-      <div style={{ height: '100%', minHeight: '400px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-        <div style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', borderRadius: 12, padding: 32, textAlign: 'center', maxWidth: 400 }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
-          <h2 style={{ color: '#f87171', margin: '0 0 16px' }}>Connection Error</h2>
-          <p style={{ color: '#cbd5e1', marginBottom: 24 }}>{error}</p>
-          <button onClick={load} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 24px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 500 }}>
+      <div className="h-full w-full flex items-center justify-center bg-slate-900 p-4">
+        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-4 text-center max-w-sm">
+          <div className="text-2xl mb-2">⚠️</div>
+          <p className="text-red-400 font-medium text-sm mb-2">Connection Error</p>
+          <p className="text-slate-400 text-xs mb-3">{error}</p>
+          <button onClick={loadData} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-medium">
             Retry
           </button>
         </div>
@@ -333,65 +387,77 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <div className="h-full w-full bg-slate-950 flex flex-col overflow-hidden relative" style={{ fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header - Compact and responsive */}
-      <header className="bg-slate-800/90 border-b border-slate-700 px-3 py-2 flex flex-wrap items-center justify-between gap-2 flex-shrink-0">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
-          <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>⚡</div>
-          <div style={{ flexShrink: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'white', lineHeight: '1.2' }}>AWS Infrastructure Map</h1>
-            <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', lineHeight: '1.2' }}>Dynamic data flow visualization</p>
+    <div ref={containerRef} className="h-full w-full flex flex-col bg-slate-900 overflow-hidden">
+      {/* Compact Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-800/90 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          {/* Stats badges */}
+          <div className="flex gap-1.5">
+            <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-[10px] font-semibold">
+              {stats.nodes.toLocaleString()} Nodes
+            </span>
+            <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-[10px] font-semibold">
+              {stats.rels.toLocaleString()} Rels
+            </span>
+            {playing && (
+              <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-[10px] font-semibold animate-pulse">
+                {animCount} Flows
+              </span>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: 6, marginLeft: 12, flexWrap: 'wrap' }}>
-            <span style={{ padding: '3px 8px', background: 'rgba(249,115,22,0.2)', color: '#fb923c', borderRadius: 16, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap' }}>{stats.nodes.toLocaleString()} Nodes</span>
-            <span style={{ padding: '3px 8px', background: 'rgba(34,211,238,0.2)', color: '#22d3ee', borderRadius: 16, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap' }}>{stats.rels.toLocaleString()} Connections</span>
-            {playing && <span style={{ padding: '3px 8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', borderRadius: 16, fontSize: 10, fontWeight: 600, animation: 'pulse 2s infinite', whiteSpace: 'nowrap' }}>{animCount} Active</span>}
+
+          {/* View mode tabs */}
+          <div className="flex bg-slate-700/50 rounded p-0.5">
+            {[
+              { id: 'traffic', label: '↗️ Traffic' },
+              { id: 'full', label: '🗺️ Full' },
+              { id: 'security', label: '🔒 Security' },
+              { id: 'network', label: '🌐 Network' },
+            ].map(m => (
+              <button
+                key={m.id}
+                onClick={() => setViewMode(m.id)}
+                className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                  viewMode === m.id
+                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* View Tabs - Responsive */}
-        <div style={{ display: 'flex', background: 'rgba(51,65,85,0.5)', borderRadius: 6, padding: 2, flexWrap: 'wrap', gap: 2 }}>
-          {[
-            { id: 'traffic', label: '↗️ Traffic' },
-            { id: 'full', label: '🗺️ Full' },
-            { id: 'security', label: '🔒 Security' },
-            { id: 'network', label: '🌐 Network' },
-          ].map(m => (
-            <button
-              key={m.id}
-              onClick={() => setViewMode(m.id)}
-              style={{
-                padding: '4px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 500,
-                background: viewMode === m.id ? 'linear-gradient(135deg, #f97316, #ec4899)' : 'transparent',
-                color: viewMode === m.id ? 'white' : '#94a3b8',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[11px] text-white placeholder-slate-400 w-28 focus:outline-none focus:ring-1 focus:ring-orange-500"
+          />
 
-        {/* Controls - Responsive */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(51,65,85,0.5)', borderRadius: 6, padding: '4px 8px' }}>
-            <button onClick={() => setPlaying(!playing)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: playing ? '#4ade80' : '#94a3b8', fontSize: 11, padding: '2px 4px' }}>
-              {playing ? '⏸️' : '▶️'}
+          {/* Animation controls */}
+          <div className="flex items-center gap-1.5 bg-slate-700/50 rounded px-2 py-1">
+            <button onClick={() => setPlaying(!playing)} className={`text-[10px] font-medium ${playing ? 'text-green-400' : 'text-slate-400'}`}>
+              {playing ? '⏸' : '▶'}
             </button>
-            <span style={{ color: '#64748b', fontSize: 10 }}>|</span>
-            <span style={{ color: '#94a3b8', fontSize: 10 }}>Speed:</span>
-            <input type="range" min="0.2" max="3" step="0.2" value={speed} onChange={e => setSpeed(+e.target.value)} style={{ width: 50 }} />
-            <span style={{ color: '#e2e8f0', fontSize: 10, width: 24 }}>{speed}x</span>
+            <input type="range" min="0.2" max="3" step="0.2" value={speed} onChange={e => setSpeed(+e.target.value)} className="w-12 h-1" />
+            <span className="text-slate-300 text-[10px] w-6">{speed}x</span>
           </div>
-          <button onClick={load} style={{ padding: '4px 10px', background: 'linear-gradient(135deg, #f97316, #ec4899)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>
+
+          {/* Refresh */}
+          <button onClick={loadData} className="px-2 py-1 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded text-[10px] font-medium">
             🔄
           </button>
         </div>
-      </header>
+      </div>
 
-      {/* Canvas - Takes remaining space */}
+      {/* Canvas - fills remaining space */}
       <div 
-        className="flex-1 min-h-0 overflow-hidden relative"
+        className="flex-1 min-h-0 relative overflow-hidden"
         style={{ cursor: dragging ? 'grabbing' : 'grab' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
@@ -399,19 +465,19 @@ export default function AWSInfraMap() {
         onMouseLeave={onMouseUp}
         onWheel={onWheel}
       >
-        <svg width="100%" height="100%" style={{ background: '#0f172a', display: 'block', maxWidth: '100%', maxHeight: '100%' }}>
+        <svg width="100%" height="100%" className="bg-slate-900 block">
           <defs>
-            <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
-              <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#1e293b" strokeWidth="0.5" />
+            <pattern id="neo4j-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" strokeWidth="0.5" />
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#grid)" />
+          <rect width="100%" height="100%" fill="url(#neo4j-grid)" />
           
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
             {/* Edges */}
-            {edges.map(e => {
-              const s = nodes.find(n => n.id === e.source);
-              const t = nodes.find(n => n.id === e.target);
+            {filteredEdges.map(e => {
+              const s = filteredNodes.find(n => n.id === e.source);
+              const t = filteredNodes.find(n => n.id === e.target);
               if (!s || !t) return null;
               return (
                 <AnimatedEdge
@@ -427,44 +493,43 @@ export default function AWSInfraMap() {
             })}
 
             {/* Nodes */}
-            {nodes.map(n => {
+            {filteredNodes.map(n => {
               const isSelected = selected?.id === n.id && selected?.type === 'node';
               const connCount = edges.filter(e => e.source === n.id || e.target === n.id).length;
               const hasFlow = edges.some(e => (e.source === n.id || e.target === n.id) && getConnectionStyle(e.type).animated);
-              const colors = {
-                EC2: '#ED7100', EC2Instance: '#ED7100', Lambda: '#ED7100', LambdaFunction: '#ED7100',
-                RDSInstance: '#3B48CC', DynamoDBTable: '#3B48CC',
-                S3Bucket: '#1B660F',
-                IAMRole: '#DD344C', IAMPolicy: '#DD344C', SecurityGroup: '#DD344C', KMSKey: '#DD344C',
-                VPC: '#8C4FFF', Subnet: '#8C4FFF', InternetGateway: '#8C4FFF',
-                APIGateway: '#E7157B', ApiGateway: '#E7157B', SQSQueue: '#E7157B',
-              };
-              const color = colors[n.label] || '#545B64';
+              const color = getCategoryColor(n.label);
 
               return (
                 <g 
                   key={n.id} 
-                  className="interactive"
+                  className="interactive cursor-pointer"
                   transform={`translate(${n.x},${n.y})`} 
                   onClick={() => setSelected({ ...n, type: 'node' })}
-                  style={{ cursor: 'pointer' }}
                 >
                   {hasFlow && playing && (
-                    <circle r="46" fill="none" stroke={color} strokeWidth="2" strokeOpacity="0.3" strokeDasharray="8 4">
-                      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="8s" repeatCount="indefinite" />
+                    <circle r="38" fill="none" stroke={color} strokeWidth="1.5" strokeOpacity="0.25" strokeDasharray="8 4">
+                      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="10s" repeatCount="indefinite" />
                     </circle>
                   )}
-                  <rect x="-38" y="-38" width="76" height="76" rx="12" fill="#1e293b" stroke={isSelected ? '#3b82f6' : color} strokeWidth={isSelected ? 3 : 2} />
-                  <foreignObject x="-18" y="-22" width="36" height="36">
-                    <AWSIcon type={n.label} size={36} />
+                  <rect 
+                    x="-32" y="-32" width="64" height="64" rx="10" 
+                    fill="#1e293b" 
+                    stroke={isSelected ? '#3b82f6' : color} 
+                    strokeWidth={isSelected ? 2.5 : 1.5}
+                    filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
+                  />
+                  <foreignObject x="-14" y="-18" width="28" height="28">
+                    <AWSIcon type={n.label} size={28} />
                   </foreignObject>
-                  <text y="30" textAnchor="middle" fontSize="9" fill="#94a3b8" fontWeight="500">
-                    {n.name.length > 12 ? n.name.slice(0, 12) + '…' : n.name}
+                  <text y="26" textAnchor="middle" fontSize="8" fill="#94a3b8" fontWeight="500">
+                    {n.name.length > 10 ? n.name.slice(0, 10) + '…' : n.name}
                   </text>
                   {connCount > 0 && (
-                    <g transform="translate(30,-30)">
-                      <circle r="10" fill={color} />
-                      <text textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="white" fontWeight="bold">{connCount > 99 ? '99+' : connCount}</text>
+                    <g transform="translate(24,-24)">
+                      <circle r="9" fill={color} />
+                      <text textAnchor="middle" dominantBaseline="middle" fontSize="7" fill="white" fontWeight="bold">
+                        {connCount > 99 ? '99+' : connCount}
+                      </text>
                     </g>
                   )}
                 </g>
@@ -474,117 +539,108 @@ export default function AWSInfraMap() {
         </svg>
 
         {/* Zoom controls */}
-        <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 4, zIndex: 100 }}>
-          <button onClick={() => setZoom(z => Math.min(2, z * 1.2))} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 18, cursor: 'pointer', borderRadius: 6 }}>+</button>
-          <div style={{ textAlign: 'center', fontSize: 10, color: '#94a3b8' }}>{Math.round(zoom * 100)}%</div>
-          <button onClick={() => setZoom(z => Math.max(0.1, z / 1.2))} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 18, cursor: 'pointer', borderRadius: 6 }}>−</button>
-          <div style={{ borderTop: '1px solid #334155', margin: '4px 0' }} />
-          <button onClick={() => { setZoom(0.5); setPan({ x: 50, y: 50 }); }} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 14, cursor: 'pointer', borderRadius: 6 }}>⟲</button>
+        <div className="absolute bottom-2 left-2 flex flex-col gap-0.5 bg-slate-800/90 rounded-lg p-1.5">
+          <button onClick={() => setZoom(z => Math.min(2, z * 1.15))} className="w-6 h-6 text-white text-sm hover:bg-slate-700 rounded">+</button>
+          <div className="text-center text-[9px] text-slate-400">{Math.round(zoom * 100)}%</div>
+          <button onClick={() => setZoom(z => Math.max(0.1, z / 1.15))} className="w-6 h-6 text-white text-sm hover:bg-slate-700 rounded">−</button>
+          <div className="border-t border-slate-600 my-0.5" />
+          <button onClick={() => { setZoom(0.45); setPan({ x: 20, y: 20 }); }} className="w-6 h-6 text-white text-xs hover:bg-slate-700 rounded">⟲</button>
         </div>
 
-        {/* Legend */}
-        <div style={{ position: 'absolute', bottom: 16, right: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 12, zIndex: 100, maxWidth: 'calc(100% - 400px)' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#e2e8f0', marginBottom: 8 }}>Data Flow Types</div>
-          {[
-            { type: 'ACTUAL_TRAFFIC', label: 'Traffic' },
-            { type: 'API_CALL', label: 'API Calls' },
-            { type: 'ACTUAL_S3_ACCESS', label: 'S3 Access' },
-            { type: 'ASSUMES_ROLE', label: 'IAM' },
-          ].map(({ type, label }) => {
-            const s = getConnectionStyle(type);
-            return (
-              <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 11 }}>
-                <div style={{ width: 24, height: 3, background: s.color, borderRadius: 2, position: 'relative', overflow: 'hidden' }}>
-                  {s.animated && <div style={{ position: 'absolute', width: 8, height: '100%', background: 'white', borderRadius: 2, animation: 'flow 1s linear infinite' }} />}
-                </div>
-                <span style={{ color: '#94a3b8' }}>{label}</span>
-                {s.animated && <span style={{ color: '#4ade80', fontSize: 8 }}>●</span>}
+        {/* Mini legend */}
+        <div className="absolute bottom-2 right-2 bg-slate-800/90 rounded-lg p-2">
+          <div className="text-[9px] text-slate-300 font-medium mb-1">Flow Types</div>
+          <div className="flex flex-col gap-0.5">
+            {[
+              { type: 'ACTUAL_TRAFFIC', label: 'Traffic', color: '#10B981' },
+              { type: 'API_CALL', label: 'API', color: '#EC4899' },
+              { type: 'ASSUMES_ROLE', label: 'IAM', color: '#DD344C' },
+            ].map(({ label, color }) => (
+              <div key={label} className="flex items-center gap-1.5 text-[9px]">
+                <div className="w-3 h-0.5 rounded" style={{ backgroundColor: color }} />
+                <span className="text-slate-400">{label}</span>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
+
+        {/* Details panel */}
+        {selected && (
+          <div className="absolute top-2 right-2 w-56 bg-slate-800/95 rounded-lg border border-slate-700 overflow-hidden shadow-xl">
+            <div className="px-2.5 py-1.5 border-b border-slate-700 flex justify-between items-center">
+              <span className="text-white text-xs font-medium">{selected.type === 'node' ? 'Node' : 'Connection'}</span>
+              <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-white text-sm">×</button>
+            </div>
+            <div className="p-2.5 max-h-48 overflow-auto">
+              {selected.type === 'node' && (
+                <>
+                  <div className="flex gap-2 mb-2">
+                    <AWSIcon type={selected.label || ''} size={36} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white text-xs font-medium truncate">{selected.fullName}</div>
+                      <div className="text-[10px] mt-0.5 inline-block px-1.5 py-0.5 rounded" style={{ backgroundColor: getCategoryColor(selected.label || '') + '30', color: getCategoryColor(selected.label || '') }}>
+                        {selected.label}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-[9px] text-slate-500 uppercase mb-1">Properties</div>
+                  <div className="bg-slate-900/50 rounded p-1.5 space-y-0.5">
+                    {Object.entries(selected.props || {}).slice(0, 8).map(([k, v]) => (
+                      <div key={k} className="flex justify-between text-[9px]">
+                        <span className="text-slate-500">{k}</span>
+                        <span className="text-slate-300 truncate max-w-[100px]">{String(v).slice(0, 25)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {selected.type === 'edge' && (
+                <>
+                  <div className="text-white text-[10px] mb-2">
+                    {nodes.find(n => n.id === selected.source)?.name} 
+                    <span style={{ color: getConnectionStyle(selected.type || '').color }}> → </span>
+                    {nodes.find(n => n.id === selected.target)?.name}
+                  </div>
+                  <div className="inline-block px-2 py-0.5 rounded text-[10px] font-medium mb-2" style={{ backgroundColor: getConnectionStyle(selected.type || '').color + '30', color: getConnectionStyle(selected.type || '').color }}>
+                    {selected.type}
+                  </div>
+                  <div className="text-[9px] text-slate-500 uppercase mb-1">Properties</div>
+                  <div className="bg-slate-900/50 rounded p-1.5">
+                    {Object.keys(selected.props || {}).length > 0 ? (
+                      Object.entries(selected.props || {}).map(([k, v]) => (
+                        <div key={k} className="flex justify-between text-[9px]">
+                          <span className="text-slate-500">{k}</span>
+                          <span className="text-slate-300">{String(v)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-slate-500 text-[9px] italic">No properties</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Details panel */}
-      {selected && (
-        <div style={{ position: 'absolute', top: 70, right: 16, width: 300, maxWidth: 'calc(100% - 32px)', maxHeight: 'calc(100% - 100px)', background: 'rgba(30,41,59,0.98)', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden', zIndex: 1000 }}>
-          <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 600, color: 'white', fontSize: 14 }}>{selected.type === 'node' ? 'Node' : 'Connection'} Details</span>
-            <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>×</button>
-          </div>
-          <div style={{ padding: 16, maxHeight: 400, overflow: 'auto' }}>
-            {selected.type === 'node' && (
-              <>
-                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                  <AWSIcon type={selected.label} size={48} />
-                  <div>
-                    <div style={{ color: 'white', fontWeight: 600, fontSize: 13 }}>{selected.fullName}</div>
-                    <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>{selected.label}</div>
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Properties</div>
-                <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: 12 }}>
-                  {Object.entries(selected.props || {}).slice(0, 10).map(([k, v]) => (
-                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 }}>
-                      <span style={{ color: '#64748b' }}>{k}</span>
-                      <span style={{ color: '#e2e8f0', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(v).slice(0, 40)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-            {selected.type === 'edge' && (
-              <>
-                <div style={{ color: 'white', fontSize: 13, marginBottom: 12 }}>
-                  {nodes.find(n => n.id === selected.source)?.name || selected.source}
-                  <span style={{ color: getConnectionStyle(selected.type || '').color, margin: '0 8px' }}>→</span>
-                  {nodes.find(n => n.id === selected.target)?.name || selected.target}
-                </div>
-                <div style={{ display: 'inline-block', padding: '4px 10px', background: getConnectionStyle(selected.type || '').color + '30', color: getConnectionStyle(selected.type || '').color, borderRadius: 20, fontSize: 11, marginBottom: 16 }}>
-                  {selected.type}
-                </div>
-                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Properties</div>
-                <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: 12 }}>
-                  {Object.keys(selected.props || {}).length > 0 ? (
-                    Object.entries(selected.props).map(([k, v]) => (
-                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 }}>
-                        <span style={{ color: '#64748b' }}>{k}</span>
-                        <span style={{ color: '#e2e8f0' }}>{String(v)}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic' }}>No properties</div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Footer - Compact */}
-      <div className="bg-slate-800/80 border-t border-slate-700 px-3 py-1.5 flex items-center gap-2 text-xs text-slate-400 flex-shrink-0 flex-wrap">
-        <span style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>Categories:</span>
+      {/* Compact Footer */}
+      <div className="flex items-center gap-4 px-3 py-1.5 bg-slate-800/80 border-t border-slate-700 text-[9px] text-slate-400 flex-shrink-0">
+        <span className="font-medium">Categories:</span>
         {[
           { color: '#ED7100', label: 'Compute' },
-          { color: '#3B48CC', label: 'Database' },
+          { color: '#3B48CC', label: 'DB' },
           { color: '#1B660F', label: 'Storage' },
           { color: '#DD344C', label: 'Security' },
           { color: '#8C4FFF', label: 'Network' },
-          { color: '#E7157B', label: 'Integration' },
         ].map(c => (
-          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: c.color, flexShrink: 0 }} />
-            <span style={{ fontSize: 10 }}>{c.label}</span>
+          <div key={c.label} className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: c.color }} />
+            <span>{c.label}</span>
           </div>
         ))}
-        <span style={{ marginLeft: 'auto', color: '#4ade80', fontSize: 10, whiteSpace: 'nowrap' }}>● = Active Flow</span>
+        <span className="ml-auto text-green-400">● = Active Flow</span>
       </div>
-
-      <style>{`
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        @keyframes flow { 0% { left: -8px; } 100% { left: 100%; } }
-      `}</style>
     </div>
   );
 }
