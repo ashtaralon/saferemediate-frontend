@@ -2,12 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
-// Wrapper to ensure proper container sizing
-const ContainerWrapper = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-    {children}
-  </div>
-)
+// No wrapper needed - component handles its own sizing
 
 // AWS Icons as simple colored boxes with labels for reliability
 const AWSIcon = ({ type, size = 36 }) => {
@@ -338,8 +333,7 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <ContainerWrapper>
-    <div style={{ height: '100%', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box', margin: 0, padding: 0 }}>
+    <div className="h-full w-full bg-slate-950 flex flex-col overflow-hidden relative" style={{ fontFamily: 'system-ui, sans-serif' }}>
       {/* Header - Responsive with wrapping */}
       <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '6px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, minHeight: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
@@ -591,6 +585,5 @@ export default function AWSInfraMap() {
         @keyframes flow { 0% { left: -8px; } 100% { left: 100%; } }
       `}</style>
     </div>
-    </ContainerWrapper>
   );
 }
