@@ -304,7 +304,7 @@ export default function AWSInfraMap() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ height: '100%', minHeight: '400px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', color: 'white' }}>
           <div style={{ width: 60, height: 60, border: '4px solid #f97316', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }} />
           <h2 style={{ margin: 0 }}>Loading Infrastructure Map</h2>
@@ -317,7 +317,7 @@ export default function AWSInfraMap() {
 
   if (error) {
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ height: '100%', minHeight: '400px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <div style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', borderRadius: 12, padding: 32, textAlign: 'center', maxWidth: 400 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
           <h2 style={{ color: '#f87171', margin: '0 0 16px' }}>Connection Error</h2>
@@ -331,9 +331,9 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <div style={{ height: '100vh', width: '100%', maxWidth: '100vw', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
+    <div style={{ height: '100%', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
       {/* Header - Responsive with wrapping */}
-      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '8px 12px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0, minHeight: 'auto' }}>
+      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '6px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, minHeight: 'auto', maxHeight: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
           <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>⚡</div>
           <div style={{ flexShrink: 0 }}>
@@ -389,7 +389,7 @@ export default function AWSInfraMap() {
 
       {/* Canvas */}
       <div 
-        style={{ flex: '1 1 0', minHeight: 0, height: 'calc(100vh - 80px)', maxHeight: 'calc(100vh - 80px)', overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', position: 'relative' }}
+        style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', position: 'relative' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -504,7 +504,7 @@ export default function AWSInfraMap() {
 
       {/* Details panel */}
       {selected && (
-        <div style={{ position: 'absolute', top: 70, right: 16, width: 300, maxWidth: 'calc(100% - 32px)', maxHeight: 'calc(100vh - 100px)', background: 'rgba(30,41,59,0.98)', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden', zIndex: 1000 }}>
+        <div style={{ position: 'absolute', top: 70, right: 16, width: 300, maxWidth: 'calc(100% - 32px)', maxHeight: 'calc(100% - 100px)', background: 'rgba(30,41,59,0.98)', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden', zIndex: 1000 }}>
           <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 600, color: 'white', fontSize: 14 }}>{selected.type === 'node' ? 'Node' : 'Connection'} Details</span>
             <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>×</button>
