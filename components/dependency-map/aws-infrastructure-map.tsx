@@ -331,9 +331,9 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <div style={{ height: '100%', width: '100%', maxHeight: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box', margin: 0, padding: 0 }}>
+    <div style={{ height: '100%', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box', margin: 0, padding: 0 }}>
       {/* Header - Responsive with wrapping */}
-      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '6px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, minHeight: 'auto', maxHeight: 'none' }}>
+      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '6px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, minHeight: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
           <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>⚡</div>
           <div style={{ flexShrink: 0 }}>
@@ -560,7 +560,7 @@ export default function AWSInfraMap() {
       )}
 
       {/* Footer - Responsive */}
-      <div style={{ background: 'rgba(30,41,59,0.8)', borderTop: '1px solid #334155', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 12, fontSize: 10, color: '#94a3b8', flexShrink: 0, flexWrap: 'wrap' }}>
+      <div style={{ background: 'rgba(30,41,59,0.8)', borderTop: '1px solid #334155', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 9, color: '#94a3b8', flexShrink: 0, flexWrap: 'wrap', minHeight: 'auto' }}>
         <span style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>Categories:</span>
         {[
           { color: '#ED7100', label: 'Compute' },
