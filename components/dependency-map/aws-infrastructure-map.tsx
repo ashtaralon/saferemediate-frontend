@@ -331,7 +331,7 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <div style={{ height: '100vh', width: '100vw', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'fixed', top: 0, left: 0 }}>
+    <div style={{ height: '100%', width: '100%', minHeight: '100vh', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative' }}>
       {/* Header */}
       <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -470,7 +470,7 @@ export default function AWSInfraMap() {
         </svg>
 
         {/* Zoom controls */}
-        <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 4, zIndex: 100 }}>
           <button onClick={() => setZoom(z => Math.min(2, z * 1.2))} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 18, cursor: 'pointer', borderRadius: 6 }}>+</button>
           <div style={{ textAlign: 'center', fontSize: 10, color: '#94a3b8' }}>{Math.round(zoom * 100)}%</div>
           <button onClick={() => setZoom(z => Math.max(0.1, z / 1.2))} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 18, cursor: 'pointer', borderRadius: 6 }}>−</button>
@@ -479,7 +479,7 @@ export default function AWSInfraMap() {
         </div>
 
         {/* Legend */}
-        <div style={{ position: 'absolute', bottom: 16, right: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 12 }}>
+        <div style={{ position: 'absolute', bottom: 16, right: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 12, zIndex: 100, maxWidth: 'calc(100% - 400px)' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: '#e2e8f0', marginBottom: 8 }}>Data Flow Types</div>
           {[
             { type: 'ACTUAL_TRAFFIC', label: 'Traffic' },
@@ -503,7 +503,7 @@ export default function AWSInfraMap() {
 
       {/* Details panel */}
       {selected && (
-        <div style={{ position: 'absolute', top: 70, right: 16, width: 300, background: 'rgba(30,41,59,0.98)', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: 70, right: 16, width: 300, maxWidth: 'calc(100% - 32px)', maxHeight: 'calc(100vh - 100px)', background: 'rgba(30,41,59,0.98)', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden', zIndex: 1000 }}>
           <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 600, color: 'white', fontSize: 14 }}>{selected.type === 'node' ? 'Node' : 'Connection'} Details</span>
             <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>×</button>
