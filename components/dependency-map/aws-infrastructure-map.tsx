@@ -334,8 +334,8 @@ export default function AWSInfraMap() {
 
   return (
     <div className="h-full w-full bg-slate-950 flex flex-col overflow-hidden relative" style={{ fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header - Responsive with wrapping */}
-      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '6px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, minHeight: 'auto' }}>
+      {/* Header - Compact and responsive */}
+      <header className="bg-slate-800/90 border-b border-slate-700 px-3 py-2 flex flex-wrap items-center justify-between gap-2 flex-shrink-0">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
           <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>⚡</div>
           <div style={{ flexShrink: 0 }}>
@@ -389,9 +389,10 @@ export default function AWSInfraMap() {
         </div>
       </header>
 
-      {/* Canvas */}
+      {/* Canvas - Takes remaining space */}
       <div 
-        style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', position: 'relative' }}
+        className="flex-1 min-h-0 overflow-hidden relative"
+        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -561,8 +562,8 @@ export default function AWSInfraMap() {
         </div>
       )}
 
-      {/* Footer - Responsive */}
-      <div style={{ background: 'rgba(30,41,59,0.8)', borderTop: '1px solid #334155', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 9, color: '#94a3b8', flexShrink: 0, flexWrap: 'wrap', minHeight: 'auto' }}>
+      {/* Footer - Compact */}
+      <div className="bg-slate-800/80 border-t border-slate-700 px-3 py-1.5 flex items-center gap-2 text-xs text-slate-400 flex-shrink-0 flex-wrap">
         <span style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>Categories:</span>
         {[
           { color: '#ED7100', label: 'Compute' },
