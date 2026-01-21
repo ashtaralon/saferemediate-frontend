@@ -331,24 +331,24 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <div style={{ height: '100%', width: '100%', minHeight: '100vh', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative' }}>
-      {/* Header */}
-      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 40, height: 40, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>⚡</div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'white' }}>AWS Infrastructure Map</h1>
-            <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Dynamic data flow visualization</p>
+    <div style={{ height: '100vh', width: '100%', maxWidth: '100vw', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
+      {/* Header - Responsive with wrapping */}
+      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '8px 12px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0, minHeight: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
+          <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>⚡</div>
+          <div style={{ flexShrink: 0 }}>
+            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'white', lineHeight: '1.2' }}>AWS Infrastructure Map</h1>
+            <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', lineHeight: '1.2' }}>Dynamic data flow visualization</p>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginLeft: 16 }}>
-            <span style={{ padding: '4px 10px', background: 'rgba(249,115,22,0.2)', color: '#fb923c', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{stats.nodes.toLocaleString()} Nodes</span>
-            <span style={{ padding: '4px 10px', background: 'rgba(34,211,238,0.2)', color: '#22d3ee', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{stats.rels.toLocaleString()} Connections</span>
-            {playing && <span style={{ padding: '4px 10px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', borderRadius: 20, fontSize: 11, fontWeight: 600, animation: 'pulse 2s infinite' }}>{animCount} Active Flows</span>}
+          <div style={{ display: 'flex', gap: 6, marginLeft: 12, flexWrap: 'wrap' }}>
+            <span style={{ padding: '3px 8px', background: 'rgba(249,115,22,0.2)', color: '#fb923c', borderRadius: 16, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap' }}>{stats.nodes.toLocaleString()} Nodes</span>
+            <span style={{ padding: '3px 8px', background: 'rgba(34,211,238,0.2)', color: '#22d3ee', borderRadius: 16, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap' }}>{stats.rels.toLocaleString()} Connections</span>
+            {playing && <span style={{ padding: '3px 8px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', borderRadius: 16, fontSize: 10, fontWeight: 600, animation: 'pulse 2s infinite', whiteSpace: 'nowrap' }}>{animCount} Active</span>}
           </div>
         </div>
 
-        {/* View Tabs */}
-        <div style={{ display: 'flex', background: 'rgba(51,65,85,0.5)', borderRadius: 8, padding: 4 }}>
+        {/* View Tabs - Responsive */}
+        <div style={{ display: 'flex', background: 'rgba(51,65,85,0.5)', borderRadius: 6, padding: 2, flexWrap: 'wrap', gap: 2 }}>
           {[
             { id: 'traffic', label: '↗️ Traffic' },
             { id: 'full', label: '🗺️ Full' },
@@ -359,9 +359,10 @@ export default function AWSInfraMap() {
               key={m.id}
               onClick={() => setViewMode(m.id)}
               style={{
-                padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                padding: '4px 8px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 500,
                 background: viewMode === m.id ? 'linear-gradient(135deg, #f97316, #ec4899)' : 'transparent',
                 color: viewMode === m.id ? 'white' : '#94a3b8',
+                whiteSpace: 'nowrap'
               }}
             >
               {m.label}
@@ -369,26 +370,26 @@ export default function AWSInfraMap() {
           ))}
         </div>
 
-        {/* Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(51,65,85,0.5)', borderRadius: 8, padding: '6px 12px' }}>
-            <button onClick={() => setPlaying(!playing)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: playing ? '#4ade80' : '#94a3b8', fontSize: 13 }}>
-              {playing ? '⏸️ Pause' : '▶️ Play'}
+        {/* Controls - Responsive */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(51,65,85,0.5)', borderRadius: 6, padding: '4px 8px' }}>
+            <button onClick={() => setPlaying(!playing)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: playing ? '#4ade80' : '#94a3b8', fontSize: 11, padding: '2px 4px' }}>
+              {playing ? '⏸️' : '▶️'}
             </button>
-            <span style={{ color: '#64748b' }}>|</span>
-            <span style={{ color: '#94a3b8', fontSize: 11 }}>Speed:</span>
-            <input type="range" min="0.2" max="3" step="0.2" value={speed} onChange={e => setSpeed(+e.target.value)} style={{ width: 60 }} />
-            <span style={{ color: '#e2e8f0', fontSize: 11, width: 28 }}>{speed}x</span>
+            <span style={{ color: '#64748b', fontSize: 10 }}>|</span>
+            <span style={{ color: '#94a3b8', fontSize: 10 }}>Speed:</span>
+            <input type="range" min="0.2" max="3" step="0.2" value={speed} onChange={e => setSpeed(+e.target.value)} style={{ width: 50 }} />
+            <span style={{ color: '#e2e8f0', fontSize: 10, width: 24 }}>{speed}x</span>
           </div>
-          <button onClick={load} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #f97316, #ec4899)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-            🔄 Refresh
+          <button onClick={load} style={{ padding: '4px 10px', background: 'linear-gradient(135deg, #f97316, #ec4899)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>
+            🔄
           </button>
         </div>
       </header>
 
       {/* Canvas */}
       <div 
-        style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', position: 'relative' }}
+        style={{ flex: '1 1 0', minHeight: 0, height: 'calc(100vh - 80px)', maxHeight: 'calc(100vh - 80px)', overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', position: 'relative' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -558,9 +559,9 @@ export default function AWSInfraMap() {
         </div>
       )}
 
-      {/* Footer */}
-      <div style={{ background: 'rgba(30,41,59,0.8)', borderTop: '1px solid #334155', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>
-        <span style={{ fontWeight: 500 }}>Categories:</span>
+      {/* Footer - Responsive */}
+      <div style={{ background: 'rgba(30,41,59,0.8)', borderTop: '1px solid #334155', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 12, fontSize: 10, color: '#94a3b8', flexShrink: 0, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>Categories:</span>
         {[
           { color: '#ED7100', label: 'Compute' },
           { color: '#3B48CC', label: 'Database' },
@@ -569,12 +570,12 @@ export default function AWSInfraMap() {
           { color: '#8C4FFF', label: 'Network' },
           { color: '#E7157B', label: 'Integration' },
         ].map(c => (
-          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color }} />
-            <span>{c.label}</span>
+          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: c.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 10 }}>{c.label}</span>
           </div>
         ))}
-        <span style={{ marginLeft: 'auto', color: '#4ade80' }}>● = Active Flow</span>
+        <span style={{ marginLeft: 'auto', color: '#4ade80', fontSize: 10, whiteSpace: 'nowrap' }}>● = Active Flow</span>
       </div>
 
       <style>{`
