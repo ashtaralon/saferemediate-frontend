@@ -1,6 +1,5 @@
 // app/api/neo4j/query/route.ts
-// Routes Neo4j queries through the Python backend (which already has Neo4j access)
-// This avoids the 403 Forbidden error from Neo4j Aura
+// Routes Neo4j queries through the Python backend with retry logic for resilience
 
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -9,6 +8,63 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+
+async function queryWithRetry(cypher: string, maxRetries = 3): Promise<Response> {
+  let lastError: any = null
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000)
+
+      const response = await fetch(`${BACKEND_URL}/api/graph/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ cypher }),
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      // If successful or non-retryable error, return immediately
+      if (response.ok || response.status === 400) {
+        return response
+      }
+
+      // For 500 errors, retry (could be session expiration)
+      if (response.status === 500 && attempt < maxRetries) {
+        const errorText = await response.text()
+        console.log(`[Neo4j Proxy] Attempt ${attempt}/${maxRetries} failed (500), retrying...`, errorText.substring(0, 100))
+        
+        // Exponential backoff: wait 200ms, 400ms, 800ms
+        await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempt - 1)))
+        continue
+      }
+
+      return response
+    } catch (error: any) {
+      lastError = error
+
+      if (error.name === 'AbortError') {
+        throw error // Don't retry timeouts
+      }
+
+      // Retry on network errors
+      if (attempt < maxRetries) {
+        console.log(`[Neo4j Proxy] Attempt ${attempt}/${maxRetries} failed (network), retrying...`, error.message)
+        await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempt - 1)))
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded')
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,22 +78,8 @@ export async function POST(request: NextRequest) {
     console.log('[Neo4j Proxy] Routing through backend:', BACKEND_URL)
     console.log('[Neo4j Proxy] Query preview:', cypher.substring(0, 100) + '...')
 
-    // Route through your Python backend's graph query endpoint
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 25000)
-
     try {
-      const response = await fetch(`${BACKEND_URL}/api/graph/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ cypher }),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
+      const response = await queryWithRetry(cypher)
 
       if (!response.ok) {
         const errorText = await response.text()
@@ -65,8 +107,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(data)
       
     } catch (fetchError: any) {
-      clearTimeout(timeoutId)
-
       if (fetchError.name === 'AbortError') {
         console.error('[Neo4j Proxy] Request timeout')
         return NextResponse.json(
