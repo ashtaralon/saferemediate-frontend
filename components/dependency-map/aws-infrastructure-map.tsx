@@ -331,7 +331,7 @@ export default function AWSInfraMap() {
   }
 
   return (
-    <div style={{ height: '100%', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
+    <div style={{ height: '100%', width: '100%', maxHeight: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', position: 'relative', boxSizing: 'border-box', margin: 0, padding: 0 }}>
       {/* Header - Responsive with wrapping */}
       <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '6px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, minHeight: 'auto', maxHeight: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 auto', minWidth: '200px' }}>
@@ -396,7 +396,7 @@ export default function AWSInfraMap() {
         onMouseLeave={onMouseUp}
         onWheel={onWheel}
       >
-        <svg width="100%" height="100%" style={{ background: '#0f172a', display: 'block' }}>
+        <svg width="100%" height="100%" style={{ background: '#0f172a', display: 'block', maxWidth: '100%', maxHeight: '100%' }}>
           <defs>
             <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
               <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#1e293b" strokeWidth="0.5" />
