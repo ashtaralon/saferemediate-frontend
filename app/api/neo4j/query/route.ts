@@ -1,5 +1,5 @@
 // app/api/neo4j/query/route.ts
-// Routes Neo4j queries through the Python backend with retry logic for resilience
+// Direct Neo4j HTTP API calls (bypassing Python backend which has driver issues)
 
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -7,64 +7,10 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-
-async function queryWithRetry(cypher: string, maxRetries = 3): Promise<Response> {
-  let lastError: any = null
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 25000)
-
-      const response = await fetch(`${BACKEND_URL}/api/graph/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ cypher }),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      // If successful or non-retryable error, return immediately
-      if (response.ok || response.status === 400) {
-        return response
-      }
-
-      // For 500 errors, retry (could be session expiration)
-      if (response.status === 500 && attempt < maxRetries) {
-        const errorText = await response.text()
-        console.log(`[Neo4j Proxy] Attempt ${attempt}/${maxRetries} failed (500), retrying...`, errorText.substring(0, 100))
-        
-        // Exponential backoff: wait 200ms, 400ms, 800ms
-        await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempt - 1)))
-        continue
-      }
-
-      return response
-    } catch (error: any) {
-      lastError = error
-
-      if (error.name === 'AbortError') {
-        throw error // Don't retry timeouts
-      }
-
-      // Retry on network errors
-      if (attempt < maxRetries) {
-        console.log(`[Neo4j Proxy] Attempt ${attempt}/${maxRetries} failed (network), retrying...`, error.message)
-        await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, attempt - 1)))
-        continue
-      }
-
-      throw error
-    }
-  }
-
-  throw lastError || new Error('Max retries exceeded')
-}
+// Neo4j Aura configuration
+const NEO4J_URI = process.env.NEO4J_URI || 'https://4e9962b7.databases.neo4j.io'
+const NEO4J_USERNAME = process.env.NEO4J_USERNAME || 'neo4j'
+const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
 
 export async function POST(request: NextRequest) {
   try {
@@ -75,42 +21,76 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing or invalid cypher query' }, { status: 400 })
     }
 
-    console.log('[Neo4j Proxy] Routing through backend:', BACKEND_URL)
-    console.log('[Neo4j Proxy] Query preview:', cypher.substring(0, 100) + '...')
+    // Build Neo4j HTTP endpoint URL
+    let neo4jUrl = NEO4J_URI
+    if (!neo4jUrl.startsWith('http://') && !neo4jUrl.startsWith('https://')) {
+      if (neo4jUrl.startsWith('neo4j+s://') || neo4jUrl.startsWith('bolt+s://')) {
+        neo4jUrl = neo4jUrl.replace(/^(neo4j\+s|bolt\+s):\/\//, 'https://')
+      } else if (neo4jUrl.startsWith('neo4j://') || neo4jUrl.startsWith('bolt://')) {
+        neo4jUrl = neo4jUrl.replace(/^(neo4j|bolt):\/\//, 'https://')
+      } else {
+        neo4jUrl = `https://${neo4jUrl}`
+      }
+    }
+
+    const endpoint = neo4jUrl.endsWith('/')
+      ? `${neo4jUrl}db/neo4j/tx/commit`
+      : `${neo4jUrl}/db/neo4j/tx/commit`
+
+    console.log('[Neo4j API] Direct HTTP query to:', endpoint.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'))
+    console.log('[Neo4j API] Query preview:', cypher.substring(0, 80) + '...')
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 25000)
 
     try {
-      const response = await queryWithRetry(cypher)
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${NEO4J_USERNAME}:${NEO4J_PASSWORD}`),
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ statements: [{ statement: cypher }] }),
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('[Neo4j Proxy] Backend error:', response.status, errorText.substring(0, 200))
-        
-        let errorData: any = { detail: `Backend returned ${response.status}` }
-        try {
-          errorData = JSON.parse(errorText)
-        } catch {
-          errorData = { detail: errorText || `Backend returned ${response.status}` }
-        }
-        
+        console.error('[Neo4j API] HTTP error:', response.status, errorText.substring(0, 200))
         return NextResponse.json(
-          { error: errorData.detail || errorData.message || `Backend error: ${response.status}`, details: errorText },
+          { error: `Neo4j returned ${response.status}: ${response.statusText}`, details: errorText },
           { status: response.status }
         )
       }
 
       const data = await response.json()
-      console.log('[Neo4j Proxy] Success via backend:', {
+
+      // Check for Neo4j errors in response
+      if (data.errors && data.errors.length > 0) {
+        console.error('[Neo4j API] Query errors:', data.errors)
+        return NextResponse.json(
+          { error: data.errors[0].message || 'Neo4j query error', details: JSON.stringify(data.errors) },
+          { status: 400 }
+        )
+      }
+
+      console.log('[Neo4j API] Success:', {
         results: data.results?.length || 0,
         rows: data.results?.[0]?.data?.length || 0
       })
-      
+
       return NextResponse.json(data)
-      
     } catch (fetchError: any) {
+      clearTimeout(timeoutId)
+
       if (fetchError.name === 'AbortError') {
-        console.error('[Neo4j Proxy] Request timeout')
+        console.error('[Neo4j API] Request timeout after 25 seconds')
         return NextResponse.json(
-          { error: 'Request timeout - backend did not respond within 25 seconds' },
+          { error: 'Request timeout - Neo4j did not respond within 25 seconds' },
           { status: 504 }
         )
       }
@@ -118,9 +98,19 @@ export async function POST(request: NextRequest) {
       throw fetchError
     }
   } catch (error: any) {
-    console.error('[Neo4j Proxy] Error:', error.message)
+    console.error('[Neo4j API] Error:', error.message, error.cause?.message)
+
+    let errorMessage = 'Failed to connect to Neo4j'
+    if (error.message?.includes('ECONNREFUSED')) {
+      errorMessage = 'Connection refused - Neo4j server may be down'
+    } else if (error.message?.includes('ENOTFOUND')) {
+      errorMessage = 'DNS resolution failed - Check Neo4j URI'
+    } else if (error.message?.includes('fetch failed')) {
+      errorMessage = 'Network error - Cannot reach Neo4j server'
+    }
+
     return NextResponse.json(
-      { error: 'Failed to execute query', details: error.message },
+      { error: errorMessage, details: error.message },
       { status: 500 }
     )
   }

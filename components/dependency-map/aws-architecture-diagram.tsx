@@ -1,996 +1,636 @@
-'use client'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+// AWS Icons as simple colored boxes with labels for reliability
+const AWSIcon = ({ type, size = 36 }: { type: string; size?: number }) => {
+  const colors: Record<string, string> = {
+    EC2: '#ED7100', EC2Instance: '#ED7100', Lambda: '#ED7100', LambdaFunction: '#ED7100',
+    RDSInstance: '#3B48CC', DynamoDB: '#3B48CC', DynamoDBTable: '#3B48CC',
+    S3Bucket: '#1B660F', S3: '#1B660F',
+    IAMRole: '#DD344C', IAMPolicy: '#DD344C', SecurityGroup: '#DD344C', KMSKey: '#DD344C',
+    VPC: '#8C4FFF', Subnet: '#8C4FFF', InternetGateway: '#8C4FFF', RouteTable: '#8C4FFF',
+    APIGateway: '#E7157B', ApiGateway: '#E7157B', SQSQueue: '#E7157B', EventBus: '#E7157B',
+  };
 
-// AWS Icon mappings using official AWS Architecture Icons (simplified SVG representations)
-const AWSIcons: Record<string, React.FC<{ className?: string }>> = {
-  // Compute
-  EC2: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#ED7100"/>
-      <rect x="12" y="12" width="24" height="24" rx="2" fill="#fff"/>
-      <rect x="16" y="16" width="16" height="16" fill="#ED7100"/>
-    </svg>
-  ),
-  Lambda: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#ED7100"/>
-      <path d="M14 34l8-20h4l8 20h-4l-6-15-6 15z" fill="#fff"/>
-    </svg>
-  ),
-  ECS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#ED7100"/>
-      <circle cx="24" cy="24" r="10" fill="#fff"/>
-      <circle cx="24" cy="24" r="6" fill="#ED7100"/>
-    </svg>
-  ),
-  EKS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#ED7100"/>
-      <path d="M24 12l12 7v10l-12 7-12-7V19z" fill="#fff"/>
-      <path d="M24 16l8 5v6l-8 5-8-5v-6z" fill="#ED7100"/>
-    </svg>
-  ),
+  const icons: Record<string, string> = {
+    EC2: '🖥️', EC2Instance: '🖥️', Lambda: 'λ', LambdaFunction: 'λ',
+    RDSInstance: '🗄️', DynamoDB: '📊', DynamoDBTable: '📊',
+    S3Bucket: '🪣', S3: '🪣',
+    IAMRole: '👤', IAMPolicy: '📋', SecurityGroup: '🛡️', KMSKey: '🔑',
+    VPC: '🌐', Subnet: '📦', InternetGateway: '🌍', RouteTable: '🗺️',
+    APIGateway: '🔌', ApiGateway: '🔌', SQSQueue: '📬', EventBus: '📡',
+  };
 
-  // Database
-  RDS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#3B48CC"/>
-      <ellipse cx="24" cy="16" rx="12" ry="4" fill="#fff"/>
-      <path d="M12 16v16c0 2.2 5.4 4 12 4s12-1.8 12-4V16" stroke="#fff" strokeWidth="2" fill="none"/>
-      <ellipse cx="24" cy="24" rx="12" ry="4" fill="none" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-  Aurora: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#3B48CC"/>
-      <circle cx="24" cy="24" r="12" fill="#fff"/>
-      <circle cx="24" cy="24" r="8" fill="#3B48CC"/>
-      <circle cx="24" cy="24" r="4" fill="#fff"/>
-    </svg>
-  ),
-  DynamoDB: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#3B48CC"/>
-      <path d="M12 20h24v8H12z" fill="#fff"/>
-      <path d="M16 16h16v4H16zM16 28h16v4H16z" fill="#fff" opacity="0.7"/>
-    </svg>
-  ),
-  ElastiCache: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#3B48CC"/>
-      <rect x="14" y="14" width="20" height="20" rx="2" fill="#fff"/>
-      <path d="M18 22h12M18 26h12" stroke="#3B48CC" strokeWidth="2"/>
-    </svg>
-  ),
+  const color = colors[type] || '#545B64';
+  const icon = icons[type] || '☁️';
 
-  // Networking
-  VPC: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <rect x="10" y="10" width="28" height="28" rx="2" fill="none" stroke="#fff" strokeWidth="2"/>
-      <path d="M24 14v20M14 24h20" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-  Subnet: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <rect x="12" y="12" width="24" height="24" rx="2" fill="#fff" opacity="0.3"/>
-      <rect x="16" y="16" width="16" height="16" rx="1" fill="#fff"/>
-    </svg>
-  ),
-  ALB: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <circle cx="24" cy="18" r="6" fill="#fff"/>
-      <path d="M16 30h4v6h-4zM22 30h4v6h-4zM28 30h4v6h-4z" fill="#fff"/>
-      <path d="M24 24v6M18 30l6-6M30 30l-6-6" stroke="#fff" strokeWidth="1.5"/>
-    </svg>
-  ),
-  NLB: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <circle cx="24" cy="18" r="6" fill="#fff"/>
-      <rect x="14" y="30" width="20" height="6" fill="#fff"/>
-      <path d="M24 24v6" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-  APIGateway: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <path d="M14 24h6l4-6 4 6 4-6 4 6h6" stroke="#fff" strokeWidth="2" fill="none"/>
-      <circle cx="14" cy="24" r="3" fill="#fff"/>
-      <circle cx="34" cy="24" r="3" fill="#fff"/>
-    </svg>
-  ),
-  Route53: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <circle cx="24" cy="24" r="10" fill="none" stroke="#fff" strokeWidth="2"/>
-      <text x="24" y="28" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="bold">53</text>
-    </svg>
-  ),
-  CloudFront: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <circle cx="24" cy="24" r="10" fill="#fff"/>
-      <path d="M24 14a10 10 0 0 1 0 20" fill="#8C4FFF"/>
-    </svg>
-  ),
-  NATGateway: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <rect x="14" y="18" width="20" height="12" rx="2" fill="#fff"/>
-      <path d="M24 14v4M24 30v4M18 24h-4M30 24h4" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-  InternetGateway: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <circle cx="24" cy="24" r="8" fill="#fff"/>
-      <path d="M24 8v8M24 32v8M8 24h8M32 24h8" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
+  return (
+    <div style={{
+      width: size, height: size,
+      backgroundColor: color,
+      borderRadius: 6,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: size * 0.5,
+    }}>
+      {icon}
+    </div>
+  );
+};
 
-  // Security
-  IAM: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#DD344C"/>
-      <circle cx="24" cy="18" r="6" fill="#fff"/>
-      <path d="M14 36c0-6 4-10 10-10s10 4 10 10" fill="#fff"/>
-    </svg>
-  ),
-  SecurityGroup: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#DD344C"/>
-      <path d="M24 10l12 6v12c0 6-12 10-12 10S12 34 12 28V16z" fill="#fff"/>
-      <path d="M20 24l4 4 8-8" stroke="#DD344C" strokeWidth="2" fill="none"/>
-    </svg>
-  ),
-  WAF: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#DD344C"/>
-      <rect x="12" y="14" width="24" height="20" rx="2" fill="#fff"/>
-      <path d="M16 20h16M16 26h16M16 32h8" stroke="#DD344C" strokeWidth="2"/>
-    </svg>
-  ),
-  KMS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#DD344C"/>
-      <circle cx="20" cy="24" r="6" fill="#fff"/>
-      <rect x="24" y="22" width="12" height="4" fill="#fff"/>
-      <rect x="32" y="18" width="4" height="4" fill="#fff"/>
-    </svg>
-  ),
-  SecretsManager: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#DD344C"/>
-      <rect x="16" y="20" width="16" height="14" rx="2" fill="#fff"/>
-      <circle cx="24" cy="18" r="4" fill="none" stroke="#fff" strokeWidth="2"/>
-      <circle cx="24" cy="27" r="2" fill="#DD344C"/>
-    </svg>
-  ),
+// Connection style based on type
+const getConnectionStyle = (type: string) => {
+  const styles: Record<string, { color: string; animated: boolean; speed?: number }> = {
+    ACTUAL_TRAFFIC: { color: '#10B981', animated: true, speed: 1.5 },
+    OBSERVED_TRAFFIC: { color: '#10B981', animated: true, speed: 1.2 },
+    API_CALL: { color: '#EC4899', animated: true, speed: 2 },
+    ACTUAL_API_CALL: { color: '#EC4899', animated: true, speed: 2.5 },
+    RUNTIME_CALLS: { color: '#F59E0B', animated: true, speed: 2 },
+    ACTUAL_S3_ACCESS: { color: '#1B660F', animated: true, speed: 1.5 },
+    ASSUMES_ROLE: { color: '#DD344C', animated: true, speed: 0.5 },
+    CAN_ACCESS: { color: '#DD344C', animated: true, speed: 0.8 },
+    IN_VPC: { color: '#8C4FFF', animated: false },
+    IN_SUBNET: { color: '#8C4FFF', animated: false },
+    BELONGS_TO: { color: '#6B7280', animated: false },
+    CONTAINS: { color: '#6B7280', animated: false },
+  };
+  return styles[type] || { color: '#94A3B8', animated: false };
+};
 
-  // Storage
-  S3: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#1B660F"/>
-      <path d="M12 24l12-8 12 8-12 8z" fill="#fff"/>
-      <path d="M12 20l12-8 12 8" fill="none" stroke="#fff" strokeWidth="2"/>
-      <path d="M12 28l12 8 12-8" fill="none" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-  EBS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#1B660F"/>
-      <rect x="14" y="12" width="20" height="24" rx="2" fill="#fff"/>
-      <path d="M18 18h12M18 24h12M18 30h8" stroke="#1B660F" strokeWidth="2"/>
-    </svg>
-  ),
-  EFS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#1B660F"/>
-      <rect x="12" y="16" width="10" height="16" rx="1" fill="#fff"/>
-      <rect x="26" y="16" width="10" height="16" rx="1" fill="#fff"/>
-      <path d="M22 24h4" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-
-  // Management
-  CloudWatch: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <circle cx="24" cy="24" r="10" fill="#fff"/>
-      <path d="M24 18v6l4 4" stroke="#E7157B" strokeWidth="2" fill="none"/>
-    </svg>
-  ),
-  CloudTrail: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <path d="M14 32l6-8 4 4 6-10 6 14z" fill="#fff"/>
-    </svg>
-  ),
-  CloudFormation: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <rect x="14" y="14" width="8" height="8" fill="#fff"/>
-      <rect x="26" y="14" width="8" height="8" fill="#fff"/>
-      <rect x="20" y="26" width="8" height="8" fill="#fff"/>
-      <path d="M18 22v4h4M26 22v4h-4" stroke="#fff" strokeWidth="1.5"/>
-    </svg>
-  ),
-
-  // Messaging
-  SQS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <rect x="12" y="18" width="24" height="12" rx="2" fill="#fff"/>
-      <path d="M16 24h4M22 24h4M28 24h4" stroke="#E7157B" strokeWidth="2"/>
-    </svg>
-  ),
-  SNS: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <circle cx="24" cy="24" r="6" fill="#fff"/>
-      <circle cx="14" cy="16" r="4" fill="#fff"/>
-      <circle cx="34" cy="16" r="4" fill="#fff"/>
-      <circle cx="14" cy="32" r="4" fill="#fff"/>
-      <circle cx="34" cy="32" r="4" fill="#fff"/>
-    </svg>
-  ),
-  EventBridge: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#E7157B"/>
-      <rect x="18" y="18" width="12" height="12" fill="#fff"/>
-      <path d="M12 24h6M30 24h6M24 12v6M24 30v6" stroke="#fff" strokeWidth="2"/>
-    </svg>
-  ),
-
-  // Analytics
-  Kinesis: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <path d="M12 18h24M12 24h24M12 30h24" stroke="#fff" strokeWidth="3"/>
-    </svg>
-  ),
-  Athena: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#8C4FFF"/>
-      <circle cx="24" cy="20" r="8" fill="#fff"/>
-      <path d="M18 30l6 8 6-8z" fill="#fff"/>
-    </svg>
-  ),
-
-  // Default/Generic
-  Generic: ({ className }) => (
-    <svg viewBox="0 0 48 48" className={className}>
-      <rect x="4" y="4" width="40" height="40" rx="4" fill="#545B64"/>
-      <rect x="12" y="12" width="24" height="24" rx="2" fill="#fff"/>
-      <text x="24" y="28" textAnchor="middle" fill="#545B64" fontSize="8">AWS</text>
-    </svg>
-  ),
-}
-
-// Map service types to icons
-const getIconForService = (serviceType: string, serviceName: string): string => {
-  const type = (serviceType || serviceName || '').toLowerCase()
-
-  if (type.includes('ec2') || type.includes('instance')) return 'EC2'
-  if (type.includes('lambda')) return 'Lambda'
-  if (type.includes('ecs')) return 'ECS'
-  if (type.includes('eks') || type.includes('kubernetes')) return 'EKS'
-  if (type.includes('aurora')) return 'Aurora'
-  if (type.includes('rds') || type.includes('database') || type.includes('mysql') || type.includes('postgres')) return 'RDS'
-  if (type.includes('dynamodb') || type.includes('dynamo')) return 'DynamoDB'
-  if (type.includes('elasticache') || type.includes('redis') || type.includes('memcached')) return 'ElastiCache'
-  if (type.includes('vpc')) return 'VPC'
-  if (type.includes('subnet')) return 'Subnet'
-  if (type.includes('alb') || type.includes('application load')) return 'ALB'
-  if (type.includes('nlb') || type.includes('network load')) return 'NLB'
-  if (type.includes('elb') || type.includes('load') || type.includes('lb')) return 'ALB'
-  if (type.includes('api') || type.includes('gateway')) return 'APIGateway'
-  if (type.includes('route53') || type.includes('dns') || type.includes('route 53')) return 'Route53'
-  if (type.includes('cloudfront') || type.includes('cdn')) return 'CloudFront'
-  if (type.includes('nat')) return 'NATGateway'
-  if (type.includes('igw') || type.includes('internet gateway')) return 'InternetGateway'
-  if (type.includes('iam') || type.includes('role') || type.includes('user') || type.includes('policy')) return 'IAM'
-  if (type.includes('security group') || type.includes('sg-') || type.includes('securitygroup')) return 'SecurityGroup'
-  if (type.includes('waf') || type.includes('firewall')) return 'WAF'
-  if (type.includes('kms') || type.includes('key')) return 'KMS'
-  if (type.includes('secret')) return 'SecretsManager'
-  if (type.includes('s3') || type.includes('bucket')) return 'S3'
-  if (type.includes('ebs') || type.includes('volume')) return 'EBS'
-  if (type.includes('efs') || type.includes('file system')) return 'EFS'
-  if (type.includes('cloudwatch') || type.includes('watch') || type.includes('metric') || type.includes('alarm')) return 'CloudWatch'
-  if (type.includes('cloudtrail') || type.includes('trail') || type.includes('audit')) return 'CloudTrail'
-  if (type.includes('cloudformation') || type.includes('stack')) return 'CloudFormation'
-  if (type.includes('sqs') || type.includes('queue')) return 'SQS'
-  if (type.includes('sns') || type.includes('notification') || type.includes('topic')) return 'SNS'
-  if (type.includes('eventbridge') || type.includes('event')) return 'EventBridge'
-  if (type.includes('kinesis') || type.includes('stream')) return 'Kinesis'
-  if (type.includes('athena')) return 'Athena'
-
-  return 'Generic'
-}
-
-// Color coding for connection types
-const getConnectionColor = (connectionType: string, port: string | number | null): string => {
-  const type = (connectionType || '').toLowerCase()
-  const portNum = parseInt(String(port)) || 0
-
-  if (type.includes('https') || portNum === 443) return '#10B981'
-  if (type.includes('http') || portNum === 80) return '#3B82F6'
-  if (type.includes('sql') || type.includes('mysql') || portNum === 3306) return '#8B5CF6'
-  if (type.includes('postgres') || portNum === 5432) return '#6366F1'
-  if (type.includes('redis') || portNum === 6379) return '#EF4444'
-  if (type.includes('ssh') || portNum === 22) return '#F59E0B'
-  if (type.includes('dns') || portNum === 53) return '#14B8A6'
-  if (type.includes('api')) return '#EC4899'
-  if (type.includes('internal')) return '#6B7280'
-
-  return '#64748B'
-}
-
-// Types
-interface NodeData {
-  id: string
-  label: string
-  name: string
-  type: string
-  props: Record<string, any>
-  x: number
-  y: number
-  vx?: number
-  vy?: number
-  icon: string
-}
+// Use the proxy route to avoid CORS issues
+// The proxy route is at /api/proxy/neo4j/query
 
 interface EdgeData {
-  id: string
-  source: string
-  target: string
-  type: string
-  props: Record<string, any>
-  port: string | number | null
-  protocol: string
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  props: Record<string, any>;
 }
 
-interface RawData {
-  nodeLabels: string[]
-  relationshipTypes: string[]
-  totalNodes: number
-  totalRelationships: number
+interface NodeData {
+  id: string;
+  label: string;
+  name: string;
+  fullName: string;
+  props: Record<string, any>;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
 }
 
-interface Props {
-  systemName: string
-  onNodeClick?: (node: NodeData) => void
-  onRefresh?: () => void
+// Animated Edge Component
+const AnimatedEdge = ({
+  edge,
+  src,
+  tgt,
+  selected,
+  time,
+  onClick
+}: {
+  edge: EdgeData;
+  src: NodeData;
+  tgt: NodeData;
+  selected: boolean;
+  time: number;
+  onClick: () => void;
+}) => {
+  const style = getConnectionStyle(edge.type);
+  const dx = tgt.x - src.x;
+  const dy = tgt.y - src.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1) return null;
+
+  const off = 40;
+  const x1 = src.x + (dx / dist) * off;
+  const y1 = src.y + (dy / dist) * off;
+  const x2 = tgt.x - (dx / dist) * off;
+  const y2 = tgt.y - (dy / dist) * off;
+
+  // Particles
+  const particles: Array<{ x: number; y: number; o: number }> = [];
+  if (style.animated && style.speed) {
+    for (let i = 0; i < 3; i++) {
+      const p = ((time * style.speed * 0.001) + i / 3) % 1;
+      particles.push({
+        x: x1 + (x2 - x1) * p,
+        y: y1 + (y2 - y1) * p,
+        o: 0.4 + p * 0.6
+      });
+    }
+  }
+
+  return (
+    <g onClick={onClick} style={{ cursor: 'pointer' }}>
+      <line x1={x1} y1={y1} x2={x2} y2={y2}
+        stroke={style.color} strokeWidth={selected ? 3 : 1.5} strokeOpacity={selected ? 0.9 : 0.4} />
+      {style.animated && (
+        <line x1={x1} y1={y1} x2={x2} y2={y2}
+          stroke={style.color} strokeWidth={4} strokeOpacity={0.15} />
+      )}
+      {particles.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={4} fill={style.color} opacity={p.o} />
+      ))}
+      <polygon
+        points="0,-4 8,0 0,4"
+        fill={style.color}
+        transform={`translate(${x2},${y2}) rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI})`}
+      />
+    </g>
+  );
+};
+
+// Props interface to match parent component expectations
+interface AWSArchitectureDiagramProps {
+  systemName?: string;
+  onNodeClick?: (node: { id: string; type: string; name: string }) => void;
+  onRefresh?: () => void;
 }
 
-// Use environment variable for backend URL
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+// Main Component
+export default function AWSArchitectureDiagram({
+  systemName,
+  onNodeClick: externalOnNodeClick,
+  onRefresh: externalOnRefresh
+}: AWSArchitectureDiagramProps) {
+  const [nodes, setNodes] = useState<NodeData[]>([]);
+  const [edges, setEdges] = useState<EdgeData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<any>(null);
+  const [zoom, setZoom] = useState(0.5);
+  const [pan, setPan] = useState({ x: 50, y: 50 });
+  const [dragging, setDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [viewMode, setViewMode] = useState('traffic');
+  const [animTime, setAnimTime] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(1);
+  const [stats, setStats] = useState({ nodes: 0, rels: 0 });
+  const animRef = useRef<number>();
 
-const AWSArchitectureDiagram: React.FC<Props> = ({ systemName, onNodeClick, onRefresh }) => {
-  const [nodes, setNodes] = useState<NodeData[]>([])
-  const [edges, setEdges] = useState<EdgeData[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedNode, setSelectedNode] = useState<NodeData | null>(null)
-  const [selectedEdge, setSelectedEdge] = useState<EdgeData | null>(null)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-  const [filter, setFilter] = useState('all')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [rawData, setRawData] = useState<RawData>({ nodeLabels: [], relationshipTypes: [], totalNodes: 0, totalRelationships: 0 })
-  const svgRef = useRef<SVGSVGElement>(null)
+  // Animation loop
+  useEffect(() => {
+    if (!playing) return;
+    const tick = (t: number) => {
+      setAnimTime(t * speed);
+      animRef.current = requestAnimationFrame(tick);
+    };
+    animRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current);
+    };
+  }, [playing, speed]);
 
-  // Fetch data from backend proxy (which connects to Neo4j)
-  const fetchFromBackend = async (endpoint: string) => {
-    const response = await fetch(`${BACKEND_URL}${endpoint}`, {
-      method: 'GET',
+  // Query Neo4j via proxy to avoid CORS issues
+  const query = async (cypher: string) => {
+    const res = await fetch('/api/proxy/neo4j/query', {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`Backend HTTP error: ${response.status}`)
+      },
+      body: JSON.stringify({ cypher })
+    });
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(errorData.error || `HTTP ${res.status}`);
     }
+    return res.json();
+  };
 
-    return response.json()
-  }
-
-  // Load all data
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  // Load data
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
     try {
-      // Fetch dependency map data from backend
-      const data = await fetchFromBackend(`/api/dependency-map/full?systemName=${encodeURIComponent(systemName)}`)
+      // Get counts
+      const countRes = await query('MATCH (n) WITH count(n) as nc MATCH ()-[r]->() RETURN nc, count(r)');
+      const counts = countRes.results?.[0]?.data?.[0]?.row || [0, 0];
+      setStats({ nodes: counts[0], rels: counts[1] });
 
-      const graphNodes = data.nodes || []
-      const graphEdges = data.edges || []
+      // Build queries based on view mode
+      let nq: string, eq: string;
+      const limit = 400;
 
-      // Get unique labels and relationship types
-      const labels = [...new Set(graphNodes.map((n: any) => n.type || 'Unknown'))] as string[]
-      const relTypes = [...new Set(graphEdges.map((e: any) => e.type || e.label || 'CONNECTED'))] as string[]
+      if (viewMode === 'traffic') {
+        nq = `MATCH (n) WHERE n:EC2Instance OR n:Lambda OR n:LambdaFunction OR n:APIGateway OR n:ApiGateway OR n:RDSInstance OR n:S3Bucket OR n:DynamoDBTable OR n:SQSQueue
+              RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
+        eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['ACTUAL_TRAFFIC','OBSERVED_TRAFFIC','API_CALL','ACTUAL_API_CALL','RUNTIME_CALLS','ACTUAL_S3_ACCESS']
+              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1200`;
+      } else if (viewMode === 'security') {
+        nq = `MATCH (n) WHERE n:IAMRole OR n:IAMPolicy OR n:SecurityGroup OR n:Principal OR n:KMSKey
+              RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
+        eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['ASSUMES_ROLE','CAN_ASSUME','USES_ROLE','HAS_POLICY','CAN_ACCESS']
+              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1200`;
+      } else if (viewMode === 'network') {
+        nq = `MATCH (n) WHERE n:VPC OR n:Subnet OR n:InternetGateway OR n:RouteTable OR n:SecurityGroup
+              RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
+        eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['IN_VPC','IN_SUBNET','CONTAINS','HAS_IGW','USES_ROUTE_TABLE']
+              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1200`;
+      } else {
+        nq = `MATCH (n) RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
+        eq = `MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1500`;
+      }
 
-      setRawData({
-        nodeLabels: labels,
-        relationshipTypes: relTypes,
-        totalNodes: graphNodes.length,
-        totalRelationships: graphEdges.length
-      })
+      const nodesRes = await query(nq);
+      const edgesRes = await query(eq);
+
+      const nodeData = nodesRes.results?.[0]?.data || [];
+      const edgeData = edgesRes.results?.[0]?.data || [];
 
       // Process nodes
-      const processedNodes: NodeData[] = []
-      const cols = Math.ceil(Math.sqrt(graphNodes.length))
+      const cols = Math.ceil(Math.sqrt(nodeData.length));
+      const spacing = 160;
 
-      graphNodes.forEach((node: any, index: number) => {
-        const primaryLabel = node.type || 'Unknown'
-        const name = node.name || node.id
+      const procNodes: NodeData[] = nodeData.map((r: any, i: number) => {
+        const [id, labels, props] = r.row;
+        const label = labels[0] || 'Unknown';
+        const name = props.name || props.Name || props.id ||
+                     props.arn?.split('/').pop() || props.arn?.split(':').pop() ||
+                     `${label}-${id}`;
+        return {
+          id: String(id),
+          label,
+          name: name.length > 25 ? name.slice(0, 25) + '...' : name,
+          fullName: name,
+          props,
+          x: 200 + (i % cols) * spacing,
+          y: 200 + Math.floor(i / cols) * spacing,
+          vx: 0, vy: 0
+        };
+      });
 
-        // Calculate position in a grid layout initially
-        const x = 150 + (index % cols) * 200
-        const y = 150 + Math.floor(index / cols) * 180
+      const nodeIds = new Set(procNodes.map(n => n.id));
 
-        processedNodes.push({
-          id: node.id,
-          label: primaryLabel,
-          name: name,
-          type: primaryLabel,
-          props: node.props || node.properties || {},
-          x: x,
-          y: y,
-          icon: getIconForService(primaryLabel, name)
-        })
-      })
+      const procEdges: EdgeData[] = edgeData
+        .map((r: any) => ({
+          id: String(r.row[4]),
+          source: String(r.row[0]),
+          target: String(r.row[1]),
+          type: r.row[2],
+          props: r.row[3] || {}
+        }))
+        .filter((e: EdgeData) => nodeIds.has(e.source) && nodeIds.has(e.target));
 
-      // Process edges
-      const processedEdges: EdgeData[] = []
+      // Force layout
+      const nodeMap = new Map(procNodes.map(n => [n.id, n]));
 
-      graphEdges.forEach((edge: any, index: number) => {
-        const edgeType = edge.type || edge.label || 'CONNECTED'
-        const props = edge.props || edge.properties || {}
+      for (let iter = 0; iter < 80; iter++) {
+        const t = 1 - iter / 80;
 
-        processedEdges.push({
-          id: edge.id || `edge-${index}`,
-          source: edge.source,
-          target: edge.target,
-          type: edgeType,
-          props: props,
-          port: props.port || props.Port || null,
-          protocol: props.protocol || props.Protocol || edgeType
-        })
-      })
+        // Repulsion
+        procNodes.forEach(n1 => {
+          procNodes.forEach(n2 => {
+            if (n1.id === n2.id) return;
+            const dx = n1.x - n2.x;
+            const dy = n1.y - n2.y;
+            const d = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
+            const f = 8000 / (d * d);
+            n1.vx += (dx/d) * f * t;
+            n1.vy += (dy/d) * f * t;
+          });
+        });
 
-      // Apply force-directed layout
-      const layoutedNodes = applyForceLayout(processedNodes, processedEdges)
+        // Attraction
+        procEdges.forEach(e => {
+          const s = nodeMap.get(e.source);
+          const g = nodeMap.get(e.target);
+          if (!s || !g) return;
+          const dx = g.x - s.x;
+          const dy = g.y - s.y;
+          const f = Math.sqrt(dx*dx + dy*dy) * 0.004 * t;
+          s.vx += dx * f; s.vy += dy * f;
+          g.vx -= dx * f; g.vy -= dy * f;
+        });
 
-      setNodes(layoutedNodes)
-      setEdges(processedEdges)
-      setLoading(false)
+        // Update
+        procNodes.forEach(n => {
+          n.x += n.vx * 0.1;
+          n.y += n.vy * 0.1;
+          n.vx *= 0.85;
+          n.vy *= 0.85;
+          n.x = Math.max(100, Math.min(4000, n.x));
+          n.y = Math.max(100, Math.min(3000, n.y));
+        });
+      }
 
+      setNodes(procNodes);
+      setEdges(procEdges);
+      setLoading(false);
     } catch (err: any) {
-      console.error('Data fetch error:', err)
-      setError(err.message)
-      setLoading(false)
+      setError(err.message);
+      setLoading(false);
     }
-  }, [systemName])
+  }, [viewMode]);
 
-  // Simple force-directed layout
-  const applyForceLayout = (nodes: NodeData[], edges: EdgeData[]): NodeData[] => {
-    if (nodes.length === 0) return nodes
+  useEffect(() => { load(); }, [load]);
 
-    const nodeMap = new Map(nodes.map(n => [n.id, { ...n }]))
-    const iterations = 100
-    const repulsion = 5000
-    const attraction = 0.01
-    const damping = 0.9
+  // Mouse handlers
+  const onMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.interactive')) return;
+    setDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  };
+  const onMouseUp = () => setDragging(false);
+  const onWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    setZoom(z => Math.max(0.1, Math.min(2, z * (e.deltaY > 0 ? 0.9 : 1.1))));
+  };
 
-    for (let i = 0; i < iterations; i++) {
-      // Apply repulsion between all nodes
-      nodes.forEach((n1, idx1) => {
-        const node1 = nodeMap.get(n1.id)
-        if (!node1) return
-        let fx = 0, fy = 0
-
-        nodes.forEach((n2, idx2) => {
-          if (idx1 === idx2) return
-          const node2 = nodeMap.get(n2.id)
-          if (!node2) return
-          const dx = node1.x - node2.x
-          const dy = node1.y - node2.y
-          const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-          const force = repulsion / (dist * dist)
-          fx += (dx / dist) * force
-          fy += (dy / dist) * force
-        })
-
-        node1.vx = (node1.vx || 0) * damping + fx * 0.1
-        node1.vy = (node1.vy || 0) * damping + fy * 0.1
-      })
-
-      // Apply attraction along edges
-      edges.forEach(edge => {
-        const source = nodeMap.get(edge.source)
-        const target = nodeMap.get(edge.target)
-        if (!source || !target) return
-
-        const dx = target.x - source.x
-        const dy = target.y - source.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        if (dist === 0) return
-        const force = dist * attraction
-
-        source.vx = (source.vx || 0) + (dx / dist) * force
-        source.vy = (source.vy || 0) + (dy / dist) * force
-        target.vx = (target.vx || 0) - (dx / dist) * force
-        target.vy = (target.vy || 0) - (dy / dist) * force
-      })
-
-      // Update positions
-      nodeMap.forEach(node => {
-        node.x += node.vx || 0
-        node.y += node.vy || 0
-        // Keep within bounds
-        node.x = Math.max(100, Math.min(2400, node.x))
-        node.y = Math.max(100, Math.min(1600, node.y))
-      })
-    }
-
-    return Array.from(nodeMap.values())
-  }
-
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  // Filter nodes and edges
-  const filteredNodes = nodes.filter(node => {
-    const matchesFilter = filter === 'all' || node.label.toLowerCase().includes(filter.toLowerCase())
-    const matchesSearch = !searchTerm ||
-      node.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      node.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      JSON.stringify(node.props).toLowerCase().includes(searchTerm.toLowerCase())
-    return matchesFilter && matchesSearch
-  })
-
-  const filteredNodeIds = new Set(filteredNodes.map(n => n.id))
-  const filteredEdges = edges.filter(e =>
-    filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target)
-  )
-
-  // Mouse handlers for panning
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement
-    if (e.target === svgRef.current || target.classList?.contains('bg-layer')) {
-      setIsDragging(true)
-      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
-    }
-  }
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
-      setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y })
-    }
-  }
-
-  const handleMouseUp = () => {
-    setIsDragging(false)
-  }
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
-    setZoom(z => Math.max(0.2, Math.min(3, z * delta)))
-  }
-
-  // Get unique labels for filter
-  const uniqueLabels = [...new Set(nodes.map(n => n.label))].sort()
-
-  // Render edge path with arrow
-  const renderEdge = (edge: EdgeData) => {
-    const source = filteredNodes.find(n => n.id === edge.source)
-    const target = filteredNodes.find(n => n.id === edge.target)
-    if (!source || !target) return null
-
-    const dx = target.x - source.x
-    const dy = target.y - source.y
-    const dist = Math.sqrt(dx * dx + dy * dy)
-    if (dist === 0) return null
-    const offset = 35
-
-    const startX = source.x + (dx / dist) * offset
-    const startY = source.y + (dy / dist) * offset
-    const endX = target.x - (dx / dist) * offset
-    const endY = target.y - (dy / dist) * offset
-
-    const midX = (startX + endX) / 2
-    const midY = (startY + endY) / 2
-
-    const color = getConnectionColor(edge.type, edge.port)
-    const isSelected = selectedEdge?.id === edge.id
-
-    return (
-      <g key={edge.id} onClick={() => setSelectedEdge(edge)} style={{ cursor: 'pointer' }}>
-        <defs>
-          <marker
-            id={`arrow-${edge.id}`}
-            markerWidth="10"
-            markerHeight="7"
-            refX="9"
-            refY="3.5"
-            orient="auto"
-          >
-            <polygon points="0 0, 10 3.5, 0 7" fill={color} />
-          </marker>
-        </defs>
-        <line
-          x1={startX}
-          y1={startY}
-          x2={endX}
-          y2={endY}
-          stroke={color}
-          strokeWidth={isSelected ? 3 : 1.5}
-          strokeOpacity={isSelected ? 1 : 0.7}
-          markerEnd={`url(#arrow-${edge.id})`}
-        />
-        {(edge.port || edge.type) && (
-          <g transform={`translate(${midX}, ${midY})`}>
-            <rect
-              x="-25"
-              y="-10"
-              width="50"
-              height="20"
-              rx="4"
-              fill="white"
-              stroke={color}
-              strokeWidth="1"
-              opacity="0.95"
-            />
-            <text
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="9"
-              fill={color}
-              fontWeight="500"
-            >
-              {edge.port || edge.type}
-            </text>
-          </g>
-        )}
-      </g>
-    )
-  }
-
-  // Render node
-  const renderNode = (node: NodeData) => {
-    const IconComponent = AWSIcons[node.icon] || AWSIcons.Generic
-    const isSelected = selectedNode?.id === node.id
-
-    return (
-      <g
-        key={node.id}
-        transform={`translate(${node.x}, ${node.y})`}
-        onClick={() => {
-          setSelectedNode(node)
-          if (onNodeClick) {
-            onNodeClick(node)
-          }
-        }}
-        style={{ cursor: 'pointer' }}
-      >
-        <rect
-          x="-40"
-          y="-40"
-          width="80"
-          height="80"
-          rx="8"
-          fill="white"
-          stroke={isSelected ? '#3B82F6' : '#E5E7EB'}
-          strokeWidth={isSelected ? 3 : 1}
-          filter="drop-shadow(0 2px 4px rgba(0,0,0,0.1))"
-        />
-        <foreignObject x="-24" y="-28" width="48" height="48">
-          <IconComponent className="w-12 h-12" />
-        </foreignObject>
-        <text
-          y="30"
-          textAnchor="middle"
-          fontSize="10"
-          fill="#374151"
-          fontWeight="500"
-        >
-          {node.name.length > 12 ? node.name.substring(0, 12) + '...' : node.name}
-        </text>
-      </g>
-    )
-  }
+  // Count animated
+  const animCount = edges.filter(e => getConnectionStyle(e.type).animated).length;
 
   if (loading) {
     return (
-      <div className="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center rounded-xl">
-        <div className="text-center">
-          <div className="relative w-24 h-24 mx-auto mb-6">
-            <div className="absolute inset-0 border-4 border-orange-500/20 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-transparent border-t-orange-500 rounded-full animate-spin"></div>
-            <div className="absolute inset-3 border-4 border-transparent border-t-blue-500 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Infrastructure</h2>
-          <p className="text-slate-400">Fetching AWS resources from Neo4j...</p>
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', color: 'white' }}>
+          <div style={{ width: 60, height: 60, border: '4px solid #f97316', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }} />
+          <h2 style={{ margin: 0 }}>Loading Infrastructure Map</h2>
+          <p style={{ color: '#94a3b8', marginTop: 8 }}>Connecting to Neo4j...</p>
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
-    )
+    );
   }
 
   if (error) {
     return (
-      <div className="h-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-8 rounded-xl">
-        <div className="bg-red-900/30 border border-red-500/50 rounded-2xl p-8 max-w-lg">
-          <div className="text-red-400 text-6xl mb-4">⚠️</div>
-          <h2 className="text-2xl font-bold text-red-400 mb-4">Connection Error</h2>
-          <p className="text-slate-300 mb-4">{error}</p>
-          <button
-            onClick={loadData}
-            className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-          >
-            Retry Connection
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ background: 'rgba(239,68,68,0.2)', border: '1px solid #ef4444', borderRadius: 12, padding: 32, textAlign: 'center', maxWidth: 400 }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+          <h2 style={{ color: '#f87171', margin: '0 0 16px' }}>Connection Error</h2>
+          <p style={{ color: '#cbd5e1', marginBottom: 24 }}>{error}</p>
+          <button onClick={load} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '10px 24px', borderRadius: 8, cursor: 'pointer', fontSize: 14, fontWeight: 500 }}>
+            Retry
           </button>
         </div>
       </div>
-    )
+    );
   }
 
-  return (
-    <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100 flex flex-col rounded-xl overflow-hidden" style={{ fontFamily: "'Inter', -apple-system, sans-serif" }}>
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">☁️</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">AWS Infrastructure Map</h1>
-              <p className="text-xs text-slate-500">Real-time behavioral graph from Neo4j</p>
-            </div>
-          </div>
+  const nodeColors: Record<string, string> = {
+    EC2: '#ED7100', EC2Instance: '#ED7100', Lambda: '#ED7100', LambdaFunction: '#ED7100',
+    RDSInstance: '#3B48CC', DynamoDBTable: '#3B48CC',
+    S3Bucket: '#1B660F',
+    IAMRole: '#DD344C', IAMPolicy: '#DD344C', SecurityGroup: '#DD344C', KMSKey: '#DD344C',
+    VPC: '#8C4FFF', Subnet: '#8C4FFF', InternetGateway: '#8C4FFF',
+    APIGateway: '#E7157B', ApiGateway: '#E7157B', SQSQueue: '#E7157B',
+  };
 
-          <div className="flex gap-2 ml-6">
-            <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">
-              {rawData.totalNodes} Nodes
-            </span>
-            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-              {rawData.totalRelationships} Connections
-            </span>
-            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-              {rawData.nodeLabels.length} Types
-            </span>
+  return (
+    <div style={{ height: '100%', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden' }}>
+      {/* Header */}
+      <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, background: 'linear-gradient(135deg, #f97316, #ec4899)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>⚡</div>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'white' }}>AWS Infrastructure Map</h1>
+            <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Dynamic data flow visualization</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginLeft: 16 }}>
+            <span style={{ padding: '4px 10px', background: 'rgba(249,115,22,0.2)', color: '#fb923c', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{stats.nodes.toLocaleString()} Nodes</span>
+            <span style={{ padding: '4px 10px', background: 'rgba(34,211,238,0.2)', color: '#22d3ee', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{stats.rels.toLocaleString()} Connections</span>
+            {playing && <span style={{ padding: '4px 10px', background: 'rgba(34,197,94,0.2)', color: '#4ade80', borderRadius: 20, fontSize: 11, fontWeight: 600, animation: 'pulse 2s infinite' }}>{animCount} Active Flows</span>}
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <input
-            type="text"
-            placeholder="Search nodes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50 w-64"
-          />
+        {/* View Tabs */}
+        <div style={{ display: 'flex', background: 'rgba(51,65,85,0.5)', borderRadius: 8, padding: 4 }}>
+          {[
+            { id: 'traffic', label: '↗️ Traffic' },
+            { id: 'full', label: '🗺️ Full' },
+            { id: 'security', label: '🔒 Security' },
+            { id: 'network', label: '🌐 Network' },
+          ].map(m => (
+            <button
+              key={m.id}
+              onClick={() => setViewMode(m.id)}
+              style={{
+                padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                background: viewMode === m.id ? 'linear-gradient(135deg, #f97316, #ec4899)' : 'transparent',
+                color: viewMode === m.id ? 'white' : '#94a3b8',
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
 
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/50"
-          >
-            <option value="all">All Types ({nodes.length})</option>
-            {uniqueLabels.map(label => (
-              <option key={label} value={label}>
-                {label} ({nodes.filter(n => n.label === label).length})
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={() => {
-              loadData()
-              if (onRefresh) onRefresh()
-            }}
-            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-          >
+        {/* Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(51,65,85,0.5)', borderRadius: 8, padding: '6px 12px' }}>
+            <button onClick={() => setPlaying(!playing)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: playing ? '#4ade80' : '#94a3b8', fontSize: 13 }}>
+              {playing ? '⏸️ Pause' : '▶️ Play'}
+            </button>
+            <span style={{ color: '#64748b' }}>|</span>
+            <span style={{ color: '#94a3b8', fontSize: 11 }}>Speed:</span>
+            <input type="range" min="0.2" max="3" step="0.2" value={speed} onChange={e => setSpeed(+e.target.value)} style={{ width: 60 }} />
+            <span style={{ color: '#e2e8f0', fontSize: 11, width: 28 }}>{speed}x</span>
+          </div>
+          <button onClick={() => { load(); if (externalOnRefresh) externalOnRefresh(); }} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #f97316, #ec4899)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
             🔄 Refresh
           </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Canvas */}
-        <div className="flex-1 relative overflow-hidden">
-          <svg
-            ref={svgRef}
-            width="100%"
-            height="100%"
-            style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onWheel={handleWheel}
-          >
-            <defs>
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E5E7EB" strokeWidth="0.5"/>
-              </pattern>
-            </defs>
+      {/* Canvas */}
+      <div
+        style={{ flex: '1 1 0', minHeight: 0, overflow: 'hidden', cursor: dragging ? 'grabbing' : 'grab', position: 'relative' }}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        onWheel={onWheel}
+      >
+        <svg width="100%" height="100%" style={{ background: '#0f172a', display: 'block' }}>
+          <defs>
+            <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+              <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#1e293b" strokeWidth="0.5" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
 
-            <rect className="bg-layer" width="100%" height="100%" fill="url(#grid)" />
+          <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+            {/* Edges */}
+            {edges.map(e => {
+              const s = nodes.find(n => n.id === e.source);
+              const t = nodes.find(n => n.id === e.target);
+              if (!s || !t) return null;
+              return (
+                <AnimatedEdge
+                  key={e.id}
+                  edge={e}
+                  src={s}
+                  tgt={t}
+                  selected={selected?.id === e.id && selected?.type === 'edge'}
+                  time={animTime}
+                  onClick={() => setSelected({ ...e, type: 'edge' })}
+                />
+              );
+            })}
 
-            <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-              {/* Edges */}
-              {filteredEdges.map(renderEdge)}
+            {/* Nodes */}
+            {nodes.map(n => {
+              const isSelected = selected?.id === n.id && selected?.type === 'node';
+              const connCount = edges.filter(e => e.source === n.id || e.target === n.id).length;
+              const hasFlow = edges.some(e => (e.source === n.id || e.target === n.id) && getConnectionStyle(e.type).animated);
+              const color = nodeColors[n.label] || '#545B64';
 
-              {/* Nodes */}
-              {filteredNodes.map(renderNode)}
-            </g>
-          </svg>
-
-          {/* Zoom Controls */}
-          <div className="absolute bottom-6 left-6 flex flex-col gap-2 bg-white rounded-xl shadow-lg p-2">
-            <button onClick={() => setZoom(z => Math.min(3, z * 1.2))} className="w-10 h-10 hover:bg-slate-100 rounded-lg flex items-center justify-center text-lg">+</button>
-            <div className="text-center text-xs text-slate-500 py-1">{Math.round(zoom * 100)}%</div>
-            <button onClick={() => setZoom(z => Math.max(0.2, z / 1.2))} className="w-10 h-10 hover:bg-slate-100 rounded-lg flex items-center justify-center text-lg">-</button>
-            <div className="border-t border-slate-200 my-1"></div>
-            <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="w-10 h-10 hover:bg-slate-100 rounded-lg flex items-center justify-center text-sm">⟲</button>
-          </div>
-        </div>
-
-        {/* Details Panel */}
-        {(selectedNode || selectedEdge) && (
-          <div className="w-96 bg-white border-l border-slate-200 overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-slate-800">
-                  {selectedNode ? 'Node Details' : 'Connection Details'}
-                </h3>
-                <button
-                  onClick={() => { setSelectedNode(null); setSelectedEdge(null); }}
-                  className="text-slate-400 hover:text-slate-600 text-xl"
+              return (
+                <g
+                  key={n.id}
+                  className="interactive"
+                  transform={`translate(${n.x},${n.y})`}
+                  onClick={() => {
+                    setSelected({ ...n, type: 'node' });
+                    // Call external handler if provided
+                    if (externalOnNodeClick) {
+                      externalOnNodeClick({ id: n.id, type: n.label, name: n.fullName });
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
                 >
-                  ×
-                </button>
+                  {hasFlow && playing && (
+                    <circle r="46" fill="none" stroke={color} strokeWidth="2" strokeOpacity="0.3" strokeDasharray="8 4">
+                      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="8s" repeatCount="indefinite" />
+                    </circle>
+                  )}
+                  <rect x="-38" y="-38" width="76" height="76" rx="12" fill="#1e293b" stroke={isSelected ? '#3b82f6' : color} strokeWidth={isSelected ? 3 : 2} />
+                  <foreignObject x="-18" y="-22" width="36" height="36">
+                    <AWSIcon type={n.label} size={36} />
+                  </foreignObject>
+                  <text y="30" textAnchor="middle" fontSize="9" fill="#94a3b8" fontWeight="500">
+                    {n.name.length > 12 ? n.name.slice(0, 12) + '…' : n.name}
+                  </text>
+                  {connCount > 0 && (
+                    <g transform="translate(30,-30)">
+                      <circle r="10" fill={color} />
+                      <text textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="white" fontWeight="bold">{connCount > 99 ? '99+' : connCount}</text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+
+        {/* Zoom controls */}
+        <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <button onClick={() => setZoom(z => Math.min(2, z * 1.2))} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 18, cursor: 'pointer', borderRadius: 6 }}>+</button>
+          <div style={{ textAlign: 'center', fontSize: 10, color: '#94a3b8' }}>{Math.round(zoom * 100)}%</div>
+          <button onClick={() => setZoom(z => Math.max(0.1, z / 1.2))} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 18, cursor: 'pointer', borderRadius: 6 }}>−</button>
+          <div style={{ borderTop: '1px solid #334155', margin: '4px 0' }} />
+          <button onClick={() => { setZoom(0.5); setPan({ x: 50, y: 50 }); }} style={{ width: 32, height: 32, border: 'none', background: 'transparent', color: 'white', fontSize: 14, cursor: 'pointer', borderRadius: 6 }}>⟲</button>
+        </div>
+
+        {/* Legend */}
+        <div style={{ position: 'absolute', bottom: 16, right: 16, background: 'rgba(30,41,59,0.95)', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#e2e8f0', marginBottom: 8 }}>Data Flow Types</div>
+          {[
+            { type: 'ACTUAL_TRAFFIC', label: 'Traffic' },
+            { type: 'API_CALL', label: 'API Calls' },
+            { type: 'ACTUAL_S3_ACCESS', label: 'S3 Access' },
+            { type: 'ASSUMES_ROLE', label: 'IAM' },
+          ].map(({ type, label }) => {
+            const s = getConnectionStyle(type);
+            return (
+              <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 11 }}>
+                <div style={{ width: 24, height: 3, background: s.color, borderRadius: 2, position: 'relative', overflow: 'hidden' }}>
+                  {s.animated && <div style={{ position: 'absolute', width: 8, height: '100%', background: 'white', borderRadius: 2, animation: 'flow 1s linear infinite' }} />}
+                </div>
+                <span style={{ color: '#94a3b8' }}>{label}</span>
+                {s.animated && <span style={{ color: '#4ade80', fontSize: 8 }}>●</span>}
               </div>
-
-              {selectedNode && (
-                <>
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="w-16 h-16">
-                      {React.createElement(AWSIcons[selectedNode.icon] || AWSIcons.Generic, { className: 'w-16 h-16' })}
-                    </div>
-                    <div>
-                      <h4 className="text-xl font-bold text-slate-800">{selectedNode.name}</h4>
-                      <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-sm">
-                        {selectedNode.label}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <h5 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Properties</h5>
-                      <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                        {Object.entries(selectedNode.props).map(([key, value]) => (
-                          <div key={key} className="flex justify-between items-start text-sm">
-                            <span className="text-slate-500 font-medium">{key}</span>
-                            <span className="text-slate-800 text-right max-w-[60%] break-all">
-                              {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                            </span>
-                          </div>
-                        ))}
-                        {Object.keys(selectedNode.props).length === 0 && (
-                          <p className="text-slate-400 text-sm italic">No properties</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h5 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Connections</h5>
-                      <div className="space-y-2">
-                        {edges.filter(e => e.source === selectedNode.id || e.target === selectedNode.id).map(edge => {
-                          const isOutgoing = edge.source === selectedNode.id
-                          const otherNodeId = isOutgoing ? edge.target : edge.source
-                          const otherNode = nodes.find(n => n.id === otherNodeId)
-                          return (
-                            <div key={edge.id} className="bg-slate-50 rounded-lg p-3 flex items-center gap-2 text-sm">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${isOutgoing ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                                {isOutgoing ? 'OUT' : 'IN'}
-                              </span>
-                              <span className="text-slate-600">{edge.type}</span>
-                              <span className="text-slate-400">→</span>
-                              <span className="text-slate-800 font-medium">{otherNode?.name || otherNodeId}</span>
-                              {edge.port && (
-                                <span className="ml-auto px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
-                                  :{edge.port}
-                                </span>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {selectedEdge && (
-                <>
-                  <div className="mb-6">
-                    <div className="flex items-center gap-2 text-lg font-bold text-slate-800 mb-2">
-                      <span>{nodes.find(n => n.id === selectedEdge.source)?.name || selectedEdge.source}</span>
-                      <span className="text-orange-500">→</span>
-                      <span>{nodes.find(n => n.id === selectedEdge.target)?.name || selectedEdge.target}</span>
-                    </div>
-                    <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-sm">
-                      {selectedEdge.type}
-                    </span>
-                  </div>
-
-                  <div>
-                    <h5 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Properties</h5>
-                    <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                      {selectedEdge.port && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-medium">Port</span>
-                          <span className="text-slate-800">{selectedEdge.port}</span>
-                        </div>
-                      )}
-                      {selectedEdge.protocol && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-medium">Protocol</span>
-                          <span className="text-slate-800">{selectedEdge.protocol}</span>
-                        </div>
-                      )}
-                      {Object.entries(selectedEdge.props || {}).map(([key, value]) => (
-                        <div key={key} className="flex justify-between items-start text-sm">
-                          <span className="text-slate-500 font-medium">{key}</span>
-                          <span className="text-slate-800 text-right max-w-[60%] break-all">
-                            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                          </span>
-                        </div>
-                      ))}
-                      {Object.keys(selectedEdge.props || {}).length === 0 && !selectedEdge.port && (
-                        <p className="text-slate-400 text-sm italic">No properties</p>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Legend */}
-      <div className="bg-white border-t border-slate-200 px-6 py-3">
-        <div className="flex items-center gap-6 text-xs">
-          <span className="text-slate-500 font-medium">Connection Types:</span>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-[#10B981]"></div><span>HTTPS/443</span></div>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-[#3B82F6]"></div><span>HTTP/80</span></div>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-[#8B5CF6]"></div><span>MySQL/3306</span></div>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-[#EF4444]"></div><span>Redis/6379</span></div>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-[#EC4899]"></div><span>API</span></div>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-[#64748B]"></div><span>Other</span></div>
+            );
+          })}
         </div>
       </div>
-    </div>
-  )
-}
 
-export default AWSArchitectureDiagram
+      {/* Details panel */}
+      {selected && (
+        <div style={{ position: 'absolute', top: 70, right: 16, width: 300, background: 'rgba(30,41,59,0.98)', borderRadius: 12, border: '1px solid #334155', overflow: 'hidden' }}>
+          <div style={{ padding: 16, borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 600, color: 'white', fontSize: 14 }}>{selected.type === 'node' ? 'Node' : 'Connection'} Details</span>
+            <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}>×</button>
+          </div>
+          <div style={{ padding: 16, maxHeight: 400, overflow: 'auto' }}>
+            {selected.type === 'node' && (
+              <>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                  <AWSIcon type={selected.label} size={48} />
+                  <div>
+                    <div style={{ color: 'white', fontWeight: 600, fontSize: 13 }}>{selected.fullName}</div>
+                    <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>{selected.label}</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Properties</div>
+                <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: 12 }}>
+                  {Object.entries(selected.props || {}).slice(0, 10).map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 }}>
+                      <span style={{ color: '#64748b' }}>{k}</span>
+                      <span style={{ color: '#e2e8f0', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(v).slice(0, 40)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {selected.type === 'edge' && (
+              <>
+                <div style={{ color: 'white', fontSize: 13, marginBottom: 12 }}>
+                  {nodes.find(n => n.id === selected.source)?.name || selected.source}
+                  <span style={{ color: getConnectionStyle(selected.type || '').color, margin: '0 8px' }}>→</span>
+                  {nodes.find(n => n.id === selected.target)?.name || selected.target}
+                </div>
+                <div style={{ display: 'inline-block', padding: '4px 10px', background: getConnectionStyle(selected.type || '').color + '30', color: getConnectionStyle(selected.type || '').color, borderRadius: 20, fontSize: 11, marginBottom: 16 }}>
+                  {selected.type}
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Properties</div>
+                <div style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: 12 }}>
+                  {Object.keys(selected.props || {}).length > 0 ? (
+                    Object.entries(selected.props).map(([k, v]) => (
+                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6 }}>
+                        <span style={{ color: '#64748b' }}>{k}</span>
+                        <span style={{ color: '#e2e8f0' }}>{String(v)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic' }}>No properties</div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div style={{ background: 'rgba(30,41,59,0.8)', borderTop: '1px solid #334155', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>
+        <span style={{ fontWeight: 500 }}>Categories:</span>
+        {[
+          { color: '#ED7100', label: 'Compute' },
+          { color: '#3B48CC', label: 'Database' },
+          { color: '#1B660F', label: 'Storage' },
+          { color: '#DD344C', label: 'Security' },
+          { color: '#8C4FFF', label: 'Network' },
+          { color: '#E7157B', label: 'Integration' },
+        ].map(c => (
+          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: c.color }} />
+            <span>{c.label}</span>
+          </div>
+        ))}
+        <span style={{ marginLeft: 'auto', color: '#4ade80' }}>● = Active Flow</span>
+      </div>
+
+      <style>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes flow { 0% { left: -8px; } 100% { left: 100%; } }
+      `}</style>
+    </div>
+  );
+}
