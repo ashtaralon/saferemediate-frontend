@@ -684,14 +684,14 @@ export default function DependencyMapTab({
         ) : activeView === 'graph' ? (
           graphEngine === 'neo4j' ? (
             <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
                 <div className="text-center">
-                  <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+                  <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
+                  <p className="text-white text-sm font-medium mt-3">Loading Full Stack Flows...</p>
                 </div>
               </div>
             }>
-              <Neo4jAWSMap />
+              <FlowStripView systemName={systemName} />
             </React.Suspense>
           ) : graphEngine === 'comprehensive' ? (
             <React.Suspense fallback={
