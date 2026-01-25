@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'Authorization': 'Basic ' + btoa(`${NEO4J_USERNAME}:${NEO4J_PASSWORD}`),
+          'Authorization': 'Basic ' + Buffer.from(`${NEO4J_USERNAME}:${NEO4J_PASSWORD}`).toString('base64'),
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },

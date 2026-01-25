@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json()
-    console.log(`[Dependency Map Full Proxy] Success: ${data.total_nodes || 0} nodes, ${data.total_edges || 0} edges`)
+    console.log(`[Dependency Map Full Proxy] Success: ${data.nodes?.length || 0} nodes, ${data.edges?.length || 0} edges`)
 
     // Store in cache
     cache.set(cacheKey, { data, timestamp: now })

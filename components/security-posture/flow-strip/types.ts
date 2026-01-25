@@ -2,7 +2,7 @@
 
 export type FlowStatus = 'active' | 'idle' | 'warning' | 'blocked'
 
-export type CheckpointType = 'security_group' | 'iam_role' | 'nacl'
+export type CheckpointType = 'security_group' | 'iam_role' | 'nacl' | 'api_call'
 
 export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'step_functions' | 'dynamodb' | 'sqs' | 'sns' | 'eventbridge' | 'vpc_endpoint' | 'secrets_manager' | 'alb'
 

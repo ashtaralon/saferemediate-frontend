@@ -202,112 +202,97 @@ export default function Neo4jAWSMap() {
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [playing, speed]);
 
-  // Query Neo4j via API route (avoids CORS)
-  const query = async (cypher: string) => {
-    const res = await fetch('/api/neo4j/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cypher })
-    });
-    
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${res.status}`);
-    }
-    
-    return res.json();
-  };
-
-  // Load data
+  // Load data from backend API
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    
-    try {
-      const countRes = await query('MATCH (n) WITH count(n) as nc MATCH ()-[r]->() RETURN nc, count(r)');
-      const counts = countRes.results?.[0]?.data?.[0]?.row || [0, 0];
-      setStats({ nodes: counts[0], rels: counts[1] });
 
-      let nq: string, eq: string;
-      const limit = 300;
-      
-      if (viewMode === 'traffic') {
-        nq = `MATCH (n) WHERE n:EC2Instance OR n:Lambda OR n:LambdaFunction OR n:APIGateway OR n:ApiGateway OR n:RDSInstance OR n:S3Bucket OR n:DynamoDBTable OR n:SQSQueue
-              RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
-        eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['ACTUAL_TRAFFIC','OBSERVED_TRAFFIC','API_CALL','ACTUAL_API_CALL','RUNTIME_CALLS','ACTUAL_S3_ACCESS']
-              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 800`;
-      } else if (viewMode === 'security') {
-        nq = `MATCH (n) WHERE n:IAMRole OR n:IAMPolicy OR n:SecurityGroup OR n:Principal OR n:KMSKey
-              RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
-        eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['ASSUMES_ROLE','CAN_ASSUME','USES_ROLE','HAS_POLICY','CAN_ACCESS']
-              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 800`;
-      } else if (viewMode === 'network') {
-        nq = `MATCH (n) WHERE n:VPC OR n:Subnet OR n:InternetGateway OR n:RouteTable OR n:SecurityGroup
-              RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
-        eq = `MATCH (a)-[r]->(b) WHERE type(r) IN ['IN_VPC','IN_SUBNET','CONTAINS','HAS_IGW','USES_ROUTE_TABLE']
-              RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 800`;
-      } else {
-        nq = `MATCH (n) RETURN id(n), labels(n), properties(n) LIMIT ${limit}`;
-        eq = `MATCH (a)-[r]->(b) RETURN id(a), id(b), type(r), properties(r), id(r) LIMIT 1000`;
+    try {
+      // Fetch from backend API
+      const res = await fetch('/api/proxy/dependency-map/full?max_nodes=300');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
       }
 
-      const nodesRes = await query(nq);
-      const edgesRes = await query(eq);
-      
-      const nodeData = nodesRes.results?.[0]?.data || [];
-      const edgeData = edgesRes.results?.[0]?.data || [];
+      const data = await res.json();
+      const rawNodes = data.nodes || [];
+      const rawEdges = data.edges || [];
 
-      const cols = Math.ceil(Math.sqrt(nodeData.length));
-      const spacing = 140;
-      
-      const procNodes: GraphNode[] = nodeData.map((r: any, i: number) => {
-        const [id, labels, props] = r.row;
-        const label = labels[0] || 'Unknown';
-        const name = props.name || props.Name || props.id || props.arn?.split('/').pop() || props.arn?.split(':').pop() || `${label}-${id}`;
-        return {
-          id: String(id), label,
+      setStats({ nodes: rawNodes.length, rels: rawEdges.length });
+
+      // Filter by view mode
+      let filteredNodes = rawNodes;
+      let filteredEdges = rawEdges;
+
+      if (viewMode === 'traffic') {
+        const types = ['EC2', 'EC2Instance', 'Lambda', 'LambdaFunction', 'APIGateway', 'ApiGateway', 'RDSInstance', 'S3Bucket', 'S3', 'DynamoDBTable', 'SQSQueue'];
+        filteredNodes = rawNodes.filter((n: any) => types.includes(n.type || n.label));
+        const edgeTypes = ['ACTUAL_TRAFFIC', 'OBSERVED_TRAFFIC', 'API_CALL', 'ACTUAL_API_CALL', 'RUNTIME_CALLS', 'ACTUAL_S3_ACCESS', 'S3_OPERATION'];
+        filteredEdges = rawEdges.filter((e: any) => edgeTypes.includes(e.type || e.edge_type));
+      } else if (viewMode === 'security') {
+        const types = ['IAMRole', 'IAMPolicy', 'SecurityGroup', 'Principal', 'KMSKey'];
+        filteredNodes = rawNodes.filter((n: any) => types.includes(n.type || n.label));
+        const edgeTypes = ['ASSUMES_ROLE', 'CAN_ASSUME', 'USES_ROLE', 'HAS_POLICY', 'CAN_ACCESS'];
+        filteredEdges = rawEdges.filter((e: any) => edgeTypes.includes(e.type || e.edge_type));
+      } else if (viewMode === 'network') {
+        const types = ['VPC', 'Subnet', 'InternetGateway', 'RouteTable', 'SecurityGroup', 'NACL'];
+        filteredNodes = rawNodes.filter((n: any) => types.includes(n.type || n.label));
+        const edgeTypes = ['IN_VPC', 'IN_SUBNET', 'CONTAINS', 'HAS_IGW', 'USES_ROUTE_TABLE'];
+        filteredEdges = rawEdges.filter((e: any) => edgeTypes.includes(e.type || e.edge_type));
+      }
+
+      // Use hierarchical layout for faster rendering
+      const LAYER_ORDER: Record<string, number> = {
+        'LoadBalancer': 0, 'ALB': 0, 'NLB': 0, 'APIGateway': 0, 'ApiGateway': 0,
+        'EC2': 1, 'EC2Instance': 1, 'Lambda': 1, 'LambdaFunction': 1,
+        'SQSQueue': 2, 'SNSTopic': 2, 'EventBus': 2,
+        'RDSInstance': 3, 'DynamoDB': 3, 'DynamoDBTable': 3,
+        'S3Bucket': 4, 'S3': 4,
+        'IAMRole': 5, 'SecurityGroup': 5, 'KMSKey': 5,
+        'VPC': 6, 'Subnet': 6,
+      };
+
+      // Group and position nodes
+      const layers = new Map<number, GraphNode[]>();
+      const procNodes: GraphNode[] = filteredNodes.map((n: any, i: number) => {
+        const label = n.type || n.label || 'Unknown';
+        const name = n.name || n.id || `${label}-${i}`;
+        const layer = LAYER_ORDER[label] ?? 3;
+        const node: GraphNode = {
+          id: String(n.id),
+          label,
           name: name.length > 20 ? name.slice(0, 20) + '...' : name,
-          fullName: name, props,
-          x: 150 + (i % cols) * spacing,
-          y: 150 + Math.floor(i / cols) * spacing,
-          vx: 0, vy: 0
+          fullName: name,
+          props: n.properties || n,
+          x: 0, y: 0, vx: 0, vy: 0
         };
+        if (!layers.has(layer)) layers.set(layer, []);
+        layers.get(layer)!.push(node);
+        return node;
+      });
+
+      // Position in hierarchical layout
+      const sortedLayers = Array.from(layers.keys()).sort((a, b) => a - b);
+      sortedLayers.forEach((layerNum, layerIdx) => {
+        const layerNodes = layers.get(layerNum) || [];
+        const startX = 600 - (layerNodes.length * 140) / 2 + 70;
+        layerNodes.forEach((node, nodeIdx) => {
+          node.x = startX + nodeIdx * 140;
+          node.y = 100 + layerIdx * 160;
+        });
       });
 
       const nodeIds = new Set(procNodes.map(n => n.id));
-      const procEdges: GraphEdge[] = edgeData
-        .map((r: any) => ({ id: String(r.row[4]), source: String(r.row[0]), target: String(r.row[1]), type: r.row[2], props: r.row[3] || {} }))
+      const procEdges: GraphEdge[] = filteredEdges
+        .map((e: any, i: number) => ({
+          id: String(e.id || `edge-${i}`),
+          source: String(e.source || e.from),
+          target: String(e.target || e.to),
+          type: e.type || e.edge_type || 'CONNECTED',
+          props: e.properties || {}
+        }))
         .filter((e: GraphEdge) => nodeIds.has(e.source) && nodeIds.has(e.target));
-
-      // Force layout
-      const nodeMap = new Map(procNodes.map(n => [n.id, n]));
-      for (let iter = 0; iter < 80; iter++) {
-        const t = 1 - iter / 80;
-        procNodes.forEach(n1 => {
-          procNodes.forEach(n2 => {
-            if (n1.id === n2.id) return;
-            const dx = n1.x - n2.x, dy = n1.y - n2.y;
-            const d = Math.max(Math.sqrt(dx*dx + dy*dy), 1);
-            const f = 8000 / (d * d);
-            n1.vx = (n1.vx || 0) + (dx/d) * f * t;
-            n1.vy = (n1.vy || 0) + (dy/d) * f * t;
-          });
-        });
-        procEdges.forEach(e => {
-          const s = nodeMap.get(e.source), g = nodeMap.get(e.target);
-          if (!s || !g) return;
-          const dx = g.x - s.x, dy = g.y - s.y;
-          const f = Math.sqrt(dx*dx + dy*dy) * 0.004 * t;
-          s.vx = (s.vx || 0) + dx * f; s.vy = (s.vy || 0) + dy * f;
-          g.vx = (g.vx || 0) - dx * f; g.vy = (g.vy || 0) - dy * f;
-        });
-        procNodes.forEach(n => {
-          n.x += (n.vx || 0) * 0.1; n.y += (n.vy || 0) * 0.1;
-          n.vx = (n.vx || 0) * 0.85; n.vy = (n.vy || 0) * 0.85;
-          n.x = Math.max(80, Math.min(4000, n.x));
-          n.y = Math.max(80, Math.min(3000, n.y));
-        });
-      }
 
       setNodes(procNodes);
       setEdges(procEdges);

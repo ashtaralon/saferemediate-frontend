@@ -120,7 +120,35 @@ export default function AWSArchitectureDiagram({ systemName = 'alon-prod', onNod
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [stats, setStats] = useState({ nodes: 0, edges: 0 });
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const animRef = useRef<number>();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => console.error('Fullscreen error:', err));
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(err => console.error('Exit fullscreen error:', err));
+    }
+  }, []);
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // F11 keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [toggleFullscreen]);
 
   // Animation loop
   useEffect(() => {
@@ -279,7 +307,7 @@ export default function AWSArchitectureDiagram({ systemName = 'alon-prod', onNod
   }
 
   return (
-    <div style={{ height: '100%', minHeight: '650px', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', borderRadius: 12 }}>
+    <div ref={containerRef} style={{ height: '100%', minHeight: '650px', width: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui, sans-serif', overflow: 'hidden', borderRadius: isFullscreen ? 0 : 12 }}>
       {/* Header */}
       <header style={{ background: 'rgba(30,41,59,0.9)', borderBottom: '1px solid #334155', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -306,6 +334,14 @@ export default function AWSArchitectureDiagram({ systemName = 'alon-prod', onNod
             <span style={{ color: '#e2e8f0', fontSize: 11 }}>{speed}x</span>
           </div>
           <button onClick={() => { load(); if (externalOnRefresh) externalOnRefresh(); }} style={{ padding: '6px 14px', background: 'linear-gradient(135deg, #f97316, #ec4899)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>🔄</button>
+          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Expand to fullscreen (F11)'} style={{ padding: '6px 14px', background: 'rgba(51,65,85,0.8)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {isFullscreen ? (
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            ) : (
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+            )}
+            {isFullscreen ? 'Exit' : 'Expand'}
+          </button>
         </div>
       </header>
 
