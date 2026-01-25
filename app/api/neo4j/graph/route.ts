@@ -7,12 +7,16 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-// Neo4j Aura configuration
-const NEO4J_URI = process.env.NEO4J_URI || 'https://4e9962b7.databases.neo4j.io'
-const NEO4J_USERNAME = process.env.NEO4J_USERNAME || 'neo4j'
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || 'zxr4y5USTynIAh9VD7wej1Zq6UkQenJSOKunANe3aew'
+// Neo4j configuration from environment variables (no hardcoded fallbacks for security)
+const NEO4J_URI = process.env.NEO4J_URI
+const NEO4J_USERNAME = process.env.NEO4J_USERNAME
+const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD
 
 async function queryNeo4j(cypher: string): Promise<any> {
+  if (!NEO4J_URI || !NEO4J_USERNAME || !NEO4J_PASSWORD) {
+    throw new Error('Missing Neo4j environment variables (NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD)')
+  }
+
   let neo4jUrl = NEO4J_URI
   if (!neo4jUrl.startsWith('http://') && !neo4jUrl.startsWith('https://')) {
     if (neo4jUrl.startsWith('neo4j+s://') || neo4jUrl.startsWith('bolt+s://')) {
@@ -57,6 +61,7 @@ export async function GET(req: NextRequest) {
   const maxNodes = parseInt(url.searchParams.get("maxNodes") ?? "500")
 
   console.log(`[Neo4j Graph] Fetching graph data for ${systemName}`)
+  console.log(`[Neo4j Graph] Using URI: ${NEO4J_URI ? NEO4J_URI.replace(/\/\/[^@]+@/, '//***@') : 'NOT SET'}`)
 
   try {
     // Query for all nodes (AWS resources)

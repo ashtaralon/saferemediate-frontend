@@ -1784,9 +1784,10 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       let fetchedIamGaps: any[] = []
       let fetchedNaclData: any[] = []
 
-      // Fetch graph data from backend (which connects to Neo4j) along with other data sources
+      // Fetch graph data from backend (backend fetches from Neo4j), with other data sources in parallel
+      // Architecture: AWS → Neo4j → Backend (Render) → UI (Vercel)
       const [graphRes, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes] = await Promise.allSettled([
-        fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500`), // Backend fetches from Neo4j
+        fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500`),
         fetch(`/api/proxy/iam-analysis/gaps/${systemName}`),
         fetch(`/api/proxy/xray/service-map?systemName=${systemName}&window=${timeWindow}`),
         fetch(`/api/proxy/xray/traces?systemName=${systemName}&window=${timeWindow}`),
@@ -1795,13 +1796,13 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         fetch(`/api/proxy/api-calls?systemName=${systemName}&days=7`),
       ])
 
-      // Parse graph data from backend (backend connects to Neo4j)
+      // Parse graph data from backend (Neo4j → Backend → UI)
       if (graphRes.status === 'fulfilled' && graphRes.value.ok) {
         const data = await graphRes.value.json()
         graphNodes = data.nodes || []
         graphEdges = data.edges || []
         setRawGraphData({ nodes: graphNodes, edges: graphEdges })
-        console.log('[FlowStrip] Graph data from backend (Neo4j):', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
+        console.log('[FlowStrip] Graph data (Neo4j→Backend→UI):', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
       }
 
       // Parse IAM gaps - the proxy returns a single role object, wrap it in an array
