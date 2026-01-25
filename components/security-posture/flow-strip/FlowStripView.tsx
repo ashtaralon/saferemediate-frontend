@@ -324,6 +324,27 @@ function buildFullStackFlows(
     apiCalls: apiCallsData.length
   })
 
+  // Debug: Log sample nodes and edges to understand structure
+  if (graphNodes.length > 0) {
+    console.log('[buildFullStackFlows] Sample nodes (first 3):', graphNodes.slice(0, 3).map(n => ({
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      label: n.label,
+      resourceType: n.resourceType,
+      keys: Object.keys(n)
+    })))
+  }
+  if (graphEdges.length > 0) {
+    console.log('[buildFullStackFlows] Sample edges (first 3):', graphEdges.slice(0, 3).map(e => ({
+      source: e.source,
+      target: e.target,
+      from: e.from,
+      to: e.to,
+      keys: Object.keys(e)
+    })))
+  }
+
   // Helper to check if a string is an external IP address (not internal AWS service)
   const isExternalIP = (str: string): boolean => {
     if (!str) return false
@@ -419,12 +440,23 @@ function buildFullStackFlows(
     if (tgt) nodesWithTraffic.add(tgt)
   })
 
+  // Debug: Count nodes that pass isRealAWSService check
+  let passedAWSServiceCheck = 0
+  let failedAWSServiceCheck = 0
+  let passedTrafficCheck = 0
+  let failedTrafficCheck = 0
+
   // Filter graph nodes to only those with traffic AND are real AWS services (not external IPs)
   const filteredNodes = graphNodes.filter(n => {
     // First check: must be a real AWS service (not external IP)
     if (!isRealAWSService(n)) {
+      failedAWSServiceCheck++
+      if (failedAWSServiceCheck <= 3) {
+        console.log('[buildFullStackFlows] Node failed AWS service check:', n.name, n.type, n.id)
+      }
       return false
     }
+    passedAWSServiceCheck++
 
     // Second check: must have edges (traffic)
     const hasEdges = nodesWithTraffic.has(n.id) || nodesWithTraffic.has(n.name)
@@ -436,10 +468,27 @@ function buildFullStackFlows(
       return src.includes(nodeNameLower) || tgt.includes(nodeNameLower) ||
              nodeNameLower.includes(src) || nodeNameLower.includes(tgt)
     })
-    return hasEdges || matchesEdge
+    if (hasEdges || matchesEdge) {
+      passedTrafficCheck++
+      return true
+    }
+    failedTrafficCheck++
+    if (failedTrafficCheck <= 3) {
+      console.log('[buildFullStackFlows] Node passed AWS check but failed traffic check:', n.name, n.id, 'hasEdges:', hasEdges)
+    }
+    return false
   })
 
-  console.log('[buildFullStackFlows] Filtered to AWS services with traffic:', filteredNodes.length, 'of', graphNodes.length)
+  console.log('[buildFullStackFlows] Filter stats:', {
+    total: graphNodes.length,
+    passedAWSService: passedAWSServiceCheck,
+    failedAWSService: failedAWSServiceCheck,
+    passedTraffic: passedTrafficCheck,
+    failedTraffic: failedTrafficCheck,
+    final: filteredNodes.length
+  })
+  console.log('[buildFullStackFlows] nodesWithTraffic set size:', nodesWithTraffic.size)
+  console.log('[buildFullStackFlows] Sample nodesWithTraffic:', Array.from(nodesWithTraffic).slice(0, 5))
 
   // Use filtered nodes for the rest of the function
   const activeNodes = filteredNodes
