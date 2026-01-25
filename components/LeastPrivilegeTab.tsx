@@ -220,6 +220,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     { name: "EC2 → S3 (Production)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-prod-data-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 420, eventsPerDay: 3, connectionType: 'api' as const },
     { name: "EC2 → S3 (Analytics)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-analytics-745783559495", iamRole: "cyntro-demo-ec2-s3-role", days: 180, eventsPerDay: 10, connectionType: 'api' as const },
     { name: "Lambda → S3 (Analytics)", source: "analytics-lambda", target: "cyntro-demo-analytics-745783559495", iamRole: "", days: 90, eventsPerDay: 25, connectionType: 'api' as const },
+    { name: "S3 → Lambda (Events)", source: "cyntro-demo-prod-data-745783559495", target: "analytics-lambda", iamRole: "", days: 120, eventsPerDay: 15, connectionType: 'api' as const },
+    { name: "S3 → S3 (Replication)", source: "cyntro-demo-prod-data-745783559495", target: "cyntro-demo-backup-745783559495", iamRole: "s3-replication-role", days: 365, eventsPerDay: 5, connectionType: 'api' as const },
     { name: "EC2 → RDS (MySQL)", source: "SafeRemediate-Test-App-1", target: "cyntro-demo-rds", iamRole: "", days: 90, eventsPerDay: 50, connectionType: 'network' as const, port: 3306 },
   ]
 
@@ -1600,7 +1602,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
                     >
                       <option value="">Select source...</option>
-                      {['EC2', 'Lambda', 'ECS'].map(type => {
+                      {['EC2', 'Lambda', 'ECS', 'S3'].map(type => {
                         const services = availableServices.filter(s => s.type.includes(type))
                         if (services.length === 0) return null
                         return (
@@ -1613,7 +1615,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                       })}
                       <optgroup label="Other">
                         {availableServices
-                          .filter(s => !['EC2', 'Lambda', 'ECS'].some(t => s.type.includes(t)))
+                          .filter(s => !['EC2', 'Lambda', 'ECS', 'S3'].some(t => s.type.includes(t)))
                           .slice(0, 20)
                           .map(s => (
                             <option key={s.id} value={s.name}>{s.name}</option>

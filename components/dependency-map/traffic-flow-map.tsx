@@ -2209,17 +2209,20 @@ export default function TrafficFlowMap() {
 
       // Normalize direction: Compute -> Resource
       // If target is compute and source is resource, swap them
-      const sourceIsCompute = sourceNode.type === 'EC2' || sourceNode.type === 'LambdaFunction';
-      const targetIsCompute = targetNode.type === 'EC2' || targetNode.type === 'LambdaFunction';
-      const sourceIsResource = ['RDSInstance', 'S3Bucket', 'DynamoDB'].includes(sourceNode.type);
-      const targetIsResource = ['RDSInstance', 'S3Bucket', 'DynamoDB'].includes(targetNode.type);
+      const srcType = (sourceNode.type || '').toLowerCase();
+      const tgtType = (targetNode.type || '').toLowerCase();
+      const sourceIsCompute = srcType === 'ec2' || srcType === 'ec2instance' || srcType === 'lambdafunction' || srcType === 'lambda';
+      const targetIsCompute = tgtType === 'ec2' || tgtType === 'ec2instance' || tgtType === 'lambdafunction' || tgtType === 'lambda';
+      const sourceIsResource = ['rdsinstance', 'rds', 's3bucket', 's3', 'dynamodb'].includes(srcType);
+      const targetIsResource = ['rdsinstance', 'rds', 's3bucket', 's3', 'dynamodb'].includes(tgtType);
 
       if (targetIsCompute && sourceIsResource) {
         [sourceNode, targetNode] = [targetNode, sourceNode];
       }
 
       // After potential swap, verify we have compute -> resource
-      const finalSourceIsCompute = sourceNode.type === 'EC2' || sourceNode.type === 'LambdaFunction';
+      const finalSrcType = (sourceNode.type || '').toLowerCase();
+      const finalSourceIsCompute = finalSrcType === 'ec2' || finalSrcType === 'ec2instance' || finalSrcType === 'lambdafunction' || finalSrcType === 'lambda';
       const finalTargetType = mapNodeType(targetNode.type || 'unknown');
 
       if (!finalSourceIsCompute) return;
