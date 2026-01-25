@@ -40,8 +40,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const controller = new AbortController()
-    // Reduced timeout to 25 seconds to prevent long waits
-    const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
+    // Increased timeout to 50 seconds (maxDuration is 60)
+    const timeoutId = setTimeout(() => controller.abort(), 50000) // 50 second timeout
 
     let backendUrl = `${BACKEND_URL}/api/dependency-map/full?` +
       `system_name=${encodeURIComponent(systemName)}` +
@@ -81,11 +81,11 @@ export async function GET(req: NextRequest) {
       
       return NextResponse.json(
         { nodes: [], edges: [], error: errorText },
-        { 
+        {
           status: 200, // Return 200 instead of error status to prevent UI crashes
           headers: {
-            "X-Cache": "MISS",
-            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+            "X-Cache": "ERROR",
+            "Cache-Control": "no-store, no-cache, must-revalidate", // Don't cache errors
           },
         }
       )
@@ -128,18 +128,18 @@ export async function GET(req: NextRequest) {
     
     // Return empty data with 200 status to prevent UI crash
     return NextResponse.json(
-      { 
-        nodes: [], 
-        edges: [], 
+      {
+        nodes: [],
+        edges: [],
         error: isTimeout ? "Request timed out" : error.message,
         timeout: isTimeout,
       },
-      { 
+      {
         status: 200, // Return 200 instead of 500 to prevent UI crashes
         headers: {
-          "X-Cache": "MISS",
+          "X-Cache": "ERROR",
           "X-Timeout": isTimeout ? "true" : "false",
-          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
+          "Cache-Control": "no-store, no-cache, must-revalidate", // Don't cache errors
         },
       }
     )
