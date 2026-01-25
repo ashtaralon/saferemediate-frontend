@@ -1754,9 +1754,9 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         console.log('[FlowStrip] V2 Data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
       }
 
-      // Fallback to /full endpoint if v2 returns empty nodes
-      if (graphNodes.length === 0) {
-        console.log('[FlowStrip] V2 returned empty, fetching from /full endpoint...')
+      // Fallback to /full endpoint if v2 returns empty or sparse data (< 10 edges means no real traffic data)
+      if (graphNodes.length === 0 || graphEdges.length < 10) {
+        console.log('[FlowStrip] V2 returned sparse data (' + graphNodes.length + ' nodes, ' + graphEdges.length + ' edges), fetching from /full endpoint...')
         try {
           const fullRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=200`)
           if (fullRes.ok) {
