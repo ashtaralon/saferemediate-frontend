@@ -142,10 +142,17 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error('[Neo4j Graph] Error:', error.message)
 
+    // Check for common Neo4j Aura issues
+    let errorMessage = error.message
+    if (error.message?.includes('403')) {
+      errorMessage = 'Neo4j Aura IP allowlist is blocking this request. Add 0.0.0.0/0 to your Neo4j Aura IP allowlist to allow Vercel serverless functions.'
+      console.error('[Neo4j Graph] TIP: Go to Neo4j Aura Console → Security → IP Allowlist → Add 0.0.0.0/0')
+    }
+
     return NextResponse.json({
       nodes: [],
       edges: [],
-      error: error.message,
+      error: errorMessage,
       source: 'neo4j-direct',
     }, {
       status: 200, // Return 200 to prevent UI crashes
