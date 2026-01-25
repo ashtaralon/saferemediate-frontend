@@ -2483,7 +2483,8 @@ export default function TrafficFlowMap() {
     try {
       // Add cache-busting timestamp to ensure fresh data from Neo4j
       const timestamp = Date.now();
-      const depRes = await fetch(`/api/proxy/dependency-map/full?maxNodes=500&_t=${timestamp}`, {
+      const systemName = 'alon-prod'; // TODO: Make this configurable via props
+      const depRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500&_t=${timestamp}`, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
       });
