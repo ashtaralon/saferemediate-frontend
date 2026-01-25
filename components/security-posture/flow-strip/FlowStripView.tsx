@@ -1784,8 +1784,9 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       let fetchedIamGaps: any[] = []
       let fetchedNaclData: any[] = []
 
-      const [mapV2Res, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes] = await Promise.allSettled([
-        fetch(`/api/proxy/dependency-map/v2?systemId=${systemName}&window=${timeWindow}&mode=observed`),
+      // Fetch from Neo4j directly as PRIMARY source, with other data sources in parallel
+      const [neo4jRes, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes] = await Promise.allSettled([
+        fetch(`/api/neo4j/graph?systemName=${systemName}&maxNodes=500`), // Direct Neo4j query
         fetch(`/api/proxy/iam-analysis/gaps/${systemName}`),
         fetch(`/api/proxy/xray/service-map?systemName=${systemName}&window=${timeWindow}`),
         fetch(`/api/proxy/xray/traces?systemName=${systemName}&window=${timeWindow}`),
@@ -1794,30 +1795,29 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         fetch(`/api/proxy/api-calls?systemName=${systemName}&days=7`), // CloudTrail API calls
       ])
 
-      // Parse dependency map v2
-      if (mapV2Res.status === 'fulfilled' && mapV2Res.value.ok) {
-        const data = await mapV2Res.value.json()
+      // Parse Neo4j direct response (PRIMARY source)
+      if (neo4jRes.status === 'fulfilled' && neo4jRes.value.ok) {
+        const data = await neo4jRes.value.json()
         graphNodes = data.nodes || []
         graphEdges = data.edges || []
-        // Store raw graph data for least-privilege analysis
         setRawGraphData({ nodes: graphNodes, edges: graphEdges })
-        console.log('[FlowStrip] V2 Data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
+        console.log('[FlowStrip] Neo4j Direct Data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
       }
 
-      // Fallback to /full endpoint if v2 returns empty or sparse data (< 10 edges means no real traffic data)
+      // Fallback to backend /full endpoint if Neo4j returns empty or sparse data
       if (graphNodes.length === 0 || graphEdges.length < 10) {
-        console.log('[FlowStrip] V2 returned sparse data (' + graphNodes.length + ' nodes, ' + graphEdges.length + ' edges), fetching from /full endpoint...')
+        console.log('[FlowStrip] Neo4j returned sparse data (' + graphNodes.length + ' nodes, ' + graphEdges.length + ' edges), fetching from backend /full endpoint...')
         try {
-          const fullRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=200`)
+          const fullRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500`)
           if (fullRes.ok) {
             const fullData = await fullRes.json()
             graphNodes = fullData.nodes || []
             graphEdges = fullData.edges || []
             setRawGraphData({ nodes: graphNodes, edges: graphEdges })
-            console.log('[FlowStrip] Full endpoint data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
+            console.log('[FlowStrip] Backend /full endpoint data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
           }
         } catch (err) {
-          console.error('[FlowStrip] Full endpoint fallback failed:', err)
+          console.error('[FlowStrip] Backend /full endpoint fallback failed:', err)
         }
       }
 
