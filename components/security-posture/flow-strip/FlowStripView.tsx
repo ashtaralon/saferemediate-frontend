@@ -620,7 +620,8 @@ function buildFullStackFlows(
   // Extract EC2 instances (only those with traffic)
   const ec2Instances = activeNodes.filter(n => {
     const type = (n.type || '').toLowerCase()
-    return type === 'ec2' || type.includes('instance')
+    // Match EC2 but not RDS (both have "instance" in the type)
+    return type.includes('ec2') || (type.includes('instance') && !type.includes('rds'))
   })
 
   // Extract Lambda functions (only those with traffic)
