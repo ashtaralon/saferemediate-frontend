@@ -1784,41 +1784,24 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
       let fetchedIamGaps: any[] = []
       let fetchedNaclData: any[] = []
 
-      // Fetch from Neo4j directly as PRIMARY source, with other data sources in parallel
-      const [neo4jRes, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes] = await Promise.allSettled([
-        fetch(`/api/neo4j/graph?systemName=${systemName}&maxNodes=500`), // Direct Neo4j query
+      // Fetch graph data from backend (which connects to Neo4j) along with other data sources
+      const [graphRes, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes] = await Promise.allSettled([
+        fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500`), // Backend fetches from Neo4j
         fetch(`/api/proxy/iam-analysis/gaps/${systemName}`),
         fetch(`/api/proxy/xray/service-map?systemName=${systemName}&window=${timeWindow}`),
         fetch(`/api/proxy/xray/traces?systemName=${systemName}&window=${timeWindow}`),
-        fetch(`/api/proxy/nacls?systemName=${systemName}`), // NACL data with rules from Neo4j
-        fetch(`/api/proxy/traffic-data?system_name=${systemName}`), // Real traffic from VPC Flow Logs
-        fetch(`/api/proxy/api-calls?systemName=${systemName}&days=7`), // CloudTrail API calls
+        fetch(`/api/proxy/nacls?systemName=${systemName}`),
+        fetch(`/api/proxy/traffic-data?system_name=${systemName}`),
+        fetch(`/api/proxy/api-calls?systemName=${systemName}&days=7`),
       ])
 
-      // Parse Neo4j direct response (PRIMARY source)
-      if (neo4jRes.status === 'fulfilled' && neo4jRes.value.ok) {
-        const data = await neo4jRes.value.json()
+      // Parse graph data from backend (backend connects to Neo4j)
+      if (graphRes.status === 'fulfilled' && graphRes.value.ok) {
+        const data = await graphRes.value.json()
         graphNodes = data.nodes || []
         graphEdges = data.edges || []
         setRawGraphData({ nodes: graphNodes, edges: graphEdges })
-        console.log('[FlowStrip] Neo4j Direct Data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
-      }
-
-      // Fallback to backend /full endpoint if Neo4j returns empty or sparse data
-      if (graphNodes.length === 0 || graphEdges.length < 10) {
-        console.log('[FlowStrip] Neo4j returned sparse data (' + graphNodes.length + ' nodes, ' + graphEdges.length + ' edges), fetching from backend /full endpoint...')
-        try {
-          const fullRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500`)
-          if (fullRes.ok) {
-            const fullData = await fullRes.json()
-            graphNodes = fullData.nodes || []
-            graphEdges = fullData.edges || []
-            setRawGraphData({ nodes: graphNodes, edges: graphEdges })
-            console.log('[FlowStrip] Backend /full endpoint data:', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
-          }
-        } catch (err) {
-          console.error('[FlowStrip] Backend /full endpoint fallback failed:', err)
-        }
+        console.log('[FlowStrip] Graph data from backend (Neo4j):', graphNodes.length, 'nodes,', graphEdges.length, 'edges')
       }
 
       // Parse IAM gaps - the proxy returns a single role object, wrap it in an array
