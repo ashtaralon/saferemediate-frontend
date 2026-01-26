@@ -2166,7 +2166,8 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
 
     const trafficEdges = edges.filter(e => {
       const type = (e.edge_type || e.type || '').toUpperCase();
-      return ['ACTUAL_TRAFFIC', 'OBSERVED_TRAFFIC', 'S3_OPERATION', 'ACTUAL_S3_ACCESS'].includes(type);
+      return ['ACTUAL_TRAFFIC', 'OBSERVED_TRAFFIC', 'S3_OPERATION', 'ACTUAL_S3_ACCESS',
+              'ACCESSES_RESOURCE', 'ACTUAL_API_CALL'].includes(type);
     });
 
     const flowMap = new Map<string, TrafficFlow>();
@@ -2304,6 +2305,50 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         type: mapNodeType(node.type || 'storage'),
       });
     });
+
+    // Fallback: If no traffic flows found, build from all system nodes + structural edges
+    if (computeServices.length === 0 && resources.length === 0 && nodes.length > 0) {
+      console.log('[TrafficFlowMap] No traffic flows — falling back to structural view');
+      nodes.forEach(node => {
+        const nType = mapNodeType(node.type || '');
+        const canonicalId = extractInstanceId(node.id);
+        if ((nType === 'compute' || nType === 'lambda') && !seenCompute.has(canonicalId)) {
+          seenCompute.add(canonicalId);
+          computeServices.push({
+            id: canonicalId,
+            name: node.name || node.id,
+            shortName: shortName(node.name || node.id),
+            type: nType,
+            instanceId: canonicalId.substring(0, 12),
+          });
+        } else if (['database', 'storage', 'dynamodb', 'sqs', 'sns'].includes(nType)) {
+          const rName = extractResourceName(node.id);
+          if (!seenResources.has(rName)) {
+            seenResources.add(rName);
+            resources.push({
+              id: node.id,
+              name: node.name || node.id,
+              shortName: shortName(node.name || node.id),
+              type: nType,
+            });
+          }
+        }
+      });
+      // Create structural flows: connect every compute to every resource
+      computeServices.forEach(cs => {
+        resources.forEach(res => {
+          const flowKey = `${cs.id}->${res.id}`;
+          if (!flowMap.has(flowKey)) {
+            flowMap.set(flowKey, {
+              sourceId: cs.id, targetId: res.id,
+              sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
+              roleId: computeToRole.get(cs.id),
+              ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: true,
+            });
+          }
+        });
+      });
+    }
 
     // Build security groups (rules will be fetched separately from API)
     const usedSGIds = new Set(Array.from(flowMap.values()).map(f => f.sgId).filter(Boolean));
