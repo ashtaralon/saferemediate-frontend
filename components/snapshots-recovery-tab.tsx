@@ -31,7 +31,11 @@ interface Snapshot {
   removed_permissions?: string[]
 }
 
-export default function RecoveryTab() {
+interface RecoveryTabProps {
+  systemName?: string
+}
+
+export default function RecoveryTab({ systemName }: RecoveryTabProps) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [loading, setLoading] = useState(true)
   const [restoring, setRestoring] = useState<string | null>(null)
@@ -42,22 +46,44 @@ export default function RecoveryTab() {
 
   useEffect(() => {
     loadSnapshots()
-  }, [])
+  }, [systemName])
 
   async function loadSnapshots() {
     try {
       setLoading(true)
       setError(null)
-      
-      // Fetch both SG and IAM snapshots in parallel
-      const [sgRes, iamRes] = await Promise.all([
+
+      // Fetch snapshots and system resources in parallel
+      const fetches: Promise<Response | null>[] = [
         fetch('/api/proxy/snapshots', { cache: 'no-store' }),
         fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
-      ])
+      ]
+      // If a system is selected, also fetch its resources for filtering
+      if (systemName) {
+        fetches.push(
+          fetch(`/api/proxy/system-resources/${encodeURIComponent(systemName)}`, { cache: 'no-store' }).catch(() => null)
+        )
+      }
+
+      const [sgRes, iamRes, systemRes] = await Promise.all(fetches)
+
+      // Build set of resource names belonging to this system
+      let systemResourceNames: Set<string> | null = null
+      if (systemName && systemRes && systemRes.ok) {
+        const systemData = await systemRes.json()
+        const resources = systemData.resources || []
+        systemResourceNames = new Set<string>()
+        for (const r of resources) {
+          if (r.name) systemResourceNames.add(r.name.toLowerCase())
+          if (r.id) systemResourceNames.add(r.id.toLowerCase())
+          // Also add ARN for matching
+          if (r.arn) systemResourceNames.add(r.arn.toLowerCase())
+        }
+      }
 
       // Process SG snapshots (includes S3 bucket and IAM checkpoints)
       let sgSnapshots: Snapshot[] = []
-      if (sgRes.ok) {
+      if (sgRes && sgRes.ok) {
         const sgData = await sgRes.json()
         const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
         // Detect type - PRIORITIZE snapshot_id prefix as it's most reliable
@@ -91,15 +117,35 @@ export default function RecoveryTab() {
         const iamList = Array.isArray(iamData) ? iamData : (iamData.snapshots || [])
         iamSnapshots = iamList.map((s: any) => ({ ...s, type: 'IAMRole' as const }))
       }
-      
-      // Combine and sort by timestamp (newest first)
-      const allSnapshots = [...sgSnapshots, ...iamSnapshots]
+
+      // Combine all snapshots
+      let allSnapshots = [...sgSnapshots, ...iamSnapshots]
+
+      // Filter by system if systemName is provided and resources were fetched
+      if (systemResourceNames && systemResourceNames.size > 0) {
+        allSnapshots = allSnapshots.filter((s) => {
+          // Match SG snapshots by sg_name
+          if (s.sg_name && systemResourceNames!.has(s.sg_name.toLowerCase())) return true
+          // Match IAM snapshots by role_name
+          if (s.role_name && systemResourceNames!.has(s.role_name.toLowerCase())) return true
+          // Match S3 snapshots by finding_id (bucket name) or resource_name
+          if (s.finding_id && systemResourceNames!.has(s.finding_id.toLowerCase())) return true
+          if (s.current_state?.resource_name && systemResourceNames!.has(s.current_state.resource_name.toLowerCase())) return true
+          // Match by sg_id (AWS SG ID like sg-xxx)
+          if (s.sg_id && systemResourceNames!.has(s.sg_id.toLowerCase())) return true
+          // Match by role_arn
+          if (s.role_arn && systemResourceNames!.has(s.role_arn.toLowerCase())) return true
+          return false
+        })
+      }
+
+      // Sort by timestamp (newest first)
       const sorted = allSnapshots.sort((a: Snapshot, b: Snapshot) => {
         const dateA = new Date(a.timestamp || a.created_at || 0).getTime()
         const dateB = new Date(b.timestamp || b.created_at || 0).getTime()
         return dateB - dateA
       })
-      
+
       setSnapshots(sorted)
     } catch (err) {
       console.error('Load error:', err)
