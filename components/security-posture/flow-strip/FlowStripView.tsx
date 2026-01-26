@@ -2769,7 +2769,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
           <div className="flex-1 overflow-y-auto p-4">
             {viewMode === 'traffic' ? (
               /* Live Traffic View - Animated connections from Neo4j */
-              <TrafficFlowMap />
+              <TrafficFlowMap systemName={systemName} />
             ) : viewMode === 'full-system' && unifiedSystem ? (
               /* Unified System View - Single Connected Stack */
               <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(148, 163, 184, 0.1)' }}>

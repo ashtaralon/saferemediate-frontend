@@ -2041,7 +2041,7 @@ function RefreshStatusBadge({
 // ============================================
 // MAIN COMPONENT
 // ============================================
-export default function TrafficFlowMap() {
+export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemName?: string }) {
   const [architecture, setArchitecture] = useState<SystemArchitecture | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2486,7 +2486,7 @@ export default function TrafficFlowMap() {
     try {
       // Add cache-busting timestamp to ensure fresh data from Neo4j
       const timestamp = Date.now();
-      const systemName = 'alon-prod'; // TODO: Make this configurable via props
+      // systemName comes from props (default: 'alon-prod')
       const depRes = await fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500&_t=${timestamp}`, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
@@ -2584,10 +2584,10 @@ export default function TrafficFlowMap() {
     } finally {
       setLoading(false);
     }
-  }, [buildArchitecture, fetchSGRules, architecture]);
+  }, [buildArchitecture, fetchSGRules, architecture, systemName]);
 
-  // Initial load
-  useEffect(() => { loadData(); }, []);
+  // Initial load + refetch when systemName changes
+  useEffect(() => { loadData(); }, [systemName]);
 
   // Auto-refresh with configurable interval
   useEffect(() => {
