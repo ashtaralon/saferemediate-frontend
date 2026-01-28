@@ -11,6 +11,7 @@ import { S3BucketDetail, type S3BucketDetailData } from "./S3BucketDetail"
 import { LeastPrivilegePolicyModal } from "./LeastPrivilegePolicyModal"
 import { SimulationModal } from "./SimulationModal"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
+import { PermissionBoundaryPanel } from "../PermissionBoundaryPanel"
 import type {
   SecurityPostureProps,
   SecurityComponent,
@@ -886,6 +887,13 @@ export function SecurityPosture({ systemName, onViewOnMap }: SecurityPostureProp
                 }
               }}
             />
+          </ErrorBoundary>
+        </div>
+
+        {/* Permission Boundary Enforcement */}
+        <div className="px-6 py-4 border-b bg-white">
+          <ErrorBoundary componentName="Permission Boundary Enforcement">
+            <PermissionBoundaryPanel />
           </ErrorBoundary>
         </div>
 
