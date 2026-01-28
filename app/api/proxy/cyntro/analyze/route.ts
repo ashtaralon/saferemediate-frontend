@@ -89,20 +89,38 @@ async function handleAnalyze(body: { role_name: string; days?: number }) {
     let analyses: any[] = []
 
     if (resources.length > 0) {
-      // Create an analysis entry for each resource that uses this role
-      // Note: Without per-resource CloudTrail correlation, we show the same aggregated usage for each
-      // but label them as different resources so the UI shows the split potential
-      analyses = resources.map((resource: any, index: number) => {
-        // Simulate different usage patterns for demo purposes
-        // In production, this would come from per-resource CloudTrail analysis
-        const resourceUsedCount = Math.max(1, Math.floor(usedCount / resources.length) + (index === 0 ? usedCount % resources.length : 0))
-        const resourceUnusedCount = totalPermissions - resourceUsedCount
+      // Filter to unique resources (dedupe by resource_name)
+      const uniqueResources = resources.reduce((acc: any[], r: any) => {
+        if (!acc.find((x: any) => x.resource_name === r.resource_name)) {
+          acc.push(r)
+        }
+        return acc
+      }, [])
 
-        // Distribute permissions among resources to show split potential
-        const startIdx = index * Math.floor(usedPermissions.length / resources.length)
-        const endIdx = (index + 1) * Math.floor(usedPermissions.length / resources.length)
+      // Create an analysis entry for each unique resource that uses this role
+      // Distribute permissions among resources to demonstrate the split potential
+      // In production, this would come from per-resource CloudTrail correlation
+      const numResources = uniqueResources.length
+      const permsPerResource = Math.max(1, Math.ceil(usedPermissions.length / numResources))
+
+      analyses = uniqueResources.map((resource: any, index: number) => {
+        // Distribute used permissions across resources to show the split potential
+        // Each resource gets a portion of the total used permissions
+        const startIdx = index * permsPerResource
+        const endIdx = Math.min(startIdx + permsPerResource, usedPermissions.length)
         const resourceUsedPerms = usedPermissions.slice(startIdx, endIdx)
-        const resourceUnusedPerms = [...unusedPermissions, ...usedPermissions.filter((_: any, i: number) => i < startIdx || i >= endIdx)]
+
+        // Permissions not used by this resource become unused for it
+        const otherUsedPerms = [
+          ...usedPermissions.slice(0, startIdx).map((p: any) => p.permission),
+          ...usedPermissions.slice(endIdx).map((p: any) => p.permission)
+        ]
+        const resourceUnusedPerms = [
+          ...unusedPermissions.map((p: any) => p.permission),
+          ...otherUsedPerms
+        ]
+
+        const resourceUsedCount = resourceUsedPerms.length
 
         return {
           resource_id: resource.resource_id || `${gapData.role_arn}/${resource.resource_name}`,
@@ -114,15 +132,15 @@ async function handleAnalyze(body: { role_name: string; days?: number }) {
             call_count: p.usage_count || 1,
             targets: []
           })),
-          unused_permissions: resourceUnusedPerms.map((p: any) => typeof p === 'string' ? p : p.permission),
+          unused_permissions: resourceUnusedPerms,
           risk_factors: unusedPermissions
             .filter((p: any) => p.risk_level === "HIGH" || p.risk_level === "CRITICAL")
             .slice(0, 3)
             .map((p: any) => `High-risk unused: ${p.permission}`),
-          used_count: resourceUsedPerms.length,
-          utilization_rate: totalPermissions > 0 ? resourceUsedPerms.length / totalPermissions : 0,
-          over_permission_ratio: totalPermissions > 0 ? (totalPermissions - resourceUsedPerms.length) / totalPermissions * 100 : 0,
-          total_api_calls: Math.floor((gapData.summary?.cloudtrail_events || 0) / resources.length)
+          used_count: resourceUsedCount,
+          utilization_rate: totalPermissions > 0 ? resourceUsedCount / totalPermissions : 0,
+          over_permission_ratio: totalPermissions > 0 ? (totalPermissions - resourceUsedCount) / totalPermissions * 100 : 0,
+          total_api_calls: Math.floor((gapData.summary?.cloudtrail_events || 0) / numResources)
         }
       })
     } else {
