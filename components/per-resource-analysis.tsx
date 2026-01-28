@@ -272,8 +272,25 @@ export function PerResourceAnalysis() {
     [apiCall, selectedRole]
   )
 
-  const resourceIcon = (type: string) =>
-    type === "EC2" ? <Server className="w-4 h-4" /> : <Zap className="w-4 h-4" />
+  // Get icon and display info for resource type
+  const getResourceTypeInfo = (type: string) => {
+    const typeUpper = type?.toUpperCase() || ""
+    if (typeUpper.includes("EC2") || typeUpper.includes("INSTANCE")) {
+      return { icon: <Server className="w-5 h-5" />, label: "EC2 Instance", color: "bg-orange-100 text-orange-700 border-orange-300" }
+    }
+    if (typeUpper.includes("LAMBDA") || typeUpper.includes("FUNCTION")) {
+      return { icon: <Zap className="w-5 h-5" />, label: "Lambda", color: "bg-purple-100 text-purple-700 border-purple-300" }
+    }
+    if (typeUpper.includes("IAM") || typeUpper.includes("ROLE")) {
+      return { icon: <Shield className="w-5 h-5" />, label: "IAM Role", color: "bg-blue-100 text-blue-700 border-blue-300" }
+    }
+    if (typeUpper.includes("ECS") || typeUpper.includes("CONTAINER")) {
+      return { icon: <Server className="w-5 h-5" />, label: "ECS Task", color: "bg-teal-100 text-teal-700 border-teal-300" }
+    }
+    return { icon: <Server className="w-5 h-5" />, label: type || "Resource", color: "bg-gray-100 text-gray-700 border-gray-300" }
+  }
+
+  const resourceIcon = (type: string) => getResourceTypeInfo(type).icon
 
   // ── RENDER ──
 
@@ -373,15 +390,18 @@ export function PerResourceAnalysis() {
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {role.resources.map((r) => (
-                    <span
-                      key={r.resource_id}
-                      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded bg-white border border-gray-200 text-gray-600"
-                    >
-                      {resourceIcon(r.resource_type)}
-                      {r.resource_name}
-                    </span>
-                  ))}
+                  {role.resources.map((r) => {
+                    const typeInfo = getResourceTypeInfo(r.resource_type)
+                    return (
+                      <span
+                        key={r.resource_id}
+                        className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border font-medium ${typeInfo.color}`}
+                      >
+                        {typeInfo.icon}
+                        <span className="font-bold">{r.resource_name}</span>
+                      </span>
+                    )
+                  })}
                 </div>
               </button>
             ))}
@@ -568,16 +588,22 @@ export function PerResourceAnalysis() {
               {analysisData.analyses.map((a) => {
                 const unusedShown = a.unused_permissions.slice(0, 4)
                 const unusedMore = a.unused_permissions.length > 4 ? a.unused_permissions.length - 4 : 0
+                const typeInfo = getResourceTypeInfo(a.resource_type)
                 return (
                   <div
                     key={a.resource_id}
                     className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:border-indigo-300 transition-colors"
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        {resourceIcon(a.resource_type)}
-                        <span className="font-semibold text-gray-900">
-                          {a.resource_type}: {a.resource_name}
+                      <div className="flex items-center gap-3">
+                        {/* Resource type badge - prominent */}
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-sm ${typeInfo.color}`}>
+                          {typeInfo.icon}
+                          {typeInfo.label}
+                        </span>
+                        {/* Resource name - bold */}
+                        <span className="text-lg font-bold text-gray-900">
+                          {a.resource_name}
                         </span>
                         <span className="text-xs text-gray-400 font-mono">({a.resource_id})</span>
                       </div>
