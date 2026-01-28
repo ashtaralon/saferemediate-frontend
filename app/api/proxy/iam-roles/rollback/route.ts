@@ -5,15 +5,29 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediat
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const snapshotId = body.checkpoint_id || body.snapshot_id;
 
-    console.log(`[IAM-ROLLBACK] Rolling back checkpoint: ${body.checkpoint_id}`);
-    console.log(`[IAM-ROLLBACK] Role name: ${body.role_name || '(from checkpoint)'}`);
+    console.log(`[IAM-ROLLBACK] Rolling back: ${snapshotId}`);
+    console.log(`[IAM-ROLLBACK] Role name: ${body.role_name || '(from snapshot)'}`);
 
-    const response = await fetch(`${BACKEND_URL}/api/iam-roles/rollback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    let response;
+
+    // Use unified snapshots endpoint for SNAP-* IDs (new IAM remediation format)
+    if (snapshotId && snapshotId.startsWith('SNAP-')) {
+      console.log(`[IAM-ROLLBACK] Using unified snapshots rollback endpoint`);
+      response = await fetch(`${BACKEND_URL}/api/snapshots/${encodeURIComponent(snapshotId)}/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } else {
+      // Legacy checkpoint format
+      console.log(`[IAM-ROLLBACK] Using legacy IAM roles rollback endpoint`);
+      response = await fetch(`${BACKEND_URL}/api/iam-roles/rollback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }
 
     const data = await response.json();
 

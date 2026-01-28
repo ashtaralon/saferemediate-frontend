@@ -19,16 +19,15 @@ export async function POST(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout for rollback
 
-    // Use unified remediation endpoint
+    // Use unified snapshots rollback endpoint (handles IAM, SG, etc.)
     const response = await fetch(
-      `${BACKEND_URL}/api/remediate/rollback`,
+      `${BACKEND_URL}/api/snapshots/${encodeURIComponent(snapshotId)}/rollback`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        body: JSON.stringify({ checkpoint_id: snapshotId }),
         cache: "no-store",
         signal: controller.signal,
       }

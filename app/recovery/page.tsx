@@ -81,7 +81,10 @@ export default function RecoveryTab() {
       const isIAMRole =
         snapshotId.startsWith('IAMRole-') ||
         snapshotId.startsWith('iam-') ||
+        snapshotId.startsWith('SNAP-') ||  // New IAM remediation format
         snapshot.resource_type === 'IAMRole' ||
+        snapshot.resource_type === 'IAM_REMEDIATION' ||
+        snapshot.snapshot_type === 'IAM_REMEDIATION' ||
         snapshot.current_state?.checkpoint_type === 'IAMRole';
 
       const isS3Bucket =
