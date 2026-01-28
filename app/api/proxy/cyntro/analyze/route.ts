@@ -60,32 +60,14 @@ async function handleAnalyze(body: { role_name: string; days?: number }) {
       console.log("Could not get resources from scan, continuing with role-only analysis")
     }
 
-    // Fetch both CloudTrail gap analysis and Access Advisor data in parallel
-    const [gapRes, accessAdvisorRes] = await Promise.all([
-      fetch(`${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=${days}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        signal: controller.signal,
-      }),
-      fetch(`${BACKEND_URL}/api/access-advisor/${encodeURIComponent(role_name)}?days=365`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        signal: controller.signal,
-      }).catch(() => null) // Access Advisor is optional, don't fail if not available
-    ])
+    // Fetch gap analysis from Neo4j (no AWS calls)
+    const gapRes = await fetch(`${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=${days}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    })
     clearTimeout(timeoutId)
-
-    // Parse Access Advisor data if available
-    let accessAdvisorData: any = null
-    if (accessAdvisorRes && accessAdvisorRes.ok) {
-      try {
-        accessAdvisorData = await accessAdvisorRes.json()
-      } catch (e) {
-        console.log("Could not parse Access Advisor response")
-      }
-    }
 
     if (!gapRes.ok) {
       const errorText = await gapRes.text()
@@ -185,30 +167,12 @@ async function handleAnalyze(body: { role_name: string; days?: number }) {
       }]
     }
 
-    // Build Access Advisor summary for the response
-    const accessAdvisorSummary = accessAdvisorData ? {
-      available: true,
-      data_source: "IAM_ACCESS_ADVISOR",
-      observation_days: 365,
-      services_used: accessAdvisorData.analysis?.services_used || [],
-      services_total: accessAdvisorData.analysis?.services_total || 0,
-      last_authenticated: accessAdvisorData.analysis?.last_authenticated_date,
-      lp_score: accessAdvisorData.analysis?.lp_score || 0,
-      confidence: accessAdvisorData.analysis?.confidence || "LOW",
-      used_permissions_count: accessAdvisorData.analysis?.used_permissions?.length || 0,
-      unused_permissions_count: accessAdvisorData.analysis?.unused_permissions?.length || 0,
-      high_risk_unused: accessAdvisorData.analysis?.high_risk_unused || []
-    } : {
-      available: false,
-      note: "Access Advisor data not available - using CloudTrail only"
-    }
-
     const response = {
       role: {
         role_name: gapData.role_name,
         role_arn: gapData.role_arn,
         total_permissions: totalPermissions,
-        resources: resources,
+        resources: gapData.resources_using_role || resources,
         all_permissions: gapData.permissions_analysis?.map((p: any) => p.permission) || []
       },
       analyses,
@@ -216,23 +180,7 @@ async function handleAnalyze(body: { role_name: string; days?: number }) {
         total_permissions: totalPermissions,
         used_permissions: usedCount
       },
-      // Data sources summary
-      data_sources: {
-        cloudtrail: {
-          available: true,
-          observation_days: days,
-          events_analyzed: gapData.summary?.cloudtrail_events || 0,
-          used_count: usedCount,
-          unused_count: unusedPermissions.length
-        },
-        access_advisor: accessAdvisorSummary
-      },
-      // Combined analysis note
-      analysis_note: accessAdvisorData
-        ? `Analysis combines CloudTrail (${days} days) and Access Advisor (365 days) data for complete picture`
-        : `Analysis based on CloudTrail data only (${days} days). Enable Access Advisor for service-level usage data.`,
-      raw_gap_analysis: gapData,
-      raw_access_advisor: accessAdvisorData
+      raw_gap_analysis: gapData
     }
 
     return NextResponse.json(response)
