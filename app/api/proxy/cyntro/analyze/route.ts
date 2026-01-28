@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const maxDuration = 300
 
-const CYNTRO_URL = process.env.CYNTRO_ENGINE_URL ?? "http://localhost:8080"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(req: NextRequest) {
   const controller = new AbortController()
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const res = await fetch(`${CYNTRO_URL}/api/analyze`, {
+    const res = await fetch(`${BACKEND_URL}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

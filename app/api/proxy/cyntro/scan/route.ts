@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
-const CYNTRO_URL = process.env.CYNTRO_ENGINE_URL ?? "http://localhost:8080"
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(req: NextRequest) {
   const controller = new AbortController()
@@ -12,8 +12,8 @@ export async function GET(req: NextRequest) {
   try {
     const roleFilter = req.nextUrl.searchParams.get("role_filter") || ""
     const url = roleFilter
-      ? `${CYNTRO_URL}/api/scan?role_filter=${encodeURIComponent(roleFilter)}`
-      : `${CYNTRO_URL}/api/scan`
+      ? `${BACKEND_URL}/api/scan?role_filter=${encodeURIComponent(roleFilter)}`
+      : `${BACKEND_URL}/api/scan`
 
     const res = await fetch(url, { cache: "no-store", signal: controller.signal })
     clearTimeout(timeoutId)
