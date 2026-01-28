@@ -758,113 +758,175 @@ export function PerResourceAnalysis() {
       {/* ──────────── COMPARISON SECTION ──────────── */}
       {recommendData && (stage === "comparison" || stage === "simulation" || stage === "remediation") && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Side-by-Side Comparison</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">Why Per-Resource Matters</h3>
+
+          {/* Current State - shared by both */}
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              <span className="font-semibold text-red-700">Current State: Shared Role</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <div className="text-3xl font-bold text-red-600">{recommendData.original_permissions}</div>
+                <div className="text-xs text-gray-600">permissions granted</div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-red-600">{recommendData.resources_attached}</div>
+                <div className="text-xs text-gray-600">resources sharing</div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-red-600">{recommendData.original_permissions * recommendData.resources_attached}</div>
+                <div className="text-xs text-gray-600">total exposure</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Side by side comparison */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* CloudKnox approach */}
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5">
-              <p className="text-xs text-gray-400 uppercase tracking-wider mb-3 font-semibold">
-                CloudKnox / Aggregated Approach
-              </p>
-              <div className="space-y-2 text-sm">
-                <div>
-                  <span className="text-gray-500">Analysis:</span> Role uses{" "}
-                  <span className="font-bold text-gray-900">
-                    {recommendData.aggregated_used}/{recommendData.original_permissions}
-                  </span>
+            <div className="border-2 border-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-gray-100 px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-gray-700">Traditional Approach</span>
+                  <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">CloudKnox-style</span>
                 </div>
-                <div>
-                  <span className="text-gray-500">Action:</span> Reduce role to{" "}
-                  {recommendData.aggregated_used} permissions
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="text-sm text-gray-600">
+                  Reduces role to <strong>{recommendData.aggregated_used} permissions</strong> (union of all used)
                 </div>
-                <div className="pt-2 border-t border-gray-200">
-                  <p className="text-gray-500 mb-1">After fix:</p>
-                  <p className="text-gray-900">
-                    All {recommendData.resources_attached} resources:{" "}
-                    <strong>{recommendData.aggregated_used} permissions each</strong>
-                  </p>
-                  <p className="text-xs text-amber-600 mt-1">Still over-permissioned per resource</p>
-                </div>
-                <div className="pt-2 border-t border-gray-200">
-                  <div className="text-3xl font-bold text-gray-400">
-                    {Math.round(recommendData.aggregated_risk_reduction)}%
+
+                {/* Visual representation */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="text-xs text-amber-700 font-medium mb-2">After remediation:</div>
+                  <div className="space-y-1">
+                    {Array.from({ length: Math.min(recommendData.resources_attached, 4) }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Server className="w-4 h-4 text-gray-400" />
+                        <span className="text-xs text-gray-600">Resource {i + 1}</span>
+                        <ArrowRight className="w-3 h-3 text-gray-400" />
+                        <span className="text-xs font-mono bg-amber-100 px-2 py-0.5 rounded text-amber-700">
+                          {recommendData.aggregated_used} perms
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="text-xs text-gray-500">risk reduction</div>
+                </div>
+
+                <div className="pt-3 border-t border-gray-200">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <div className="text-xs text-gray-500">Total exposure after fix</div>
+                      <div className="text-2xl font-bold text-gray-600">
+                        {recommendData.aggregated_used * recommendData.resources_attached}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Risk reduction</div>
+                      <div className="text-2xl font-bold text-gray-500">
+                        {Math.round(recommendData.aggregated_risk_reduction)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gray-400 rounded-full"
+                      style={{ width: `${recommendData.aggregated_risk_reduction}%` }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Cyntro approach */}
-            <div className="bg-indigo-50 border-2 border-indigo-300 rounded-lg p-5">
-              <p className="text-xs text-indigo-600 uppercase tracking-wider mb-3 font-semibold">
-                Cyntro / Per-Resource Approach
-              </p>
-              <div className="space-y-2 text-sm">
-                <div>
-                  <span className="text-gray-500">Analysis:</span> Per-resource breakdown
+            <div className="border-2 border-green-300 rounded-xl overflow-hidden bg-green-50/30">
+              <div className="bg-green-100 px-4 py-3 border-b border-green-200">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-green-800">Cyntro Per-Resource</span>
+                  <span className="text-xs bg-green-200 text-green-700 px-2 py-1 rounded font-medium">Recommended</span>
                 </div>
-                <div className="space-y-1">
-                  {recommendData.proposed_roles.map((pr) => (
-                    <div key={pr.resource_id} className="font-mono text-xs">
-                      <span className="text-indigo-700">{pr.role_name}</span>:{" "}
-                      {pr.permissions.length} perm{pr.permissions.length !== 1 ? "s" : ""}
-                    </div>
-                  ))}
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="text-sm text-gray-600">
+                  Each resource gets <strong>only what it uses</strong>
                 </div>
-                <div className="pt-2 border-t border-indigo-200">
-                  <p className="text-gray-500 mb-1">After fix:</p>
-                  {recommendData.proposed_roles.map((pr) => (
-                    <div key={pr.resource_id} className="text-xs text-gray-900">
-                      {pr.resource_name}:{" "}
-                      <span className="text-green-600 font-bold">{pr.permissions.length}</span>{" "}
-                      permission{pr.permissions.length !== 1 ? "s" : ""}
-                    </div>
-                  ))}
-                  <p className="text-xs text-green-600 font-semibold mt-1">0% over-permissioned</p>
-                </div>
-                <div className="pt-2 border-t border-indigo-200">
-                  <div className="text-3xl font-bold text-green-600">
-                    {Math.round(recommendData.cyntro_risk_reduction)}%
+
+                {/* Visual representation */}
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="text-xs text-green-700 font-medium mb-2">After remediation:</div>
+                  <div className="space-y-1">
+                    {analyses.slice(0, 4).map((a, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Server className="w-4 h-4 text-green-500" />
+                        <span className="text-xs text-gray-600 truncate max-w-[100px]">{a.resource_name}</span>
+                        <ArrowRight className="w-3 h-3 text-green-400" />
+                        <span className="text-xs font-mono bg-green-100 px-2 py-0.5 rounded text-green-700">
+                          {a.used_count} perm{a.used_count !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="text-xs text-gray-500">risk reduction</div>
+                </div>
+
+                <div className="pt-3 border-t border-green-200">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <div className="text-xs text-gray-500">Total exposure after fix</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {analyses.reduce((sum, a) => sum + a.used_count, 0)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Risk reduction</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {Math.round(recommendData.cyntro_risk_reduction)}%
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-2 bg-green-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full"
+                      style={{ width: `${recommendData.cyntro_risk_reduction}%` }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Architecture explanation */}
-          <div className="mt-6">
-            <h4 className="text-sm font-semibold text-gray-900 mb-3">
+          {/* Key insight callout */}
+          <div className="mt-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                <Zap className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-semibold text-indigo-900 mb-1">The Cyntro Difference</div>
+                <div className="text-sm text-indigo-700">
+                  Traditional tools give every resource the <strong>same reduced permissions</strong>.
+                  Cyntro tracks which resource uses which permission, so each gets <strong>only what it actually needs</strong>.
+                  This eliminates <strong>{Math.round((1 - analyses.reduce((sum, a) => sum + a.used_count, 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100)}% more risk</strong> than aggregated approaches.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Architecture explanation - collapsed by default */}
+          <details className="mt-6">
+            <summary className="cursor-pointer text-sm font-semibold text-gray-700 hover:text-gray-900">
               How Cyntro Analyzes Per-Resource
-            </h4>
-            <div className="grid grid-cols-1 gap-2">
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-2">
               {[
                 { step: "1", title: "Collect CloudTrail logs", detail: "90 days of API events" },
-                {
-                  step: "2",
-                  title: "Map sessions to resources",
-                  detail: '"assumed-role/.../i-abc123" → EC2-1',
-                },
-                {
-                  step: "3",
-                  title: "Track per-resource usage",
-                  detail: "EC2-1 used s3:GetObject; Lambda used s3:PutObject",
-                },
-                {
-                  step: "4",
-                  title: "Build permission graph",
-                  detail: "Resource → Permission → Target mapping",
-                },
-                {
-                  step: "5",
-                  title: "Generate per-resource recommendations",
-                  detail: "Scoped to exact buckets and actions observed",
-                },
+                { step: "2", title: "Map sessions to resources", detail: '"assumed-role/.../i-abc123" → EC2-1' },
+                { step: "3", title: "Track per-resource usage", detail: "EC2-1 used s3:GetObject; Lambda used s3:PutObject" },
+                { step: "4", title: "Build permission graph", detail: "Resource → Permission → Target mapping" },
+                { step: "5", title: "Generate per-resource recommendations", detail: "Scoped to exact buckets and actions observed" },
               ].map((s) => (
-                <div
-                  key={s.step}
-                  className="flex items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg p-3"
-                >
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                <div key={s.step} className="flex items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
                     {s.step}
                   </div>
                   <div>
