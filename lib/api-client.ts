@@ -581,9 +581,16 @@ export async function triggerScan(days = 30) {
       body: JSON.stringify({ lookback_days: days })
     })
     const data = await res.json()
-    return { success: data.success ?? res.ok, message: data.error || 'Scan started' }
+    return {
+      success: data.success ?? res.ok,
+      message: data.error || 'Scan completed',
+      findings_count: data.findings_count || 0,
+      findings: data.findings || [],
+      scan_id: data.scan_id,
+      status: data.status
+    }
   } catch (err: any) {
-    return { success: false, message: err.message || 'Failed to connect to backend' }
+    return { success: false, message: err.message || 'Failed to connect to backend', findings_count: 0 }
   }
 }
 

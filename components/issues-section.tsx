@@ -64,65 +64,35 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
     }
   }, [])
 
-  // Trigger a scan with proper status polling
+  // Trigger a scan - runs synchronously and returns results
   const handleScan = useCallback(async () => {
     setScanning(true)
-    setScanStatus("Starting scan...")
+    setScanStatus("Scanning AWS resources...")
     setError(null)
 
     try {
       const result = await triggerScan(30)
+
       if (!result.success) {
-        throw new Error("Scan failed to start")
+        throw new Error(result.message || "Scan failed")
       }
 
-      // Poll for scan status
-      const pollInterval = setInterval(async () => {
-        try {
-          const status = await getScanStatus()
-          setScanStatus(
-            status.status === "scanning"
-              ? `Scanning: ${status.roles_scanned || 0}/${status.total_roles || "?"} roles`
-              : status.status === "completed" || status.status === "complete"
-              ? `Scan complete: ${status.findings_count || 0} findings found`
-              : status.status || "Scanning..."
-          )
+      // Scan completed - result contains findings directly
+      setScanStatus(`Scan complete: ${result.findings_count || 0} findings found`)
+      setLastScanTime(new Date())
 
-          if (status.status === "completed" || status.status === "complete") {
-            clearInterval(pollInterval)
-            setScanning(false)
-            setScanStatus("")
-            setLastScanTime(new Date()) // ✅ Track last scan time
-            // Wait a moment for backend to process, then reload findings
-            await new Promise((resolve) => setTimeout(resolve, 2000))
-            const newFindings = await fetchFindings()
-            setFindings(newFindings)
-            setError(null)
-          } else if (status.status === "error" || status.status === "failed") {
-            clearInterval(pollInterval)
-            setScanning(false)
-            setError(status.error || "Scan failed")
-          }
-        } catch (err) {
-          console.error("[IssuesSection] Error polling scan status:", err)
-        }
-      }, 2000)
-
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        clearInterval(pollInterval)
-        if (scanning) {
-          setScanning(false)
-          setError("Scan timed out")
-        }
-      }, 300000)
+      // Reload findings from backend
+      const newFindings = await fetchFindings()
+      setFindings(newFindings)
+      setError(null)
     } catch (err) {
-      console.error("[IssuesSection] Error starting scan:", err)
-      setError(err instanceof Error ? err.message : "Failed to start scan")
+      console.error("[IssuesSection] Error during scan:", err)
+      setError(err instanceof Error ? err.message : "Failed to scan")
+    } finally {
       setScanning(false)
       setScanStatus("")
     }
-  }, [fetchFindings, scanning])
+  }, [fetchFindings])
 
   // Initial load - fetch findings, auto-scan if empty
   useEffect(() => {
