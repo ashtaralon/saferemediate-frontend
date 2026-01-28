@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
         current_permissions: totalPermissions,
         recommended_permissions: usedCount,
         permissions_to_remove: totalPermissions - usedCount,
-        risk_reduction_percentage: riskReduction,
+        risk_reduction_percentage: aggregatedRiskReduction,
         high_risk_removed: unusedPermissions.filter((p: any) => p.risk_level === "HIGH").length
       }
     }
