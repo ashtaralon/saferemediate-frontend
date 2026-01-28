@@ -570,9 +570,9 @@ export interface SimulationResult {
 
 export async function triggerScan(days = 30) {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/scan`, {
+    const res = await fetch('/api/proxy/scan', {
       method: 'POST',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache"
@@ -580,13 +580,16 @@ export async function triggerScan(days = 30) {
       cache: "no-store",
       body: JSON.stringify({ lookback_days: days })
     })
-    return { success: res.ok, message: 'Scan started' }
-  } catch { return { success: false, message: 'Failed' } }
+    const data = await res.json()
+    return { success: data.success ?? res.ok, message: data.error || 'Scan started' }
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Failed to connect to backend' }
+  }
 }
 
 export async function getScanStatus() {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/scan/status?_t=${Date.now()}`, {
+    const res = await fetch(`/api/proxy/scan?_t=${Date.now()}`, {
       cache: "no-store",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
