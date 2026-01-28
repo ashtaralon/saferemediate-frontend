@@ -13,6 +13,7 @@ import { IssuesSection } from "@/components/issues-section"
 import { IntegrationsSection } from "@/components/integrations-section"
 import { IdentitiesSection } from "@/components/identities-section"
 import { AutomationSection } from "@/components/automation-section"
+import { PerResourceAnalysis } from "@/components/per-resource-analysis"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
@@ -643,6 +644,9 @@ export default function HomePage() {
 
       case "identities":
         return <IdentitiesSection />
+
+      case "per-resource":
+        return <PerResourceAnalysis />
 
       case "automation":
         return <AutomationSection />
