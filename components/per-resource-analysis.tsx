@@ -856,13 +856,13 @@ export function PerResourceAnalysis() {
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                   <div className="text-xs text-green-700 font-medium mb-2">After remediation:</div>
                   <div className="space-y-1">
-                    {analyses.slice(0, 4).map((a, i) => (
+                    {(analyses || []).slice(0, 4).map((a, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <Server className="w-4 h-4 text-green-500" />
                         <span className="text-xs text-gray-600 truncate max-w-[100px]">{a.resource_name}</span>
                         <ArrowRight className="w-3 h-3 text-green-400" />
                         <span className="text-xs font-mono bg-green-100 px-2 py-0.5 rounded text-green-700">
-                          {a.used_count} perm{a.used_count !== 1 ? 's' : ''}
+                          {a.used_count || 0} perm{(a.used_count || 0) !== 1 ? 's' : ''}
                         </span>
                       </div>
                     ))}
@@ -874,7 +874,7 @@ export function PerResourceAnalysis() {
                     <div>
                       <div className="text-xs text-gray-500">Total exposure after fix</div>
                       <div className="text-2xl font-bold text-green-600">
-                        {analyses.reduce((sum, a) => sum + a.used_count, 0)}
+                        {(analyses || []).reduce((sum, a) => sum + (a.used_count || 0), 0)}
                       </div>
                     </div>
                     <div className="text-right">
@@ -906,7 +906,7 @@ export function PerResourceAnalysis() {
                 <div className="text-sm text-indigo-700">
                   Traditional tools give every resource the <strong>same reduced permissions</strong>.
                   Cyntro tracks which resource uses which permission, so each gets <strong>only what it actually needs</strong>.
-                  This eliminates <strong>{Math.round((1 - analyses.reduce((sum, a) => sum + a.used_count, 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100)}% more risk</strong> than aggregated approaches.
+                  This eliminates <strong>{recommendData.aggregated_used * recommendData.resources_attached > 0 ? Math.round((1 - (analyses?.reduce((sum, a) => sum + (a.used_count || 0), 0) || 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100) : 0}% more risk</strong> than aggregated approaches.
                 </div>
               </div>
             </div>
