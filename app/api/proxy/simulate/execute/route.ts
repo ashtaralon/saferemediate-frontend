@@ -15,20 +15,44 @@ const BACKEND_URL =
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { finding_id, resource_id, ...options } = body
+    const { finding_id, resource_id, resource_type, permissions_to_remove, ...options } = body
 
     console.log(`[SIMULATE-EXECUTE] Executing remediation for finding: ${finding_id}`)
 
-    // Call backend execute endpoint - no mock data
-    const response = await fetch(`${BACKEND_URL}/api/safe-remediate/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        finding_id,
-        resource_id,
-        ...options
-      }),
-    })
+    // Determine resource type and route to correct endpoint
+    const isIAMRole = resource_id?.includes(':role/') ||
+                      finding_id?.includes(':role/') ||
+                      resource_type === 'IAM_ROLE'
+
+    let response: Response
+
+    if (isIAMRole) {
+      // Extract role name from ARN
+      const roleName = resource_id?.split('/').pop() || finding_id?.split('/').pop() || ''
+      console.log(`[SIMULATE-EXECUTE] IAM Role detected: ${roleName}`)
+
+      response = await fetch(`${BACKEND_URL}/api/iam-roles/remediate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role_name: roleName,
+          permissions_to_remove: permissions_to_remove || [],
+          dry_run: false,
+          ...options
+        }),
+      })
+    } else {
+      // Security Group or other resource types
+      response = await fetch(`${BACKEND_URL}/api/safe-remediate/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          finding_id,
+          resource_id,
+          ...options
+        }),
+      })
+    }
 
     if (response.ok) {
       const data = await response.json()
