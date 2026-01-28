@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Only return real data from backend - no mock data
-    if (!data || !data.success) {
+    // Backend returns simulation_id on success, not a success field
+    if (!data || (!data.success && !data.simulation_id)) {
       return NextResponse.json(
         { success: false, error: "Backend returned invalid data" },
         { status: 500, headers: { "X-Proxy": "simulate-error" } }
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Add X-Proxy header to prove this route was used
-    return NextResponse.json(data, {
+    return NextResponse.json({ success: true, ...data }, {
       headers: {
         "X-Proxy": "simulate",
         "X-Proxy-Timestamp": new Date().toISOString(),
