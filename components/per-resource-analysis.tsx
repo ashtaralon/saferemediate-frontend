@@ -111,6 +111,33 @@ interface RemediateData {
   summary: { before_total: number; after_total: number; reduction: number }
 }
 
+interface PerResourceRemediateResult {
+  resource_id: string
+  resource_name: string
+  resource_type: string
+  permissions_count: number
+  permissions: string[]
+  new_role_name: string | null
+  new_role_arn: string | null
+  snapshot_id: string | null
+  steps: RemediateStep[]
+}
+
+interface PerResourceRemediateData {
+  success: boolean
+  dry_run: boolean
+  original_role: string
+  total_resources: number
+  resources: PerResourceRemediateResult[]
+  summary: {
+    before_total_exposure: number
+    after_total_exposure: number
+    reduction_percentage: number
+  }
+  snapshots: string[]
+  message: string
+}
+
 type Stage = "scan" | "analysis" | "comparison" | "simulation" | "remediation"
 
 // ── Component ────────────────────────────────────────
@@ -128,6 +155,7 @@ export function PerResourceAnalysis() {
   const [recommendData, setRecommendData] = useState<RecommendData | null>(null)
   const [simData, setSimData] = useState<SimData | null>(null)
   const [remediateData, setRemediateData] = useState<RemediateData | null>(null)
+  const [perResourceRemediateData, setPerResourceRemediateData] = useState<PerResourceRemediateData | null>(null)
 
   // UI state
   const [activeTab, setActiveTab] = useState<"aggregated" | "per-resource">("aggregated")
@@ -159,6 +187,7 @@ export function PerResourceAnalysis() {
     setRecommendData(null)
     setSimData(null)
     setRemediateData(null)
+    setPerResourceRemediateData(null)
     setStage("scan")
 
     try {
@@ -265,6 +294,32 @@ export function PerResourceAnalysis() {
           dry_run: dryRun,
         })
         setRemediateData(data)
+      } catch (e: any) {
+        setError(e.message)
+      } finally {
+        setLoading(false)
+        setLoadingMsg("")
+      }
+    },
+    [apiCall, selectedRole]
+  )
+
+  // ── Per-Resource Remediate ──
+  const runPerResourceRemediation = useCallback(
+    async (dryRun: boolean) => {
+      if (!selectedRole) return
+      setLoading(true)
+      setLoadingMsg(dryRun ? "Creating per-resource roles (dry run)..." : "Creating per-resource roles (LIVE)...")
+      setError(null)
+      setStage("remediation")
+      setPerResourceRemediateData(null)
+
+      try {
+        const data = await apiCall("POST", "/api/proxy/cyntro/remediate-per-resource", {
+          role_name: selectedRole,
+          dry_run: dryRun,
+        })
+        setPerResourceRemediateData(data)
       } catch (e: any) {
         setError(e.message)
       } finally {
@@ -939,22 +994,56 @@ export function PerResourceAnalysis() {
           </details>
 
           {/* Action buttons */}
-          <div className="mt-6 flex gap-3">
-            <button
-              onClick={runSimulation}
-              disabled={loading}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-            >
-              <Play className="w-4 h-4" />
-              Simulate Split
-            </button>
-            <button
-              onClick={() => runRemediation(true)}
-              disabled={loading}
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-            >
-              Remediate Now
-            </button>
+          <div className="mt-6 space-y-4">
+            <div className="flex gap-3">
+              <button
+                onClick={runSimulation}
+                disabled={loading}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
+              >
+                <Play className="w-4 h-4" />
+                Simulate Split
+              </button>
+              <button
+                onClick={() => runRemediation(true)}
+                disabled={loading}
+                className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
+              >
+                Aggregated Remediation
+              </button>
+            </div>
+
+            {/* Per-Resource Remediation - Highlighted */}
+            <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Split className="w-5 h-5 text-green-600" />
+                    <span className="font-semibold text-green-800">Per-Resource Remediation</span>
+                    <span className="text-xs bg-green-200 text-green-700 px-2 py-0.5 rounded">Recommended</span>
+                  </div>
+                  <p className="text-sm text-green-700">Creates separate least-privilege roles for each resource</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => runPerResourceRemediation(true)}
+                    disabled={loading}
+                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Preview
+                  </button>
+                  <button
+                    onClick={() => runPerResourceRemediation(false)}
+                    disabled={loading}
+                    className="flex items-center gap-2 bg-green-700 hover:bg-green-800 disabled:bg-green-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Execute Live
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1110,6 +1199,134 @@ export function PerResourceAnalysis() {
               >
                 Execute Live Remediation
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ──────────── PER-RESOURCE REMEDIATION RESULTS ──────────── */}
+      {perResourceRemediateData && stage === "remediation" && (
+        <div className="bg-white rounded-xl border-2 border-green-300 p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+              <Split className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Per-Resource Remediation {perResourceRemediateData.dry_run ? "(Preview)" : "Complete"}
+              </h3>
+              <p className="text-sm text-gray-500">{perResourceRemediateData.message}</p>
+            </div>
+          </div>
+
+          {/* Summary stats */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="bg-gray-50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-gray-900">{perResourceRemediateData.total_resources}</div>
+              <div className="text-xs text-gray-500">Resources</div>
+            </div>
+            <div className="bg-red-50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-red-600">{perResourceRemediateData.summary.before_total_exposure}</div>
+              <div className="text-xs text-gray-500">Before (exposure)</div>
+            </div>
+            <div className="bg-green-50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-green-600">{perResourceRemediateData.summary.after_total_exposure}</div>
+              <div className="text-xs text-gray-500">After (exposure)</div>
+            </div>
+            <div className="bg-indigo-50 rounded-lg p-4 text-center">
+              <div className="text-2xl font-bold text-indigo-600">{perResourceRemediateData.summary.reduction_percentage}%</div>
+              <div className="text-xs text-gray-500">Risk Reduction</div>
+            </div>
+          </div>
+
+          {/* Per-resource results */}
+          <div className="space-y-4">
+            <div className="text-sm font-semibold text-gray-700">Individual Resource Roles:</div>
+            {perResourceRemediateData.resources.map((resource, idx) => (
+              <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <Server className="w-5 h-5 text-gray-400" />
+                    <div>
+                      <div className="font-semibold text-gray-900">{resource.resource_name}</div>
+                      <div className="text-xs text-gray-500 font-mono">{resource.resource_id}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold text-green-600">{resource.permissions_count} permissions</div>
+                    {resource.new_role_name && (
+                      <div className="text-xs text-gray-500 font-mono">{resource.new_role_name}</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Steps */}
+                <div className="space-y-1">
+                  {resource.steps.map((step, stepIdx) => (
+                    <div key={stepIdx} className="flex items-center gap-2 text-xs">
+                      {step.status === "completed" ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      ) : step.status === "skipped" ? (
+                        <div className="w-4 h-4 rounded-full bg-gray-300" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      )}
+                      <span className="text-gray-600">{step.details}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Permissions list */}
+                {resource.permissions.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="text-xs text-gray-500 mb-2">Permissions:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {resource.permissions.map((perm, permIdx) => (
+                        <span key={permIdx} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-mono">
+                          {perm}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {resource.snapshot_id && (
+                  <div className="mt-2 text-xs text-gray-400">
+                    Snapshot: {resource.snapshot_id}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Execute live button for dry run */}
+          {perResourceRemediateData.dry_run && (
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => runPerResourceRemediation(false)}
+                disabled={loading}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
+              >
+                <Zap className="w-4 h-4" />
+                Execute Per-Resource Remediation (Live)
+              </button>
+            </div>
+          )}
+
+          {/* Success message for live execution */}
+          {!perResourceRemediateData.dry_run && perResourceRemediateData.success && (
+            <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <span className="font-semibold text-green-800">
+                  Per-resource remediation complete! Each resource now has its own least-privilege role.
+                </span>
+              </div>
+              {perResourceRemediateData.snapshots.length > 0 && (
+                <div className="mt-2 text-sm text-green-700">
+                  {perResourceRemediateData.snapshots.length} snapshot(s) created for rollback.
+                </div>
+              )}
             </div>
           )}
         </div>
