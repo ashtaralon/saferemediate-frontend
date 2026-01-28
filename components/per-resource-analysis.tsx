@@ -417,7 +417,12 @@ export function PerResourceAnalysis() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">Permission Usage Analysis</h3>
-            <span className="text-sm text-gray-500 font-mono">{selectedRole}</span>
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-indigo-600" />
+              <span className="text-xl font-bold text-indigo-700 font-mono bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200">
+                {selectedRole}
+              </span>
+            </div>
           </div>
 
           {/* Data Sources Summary - Access Advisor + CloudTrail */}
