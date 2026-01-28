@@ -6,12 +6,32 @@ export const maxDuration = 300
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
 
+// Handle GET requests - extract role_name from query params
+export async function GET(req: NextRequest) {
+  const role_name = req.nextUrl.searchParams.get("role_name")
+  const days = req.nextUrl.searchParams.get("days") || "90"
+
+  if (!role_name) {
+    return NextResponse.json({ error: "role_name query parameter is required" }, { status: 400 })
+  }
+
+  return handleAnalyze({ role_name, days: parseInt(days) })
+}
+
 export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    return handleAnalyze(body)
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+}
+
+async function handleAnalyze(body: { role_name: string; days?: number }) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 300000)
 
   try {
-    const body = await req.json()
     const { role_name, days = 90 } = body
 
     if (!role_name) {
