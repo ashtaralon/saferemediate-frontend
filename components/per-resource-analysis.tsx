@@ -786,7 +786,7 @@ export function PerResourceAnalysis() {
                 </div>
                 <div className="pt-2 border-t border-gray-200">
                   <div className="text-3xl font-bold text-gray-400">
-                    {Math.round(recommendData.aggregated_risk_reduction * 100)}%
+                    {Math.round(recommendData.aggregated_risk_reduction)}%
                   </div>
                   <div className="text-xs text-gray-500">risk reduction</div>
                 </div>
@@ -823,7 +823,7 @@ export function PerResourceAnalysis() {
                 </div>
                 <div className="pt-2 border-t border-indigo-200">
                   <div className="text-3xl font-bold text-green-600">
-                    {Math.round(recommendData.cyntro_risk_reduction * 100)}%
+                    {Math.round(recommendData.cyntro_risk_reduction)}%
                   </div>
                   <div className="text-xs text-gray-500">risk reduction</div>
                 </div>

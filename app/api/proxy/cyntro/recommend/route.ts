@@ -51,18 +51,33 @@ export async function POST(req: NextRequest) {
       }]
     }
 
-    // Calculate risk reduction
-    const riskReduction = totalPermissions > 0
+    // Get resources using this role
+    const resourcesUsingRole = gapData.resources_using_role || []
+    const resourceCount = Math.max(1, resourcesUsingRole.length)
+
+    // Calculate risk reduction - different for each approach
+    // Aggregated approach: role reduced to union of used permissions, but each resource still gets all
+    const aggregatedRiskReduction = totalPermissions > 0
       ? Math.round(((totalPermissions - usedCount) / totalPermissions) * 100)
+      : 0
+
+    // Cyntro per-resource approach: each resource gets only what IT needs
+    // Original exposure: totalPermissions × resourceCount
+    // After per-resource fix: sum of individual resource needs (which is usedCount total, distributed)
+    // For shared roles, this is significantly better because we eliminate cross-resource over-provisioning
+    const originalExposure = totalPermissions * resourceCount
+    const perResourceExposure = usedCount  // Each resource gets only its own permissions
+    const cyntroRiskReduction = originalExposure > 0
+      ? Math.min(99, Math.round(((originalExposure - perResourceExposure) / originalExposure) * 100))
       : 0
 
     const response = {
       original_role: role_name,
       original_permissions: totalPermissions,
-      resources_attached: 1,  // From gap analysis - could be enhanced
+      resources_attached: resourceCount,
       aggregated_used: usedCount,
-      aggregated_risk_reduction: riskReduction,
-      cyntro_risk_reduction: riskReduction,
+      aggregated_risk_reduction: aggregatedRiskReduction,
+      cyntro_risk_reduction: cyntroRiskReduction,
       total_new_permissions: usedCount,
       proposed_roles: [{
         role_name: `${role_name}-least-privilege`,
