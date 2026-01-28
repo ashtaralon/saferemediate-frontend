@@ -87,7 +87,9 @@ export async function POST(req: NextRequest) {
       summary: {
         before_total: gapData.summary?.total_permissions || 0,
         after_total: remediateData.permissions_count || usedPermissions.length,
-        reduction: (gapData.summary?.total_permissions || 0) - (remediateData.permissions_count || usedPermissions.length),
+        reduction: (gapData.summary?.total_permissions || 0) > 0
+          ? ((gapData.summary?.total_permissions || 0) - (remediateData.permissions_count || usedPermissions.length)) / (gapData.summary?.total_permissions || 1)
+          : 0,
         unused_removed: unusedPermissions.length
       },
 
