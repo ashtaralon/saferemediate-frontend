@@ -936,7 +936,7 @@ export function PerResourceAnalysis() {
                 </div>
               ))}
             </div>
-          </div>
+          </details>
 
           {/* Action buttons */}
           <div className="mt-6 flex gap-3">
