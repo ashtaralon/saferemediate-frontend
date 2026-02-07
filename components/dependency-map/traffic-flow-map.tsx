@@ -459,30 +459,33 @@ function NACLNode({
   onClick?: () => void;
 }) {
   const hasGap = nacl.gapCount > 0;
+  const blastRadius = nacl.connectedTargets?.length || nacl.connectedSources?.length || 0;
 
   return (
     <div
-      className={`relative flex flex-col items-center p-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[110px]
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[160px]
         ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}`}
       onMouseEnter={() => onHover(nacl.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center mb-2">
-        <Lock className="w-6 h-6 text-cyan-400" />
+      <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+        <Lock className="w-5 h-5 text-cyan-400" />
       </div>
-      <div className="text-xs font-semibold text-white text-center truncate max-w-[100px]">
-        {nacl.shortName}
-      </div>
-      <div className="text-[11px] text-slate-400">
-        Subnet ACL
-      </div>
-      {nacl.vpcId && (
-        <div className="text-[9px] text-slate-500 mt-1 truncate max-w-[100px]">
-          {nacl.vpcId.slice(-12)}
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold text-white truncate">
+          {nacl.shortName}
         </div>
-      )}
+        <div className="text-[10px] text-slate-400">
+          Network ACL
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className={`text-[9px] px-1.5 py-0.5 rounded ${blastRadius > 0 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-600/50 text-slate-400'}`}>
+            {blastRadius} affected
+          </span>
+        </div>
+      </div>
 
       {/* Connection points */}
       <div className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-500" />
@@ -508,6 +511,7 @@ function IAMRoleNode({
   const hasGap = role.gapCount > 0;
   const hasData = role.totalCount > 0;
   const usagePercent = hasData ? Math.round((role.usedCount / role.totalCount) * 100) : 0;
+  const blastRadius = role.connectedTargets?.length || role.connectedSources?.length || 0;
 
   // Determine status color based on usage
   const getStatusColor = () => {
@@ -521,58 +525,51 @@ function IAMRoleNode({
 
   return (
     <div
-      className={`relative flex flex-col items-center p-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[120px]
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[160px]
         ${isHighlighted ? 'bg-pink-500/20 border-pink-500/50 shadow-lg shadow-pink-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? statusColor.ring : ''}`}
       onMouseEnter={() => onHover(role.id)}
       onMouseLeave={() => onHover(null)}
       onClick={onClick}
     >
-      <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 ${hasData ? statusColor.bg : 'bg-pink-500/20'}`}>
-        <Key className={`w-6 h-6 ${hasData ? statusColor.text : 'text-pink-400'}`} />
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${hasData ? statusColor.bg : 'bg-pink-500/20'}`}>
+        <Key className={`w-5 h-5 ${hasData ? statusColor.text : 'text-pink-400'}`} />
       </div>
-      <div className="text-xs font-semibold text-white text-center truncate max-w-[110px]">
-        {role.shortName}
-      </div>
-
-      {hasData ? (
-        <>
-          {/* Permission counts */}
-          <div className="flex items-center gap-1 mt-1">
-            <span className={`text-[11px] font-bold ${statusColor.text}`}>
-              {role.usedCount}/{role.totalCount}
-            </span>
-            <span className="text-[10px] text-slate-500">perms</span>
-          </div>
-
-          {/* Usage bar */}
-          <div className="w-full h-1.5 bg-slate-700 rounded-full mt-1.5 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${
-                usagePercent >= 80 ? 'bg-emerald-500' :
-                usagePercent >= 50 ? 'bg-amber-500' : 'bg-red-500'
-              }`}
-              style={{ width: `${usagePercent}%` }}
-            />
-          </div>
-
-          {/* Usage percent or gap warning */}
-          {hasGap ? (
-            <div className="flex items-center gap-1 text-[9px] text-amber-400 mt-1">
-              <AlertTriangle className="w-3 h-3" />
-              {role.gapCount} unused
-            </div>
-          ) : (
-            <div className="text-[9px] text-emerald-400 mt-1">
-              {usagePercent}% utilized
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="text-[10px] text-slate-500 mt-1">
-          Analyzing...
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold text-white truncate">
+          {role.shortName}
         </div>
-      )}
+        {hasData ? (
+          <>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className={`text-[10px] font-bold ${statusColor.text}`}>
+                {role.usedCount}/{role.totalCount}
+              </span>
+              <span className="text-[9px] text-slate-500">perms</span>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              {hasGap ? (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                  {role.gapCount} unused
+                </span>
+              ) : (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                  {usagePercent}% used
+                </span>
+              )}
+              {blastRadius > 0 && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-600/50 text-slate-400">
+                  {blastRadius} linked
+                </span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="text-[10px] text-slate-500 mt-1">
+            Analyzing...
+          </div>
+        )}
+      </div>
 
       {/* Connection points */}
       <div className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-500" />
