@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-    // Try the backend NACL endpoint
-    const backendUrl = `${BACKEND_URL}/api/nacls?system_name=${encodeURIComponent(systemName)}`
+    // Try the backend NACL endpoint (from debug traffic API)
+    const backendUrl = `${BACKEND_URL}/api/debug/nacls?systemName=${encodeURIComponent(systemName)}`
 
     const res = await fetch(backendUrl, {
       cache: "no-store",
