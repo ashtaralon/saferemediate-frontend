@@ -797,7 +797,8 @@ function ServiceDetailsPopup({
           : service.id;
 
         // Use blast-radius API (the working one)
-        const res = await fetch(`/api/proxy/blast-radius/${encodeURIComponent(queryResourceId)}?resource_type=${resourceType}&_t=${Date.now()}`);
+        const apiUrl = `/api/proxy/blast-radius/${encodeURIComponent(queryResourceId)}?resource_type=${resourceType}&_t=${Date.now()}`;
+        const res = await fetch(apiUrl);
 
         if (res.ok) {
           const data = await res.json();
@@ -816,7 +817,6 @@ function ServiceDetailsPopup({
             const arn = r.arn || '';
             // Skip external IPs and unknown external traffic
             if (!isRealAWSService(name, type, arn)) {
-              console.log('[BlastRadius] Filtering out:', name, type);
               return;
             }
             // Infer type from ARN if type is Unknown
@@ -940,7 +940,7 @@ function ServiceDetailsPopup({
     return architecture.flows.filter(f =>
       f.sourceId === service.id || f.targetId === service.id ||
       f.sourceId.includes(service.id.slice(-12)) || f.targetId.includes(service.id.slice(-12)) ||
-      f.sgId === service.id || f.roleId === service.id
+      f.sgId === service.id || f.naclId === service.id || f.roleId === service.id
     );
   }, [architecture.flows, service.id]);
 
