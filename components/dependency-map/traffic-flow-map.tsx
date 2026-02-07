@@ -2097,9 +2097,12 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       const srcId = edge.source || edge.from;
       const tgtId = edge.target || edge.to;
 
-      // NACL is associated with subnet
-      if (edgeType === 'HAS_NACL' || edgeType === 'USES_NACL') {
+      // NACL is associated with subnet or directly with compute
+      if (edgeType === 'HAS_NACL' || edgeType === 'USES_NACL' || edgeType === 'PROTECTED_BY_NACL') {
         subnetToNACL.set(srcId, tgtId);
+        // Also directly map compute to NACL for EC2 -> NACL edges
+        const canonicalSrc = extractInstanceId(srcId);
+        computeToNACL.set(canonicalSrc, tgtId);
         const naclNode = nodeMap.get(tgtId);
         if (naclNode) {
           naclNodeMap.set(tgtId, naclNode);
