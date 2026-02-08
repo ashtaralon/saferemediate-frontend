@@ -692,9 +692,10 @@ export function RemediationTimeline({
         // Sort by timestamp (newest first)
         allEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
-        // Generate chart data if Neo4j didn't provide it
-        let finalChartData = neo4jChartData
-        if (finalChartData.length === 0 && allEvents.length > 0) {
+        // ALWAYS generate chart data from ALL events (not just Neo4j)
+        // This ensures snapshot events are visualized in the chart
+        let finalChartData: ChartDataPoint[] = []
+        if (allEvents.length > 0) {
           const chartDataMap = new Map<string, ChartDataPoint>()
 
           for (let i = periodDays[selectedPeriod]; i >= 0; i--) {
