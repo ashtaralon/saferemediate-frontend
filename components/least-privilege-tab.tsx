@@ -276,6 +276,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
       const params = new URLSearchParams();
       if (systemName) params.append('systemName', systemName);
 
+      // Fetch from dependency map
       const res = await fetch(`/api/proxy/dependency-map/full?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -289,6 +290,32 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
         type: node.type || 'Unknown',
       }));
 
+      // Also fetch ALL EC2 instances from infrastructure endpoint (not filtered by system)
+      // This ensures all EC2s are available in the simulator
+      try {
+        const ec2Res = await fetch('/api/proxy/infrastructure/ec2-instances');
+        if (ec2Res.ok) {
+          const ec2Data = await ec2Res.json();
+          const ec2Instances = ec2Data.instances || ec2Data.ec2_instances || ec2Data || [];
+
+          // Add EC2 instances that aren't already in the services list
+          const existingNames = new Set(services.map(s => s.name));
+          for (const ec2 of ec2Instances) {
+            const name = ec2.name || ec2.Name || ec2.instance_id;
+            if (name && !existingNames.has(name)) {
+              services.push({
+                id: ec2.instance_id || ec2.id || name,
+                name: name,
+                type: 'EC2Instance',
+              });
+              existingNames.add(name);
+            }
+          }
+        }
+      } catch (ec2Err) {
+        console.warn('Could not fetch EC2 instances:', ec2Err);
+      }
+
       // Sort by type, then by name
       services.sort((a, b) => {
         if (a.type !== b.type) return a.type.localeCompare(b.type);
@@ -299,7 +326,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
 
       // Set defaults if not already set
       if (!simSource && services.length > 0) {
-        const ec2 = services.find(s => s.type === 'EC2');
+        const ec2 = services.find(s => s.type === 'EC2' || s.type === 'EC2Instance');
         if (ec2) setSimSource(ec2.name);
       }
       if (!simTarget && services.length > 0) {
@@ -580,11 +607,15 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     >
                       <option value="">Select source...</option>
                       {/* Group services by type */}
-                      {['EC2', 'Lambda', 'ECS', 'EKS'].map(type => {
-                        const services = availableServices.filter(s => s.type.includes(type));
+                      {['EC2', 'EC2Instance', 'Lambda', 'ECS', 'EKS'].map(type => {
+                        const services = availableServices.filter(s => s.type === type || s.type.includes(type));
                         if (services.length === 0) return null;
+                        // Use 'EC2' as label for both EC2 and EC2Instance
+                        const label = type === 'EC2Instance' ? 'EC2' : type;
+                        // Skip if we already showed EC2Instance under EC2
+                        if (type === 'EC2' && availableServices.some(s => s.type === 'EC2Instance')) return null;
                         return (
-                          <optgroup key={type} label={type}>
+                          <optgroup key={type} label={label}>
                             {services.map(s => (
                               <option key={s.id} value={s.name}>{s.name}</option>
                             ))}
