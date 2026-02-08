@@ -66,9 +66,15 @@ export async function DELETE(
     } else if (snapshotId.startsWith('sg-snap-')) {
       // SG LP snapshots (new system)
       endpoint = `${BACKEND_URL}/api/sg-least-privilege/snapshots/${snapshotId}`
+    } else if (snapshotId.startsWith('SNAP-')) {
+      // IAM/unified snapshots - use the unified snapshots API
+      endpoint = `${BACKEND_URL}/api/snapshots/${snapshotId}`
+    } else if (snapshotId.startsWith('IAMRole-')) {
+      // IAM Role checkpoints
+      endpoint = `${BACKEND_URL}/api/snapshots/${snapshotId}`
     } else {
-      // Default to old SG remediation endpoint
-      endpoint = `${BACKEND_URL}/api/remediation/snapshots/${snapshotId}`
+      // Default to unified snapshots API
+      endpoint = `${BACKEND_URL}/api/snapshots/${snapshotId}`
     }
 
     console.log("[proxy] delete endpoint:", endpoint)
