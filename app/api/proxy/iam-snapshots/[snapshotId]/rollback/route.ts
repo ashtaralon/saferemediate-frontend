@@ -11,16 +11,13 @@ export async function POST(
 
     console.log(`[IAM-ROLLBACK] Rolling back IAM snapshot: ${snapshotId}`);
 
-    // Call the IAM rollback endpoint with checkpoint_id
+    // Use the generic snapshots rollback endpoint which handles SNAP-* format
     const response = await fetch(
-      `${BACKEND_URL}/api/iam-roles/rollback`,
+      `${BACKEND_URL}/api/snapshots/${snapshotId}/rollback`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          checkpoint_id: snapshotId,
-          role_name: ''  // Will be read from checkpoint
-        })
+        body: JSON.stringify({})
       }
     );
 
