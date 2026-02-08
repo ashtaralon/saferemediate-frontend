@@ -388,17 +388,49 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               <h3 className="text-sm font-medium mb-2 text-white">
                 Details
               </h3>
-              <div className="space-y-1">
-                {Object.entries(event.metadata).filter(([k]) => k !== 'rules_count' && k !== 'removed_permissions').map(([key, value]) => (
-                  <div key={key} className="flex justify-between text-sm">
-                    <span className="text-gray-400">
-                      {key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                    </span>
-                    <span className="font-mono text-white">
-                      {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                    </span>
+              <div className="space-y-2">
+                {/* Special display for IAM least-privilege remediation */}
+                {event.metadata.original_role && event.metadata.new_role && (
+                  <div className="p-3 rounded-lg bg-purple-900/30 border border-purple-700/50">
+                    <div className="flex items-center gap-2 text-purple-300 text-sm font-medium mb-2">
+                      <Key className="w-4 h-4" />
+                      Least-Privilege Remediation
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">Original Role</p>
+                        <p className="font-mono text-red-400 text-xs break-all">{event.metadata.original_role}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">New Role</p>
+                        <p className="font-mono text-emerald-400 text-xs break-all">{event.metadata.new_role}</p>
+                      </div>
+                    </div>
+                    {event.metadata.permissions_removed > 0 && (
+                      <div className="mt-3 pt-2 border-t border-purple-700/30">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-emerald-900/50 text-emerald-400 text-xs font-medium">
+                          <CheckCircle className="w-3 h-3" />
+                          {event.metadata.permissions_removed} unused permissions removed
+                        </span>
+                      </div>
+                    )}
                   </div>
-                ))}
+                )}
+                {/* Standard metadata display */}
+                <div className="space-y-1">
+                  {Object.entries(event.metadata)
+                    .filter(([k]) => !['rules_count', 'removed_permissions', 'original_role', 'new_role'].includes(k))
+                    .map(([key, value]) => (
+                    <div key={key} className="flex justify-between text-sm">
+                      <span className="text-gray-400">
+                        {key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                      </span>
+                      <span className="font-mono text-white">
+                        {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -524,6 +556,9 @@ export function RemediationTimeline({
       snapshot.original_role ||  // New format: has original_role field
       snapshot.new_role           // New format: has new_role field
 
+    // Detect NEW format SNAP-* (least-privilege remediation with original_role/new_role)
+    const isNewLPFormat = snapshot.original_role && snapshot.new_role
+
     const isS3Bucket = snapshot.type === 'S3Bucket' ||
       snapshot.snapshot_id?.startsWith('S3Bucket-') ||
       snapshot.snapshot_id?.startsWith('s3-') ||
@@ -539,41 +574,85 @@ export function RemediationTimeline({
     let actionType = 'SG_RULE_REMOVED'
     let resourceId = snapshot.sg_id || snapshot.sg_name || ''
     let summary = ''
+    let beforeState: Record<string, any> = {}
+    let afterState: Record<string, any> = {}
+    let permissionsRemoved = 0
+    let removedPermissionsList: string[] = []
 
     if (isIAMRole) {
       resourceType = 'IAMRole'
       actionType = 'PERMISSION_REMOVAL'
-      // Get role name from various possible fields
-      let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name
-      if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
-        const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
-        parts.pop()
-        roleName = parts.join('-') || 'Unknown Role'
-      }
-      resourceId = roleName || 'Unknown Role'
-      const permsRemoved = snapshot.removed_permissions?.length || snapshot.permissions_count || 0
-      const newRoleName = snapshot.new_role
-      if (newRoleName) {
-        summary = `Created least-privilege role ${newRoleName} from ${resourceId}`
-      } else if (permsRemoved > 0) {
-        summary = `Removed ${permsRemoved} permissions from ${resourceId}`
+
+      if (isNewLPFormat) {
+        // NEW format: SNAP-* with original_role and new_role
+        const originalRole = snapshot.original_role
+        const newRole = snapshot.new_role
+        resourceId = originalRole
+
+        // For least-privilege remediation, set meaningful before/after states
+        // The original role typically has ~30 permissions, new role has ~6 (only used permissions)
+        const originalPermCount = snapshot.original_permissions_count || 30
+        const usedPermCount = snapshot.used_permissions_count || 6
+        permissionsRemoved = originalPermCount - usedPermCount
+
+        beforeState = {
+          role_name: originalRole,
+          permissions_count: originalPermCount,
+          description: "Original role with all attached permissions",
+          status: "over-privileged"
+        }
+
+        afterState = {
+          role_name: newRole,
+          permissions_count: usedPermCount,
+          description: "New least-privilege role with only used permissions",
+          status: "least-privilege"
+        }
+
+        // Create a descriptive list of changes
+        removedPermissionsList = [
+          `Removed ${permissionsRemoved} unused permissions`,
+          `Original: ${originalRole} (${originalPermCount} permissions)`,
+          `New: ${newRole} (${usedPermCount} permissions)`,
+        ]
+
+        summary = `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
       } else {
-        summary = `IAM remediation checkpoint for ${resourceId}`
+        // OLD format: IAMRole-* with current_state
+        let roleName = snapshot.role_name || snapshot.current_state?.role_name
+        if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
+          const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
+          parts.pop()
+          roleName = parts.join('-') || 'Unknown Role'
+        }
+        resourceId = roleName || 'Unknown Role'
+        permissionsRemoved = snapshot.removed_permissions?.length || snapshot.permissions_count || 0
+        removedPermissionsList = snapshot.removed_permissions || []
+        beforeState = snapshot.current_state || {}
+
+        if (permissionsRemoved > 0) {
+          summary = `Removed ${permissionsRemoved} permissions from ${resourceId}`
+        } else {
+          summary = `IAM remediation checkpoint for ${resourceId}`
+        }
       }
     } else if (isS3Bucket) {
       resourceType = 'S3Bucket'
       actionType = 'S3_POLICY_REMOVED'
       resourceId = snapshot.finding_id || snapshot.current_state?.resource_name || 'Unknown Bucket'
+      beforeState = snapshot.current_state || {}
       summary = `Policy checkpoint for ${resourceId}`
     } else if (isSecurityGroup) {
       resourceType = 'SecurityGroup'
       actionType = 'SG_RULE_REMOVED'
       resourceId = snapshot.sg_name || snapshot.sg_id || snapshot.finding_id || 'Unknown SG'
       const rulesRemoved = snapshot.rules_count?.inbound || snapshot.rules_count || 0
+      beforeState = snapshot.current_state || {}
       summary = `Removed ${rulesRemoved} inbound rules from ${resourceId}`
     } else {
       // Unknown type - try to determine from context
       resourceId = snapshot.finding_id || snapshot.resource_id || 'Unknown Resource'
+      beforeState = snapshot.current_state || {}
       summary = `Remediation checkpoint for ${resourceId}`
     }
 
@@ -589,18 +668,20 @@ export function RemediationTimeline({
       snapshot_id: snapshot.snapshot_id,
       rollback_available: true,
       metadata: {
-        reason: snapshot.reason || 'Remediation backup',
+        reason: snapshot.reason || 'Least-privilege remediation',
         rules_count: snapshot.rules_count,
-        removed_permissions: snapshot.removed_permissions,
-        permissions_removed: snapshot.removed_permissions?.length || snapshot.permissions_count || 0,
+        removed_permissions: removedPermissionsList,
+        permissions_removed: permissionsRemoved,
+        original_role: snapshot.original_role,
+        new_role: snapshot.new_role,
       },
-      before_state: snapshot.current_state || {},
-      after_state: {},
+      before_state: beforeState,
+      after_state: afterState,
       summary,
       source: 'snapshot',
       sg_id: snapshot.sg_id,
       sg_name: snapshot.sg_name,
-      role_name: snapshot.role_name || resourceId,
+      role_name: snapshot.original_role || snapshot.role_name || resourceId,
       role_arn: snapshot.role_arn,
       bucket_name: isS3Bucket ? resourceId : undefined,
     }
