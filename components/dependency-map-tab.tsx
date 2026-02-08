@@ -107,6 +107,19 @@ const FlowStripView = dynamic(
   }
 )
 
+// Lazy load Neo4jDataView (Data table view for Neo4j data) with SSR disabled
+const Neo4jDataView = dynamic(
+  () => import('./dependency-map/neo4j-data-view'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    )
+  }
+)
+
 // Feature flag for v2 (Observed-first) dependency map
 // Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
 const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'

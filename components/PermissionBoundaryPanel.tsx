@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   ShieldQuestion,
+  ShieldOff,
   Eye,
   Play,
   RotateCcw,
@@ -19,6 +20,8 @@ import {
   Info,
   Settings,
   RefreshCw,
+  RefreshCcw,
+  Wrench,
 } from "lucide-react"
 
 // --- Types ---
@@ -31,6 +34,13 @@ interface ConfidenceBreakdown {
   volume_factor: number
   resource_count: number
   blast_radius_penalty: number
+}
+
+interface DriftInfo {
+  status: string
+  severity: string
+  detected_at: string | null
+  details: string
 }
 
 interface Candidate {
@@ -47,6 +57,7 @@ interface Candidate {
   resources_using_role: number
   enforcement_status: string
   existing_boundary_arn: string | null
+  drift_info: DriftInfo | null
 }
 
 interface PreviewData {
@@ -133,8 +144,20 @@ const STATUS_CONFIG: Record<string, {
   bgColor: string
 }> = {
   ENFORCED: { label: "Enforced", color: "text-emerald-700", bgColor: "bg-emerald-100" },
+  DRIFT_DETECTED: { label: "Drift!", color: "text-red-700", bgColor: "bg-red-100" },
   ROLLED_BACK: { label: "Rolled Back", color: "text-amber-700", bgColor: "bg-amber-100" },
   NONE: { label: "Not Enforced", color: "text-gray-500", bgColor: "bg-gray-100" },
+}
+
+const DRIFT_SEVERITY_CONFIG: Record<string, {
+  label: string
+  color: string
+  bgColor: string
+}> = {
+  CRITICAL: { label: "Critical", color: "text-red-700", bgColor: "bg-red-100" },
+  HIGH: { label: "High", color: "text-orange-700", bgColor: "bg-orange-100" },
+  MEDIUM: { label: "Medium", color: "text-amber-700", bgColor: "bg-amber-100" },
+  LOW: { label: "Low", color: "text-yellow-700", bgColor: "bg-yellow-100" },
 }
 
 // --- Component ---
@@ -151,7 +174,67 @@ export function PermissionBoundaryPanel() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [enforcing, setEnforcing] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
+  const [remediating, setRemediating] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [driftCount, setDriftCount] = useState(0)
   const [actionResult, setActionResult] = useState<{ role: string; type: string; message: string } | null>(null)
+
+  // Count drifted roles
+  useEffect(() => {
+    const count = candidates.filter(c => c.drift_info !== null).length
+    setDriftCount(count)
+  }, [candidates])
+
+  // Sync drift status
+  const handleDriftSync = async () => {
+    setSyncing(true)
+    setActionResult(null)
+    try {
+      const res = await fetch("/api/proxy/boundary-drift/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_remediate: false }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Sync failed")
+      const data = await res.json()
+      setActionResult({
+        role: "Drift Sync",
+        type: data.drift_detected > 0 ? "warning" : "success",
+        message: `Checked ${data.total_checked} roles. ${data.drift_detected} with drift detected.`,
+      })
+      // Refresh candidates to show updated drift status
+      fetchCandidates()
+    } catch (err: any) {
+      setActionResult({ role: "Drift Sync", type: "error", message: err.message })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  // Remediate drift for a single role
+  const handleRemediate = async (roleName: string) => {
+    if (!confirm(`Reapply permission boundary to "${roleName}"? This will restore the enforced boundary.`)) {
+      return
+    }
+    setRemediating(roleName)
+    setActionResult(null)
+    try {
+      const res = await fetch(`/api/proxy/boundary-drift/remediate/${encodeURIComponent(roleName)}`, {
+        method: "POST",
+      })
+      if (!res.ok) throw new Error((await res.json()).error || "Remediation failed")
+      setActionResult({
+        role: roleName,
+        type: "success",
+        message: "Boundary reapplied successfully. Drift remediated.",
+      })
+      fetchCandidates()
+    } catch (err: any) {
+      setActionResult({ role: roleName, type: "error", message: err.message })
+    } finally {
+      setRemediating(null)
+    }
+  }
 
   // Fetch candidates
   const fetchCandidates = useCallback(async () => {
@@ -266,14 +349,32 @@ export function PermissionBoundaryPanel() {
             Safe enforcement via IAM permission boundaries — caps permissions without modifying shared roles
           </p>
         </div>
-        <button
-          onClick={fetchCandidates}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Drift Sync Button */}
+          <button
+            onClick={handleDriftSync}
+            disabled={syncing}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border ${
+              driftCount > 0
+                ? "text-red-700 bg-red-50 border-red-200 hover:bg-red-100"
+                : "text-gray-700 bg-white border-gray-300 hover:bg-gray-50"
+            } disabled:opacity-50`}
+            title="Check all enforced boundaries for drift (removal or modification)"
+          >
+            <RefreshCcw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing..." : driftCount > 0 ? `${driftCount} Drifted` : "Check Drift"}
+          </button>
+
+          {/* Refresh Button */}
+          <button
+            onClick={fetchCandidates}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Tier Summary Cards */}
@@ -320,6 +421,8 @@ export function PermissionBoundaryPanel() {
           className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${
             actionResult.type === "error"
               ? "bg-red-50 border-red-200 text-red-700"
+              : actionResult.type === "warning"
+              ? "bg-amber-50 border-amber-200 text-amber-700"
               : actionResult.type === "dry_run"
               ? "bg-blue-50 border-blue-200 text-blue-700"
               : "bg-emerald-50 border-emerald-200 text-emerald-700"
@@ -327,6 +430,8 @@ export function PermissionBoundaryPanel() {
         >
           {actionResult.type === "error" ? (
             <XCircle className="h-4 w-4 flex-shrink-0" />
+          ) : actionResult.type === "warning" ? (
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
           ) : (
             <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
           )}
@@ -358,7 +463,7 @@ export function PermissionBoundaryPanel() {
       {!loading && candidates.length > 0 && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
           {/* Table Header */}
-          <div className="grid grid-cols-[1fr_100px_80px_80px_100px_120px_160px] gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <div className="grid grid-cols-[1fr_100px_80px_80px_100px_120px_180px] gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wider">
             <div>Role</div>
             <div className="text-center">Gap</div>
             <div className="text-center">Used</div>
@@ -371,20 +476,45 @@ export function PermissionBoundaryPanel() {
           {/* Rows */}
           {candidates.map((c) => {
             const tierCfg = TIER_CONFIG[c.enforcement_tier] || TIER_CONFIG.ALERT_ONLY
-            const statusCfg = STATUS_CONFIG[c.enforcement_status] || STATUS_CONFIG.NONE
+            const hasDrift = c.drift_info !== null
+            const statusCfg = hasDrift
+              ? STATUS_CONFIG.DRIFT_DETECTED
+              : (STATUS_CONFIG[c.enforcement_status] || STATUS_CONFIG.NONE)
             const TierIcon = tierCfg.icon
             const isExpanded = expandedRole === c.role_name
             const isEnforcing = enforcing === c.role_name
             const isRollingBack = rollingBack === c.role_name
+            const isRemediating = remediating === c.role_name
 
             return (
               <div key={c.role_name}>
+                {/* Drift Warning Banner */}
+                {hasDrift && (
+                  <div className="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2 text-sm">
+                    <ShieldOff className="h-4 w-4 text-red-600 flex-shrink-0" />
+                    <span className="text-red-700 font-medium">Drift Detected:</span>
+                    <span className="text-red-600">{c.drift_info?.details}</span>
+                    <button
+                      onClick={() => handleRemediate(c.role_name)}
+                      disabled={isRemediating}
+                      className="ml-auto flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {isRemediating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+                      Remediate
+                    </button>
+                  </div>
+                )}
+
                 {/* Row */}
-                <div className="grid grid-cols-[1fr_100px_80px_80px_100px_120px_160px] gap-2 px-4 py-3 border-b border-gray-100 items-center hover:bg-gray-50/50 transition-colors">
+                <div className={`grid grid-cols-[1fr_100px_80px_80px_100px_120px_180px] gap-2 px-4 py-3 border-b border-gray-100 items-center hover:bg-gray-50/50 transition-colors ${hasDrift ? "bg-red-50/30" : ""}`}>
                   {/* Role Name */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <TierIcon className={`h-4 w-4 flex-shrink-0 ${tierCfg.color}`} />
+                      {hasDrift ? (
+                        <ShieldOff className="h-4 w-4 flex-shrink-0 text-red-500" />
+                      ) : (
+                        <TierIcon className={`h-4 w-4 flex-shrink-0 ${tierCfg.color}`} />
+                      )}
                       <span className="text-sm font-medium text-gray-900 truncate">{c.role_name}</span>
                     </div>
                     <div className="text-[11px] text-gray-400 mt-0.5 truncate">
@@ -429,7 +559,17 @@ export function PermissionBoundaryPanel() {
                       {isExpanded ? "Hide" : "Preview"}
                     </button>
 
-                    {c.enforcement_status === "ENFORCED" ? (
+                    {/* Show Remediate button if drift detected */}
+                    {hasDrift ? (
+                      <button
+                        onClick={() => handleRemediate(c.role_name)}
+                        disabled={isRemediating}
+                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-red-600 border border-red-600 rounded hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {isRemediating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+                        Fix
+                      </button>
+                    ) : c.enforcement_status === "ENFORCED" ? (
                       <button
                         onClick={() => handleRollback(c.role_name)}
                         disabled={isRollingBack}

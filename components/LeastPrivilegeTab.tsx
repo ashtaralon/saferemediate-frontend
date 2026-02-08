@@ -1461,6 +1461,60 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
           }}
           systemName={systemName}
           result={simulationResult}
+          isExecuting={isExecuting}
+          onExecute={async (dryRun: boolean) => {
+            setIsExecuting(true)
+            try {
+              // Get role name from resource
+              const roleName = selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || ''
+
+              // Call remediation API
+              const response = await fetch('/api/proxy/cyntro/remediate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  role_name: roleName,
+                  dry_run: dryRun
+                })
+              })
+
+              if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}))
+                throw new Error(errorData.error || `Remediation failed: ${response.status}`)
+              }
+
+              const result = await response.json()
+
+              if (result.success) {
+                toast({
+                  title: dryRun ? '✅ Preview Complete' : '✅ Remediation Complete',
+                  description: dryRun
+                    ? `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0}`
+                    : `Snapshot: ${result.snapshot_id || 'Created'}. Permissions reduced to ${result.new_role?.permissions_count || 0}`
+                })
+
+                if (!dryRun) {
+                  // Close modal and remove from list on live execution
+                  setSimulationModalOpen(false)
+                  setSimulationResult(null)
+                  handleRemediationSuccess(roleName)
+                  setDrawerOpen(false)
+                  setSelectedResource(null)
+                }
+              } else {
+                throw new Error(result.error || 'Remediation failed')
+              }
+            } catch (error) {
+              console.error('Remediation error:', error)
+              toast({
+                title: '❌ Remediation Failed',
+                description: error instanceof Error ? error.message : 'Check console for details',
+                variant: 'destructive'
+              })
+            } finally {
+              setIsExecuting(false)
+            }
+          }}
         />
         )
       )}

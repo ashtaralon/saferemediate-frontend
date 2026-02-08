@@ -1769,6 +1769,8 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
   const [sgGapData, setSgGapData] = useState<Map<string, SGGapAnalysisResponse>>(new Map()) // SG gap analysis cache
   const [viewMode, setViewMode] = useState<'isolated' | 'full-system' | 'traffic'>('isolated') // Toggle between individual flows, unified system view, or live traffic
   const [apiCallsData, setApiCallsData] = useState<any[]>([]) // CloudTrail API calls data
+  const [driftData, setDriftData] = useState<{ total_checked: number; drift_detected: number; results: any[] } | null>(null) // Boundary drift detection data
+  const [driftLoading, setDriftLoading] = useState(false)
 
   const fetchData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading if not background refresh AND no cached data
@@ -1786,7 +1788,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
 
       // Fetch graph data from backend (backend fetches from Neo4j), with other data sources in parallel
       // Architecture: AWS → Neo4j → Backend (Render) → UI (Vercel)
-      const [graphRes, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes] = await Promise.allSettled([
+      const [graphRes, iamRes, xrayServiceRes, xrayTraceRes, naclRes, trafficRes, apiCallsRes, driftRes] = await Promise.allSettled([
         fetch(`/api/proxy/dependency-map/full?systemName=${systemName}&includeUnused=true&maxNodes=500`),
         fetch(`/api/proxy/iam-analysis/gaps/${systemName}`),
         fetch(`/api/proxy/xray/service-map?systemName=${systemName}&window=${timeWindow}`),
@@ -1794,6 +1796,7 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         fetch(`/api/proxy/nacls?systemName=${systemName}`),
         fetch(`/api/proxy/traffic-data?system_name=${systemName}`),
         fetch(`/api/proxy/api-calls?systemName=${systemName}&days=7`),
+        fetch(`/api/proxy/boundary-drift/status`),
       ])
 
       // Parse graph data from backend (Neo4j → Backend → UI)
@@ -1981,6 +1984,15 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
         console.log('[FlowStrip] No traffic data available for API simulation')
       }
       setApiCallsData(fetchedApiCalls)
+
+      // Parse boundary drift detection data
+      if (driftRes.status === 'fulfilled' && driftRes.value.ok) {
+        const data = await driftRes.value.json()
+        setDriftData(data)
+        console.log('[FlowStrip] Boundary drift status:', data.drift_count || 0, 'drifted roles out of', data.total_checked || 0, 'checked')
+      } else {
+        console.log('[FlowStrip] Drift status not available')
+      }
 
       // Fetch SG gap analysis for security groups found in topology
       const sgNodes = graphNodes.filter(n =>
@@ -2665,6 +2677,65 @@ export function FlowStripView({ systemName }: FlowStripViewProps) {
           <div className="flex items-center gap-1.5">
             <span className="font-bold" style={{ color: '#f59e0b' }}>{stats.withGaps}</span>
             <span style={{ color: '#94a3b8' }}>With Gaps</span>
+          </div>
+          {/* Boundary Drift Status */}
+          <div className="flex items-center gap-2">
+            {driftData && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="font-bold"
+                  style={{ color: driftData.drift_detected > 0 ? '#ef4444' : '#10b981' }}
+                >
+                  {driftData.drift_detected}
+                </span>
+                <span style={{ color: '#94a3b8' }}>Drift</span>
+                {driftData.drift_detected > 0 && (
+                  <span
+                    className="px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse"
+                    style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
+                  >
+                    ⚠️
+                  </span>
+                )}
+              </div>
+            )}
+            <button
+              onClick={async () => {
+                setDriftLoading(true)
+                try {
+                  const res = await fetch('/api/proxy/boundary-drift/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: true })
+                  })
+                  if (res.ok) {
+                    const data = await res.json()
+                    setDriftData({
+                      total_checked: data.total_checked,
+                      drift_detected: data.drift_detected,
+                      results: data.results || []
+                    })
+                    console.log('[FlowStrip] Drift sync complete:', data.drift_detected, 'drifted out of', data.total_checked)
+                  }
+                } catch (e) {
+                  console.error('[FlowStrip] Drift sync failed:', e)
+                } finally {
+                  setDriftLoading(false)
+                }
+              }}
+              disabled={driftLoading}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-all"
+              style={{
+                border: '1px solid',
+                borderColor: driftLoading ? 'rgba(148, 163, 184, 0.2)' : 'rgba(239, 68, 68, 0.5)',
+                background: driftLoading ? 'transparent' : 'rgba(239, 68, 68, 0.1)',
+                color: driftLoading ? '#64748b' : '#f87171',
+              }}
+              title="Check for permission boundary tampering"
+            >
+              <span className={driftLoading ? 'animate-spin' : ''}>🛡️</span>
+              <span>{driftLoading ? 'Syncing...' : 'Sync Drift'}</span>
+            </button>
           </div>
           <div className="w-px h-5" style={{ background: 'rgba(148, 163, 184, 0.2)' }} />
           {/* Live indicator and refresh */}

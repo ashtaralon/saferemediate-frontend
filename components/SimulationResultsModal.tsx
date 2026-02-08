@@ -140,6 +140,8 @@ interface SimulationResultsModalProps {
   }
   systemName?: string
   result?: SimulationResult  // Optional: pass result directly (for testing)
+  onExecute?: (dryRun: boolean) => Promise<void>  // Execute remediation callback
+  isExecuting?: boolean  // Show loading state during execution
 }
 
 export default function SimulationResultsModal({
@@ -150,7 +152,9 @@ export default function SimulationResultsModal({
   resourceName,
   proposedChange,
   systemName,
-  result: initialResult
+  result: initialResult,
+  onExecute,
+  isExecuting = false
 }: SimulationResultsModalProps) {
   const [result, setResult] = useState<SimulationResult | null>(initialResult || null)
   const [loading, setLoading] = useState(false)
@@ -751,25 +755,47 @@ export default function SimulationResultsModal({
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm font-medium"
+                  disabled={isExecuting}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
                 >
                   Close
                 </button>
-                
-                {result.status === 'EXECUTE' && result.action_policy?.auto_apply && (
-                  <button
-                    onClick={() => {
-                      alert('Execute remediation - Coming soon')
-                      onClose()
-                    }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium flex items-center gap-2"
-                  >
-                    <Zap className="w-4 h-4" />
-                    Auto-Apply
-                  </button>
+
+                {result.status !== 'BLOCKED' && onExecute && (
+                  <>
+                    {/* Preview/Dry Run Button */}
+                    <button
+                      onClick={() => onExecute(true)}
+                      disabled={isExecuting}
+                      className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {isExecuting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Shield className="w-4 h-4" />
+                      )}
+                      Preview Changes
+                    </button>
+
+                    {/* Execute Live Button - only if confidence is high */}
+                    {(result.status === 'EXECUTE' || confidence.level === 'HIGH') && (
+                      <button
+                        onClick={() => onExecute(false)}
+                        disabled={isExecuting}
+                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {isExecuting ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Zap className="w-4 h-4" />
+                        )}
+                        Execute Live
+                      </button>
+                    )}
+                  </>
                 )}
-                
-                {result.status !== 'BLOCKED' && (
+
+                {result.status !== 'BLOCKED' && !onExecute && (
                   <>
                     <button
                       onClick={() => {
