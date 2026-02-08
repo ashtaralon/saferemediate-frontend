@@ -1054,7 +1054,15 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               {/* Clear deleted button */}
               {deletedResources.size > 0 && (
                 <button
-                  onClick={() => setDeletedResources(new Set())}
+                  onClick={() => {
+                    setDeletedResources(new Set())
+                    // Also clear localStorage
+                    try {
+                      localStorage.removeItem(`remediated_roles_${systemName}`)
+                    } catch (e) {
+                      console.warn('Failed to clear localStorage:', e)
+                    }
+                  }}
                   className="text-xs text-blue-600 hover:text-blue-800 underline"
                 >
                   Restore {deletedResources.size} dismissed
@@ -1127,11 +1135,23 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               key={resource.id || resource.resourceArn || resource.resourceName || `resource-${index}`}
               resource={resource}
               onDelete={(id, name) => {
-                // Add to dismissed set
+                // Add to dismissed set and persist to localStorage
                 setDeletedResources(prev => {
                   const next = new Set(prev)
                   if (id) next.add(id)
                   if (name) next.add(name)
+
+                  // Persist to localStorage
+                  try {
+                    const remediatedKey = `remediated_roles_${systemName}`
+                    const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
+                    if (name && !existing.includes(name)) existing.push(name)
+                    if (id && !existing.includes(id)) existing.push(id)
+                    localStorage.setItem(remediatedKey, JSON.stringify(existing))
+                  } catch (e) {
+                    console.warn('Failed to persist dismissed resource:', e)
+                  }
+
                   return next
                 })
                 toast({
