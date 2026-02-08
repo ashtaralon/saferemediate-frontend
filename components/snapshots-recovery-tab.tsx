@@ -23,12 +23,17 @@ interface Snapshot {
   resource_type?: string
   created_at?: string
   current_state?: any
+  before_state?: any
   // IAM Role fields
   type?: 'SecurityGroup' | 'IAMRole' | 'S3Bucket'
   role_name?: string
   role_arn?: string
   permissions_count?: number
   removed_permissions?: string[]
+  // New IAM remediation snapshot fields (SNAP-* format)
+  original_role?: string
+  new_role?: string
+  resource_id?: string
 }
 
 interface RecoveryTabProps {
@@ -95,8 +100,12 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
           if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-')) {
             return { ...s, type: 'S3Bucket' as const }
           }
-          if (s.snapshot_id?.startsWith('SG-') || s.snapshot_id?.startsWith('sg-')) {
+          if (s.snapshot_id?.startsWith('SG-') || s.snapshot_id?.startsWith('sg-snap-')) {
             return { ...s, type: 'SecurityGroup' as const }
+          }
+          // NEW: Check for SNAP-* format with original_role (IAM remediation snapshots)
+          if (s.original_role || s.new_role) {
+            return { ...s, type: 'IAMRole' as const, role_name: s.original_role }
           }
           // Fallback to resource_type or checkpoint_type
           if (s.resource_type === 'IAMRole' || s.current_state?.checkpoint_type === 'IAMRole') {
@@ -104,6 +113,10 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
           }
           if (s.resource_type === 'S3Bucket' || s.current_state?.checkpoint_type === 'S3Bucket') {
             return { ...s, type: 'S3Bucket' as const }
+          }
+          // Check for sg_id or sg_name (Security Group)
+          if (s.sg_id || s.sg_name) {
+            return { ...s, type: 'SecurityGroup' as const }
           }
           // Default to SecurityGroup
           return { ...s, type: 'SecurityGroup' as const }
@@ -123,11 +136,12 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
 
       // Filter by system if systemName is provided and resources were fetched
       if (systemResourceNames && systemResourceNames.size > 0) {
-        allSnapshots = allSnapshots.filter((s) => {
+        allSnapshots = allSnapshots.filter((s: any) => {
           // Match SG snapshots by sg_name
           if (s.sg_name && systemResourceNames!.has(s.sg_name.toLowerCase())) return true
-          // Match IAM snapshots by role_name
+          // Match IAM snapshots by role_name or original_role
           if (s.role_name && systemResourceNames!.has(s.role_name.toLowerCase())) return true
+          if (s.original_role && systemResourceNames!.has(s.original_role.toLowerCase())) return true
           // Match S3 snapshots by finding_id (bucket name) or resource_name
           if (s.finding_id && systemResourceNames!.has(s.finding_id.toLowerCase())) return true
           if (s.current_state?.resource_name && systemResourceNames!.has(s.current_state.resource_name.toLowerCase())) return true
@@ -584,7 +598,9 @@ function SnapshotCard({
   const outboundRules = snapshot.rules_count?.outbound ?? snapshot.current_state?.rules_count?.outbound ?? 0
 
   // IAM-specific fields - extract role name from snapshot_id if not provided
-  let roleName = snapshot.role_name || snapshot.current_state?.role_name || snapshot.before_state?.role_name
+  // NEW: Also check original_role for new SNAP-* format snapshots
+  let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name || snapshot.before_state?.role_name
+  const newRoleName = snapshot.new_role // The new least-privilege role created
   if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
     // Extract from snapshot ID: IAMRole-{roleName}-{hash}
     const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
