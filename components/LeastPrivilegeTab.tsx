@@ -613,21 +613,33 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             principals: r.principals || []
           }
         })
-        // Filter out service linked roles only
+        // Filter out service linked roles and already remediated roles
         .filter((r: any) => {
           // Always filter out service linked roles (cannot be modified)
           if (r.isServiceLinkedRole) {
             console.log('[Filter] Removing service-linked role:', r.resourceName)
             return false
           }
-          
+
+          // Filter out roles that have been remediated (stored in localStorage)
+          try {
+            const remediatedKey = `remediated_roles_${systemName}`
+            const remediatedRoles = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
+            if (remediatedRoles.includes(r.resourceName) || remediatedRoles.includes(r.id)) {
+              console.log('[Filter] Removing remediated role:', r.resourceName)
+              return false
+            }
+          } catch (e) {
+            // Ignore localStorage errors
+          }
+
           // Don't filter out IAM roles based on gapCount - show all of them
           // The user can see which ones need remediation
           return true
         }),
         timestamp: result.timestamp || new Date().toISOString()
       }
-      
+
       setData(transformed)
       
       // Log transformed data
@@ -654,7 +666,20 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   // Handle successful remediation - remove resource from list and update counts
   const handleRemediationSuccess = (resourceName: string) => {
     console.log('[LeastPrivilegeTab] Remediation successful for:', resourceName)
-    
+
+    // Persist remediated roles in localStorage so they stay hidden after refresh
+    try {
+      const remediatedKey = `remediated_roles_${systemName}`
+      const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
+      if (!existing.includes(resourceName)) {
+        existing.push(resourceName)
+        localStorage.setItem(remediatedKey, JSON.stringify(existing))
+        console.log('[LeastPrivilegeTab] Stored remediated role in localStorage:', resourceName)
+      }
+    } catch (e) {
+      console.warn('[LeastPrivilegeTab] Failed to persist remediation to localStorage:', e)
+    }
+
     // Remove the remediated resource from the displayed list
     setData(prev => {
       if (!prev) return prev
