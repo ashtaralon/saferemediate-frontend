@@ -289,8 +289,30 @@ export function IAMPermissionAnalysisModal({
 
   const handleSimulate = async () => {
     setSimulating(true)
-    // Simulate a brief loading period
-    await new Promise(resolve => setTimeout(resolve, 1500))
+
+    try {
+      // Create a pre-simulation snapshot for rollback safety
+      console.log('[IAM-Modal] Creating pre-simulation snapshot...')
+      const snapshotResponse = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      if (snapshotResponse.ok) {
+        const snapshotResult = await snapshotResponse.json()
+        console.log('[IAM-Modal] Snapshot created:', snapshotResult.snapshot_id)
+        toast({
+          title: "📸 Snapshot Created",
+          description: `Rollback point saved: ${snapshotResult.snapshot_id}`,
+          variant: "default"
+        })
+      } else {
+        console.warn('[IAM-Modal] Failed to create snapshot, continuing with simulation')
+      }
+    } catch (error) {
+      console.warn('[IAM-Modal] Snapshot creation failed:', error)
+    }
+
     setSimulating(false)
     setShowSimulation(true)
   }
