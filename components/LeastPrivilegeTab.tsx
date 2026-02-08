@@ -1115,8 +1115,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 })
               }}
               onClick={() => {
+                console.log('[LeastPrivilegeTab] Card clicked! resourceType:', resource.resourceType, 'resourceName:', resource.resourceName)
                 // Use new IAM Permission Analysis modal for IAM Roles
                 if (resource.resourceType === 'IAMRole') {
+                  console.log('[LeastPrivilegeTab] Opening IAMPermissionAnalysisModal for:', resource.resourceName)
                   setSelectedIAMRole(resource.resourceName)
                   setIamModalOpen(true)
                 } else if (resource.resourceType === 'S3Bucket') {

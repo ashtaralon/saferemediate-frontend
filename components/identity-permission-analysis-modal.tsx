@@ -856,7 +856,10 @@ export function IdentityPermissionAnalysisModal({
             CLOSE
           </button>
           <button
-            onClick={handleSimulateFix}
+            onClick={() => {
+              alert('identity-permission-analysis-modal SIMULATE FIX clicked!')
+              handleSimulateFix()
+            }}
             className="px-8 py-3 rounded-lg text-base font-bold text-white transition-all hover:opacity-90"
             style={{ background: "#8b5cf6" }}
           >

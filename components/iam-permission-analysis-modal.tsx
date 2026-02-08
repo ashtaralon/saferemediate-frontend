@@ -112,6 +112,7 @@ export function IAMPermissionAnalysisModal({
   onSuccess,
   onRemediationSuccess
 }: IAMPermissionAnalysisModalProps) {
+  console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -288,11 +289,13 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleSimulate = async () => {
+    alert('handleSimulate function called!')
+    console.log('[IAM-Modal] handleSimulate called! roleName:', roleName, 'unusedCount:', gapData?.summary?.unused_count)
     setSimulating(true)
 
     try {
       // Create a pre-simulation snapshot for rollback safety
-      console.log('[IAM-Modal] Creating pre-simulation snapshot...')
+      console.log('[IAM-Modal] Creating pre-simulation snapshot for:', roleName)
       const snapshotResponse = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
@@ -319,46 +322,50 @@ export function IAMPermissionAnalysisModal({
 
   const handleApplyFix = async () => {
     if (!gapData) return
-    
+
     setApplying(true)
     try {
-      // Call the remediation API with selected permissions only
-      const permissionsToRemove = Array.from(selectedPermissionsToRemove)
-      const response = await fetch('/api/proxy/iam-roles/remediate', {
+      console.log('[IAM-Modal] Starting remediation for:', roleName, 'dry_run:', false)
+
+      // Call the real remediation API (not dry run)
+      const response = await fetch('/api/proxy/cyntro/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role_name: roleName,
-          permissions_to_remove: permissionsToRemove,
-          create_snapshot: createSnapshot,
-          detach_managed_policies: detachManagedPolicies,
-          snapshot_reason: `Pre-remediation backup - removing ${permissionsToRemove.length} permissions`
+          dry_run: false  // Actually apply the changes
         })
       })
-      
-      const result = await response.json()
-      
-      const totalRemoved = result.total_permissions_removed || result.permissions_removed || 0
-      const managedDetached = result.managed_policies_detached || 0
 
-      if (result.success && (totalRemoved > 0 || managedDetached > 0)) {
+      const result = await response.json()
+      console.log('[IAM-Modal] Remediation response:', result)
+
+      // Check response from proxy - it returns summary.unused_removed and success
+      const unusedRemoved = result.summary?.unused_removed || 0
+      const beforeTotal = result.summary?.before_total || 0
+      const afterTotal = result.summary?.after_total || 0
+      const snapshotId = result.snapshot_id
+      const newRoleName = result.new_role?.name
+
+      if (result.success) {
         // Build description with details
         let desc = ''
-        if (result.permissions_removed > 0) {
-          desc += `Removed ${result.permissions_removed} permissions from inline policies`
+        if (newRoleName) {
+          desc = `Created new role "${newRoleName}" with ${afterTotal} permissions (reduced from ${beforeTotal})`
+        } else if (unusedRemoved > 0) {
+          desc = `Removed ${unusedRemoved} unused permissions`
+        } else {
+          desc = `Remediated ${roleName}`
         }
-        if (managedDetached > 0) {
-          if (desc) desc += '. '
-          desc += `Detached ${managedDetached} managed policies`
-        }
-        if (createSnapshot) {
-          desc += '. Snapshot created for rollback.'
+
+        if (snapshotId) {
+          desc += `. Snapshot: ${snapshotId}`
         }
 
         // Show success toast with details
         toast({
           title: "✅ Remediation Applied Successfully",
-          description: desc || `Remediated ${roleName}`,
+          description: desc,
           variant: "default"
         })
         
@@ -396,22 +403,15 @@ export function IAMPermissionAnalysisModal({
         if (onRemediationSuccess) {
           onRemediationSuccess(roleName)
         }
-        
+
         // Refresh parent data
         onSuccess?.()
-        
+
         // Close modal
         handleClose()
-      } else if (totalRemoved === 0 && managedDetached === 0) {
-        toast({
-          title: "⚠️ No Permissions Removed",
-          description: detachManagedPolicies
-            ? "No matching permissions found in role policies"
-            : "Role may only have AWS managed policies. Enable 'Detach Managed Policies' to remove them.",
-          variant: "default"
-        })
-      } else if (!result.success) {
-        const errorMsg = result.errors?.[0]?.error || 'Unknown error'
+      } else {
+        // If not success, show appropriate error
+        const errorMsg = result.error || result.message || 'Unknown error'
         throw new Error(`Remediation failed: ${errorMsg}`)
       }
     } catch (err: any) {
@@ -1322,9 +1322,44 @@ export function IAMPermissionAnalysisModal({
           >
             CLOSE
           </button>
-          <button 
-            onClick={handleSimulate}
-            disabled={simulating || unusedCount === 0}
+          <button
+            onClick={async () => {
+              setSimulating(true)
+              try {
+                // Call remediation API with dry_run first
+                const response = await fetch('/api/proxy/cyntro/remediate', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    role_name: roleName,
+                    dry_run: true
+                  })
+                })
+
+                if (!response.ok) {
+                  throw new Error(`Remediation failed: ${response.status}`)
+                }
+
+                const result = await response.json()
+
+                toast({
+                  title: '✅ Simulation Complete',
+                  description: `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0} (${Math.round((result.summary?.reduction || 0) * 100)}% reduction)`
+                })
+
+                setShowSimulation(true)
+              } catch (error) {
+                console.error('Simulation error:', error)
+                toast({
+                  title: '❌ Simulation Failed',
+                  description: error instanceof Error ? error.message : 'Check console for details',
+                  variant: 'destructive'
+                })
+              } finally {
+                setSimulating(false)
+              }
+            }}
+            disabled={simulating}
             className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
             {simulating ? (
