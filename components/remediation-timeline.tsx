@@ -516,8 +516,24 @@ export function RemediationTimeline({
 
   // Convert snapshot to RemediationEvent format
   const convertSnapshotToEvent = (snapshot: any): RemediationEvent => {
-    const isIAMRole = snapshot.type === 'IAMRole' || snapshot.snapshot_id?.startsWith('IAMRole-') || snapshot.snapshot_id?.startsWith('iam-')
-    const isS3Bucket = snapshot.type === 'S3Bucket' || snapshot.snapshot_id?.startsWith('S3Bucket-') || snapshot.snapshot_id?.startsWith('s3-')
+    // Detect IAM Role snapshots - check multiple indicators
+    const isIAMRole = snapshot.type === 'IAMRole' ||
+      snapshot.snapshot_id?.startsWith('IAMRole-') ||
+      snapshot.snapshot_id?.startsWith('iam-') ||
+      snapshot.resource_type === 'IAMRole' ||
+      snapshot.original_role ||  // New format: has original_role field
+      snapshot.new_role           // New format: has new_role field
+
+    const isS3Bucket = snapshot.type === 'S3Bucket' ||
+      snapshot.snapshot_id?.startsWith('S3Bucket-') ||
+      snapshot.snapshot_id?.startsWith('s3-') ||
+      snapshot.resource_type === 'S3Bucket'
+
+    // Detect Security Group snapshots
+    const isSecurityGroup = snapshot.sg_id ||
+      snapshot.sg_name ||
+      snapshot.snapshot_id?.startsWith('sg-snap-') ||
+      snapshot.resource_type === 'SecurityGroup'
 
     let resourceType = 'SecurityGroup'
     let actionType = 'SG_RULE_REMOVED'
@@ -527,7 +543,8 @@ export function RemediationTimeline({
     if (isIAMRole) {
       resourceType = 'IAMRole'
       actionType = 'PERMISSION_REMOVAL'
-      let roleName = snapshot.role_name || snapshot.current_state?.role_name
+      // Get role name from various possible fields
+      let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name
       if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
         const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
         parts.pop()
@@ -535,16 +552,29 @@ export function RemediationTimeline({
       }
       resourceId = roleName || 'Unknown Role'
       const permsRemoved = snapshot.removed_permissions?.length || snapshot.permissions_count || 0
-      summary = `Removed ${permsRemoved} permissions from ${resourceId}`
+      const newRoleName = snapshot.new_role
+      if (newRoleName) {
+        summary = `Created least-privilege role ${newRoleName} from ${resourceId}`
+      } else if (permsRemoved > 0) {
+        summary = `Removed ${permsRemoved} permissions from ${resourceId}`
+      } else {
+        summary = `IAM remediation checkpoint for ${resourceId}`
+      }
     } else if (isS3Bucket) {
       resourceType = 'S3Bucket'
       actionType = 'S3_POLICY_REMOVED'
       resourceId = snapshot.finding_id || snapshot.current_state?.resource_name || 'Unknown Bucket'
       summary = `Policy checkpoint for ${resourceId}`
-    } else {
+    } else if (isSecurityGroup) {
+      resourceType = 'SecurityGroup'
+      actionType = 'SG_RULE_REMOVED'
       resourceId = snapshot.sg_name || snapshot.sg_id || snapshot.finding_id || 'Unknown SG'
-      const rulesRemoved = snapshot.rules_count?.inbound || 0
+      const rulesRemoved = snapshot.rules_count?.inbound || snapshot.rules_count || 0
       summary = `Removed ${rulesRemoved} inbound rules from ${resourceId}`
+    } else {
+      // Unknown type - try to determine from context
+      resourceId = snapshot.finding_id || snapshot.resource_id || 'Unknown Resource'
+      summary = `Remediation checkpoint for ${resourceId}`
     }
 
     return {
@@ -621,13 +651,23 @@ export function RemediationTimeline({
           const sgData = await sgRes.json()
           const sgList = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
           const typedSnapshots = sgList.map((s: any) => {
-            if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-') || s.resource_type === 'IAMRole') {
+            // Detect IAM Role snapshots - check multiple indicators including new format
+            if (s.snapshot_id?.startsWith('IAMRole-') || s.snapshot_id?.startsWith('iam-') ||
+                s.resource_type === 'IAMRole' || s.original_role || s.new_role) {
               return { ...s, type: 'IAMRole' }
             }
-            if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-') || s.resource_type === 'S3Bucket') {
+            // Detect S3 Bucket snapshots
+            if (s.snapshot_id?.startsWith('S3Bucket-') || s.snapshot_id?.startsWith('s3-') ||
+                s.resource_type === 'S3Bucket') {
               return { ...s, type: 'S3Bucket' }
             }
-            return { ...s, type: 'SecurityGroup' }
+            // Detect Security Group snapshots
+            if (s.sg_id || s.sg_name || s.snapshot_id?.startsWith('sg-snap-') ||
+                s.resource_type === 'SecurityGroup') {
+              return { ...s, type: 'SecurityGroup' }
+            }
+            // Default: try to infer from snapshot_id prefix
+            return { ...s, type: 'Unknown' }
           })
           snapshotEvents.push(...typedSnapshots.map(convertSnapshotToEvent))
         }
