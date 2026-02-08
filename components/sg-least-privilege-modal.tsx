@@ -1272,7 +1272,25 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     }
 
     setLoading(true);
+    let snapshotId: string | null = null;
+
     try {
+      // Step 1: Create a snapshot first for rollback safety
+      console.log('[SG-LP] Creating pre-simulation snapshot...');
+      const snapshotResponse = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (snapshotResponse.ok) {
+        const snapshotResult = await snapshotResponse.json();
+        snapshotId = snapshotResult.snapshot_id;
+        console.log('[SG-LP] Snapshot created:', snapshotId);
+      } else {
+        console.warn('[SG-LP] Failed to create snapshot, continuing with simulation');
+      }
+
+      // Step 2: Run the simulation
       const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1298,12 +1316,13 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       const result = await response.json();
       console.log('Simulation result:', result);
 
-      // Show simulation results
+      // Show simulation results with snapshot info
       const safetyStatus = result.safety?.is_safe ? '✅ SAFE' : '⚠️ WARNING';
       const warnings = result.safety?.warnings?.join('\n') || 'None';
       const commands = result.cli_commands?.join('\n') || 'No commands';
+      const snapshotInfo = snapshotId ? `\n\n📸 Snapshot Created: ${snapshotId}` : '';
 
-      alert(`${safetyStatus} to apply\n\nRules to remove: ${result.summary?.rules_to_change || 0}\n\nWarnings:\n${warnings}\n\nCLI Commands:\n${commands}`);
+      alert(`${safetyStatus} to apply\n\nRules to remove: ${result.summary?.rules_to_change || 0}\n\nWarnings:\n${warnings}\n\nCLI Commands:\n${commands}${snapshotInfo}`);
     } catch (err: any) {
       console.error('Simulation error:', err);
       alert(`Simulation failed: ${err.message}`);
