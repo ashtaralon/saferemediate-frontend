@@ -736,9 +736,9 @@ export function RemediationTimeline({
       let bodyContent: any = undefined
       const snapshotId = event.snapshot_id || eventId
 
-      // If it's a Neo4j event, use the timeline rollback API
+      // If it's a Neo4j event, use the timeline rollback API (via proxy)
       if (event.source === 'neo4j') {
-        endpoint = `${apiBaseUrl}/api/remediation-history/events/${eventId}/rollback`
+        endpoint = `/api/proxy/remediation-history/events/${eventId}/rollback`
         bodyContent = { approved_by: "user@cyntro.io" }
       }
       // Otherwise, use the snapshot-specific endpoints
@@ -789,10 +789,10 @@ export function RemediationTimeline({
     }
   }
 
-  // Handle export
+  // Handle export (via proxy to avoid CORS)
   const handleExport = async () => {
     try {
-      const response = await fetch(`${apiBaseUrl}/api/remediation-history/export?format=csv`)
+      const response = await fetch(`/api/proxy/remediation-history/export?format=csv`)
       const data = await response.json()
 
       if (data.content) {
