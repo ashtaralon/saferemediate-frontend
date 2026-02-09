@@ -333,19 +333,34 @@ export function PerResourceAnalysis() {
   // Get icon and display info for resource type
   const getResourceTypeInfo = (type: string) => {
     const typeUpper = type?.toUpperCase() || ""
-    if (typeUpper.includes("EC2") || typeUpper.includes("INSTANCE")) {
-      return { icon: <Server className="w-5 h-5" />, label: "EC2 Instance", color: "bg-orange-100 text-orange-700 border-orange-300" }
-    }
     if (typeUpper.includes("LAMBDA") || typeUpper.includes("FUNCTION")) {
-      return { icon: <Zap className="w-5 h-5" />, label: "Lambda", color: "bg-purple-100 text-purple-700 border-purple-300" }
+      return { icon: <Zap className="w-4 h-4" />, label: "Lambda", color: "bg-purple-100 text-purple-700 border-purple-300" }
+    }
+    if (typeUpper.includes("EC2") || typeUpper === "INSTANCE") {
+      return { icon: <Server className="w-4 h-4" />, label: "EC2", color: "bg-orange-100 text-orange-700 border-orange-300" }
+    }
+    if (typeUpper.includes("INSTANCEPROFILE") || typeUpper.includes("INSTANCE-PROFILE") || typeUpper.includes("INSTANCE_PROFILE")) {
+      return { icon: <Shield className="w-4 h-4" />, label: "Instance Profile", color: "bg-indigo-100 text-indigo-700 border-indigo-300" }
+    }
+    if (typeUpper.includes("SECURITY") || typeUpper.includes("SG")) {
+      return { icon: <Shield className="w-4 h-4" />, label: "Security Group", color: "bg-red-100 text-red-700 border-red-300" }
     }
     if (typeUpper.includes("IAM") || typeUpper.includes("ROLE")) {
-      return { icon: <Shield className="w-5 h-5" />, label: "IAM Role", color: "bg-blue-100 text-blue-700 border-blue-300" }
+      return { icon: <Shield className="w-4 h-4" />, label: "IAM Role", color: "bg-blue-100 text-blue-700 border-blue-300" }
     }
     if (typeUpper.includes("ECS") || typeUpper.includes("CONTAINER")) {
-      return { icon: <Server className="w-5 h-5" />, label: "ECS Task", color: "bg-teal-100 text-teal-700 border-teal-300" }
+      return { icon: <Server className="w-4 h-4" />, label: "ECS", color: "bg-teal-100 text-teal-700 border-teal-300" }
     }
-    return { icon: <Server className="w-5 h-5" />, label: type || "Resource", color: "bg-gray-100 text-gray-700 border-gray-300" }
+    if (typeUpper.includes("RDS") || typeUpper.includes("DATABASE")) {
+      return { icon: <Database className="w-4 h-4" />, label: "RDS", color: "bg-blue-100 text-blue-700 border-blue-300" }
+    }
+    if (typeUpper.includes("S3") || typeUpper.includes("BUCKET")) {
+      return { icon: <Database className="w-4 h-4" />, label: "S3", color: "bg-green-100 text-green-700 border-green-300" }
+    }
+    if (typeUpper.includes("DYNAMO")) {
+      return { icon: <Database className="w-4 h-4" />, label: "DynamoDB", color: "bg-yellow-100 text-yellow-700 border-yellow-300" }
+    }
+    return { icon: <Server className="w-4 h-4" />, label: type || "Resource", color: "bg-gray-100 text-gray-700 border-gray-300" }
   }
 
   const resourceIcon = (type: string) => getResourceTypeInfo(type).icon
@@ -456,6 +471,7 @@ export function PerResourceAnalysis() {
                         className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border font-medium ${typeInfo.color}`}
                       >
                         {typeInfo.icon}
+                        <span className="text-[10px] uppercase opacity-75 font-semibold">{typeInfo.label}</span>
                         <span className="font-bold">{r.resource_name}</span>
                       </span>
                     )
