@@ -133,27 +133,28 @@ export default function HomePage() {
   const [simEventsPerDay, setSimEventsPerDay] = useState(3)
 
   const fetchGapAnalysis = useCallback(() => {
-    // Fetch from gap-analysis proxy which has real CloudTrail data
-    fetchWithTimeout("/api/proxy/gap-analysis?systemName=alon-prod", {}, 30000)
+    // Fetch from issues-summary which has aggregated permission data from all roles
+    fetchWithTimeout("/api/proxy/issues-summary?systemName=alon-prod", {}, 30000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
       })
-      .then((gapJson) => {
-        // The proxy already transforms field names
-        const allowed = gapJson.allowed_actions || gapJson.allowed_count || 0
-        const used = gapJson.used_actions || gapJson.used_count || 0
-        const unused = gapJson.unused_actions || gapJson.unused_count || (allowed - used)
-        
-        // Get confidence from response or calculate
-        const confidence = gapJson.confidence?.score || gapJson.statistics?.confidence || 
-          (allowed > 0 ? Math.min(99, Math.max(70, 100 - (unused / allowed) * 20)) : 0)
-        
-        // Get role name from response
-        const roleName = gapJson.role_name || gapJson.roleName || "SafeRemediate-Lambda-Remediation-Role"
-        
+      .then((summaryJson) => {
+        // Use aggregate permission data from issues summary
+        const permissions = summaryJson.byCategory?.permissions || {}
+        const allowed = permissions.allowed || 0
+        const used = permissions.used || 0
+        const unused = permissions.unused || (allowed - used)
+
+        // Calculate confidence based on gap percentage
+        const gapPct = permissions.gap_percentage || 0
+        const confidence = allowed > 0 ? Math.min(99, Math.max(70, 100 - gapPct * 0.2)) : 0
+
+        // Show aggregate label
+        const roleName = `${summaryJson.resources?.iam_roles || 0} IAM Roles Analyzed`
+
         console.log(`[Home] Gap Analysis: allowed=${allowed}, used=${used}, unused=${unused}, confidence=${confidence}`)
-        
+
         const newGapData = {
           allowed: allowed,
           used: used,
