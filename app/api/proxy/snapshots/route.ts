@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
     if (sg_id) params.append('sg_id', sg_id)
     params.append('limit', limit)
 
-    // Fetch SG snapshots, S3 checkpoints, and SG LP snapshots in parallel
-    const [sgResponse, checkpointsResponse, sgLpResponse] = await Promise.all([
+    // Fetch all snapshot sources in parallel
+    const [sgResponse, checkpointsResponse, sgLpResponse, unifiedSnapshotsResponse] = await Promise.all([
       // Security Group snapshots (old endpoint)
       fetch(`${BACKEND_URL}/api/remediation/snapshots?${params.toString()}`, {
         headers: { "Accept": "application/json" },
@@ -33,6 +33,12 @@ export async function GET(req: NextRequest) {
 
       // SG LP snapshots (new endpoint)
       fetch(`${BACKEND_URL}/api/sg-least-privilege/snapshots/all?limit=${limit}`, {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      }).catch(() => null),
+
+      // Unified snapshots (IAM remediation with SNAP-* format)
+      fetch(`${BACKEND_URL}/api/snapshots?limit=${limit}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store",
       }).catch(() => null)
@@ -67,7 +73,8 @@ export async function GET(req: NextRequest) {
         system_name: cp.resource_id,
         current_state: {
           resource_name: cp.resource_id,
-          checkpoint_type: 'S3Bucket'
+          role_name: cp.resource_type === 'IAMRole' ? cp.resource_id : undefined,
+          checkpoint_type: cp.resource_type || 'S3Bucket'
         }
       }))
 
@@ -102,6 +109,39 @@ export async function GET(req: NextRequest) {
 
       allSnapshots.push(...transformedSgLp)
       console.log("[proxy] SG LP snapshots:", transformedSgLp.length)
+    }
+
+    // Process unified snapshots (IAM remediation with SNAP-* format)
+    if (unifiedSnapshotsResponse?.ok) {
+      const unifiedData = await unifiedSnapshotsResponse.json()
+      const unifiedSnapshots = unifiedData.snapshots || []
+
+      // Transform to match snapshot format and filter out duplicates
+      const transformedUnified = unifiedSnapshots
+        .filter((snap: any) => snap.snapshot_id?.startsWith('SNAP-'))
+        .map((snap: any) => ({
+          snapshot_id: snap.snapshot_id,
+          id: snap.snapshot_id,
+          finding_id: snap.original_role || snap.resource_id,
+          issue_id: snap.snapshot_id,
+          resource_type: snap.resource_type || 'IAM',
+          snapshot_type: snap.snapshot_type || 'IAM_REMEDIATION',
+          created_at: snap.created_at,
+          timestamp: snap.created_at,
+          created_by: 'iam-remediation-engine',
+          reason: 'IAM remediation snapshot',
+          status: 'ACTIVE',
+          original_role: snap.original_role,
+          new_role: snap.new_role,
+          current_state: {
+            role_name: snap.original_role,
+            resource_name: snap.original_role,
+            checkpoint_type: 'IAMRole'
+          }
+        }))
+
+      allSnapshots.push(...transformedUnified)
+      console.log("[proxy] Unified IAM snapshots:", transformedUnified.length)
     }
 
     // Sort by created_at descending (newest first)
