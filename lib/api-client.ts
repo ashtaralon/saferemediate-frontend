@@ -239,9 +239,9 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
     return {
       resources,
       stats: {
-        avgHealthScore: metrics?.avg_health_score ?? metrics?.avgHealthScore ?? metrics?.healthScore ?? 100,
+        avgHealthScore: issuesSummary?.avg_health_score ?? metrics?.avg_health_score ?? metrics?.avgHealthScore ?? metrics?.healthScore ?? 100,
         healthScoreTrend: metrics?.healthScoreTrend ?? 0,
-        needAttention: metrics?.need_attention ?? metrics?.needAttention ?? metrics?.systemsNeedingAttention ?? 0,
+        needAttention: issuesSummary?.resources?.with_issues ?? metrics?.need_attention ?? metrics?.needAttention ?? metrics?.systemsNeedingAttention ?? 0,
         totalIssues: totalIssues,
         criticalIssues: bySeverity.critical,
         averageScore: metrics?.avg_health_score ?? metrics?.averageScore ?? metrics?.avgHealthScore ?? 100,
