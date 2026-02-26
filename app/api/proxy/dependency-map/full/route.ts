@@ -1,147 +1,95 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
-  "https://saferemediate-backend-f.onrender.com"
+  "https://saferemediate-backend-f.onrender.com";
 
-export const dynamic = "force-dynamic"
-export const runtime = "nodejs"
-export const maxDuration = 60
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
-// In-memory cache: 2 minutes TTL for dependency map (balance freshness/speed)
-const cache = new Map<string, { data: any; timestamp: number }>()
-const CACHE_TTL = 2 * 60 * 1000 // 2 minutes
+// Simple in-memory cache
+const cache: { [key: string]: { data: any; timestamp: number } } = {};
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 55000);
+      
+      const res = await fetch(url, {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (res.ok) return res;
+      
+      console.log("[Dependency Map Full] Attempt " + (i + 1) + " failed with status " + res.status);
+    } catch (error: any) {
+      console.log("[Dependency Map Full] Attempt " + (i + 1) + " failed: " + error.message);
+      if (i === retries) throw error;
+    }
+    
+    if (i < retries) await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+  }
+  throw new Error("All retries failed");
+}
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
-  const includeUnused = url.searchParams.get("includeUnused") ?? "true"
-  const maxNodes = url.searchParams.get("maxNodes") ?? "200"
-  const search = url.searchParams.get("search") ?? ""
+  const url = new URL(req.url);
+  const systemName = url.searchParams.get("systemName") ?? "alon-prod";
+  const includeUnused = url.searchParams.get("includeUnused") ?? "true";
+  const maxNodes = url.searchParams.get("maxNodes") ?? "500";
+  const cacheKey = "dependency-map-full-" + systemName;
 
-  const cacheKey = `dependency-map:${systemName}:${includeUnused}:${maxNodes}:${search}`
-  const now = Date.now()
-  
-  // Check in-memory cache
-  const cached = cache.get(cacheKey)
-  if (cached && (now - cached.timestamp) < CACHE_TTL) {
-    const cacheAge = Math.round((now - cached.timestamp) / 1000)
-    console.log(`[Dependency Map Full Proxy] Cache HIT for ${systemName} (age: ${cacheAge}s)`)
+  // Check cache first
+  const cached = cache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log("[Dependency Map Full] Cache HIT for " + systemName);
     return NextResponse.json(cached.data, {
-      headers: {
-        "X-Cache": "HIT",
-        "X-Cache-Age": String(cacheAge),
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-      },
-    })
+      headers: { "X-Cache": "HIT", "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)) }
+    });
   }
-  
-  console.log(`[Dependency Map Full Proxy] Cache MISS - Fetching for ${systemName}...`)
 
   try {
-    const controller = new AbortController()
-    // Increased timeout to 50 seconds (maxDuration is 60)
-    const timeoutId = setTimeout(() => controller.abort(), 50000) // 50 second timeout
-
-    let backendUrl = `${BACKEND_URL}/api/dependency-map/full?` +
-      `system_name=${encodeURIComponent(systemName)}` +
-      `&include_unused=${includeUnused}` +
-      `&max_nodes=${maxNodes}`
-
-    // Add search parameter if provided
-    if (search) {
-      backendUrl += `&search=${encodeURIComponent(search)}`
-    }
-
-    console.log(`[Dependency Map Full Proxy] Fetching from: ${backendUrl}`)
+    const params = new URLSearchParams({
+      systemName: systemName,
+      includeUnused: includeUnused,
+      maxNodes: maxNodes
+    });
+    const backendUrl = BACKEND_URL + "/api/dependency-map/full?" + params.toString();
     
-    const res = await fetch(backendUrl, {
-      cache: "no-store",
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!res.ok) {
-      const errorText = await res.text()
-      console.error(`[Dependency Map Full Proxy] Backend error ${res.status}: ${errorText}`)
-      
-      // Return cached data if available, even if stale
-      if (cached) {
-        console.log(`[Dependency Map Full Proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            "X-Cache": "STALE",
-            "X-Cache-Age": String(Math.round((now - cached.timestamp) / 1000)),
-            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-          },
-        })
-      }
-      
-      return NextResponse.json(
-        { nodes: [], edges: [], error: errorText },
-        {
-          status: 200, // Return 200 instead of error status to prevent UI crashes
-          headers: {
-            "X-Cache": "ERROR",
-            "Cache-Control": "no-store, no-cache, must-revalidate", // Don't cache errors
-          },
-        }
-      )
-    }
-
-    const data = await res.json()
-    console.log(`[Dependency Map Full Proxy] Success: ${data.nodes?.length || 0} nodes, ${data.edges?.length || 0} edges`)
-
+    console.log("[Dependency Map Full] Cache MISS - fetching from backend");
+    const res = await fetchWithRetry(backendUrl);
+    const data = await res.json();
+    
     // Store in cache
-    cache.set(cacheKey, { data, timestamp: now })
+    cache[cacheKey] = { data, timestamp: Date.now() };
     
-    // Clean up old cache entries (keep cache size reasonable)
-    if (cache.size > 50) {
-      const oldestKey = cache.keys().next().value
-      if (oldestKey) cache.delete(oldestKey)
-    }
-
+    console.log("[Dependency Map Full] Success: " + (data.nodes?.length || 0) + " nodes, " + (data.edges?.length || 0) + " edges");
+    
     return NextResponse.json(data, {
-      headers: {
-        "X-Cache": "MISS",
-        "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-      },
-    })
+      headers: { "X-Cache": "MISS" }
+    });
   } catch (error: any) {
-    const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout')
-    console.error(`[Dependency Map Full Proxy] Error${isTimeout ? ' (timeout)' : ''}:`, error.message)
+    console.error("[Dependency Map Full] Error:", error.message);
     
-    // Check for stale cache first
+    // Return stale cache if available
     if (cached) {
-      console.log(`[Dependency Map Full Proxy] Returning stale cache due to ${isTimeout ? 'timeout' : 'error'}`)
+      console.log("[Dependency Map Full] Returning stale cache due to error");
       return NextResponse.json(cached.data, {
-        headers: {
-          "X-Cache": "STALE",
-          "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
-          "X-Timeout": isTimeout ? "true" : "false",
-          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-        },
-      })
+        headers: { "X-Cache": "STALE" }
+      });
     }
     
-    // Return empty data with 200 status to prevent UI crash
+    // Return empty fallback with status 200 to prevent UI crash
     return NextResponse.json(
-      {
-        nodes: [],
-        edges: [],
-        error: isTimeout ? "Request timed out" : error.message,
-        timeout: isTimeout,
-      },
-      {
-        status: 200, // Return 200 instead of 500 to prevent UI crashes
-        headers: {
-          "X-Cache": "ERROR",
-          "X-Timeout": isTimeout ? "true" : "false",
-          "Cache-Control": "no-store, no-cache, must-revalidate", // Don't cache errors
-        },
-      }
-    )
+      { nodes: [], edges: [], data_sources: {}, error: true, message: error.message },
+      { status: 200 }
+    );
   }
 }
