@@ -355,12 +355,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         }
       }
 
-      // Populate issues list for the Critical Issues panel
+      // Populate issues list for the Critical Issues panel AND the Issues tab
       if (issuesRes.ok) {
         const issuesData = await issuesRes.json()
         const resources = issuesData.resources || []
 
-        // Transform resources to CriticalIssue format
+        // Transform resources to CriticalIssue format for Critical Issues panel
         const criticalIssues: CriticalIssue[] = resources
           .filter((r: any) => r.gapCount > 0 || r.exposedCount > 0)
           .map((r: any, idx: number) => ({
@@ -378,6 +378,30 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
         setIssues(criticalIssues)
         console.log("[v0] Loaded", criticalIssues.length, "issues")
+
+        // Also populate securityFindings for the Issues tab
+        const filteredResources = resources.filter((r: any) => r.gapCount > 0 || r.exposedCount > 0)
+        const securityFindingsFromLP: SecurityFinding[] = filteredResources
+          .map((r: any) => ({
+            id: r.resourceArn || r.id || r.resourceName,
+            finding_id: r.resourceArn || r.id,
+            title: r.title || `${r.resourceType}: ${r.resourceName}`,
+            severity: (r.severity || 'MEDIUM').toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+            description: r.description || `${r.gapCount || r.exposedCount} unused permissions can be removed`,
+            resource: r.resourceName || r.resourceId,
+            resourceType: r.resourceType || 'IAMRole',
+            resourceId: r.resourceArn || r.resourceId,
+            category: r.resourceType === 'IAMRole' ? 'IAM' : r.resourceType,
+            discoveredAt: r.evidence?.lastUpdated || new Date().toISOString(),
+            status: 'open' as const,
+            remediation: r.remediation || `Remove ${r.gapCount || r.exposedCount} unused permissions to reduce attack surface`,
+            role_name: r.resourceType === 'IAMRole' ? r.resourceName : undefined,
+            unused_actions_count: r.gapCount || 0,
+            allowed_actions_count: r.allowedCount || 0,
+          }))
+
+        setSecurityFindings(securityFindingsFromLP)
+        setLoadingFindings(false)
       }
     } catch (error) {
       console.error("[v0] Error fetching issues summary:", error)
@@ -531,28 +555,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     return () => clearInterval(interval)
   }, [systemName])
 
-  // Fetch security findings - filtered by systemName
-  useEffect(() => {
-    const loadSecurityFindings = async () => {
-      setLoadingFindings(true)
-      try {
-        // Pass systemName to filter findings to only this system's resources
-        const findings = await fetchSecurityFindings(systemName)
-        setSecurityFindings(findings)
-      } catch (error) {
-        console.error("[system-dashboard] Error fetching security findings:", error)
-        setSecurityFindings([])
-      } finally {
-        setLoadingFindings(false)
-      }
-    }
-
-    loadSecurityFindings()
-    
-    // Auto-refresh every 60 seconds
-    const interval = setInterval(loadSecurityFindings, 60000)
-    return () => clearInterval(interval)
-  }, [systemName])
+  // NOTE: Security findings are now loaded from fetchIssuesSummary() which uses /api/least-privilege/issues
+  // The old /api/findings endpoint is empty, so we disabled this useEffect.
+  // Security findings are populated in fetchIssuesSummary along with the Critical Issues panel data.
 
   const addCustomTag = () => {
     if (newTagKey.trim() && newTagValue.trim()) {
