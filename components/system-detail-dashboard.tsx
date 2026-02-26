@@ -272,6 +272,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     passing: 0,
   })
 
+  // Health score from issues summary API
+  const [healthScoreFromApi, setHealthScore] = useState<number>(100)
+
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
   const [expandedPermission, setExpandedPermission] = useState<string | null>(null) // Expanded permission state
@@ -328,26 +331,53 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchIssuesSummary = async () => {
     try {
-      const response = await fetch(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`)
-      if (!response.ok) {
-        console.error("[v0] Issues summary failed:", response.status)
-        return
-      }
-      const data = await response.json()
-      console.log("[v0] Issues summary:", data)
+      // Fetch summary and detailed issues in parallel
+      const [summaryRes, issuesRes] = await Promise.all([
+        fetch(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`),
+        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
+      ])
 
-      if (data.success !== false) {
-        setSeverityCounts({
-          critical: data.critical || 0,
-          high: data.high || 0,
-          medium: data.medium || 0,
-          passing: 100 - (data.critical || 0) - (data.high || 0) - (data.medium || 0),
-        })
-        setTotalChecks(data.resources?.total || data.total || 0)
-        // Update health score if available
-        if (data.avg_health_score !== undefined) {
-          setHealthScore(data.avg_health_score)
+      if (summaryRes.ok) {
+        const data = await summaryRes.json()
+        console.log("[v0] Issues summary:", data)
+
+        if (data.success !== false) {
+          setSeverityCounts({
+            critical: data.critical || 0,
+            high: data.high || 0,
+            medium: data.medium || 0,
+            passing: 100 - (data.critical || 0) - (data.high || 0) - (data.medium || 0),
+          })
+          setTotalChecks(data.resources?.total || data.total || 0)
+          if (data.avg_health_score !== undefined) {
+            setHealthScore(data.avg_health_score)
+          }
         }
+      }
+
+      // Populate issues list for the Critical Issues panel
+      if (issuesRes.ok) {
+        const issuesData = await issuesRes.json()
+        const resources = issuesData.resources || []
+
+        // Transform resources to CriticalIssue format
+        const criticalIssues: CriticalIssue[] = resources
+          .filter((r: any) => r.gapCount > 0 || r.exposedCount > 0)
+          .map((r: any, idx: number) => ({
+            id: r.resourceArn || r.resourceName || `issue-${idx}`,
+            title: `${r.gapCount || r.exposedCount} unused permissions`,
+            description: r.resourceType === 'IAMRole'
+              ? `IAM Role "${r.resourceName}" has ${r.gapCount} unused permissions that can be removed`
+              : `${r.resourceType} "${r.resourceName}" has ${r.exposedCount || r.gapCount} issues`,
+            severity: r.severity || (r.gapCount > 10 ? 'critical' : 'high'),
+            category: r.resourceType,
+            resource: r.resourceName,
+            selected: false,
+            expanded: false,
+          }))
+
+        setIssues(criticalIssues)
+        console.log("[v0] Loaded", criticalIssues.length, "issues")
       }
     } catch (error) {
       console.error("[v0] Error fetching issues summary:", error)
@@ -864,7 +894,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // }
 
   const totalFindings = severityCounts.critical + severityCounts.high + severityCounts.medium
-  const healthScore = Math.max(0, 100 - gapAnalysis.gap * 2)
+  // Use health score from API, fallback to calculated if not set
+  const healthScore = healthScoreFromApi
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
 
   // =============================================================================
