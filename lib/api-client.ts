@@ -207,9 +207,9 @@ export async function fetchInfrastructure(): Promise<InfrastructureData> {
       }
     }
 
-    // Use infrastructure stats from metrics/issuesSummary instead of counting nodes
+    // Use infrastructure stats from issuesSummary or metrics
     // This avoids downloading 1000+ nodes just to count types
-    const infrastructureStats = metrics?.infrastructure || metrics?.infrastructure_stats || {}
+    const infrastructureStats = issuesSummary?.infrastructure || metrics?.infrastructure || metrics?.infrastructure_stats || {}
     
     // Map resources from metrics if available, otherwise empty array
     // Graph data should only be loaded when user navigates to graph tabs
