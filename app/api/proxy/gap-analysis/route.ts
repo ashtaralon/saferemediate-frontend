@@ -16,8 +16,8 @@ const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 // Map system names to IAM role names
 const SYSTEM_TO_ROLE_MAP: Record<string, string> = {
-  "alon-prod": "SafeRemediate-Lambda-Remediation-Role",
-  "SafeRemediate-Test": "SafeRemediate-Lambda-Remediation-Role",
+  "alon-prod": "AlonIAMTest",
+  "SafeRemediate-Test": "AlonIAMTest",
   "SafeRemediate-Lambda": "SafeRemediate-Lambda-Remediation-Role",
   "SafeRemediate-Lambda-Remediation-Role": "SafeRemediate-Lambda-Remediation-Role",
 }
