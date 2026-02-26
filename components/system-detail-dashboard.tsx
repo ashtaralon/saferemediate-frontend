@@ -324,6 +324,36 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [totalChecks, setTotalChecks] = useState(0) // Declared totalChecks variable
 
   // =============================================================================
+  // Fetch issues summary for severity counts
+  // =============================================================================
+  const fetchIssuesSummary = async () => {
+    try {
+      const response = await fetch(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`)
+      if (!response.ok) {
+        console.error("[v0] Issues summary failed:", response.status)
+        return
+      }
+      const data = await response.json()
+      console.log("[v0] Issues summary:", data)
+
+      if (data.success !== false) {
+        setSeverityCounts({
+          critical: data.critical || 0,
+          high: data.high || 0,
+          medium: data.medium || 0,
+          passing: 100 - (data.critical || 0) - (data.high || 0) - (data.medium || 0),
+        })
+        setTotalChecks(data.resources?.total || data.total || 0)
+        // Update health score if available
+        if (data.avg_health_score !== undefined) {
+          setHealthScore(data.avg_health_score)
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Error fetching issues summary:", error)
+    }
+  }
+
   // =============================================================================
   const fetchGapAnalysis = async () => {
     try {
@@ -356,12 +386,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       setUnusedActionsList(Array.isArray(unusedActions) ? unusedActions : [])
       console.log("[v0] Gap analysis - unused permissions:", unusedActions.length, "items")
 
-      // Update severity counts - each unused action = 1 HIGH finding
-      setSeverityCounts((prev) => ({
-        ...prev,
-        high: gap,
-        passing: Math.max(0, 100 - gap),
-      }))
+      // Severity counts now come from issues-summary endpoint
+      // Gap analysis is just for the IAM permissions breakdown
 
       // REMOVED: Don't populate mock/demo issues from gap analysis
       // Only show real issues from backend security findings
@@ -462,7 +488,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   }
 
   const fetchAllData = async () => {
-    await Promise.all([fetchGapAnalysis(), fetchAutoTagStatus()])
+    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus()])
   }
 
   useEffect(() => {
