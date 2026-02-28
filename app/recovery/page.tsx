@@ -110,8 +110,18 @@ export default function RecoveryTab() {
       });
 
       let response;
-      if (isIAMRole) {
-        // IAM Role checkpoint rollback
+
+      // For SNAP- prefixed IDs, use the unified snapshots rollback endpoint directly
+      if (snapshotId.startsWith('SNAP-')) {
+        console.log('[Recovery] Using unified snapshots rollback endpoint');
+        response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/rollback`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      } else if (isIAMRole) {
+        // Legacy IAM Role checkpoint rollback
         console.log('[Recovery] Using IAM rollback endpoint');
         response = await fetch('/api/proxy/iam-roles/rollback', {
           method: 'POST',
