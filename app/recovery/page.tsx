@@ -68,6 +68,9 @@ export default function RecoveryTab() {
   };
 
   const handleRestore = async (snapshot: Snapshot) => {
+    console.log('[Recovery] handleRestore called with snapshot:', snapshot);
+    alert(`Restore clicked for: ${snapshot.snapshot_id || snapshot.id}`);
+
     const snapshotId = snapshot.snapshot_id || snapshot.id;
 
     if (!snapshotId) {
@@ -324,7 +327,11 @@ export default function RecoveryTab() {
                   </div>
                   
                   <button
-                    onClick={() => handleRestore(snapshot)}
+                    type="button"
+                    onClick={() => {
+                      console.log('[Recovery] Button clicked for snapshot:', snapshotId);
+                      handleRestore(snapshot);
+                    }}
                     disabled={isRestoring}
                     className={`ml-4 px-4 py-2 rounded font-medium transition-colors ${
                       isRestoring
