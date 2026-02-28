@@ -151,7 +151,28 @@ export default function RecoveryTab() {
       }
 
       const result = await response.json();
-      
+
+      // After successful rollback, remove the resource from the remediated roles localStorage
+      // so it shows up again in the LP dashboard
+      const roleName = snapshot.original_role || snapshot.finding_id || '';
+      if (roleName && isIAMRole) {
+        try {
+          // Clear from all known system localStorage keys
+          const systemNames = ['alon-prod', 'payment-production', 'default'];
+          systemNames.forEach(sysName => {
+            const remediatedKey = `remediated_roles_${sysName}`;
+            const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]');
+            const filtered = existing.filter((r: string) => r !== roleName);
+            if (filtered.length !== existing.length) {
+              localStorage.setItem(remediatedKey, JSON.stringify(filtered));
+              console.log(`[Recovery] Removed ${roleName} from ${remediatedKey}`);
+            }
+          });
+        } catch (e) {
+          console.warn('[Recovery] Failed to update localStorage:', e);
+        }
+      }
+
       toast({
         title: 'Success',
         description: `Snapshot ${snapshotId} restored successfully`,
