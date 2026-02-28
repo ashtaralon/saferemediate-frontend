@@ -9,15 +9,21 @@ interface Snapshot {
   finding_id: string;
   issue_id: string;
   resource_type: string;
+  snapshot_type?: string;
+  original_role?: string;
   created_at: string;
   created_by: string;
   reason: string;
   status: string;
   system_name?: string;
+  rollback_available?: boolean;
   current_state?: {
     role_name?: string;
     resource_name?: string;
     checkpoint_type?: string;
+  };
+  before_state?: {
+    role_name?: string;
   };
 }
 
@@ -209,9 +215,12 @@ export default function RecoveryTab() {
           {snapshots.map((snapshot) => {
             const snapshotId = snapshot.snapshot_id || snapshot.id;
             const isRestoring = restoring === snapshotId;
-            // Determine resource type from snapshot ID prefix first (most reliable)
+            // Determine resource type from snapshot ID prefix or resource_type field
             let resourceType = 'SecurityGroup';
-            if (snapshotId.startsWith('IAMRole-') || snapshotId.startsWith('iam-')) {
+            if (snapshotId.startsWith('SNAP-')) {
+              // New IAM remediation format - use resource_type field
+              resourceType = snapshot.resource_type === 'IAMRole' ? 'IAM Role' : (snapshot.resource_type || 'IAM Role');
+            } else if (snapshotId.startsWith('IAMRole-') || snapshotId.startsWith('iam-')) {
               resourceType = 'IAM Role';
             } else if (snapshotId.startsWith('S3Bucket-') || snapshotId.startsWith('s3-')) {
               resourceType = 'S3 Bucket';
@@ -221,9 +230,12 @@ export default function RecoveryTab() {
               resourceType = snapshot.current_state.checkpoint_type;
             }
 
-            // Extract resource name - for IAM roles, extract from snapshot ID
+            // Extract resource name - for IAM roles, extract from snapshot ID or original_role
             let resourceName = 'Unknown Resource';
-            if (snapshotId.startsWith('IAMRole-')) {
+            if (snapshotId.startsWith('SNAP-')) {
+              // New IAM remediation format - use original_role
+              resourceName = snapshot.original_role || 'Unknown Role';
+            } else if (snapshotId.startsWith('IAMRole-')) {
               // Extract role name from snapshot ID: IAMRole-{roleName}-{hash}
               const parts = snapshotId.replace('IAMRole-', '').split('-');
               parts.pop(); // Remove the hash at the end
@@ -235,6 +247,7 @@ export default function RecoveryTab() {
               resourceName = parts.join('-') || 'Unknown Bucket';
             } else {
               resourceName =
+                snapshot.original_role ||
                 snapshot.current_state?.resource_name ||
                 snapshot.current_state?.role_name ||
                 snapshot.before_state?.role_name ||
