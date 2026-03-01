@@ -68,9 +68,9 @@ export default function RecoveryTab() {
   };
 
   const handleRestore = async (snapshot: Snapshot) => {
-    console.log('[Recovery] handleRestore called with snapshot:', snapshot);
-
     const snapshotId = snapshot.snapshot_id || snapshot.id;
+    console.log('[Recovery] handleRestore called with snapshot:', snapshot);
+    console.log('[Recovery] Snapshot ID:', snapshotId);
 
     if (!snapshotId) {
       toast({
@@ -113,13 +113,15 @@ export default function RecoveryTab() {
 
       // For SNAP- prefixed IDs, use the unified snapshots rollback endpoint directly
       if (snapshotId.startsWith('SNAP-')) {
-        console.log('[Recovery] Using unified snapshots rollback endpoint');
-        response = await fetch(`/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/rollback`, {
+        const url = `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/rollback`;
+        console.log('[Recovery] Using unified snapshots rollback endpoint:', url);
+        response = await fetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
         });
+        console.log('[Recovery] Response status:', response.status);
       } else if (isIAMRole) {
         // Legacy IAM Role checkpoint rollback
         console.log('[Recovery] Using IAM rollback endpoint');
@@ -159,10 +161,12 @@ export default function RecoveryTab() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        console.error('[Recovery] Error response:', errorData);
         throw new Error(errorData.detail || `Failed to restore: ${response.statusText}`);
       }
 
       const result = await response.json();
+      console.log('[Recovery] Success response:', result);
 
       // After successful rollback, remove the resource from the remediated roles localStorage
       // so it shows up again in the LP dashboard

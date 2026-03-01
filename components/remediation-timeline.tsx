@@ -844,7 +844,10 @@ export function RemediationTimeline({
       return
     }
 
-    const resourceName = event.resource_id
+    // Get the actual resource name - for IAM roles, use original_role or role_name
+    const resourceName = event.resource_type === 'IAMRole'
+      ? (event.metadata?.original_role || event.role_name || event.resource_id || 'Unknown Role')
+      : (event.resource_id || 'Unknown Resource')
     const resourceType = event.resource_type
 
     let confirmMessage = `⚠️ Restore ${resourceType} to previous state?\n\nResource: ${resourceName}\n\nThis will undo the remediation. Continue?`
