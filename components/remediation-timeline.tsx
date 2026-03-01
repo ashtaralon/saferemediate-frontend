@@ -618,8 +618,8 @@ export function RemediationTimeline({
 
         summary = `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
       } else {
-        // OLD format: IAMRole-* with current_state
-        let roleName = snapshot.role_name || snapshot.current_state?.role_name
+        // OLD format: IAMRole-* with current_state, or SNAP-* with only original_role (no new_role)
+        let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name
         if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
           const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
           parts.pop()
