@@ -144,18 +144,47 @@ export async function GET(req: NextRequest) {
       console.log("[proxy] Unified IAM snapshots:", transformedUnified.length)
     }
 
+    // Deduplicate by snapshot_id, keeping the most complete entry
+    // Prefer entries with original_role (from unified snapshots) over others
+    const snapshotMap = new Map<string, any>()
+    for (const snap of allSnapshots) {
+      const id = snap.snapshot_id || snap.id
+      if (!id) continue
+
+      const existing = snapshotMap.get(id)
+      if (!existing) {
+        snapshotMap.set(id, snap)
+      } else {
+        // Prefer the entry with original_role or more complete data
+        const existingHasRole = existing.original_role || existing.current_state?.role_name
+        const newHasRole = snap.original_role || snap.current_state?.role_name
+
+        if (newHasRole && !existingHasRole) {
+          snapshotMap.set(id, snap)
+        } else if (newHasRole && existingHasRole) {
+          // Both have role info - prefer the one with original_role directly
+          if (snap.original_role && !existing.original_role) {
+            snapshotMap.set(id, snap)
+          }
+        }
+      }
+    }
+
+    const deduplicatedSnapshots = Array.from(snapshotMap.values())
+    console.log("[proxy] deduplicated:", allSnapshots.length, "->", deduplicatedSnapshots.length)
+
     // Sort by created_at descending (newest first)
-    allSnapshots.sort((a, b) => {
+    deduplicatedSnapshots.sort((a, b) => {
       const dateA = new Date(a.created_at || 0).getTime()
       const dateB = new Date(b.created_at || 0).getTime()
       return dateB - dateA
     })
 
-    console.log("[proxy] total snapshots:", allSnapshots.length)
+    console.log("[proxy] total snapshots:", deduplicatedSnapshots.length)
 
     return NextResponse.json({
-      snapshots: allSnapshots,
-      total: allSnapshots.length
+      snapshots: deduplicatedSnapshots,
+      total: deduplicatedSnapshots.length
     }, {
       status: 200,
       headers: {
