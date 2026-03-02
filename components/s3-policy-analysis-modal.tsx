@@ -598,7 +598,7 @@ export function S3PolicyAnalysisModal({
               { id: 'access' as const, label: 'Who Accessed', icon: Users },
               { id: 'policies' as const, label: 'Policies', icon: FileText },
               { id: 'evidence' as const, label: 'Evidence', icon: Shield },
-              { id: 'simulate' as const, label: 'Simulate', icon: Zap, comingSoon: true }
+              { id: 'simulate' as const, label: 'Simulate', icon: Zap }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -663,22 +663,43 @@ export function S3PolicyAnalysisModal({
           )}
           {activeTab === 'simulate' && (
             <div className="p-8 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
-                <Zap className="w-8 h-8 text-amber-600" />
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
+                <Zap className="w-8 h-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">S3 Remediation Coming Soon</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Remediation Simulation</h3>
               <p className="text-gray-600 max-w-md mx-auto mb-6">
-                S3 bucket policy remediation is currently under development.
-                For now, you can view the access analysis and manually update bucket policies based on the recommendations.
+                {unusedCount > 0
+                  ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy' : 'policies'} that can be safely removed. Click the REMEDIATE button below to preview the changes before applying.`
+                  : 'No unused policies detected. This bucket is following least privilege principles.'
+                }
               </p>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 max-w-md mx-auto">
-                <h4 className="font-semibold text-slate-700 mb-2">What's available now:</h4>
-                <ul className="text-sm text-slate-600 text-left space-y-1">
-                  <li>✓ View who accessed this bucket</li>
-                  <li>✓ See which policies are used vs unused</li>
-                  <li>✓ Analyze access patterns over time</li>
-                </ul>
-              </div>
+              {unusedCount > 0 ? (
+                <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-lg p-4 max-w-md mx-auto">
+                  <h4 className="font-semibold text-red-700 mb-2">Remediation Preview:</h4>
+                  <ul className="text-sm text-red-600 text-left space-y-1">
+                    <li>• Remove {unusedCount} unused {unusedCount === 1 ? 'policy' : 'policies'}</li>
+                    <li>• Reduce attack surface by ~{Math.round((unusedCount / Math.max(totalPolicies, 1)) * 100)}%</li>
+                    <li>• Create rollback checkpoint before changes</li>
+                    <li>• Improve LP score to 100%</li>
+                  </ul>
+                  <button
+                    onClick={handleSimulate}
+                    className="mt-4 px-6 py-2.5 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
+                  >
+                    <Zap className="w-4 h-4" />
+                    START SIMULATION
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 max-w-md mx-auto">
+                  <h4 className="font-semibold text-green-700 mb-2">Bucket Status:</h4>
+                  <ul className="text-sm text-green-600 text-left space-y-1">
+                    <li>✓ All policies are actively used</li>
+                    <li>✓ No remediation needed</li>
+                    <li>✓ Following least privilege principles</li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -692,14 +713,16 @@ export function S3PolicyAnalysisModal({
             CLOSE
           </button>
           <button
-            disabled={true}
-            className="px-6 py-2.5 bg-slate-400 text-white rounded-lg font-bold cursor-not-allowed flex items-center gap-2"
+            onClick={handleSimulate}
+            disabled={!gapData || unusedCount === 0}
+            className={`px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-all ${
+              gapData && unusedCount > 0
+                ? 'bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white shadow-lg hover:shadow-xl'
+                : 'bg-slate-400 text-white cursor-not-allowed'
+            }`}
           >
             <Zap className="w-4 h-4" />
-            REMEDIATE
-            <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-400 text-amber-900 rounded">
-              COMING SOON
-            </span>
+            {unusedCount > 0 ? `REMEDIATE (${unusedCount})` : 'NO ISSUES'}
           </button>
         </div>
       </div>
