@@ -169,7 +169,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
-  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
+  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'Remediated'>('all')
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const { toast } = useToast()
 
@@ -997,12 +997,14 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
               const iamCount = baseResources.filter(r => r.resourceType === 'IAMRole').length
               const sgCount = baseResources.filter(r => r.resourceType === 'SecurityGroup').length
               const s3Count = baseResources.filter(r => r.resourceType === 'S3Bucket').length
+              const remediatedCount = baseResources.filter(r => r.resourceType === 'IAMRole' && r.allowedCount === 0).length
 
-              const filters: Array<{ key: 'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket', label: string, count: number, icon: React.ReactNode, color: string }> = [
+              const filters: Array<{ key: 'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'Remediated', label: string, count: number, icon: React.ReactNode, color: string }> = [
                 { key: 'all', label: 'All', count: allCount, icon: null, color: 'gray' },
                 { key: 'IAMRole', label: 'IAM Roles', count: iamCount, icon: <Shield className="w-3.5 h-3.5" />, color: 'purple' },
                 { key: 'SecurityGroup', label: 'Security Groups', count: sgCount, icon: <Network className="w-3.5 h-3.5" />, color: 'blue' },
-                { key: 'S3Bucket', label: 'S3 Buckets', count: s3Count, icon: <Database className="w-3.5 h-3.5" />, color: 'green' }
+                { key: 'S3Bucket', label: 'S3 Buckets', count: s3Count, icon: <Database className="w-3.5 h-3.5" />, color: 'green' },
+                { key: 'Remediated', label: 'Remediated', count: remediatedCount, icon: <CheckCircle2 className="w-3.5 h-3.5" />, color: 'emerald' }
               ]
 
               return filters.map(f => (
@@ -1018,7 +1020,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                           ? 'bg-purple-600 text-white'
                           : f.key === 'SecurityGroup'
                             ? 'bg-blue-600 text-white'
-                            : 'bg-green-600 text-white'
+                            : f.key === 'Remediated'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-green-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }
                   `}
@@ -1096,6 +1100,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             // Apply resource type filter
             .filter(resource => {
               if (resourceTypeFilter === 'all') return true
+              if (resourceTypeFilter === 'Remediated') {
+                // Show only remediated IAM roles (allowedCount === 0)
+                return resource.resourceType === 'IAMRole' && resource.allowedCount === 0
+              }
               return resource.resourceType === resourceTypeFilter
             })
             // Apply search filter
@@ -1110,9 +1118,10 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             })
             // Filter out "No Action Required" resources based on resource type
             .filter(resource => {
-              // IAM Roles: filter by gapCount (unused permissions)
+              // IAM Roles: show if has unused permissions OR is remediated (allowedCount=0)
               if (resource.resourceType === 'IAMRole') {
-                return resource.gapCount > 0
+                const isRemediated = resource.allowedCount === 0
+                return resource.gapCount > 0 || isRemediated
               }
               // S3 Buckets: show all (user can click to analyze policies)
               if (resource.resourceType === 'S3Bucket') {
