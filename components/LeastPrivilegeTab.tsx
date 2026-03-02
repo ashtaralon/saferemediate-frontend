@@ -621,17 +621,18 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             return false
           }
 
-          // Filter out roles that have been remediated (stored in localStorage)
-          try {
-            const remediatedKey = `remediated_roles_${systemName}`
-            const remediatedRoles = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-            if (remediatedRoles.includes(r.resourceName) || remediatedRoles.includes(r.id)) {
-              console.log('[Filter] Removing remediated role:', r.resourceName)
-              return false
-            }
-          } catch (e) {
-            // Ignore localStorage errors
-          }
+          // NOTE: Disabled localStorage filtering - show all roles regardless of remediation history
+          // Users can use "Restore dismissed" button to bring back dismissed items
+          // try {
+          //   const remediatedKey = `remediated_roles_${systemName}`
+          //   const remediatedRoles = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
+          //   if (remediatedRoles.includes(r.resourceName) || remediatedRoles.includes(r.id)) {
+          //     console.log('[Filter] Removing remediated role:', r.resourceName)
+          //     return false
+          //   }
+          // } catch (e) {
+          //   // Ignore localStorage errors
+          // }
 
           // Don't filter out IAM roles based on gapCount - show all of them
           // The user can see which ones need remediation

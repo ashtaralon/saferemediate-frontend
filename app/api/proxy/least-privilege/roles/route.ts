@@ -41,9 +41,26 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const data = await res.json()
-    console.log(`[LP Proxy Roles] Fetched ${Array.isArray(data) ? data.length : 0} roles`)
-    return NextResponse.json(data)
+    const rawData = await res.json()
+
+    // Transform backend response to match frontend expectations
+    // Backend returns: [{ roleArn, roleName, permissionsCount, unusedPermissionsCount, bloatPercentage }]
+    // Frontend expects: { roles: [{ id, name, usedCount, allowedCount, unusedCount, highRiskUnused, score }] }
+    const roles = (Array.isArray(rawData) ? rawData : []).map((r: any) => ({
+      id: r.roleArn || r.roleName,
+      name: r.roleName,
+      usedCount: (r.permissionsCount || 0) - (r.unusedPermissionsCount || 0),
+      allowedCount: r.permissionsCount || 0,
+      unusedCount: r.unusedPermissionsCount || 0,
+      highRiskUnused: r.highRiskUnused || [],
+      score: r.permissionsCount > 0
+        ? Math.round(((r.permissionsCount - r.unusedPermissionsCount) / r.permissionsCount) * 100)
+        : 100,
+      lastUsed: r.lastUsed
+    }))
+
+    console.log(`[LP Proxy Roles] Fetched and transformed ${roles.length} roles`)
+    return NextResponse.json({ roles })
   } catch (error: any) {
     console.error("[LP Proxy Roles] Error:", error.message)
 
