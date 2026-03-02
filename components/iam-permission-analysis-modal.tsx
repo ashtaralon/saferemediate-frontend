@@ -122,6 +122,7 @@ export function IAMPermissionAnalysisModal({
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
   const [detachManagedPolicies, setDetachManagedPolicies] = useState(true)
+  const [detachAllManagedPolicies, setDetachAllManagedPolicies] = useState(false)  // Detach ALL regardless of overlap
   const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
 
   // Fetch gap analysis data when modal opens
@@ -332,12 +333,14 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Permissions to remove:', permissionsToRemove.length)
       console.log('[IAM-Modal] Create snapshot:', createSnapshot)
       console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
+      console.log('[IAM-Modal] Detach ALL managed policies:', detachAllManagedPolicies)
 
       // Call the real remediation API (not dry run)
       // This will DIRECTLY MODIFY the IAM role in AWS:
       // 1. Create snapshot before changes (if createSnapshot=true)
       // 2. Modify inline policies to remove unused permissions
       // 3. Detach managed policies (if detachManagedPolicies=true)
+      // 4. Detach ALL managed policies regardless of overlap (if detachAllManagedPolicies=true)
       const response = await fetch('/api/proxy/cyntro/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -346,6 +349,7 @@ export function IAMPermissionAnalysisModal({
           dry_run: false,  // Actually apply the changes
           create_snapshot: createSnapshot,
           detach_managed_policies: detachManagedPolicies,  // CRITICAL for managed policies
+          detach_all_managed_policies: detachAllManagedPolicies,  // Detach ALL regardless of permission overlap
           permissions_to_remove: permissionsToRemove  // Only remove selected permissions
         })
       })
@@ -973,6 +977,16 @@ export function IAMPermissionAnalysisModal({
                   className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                 />
                 <span className="text-sm text-gray-600">Detach managed policies</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer" title="Detach ALL AWS managed policies from this role, regardless of permission overlap. Use when Neo4j data doesn't match actual AWS policies.">
+                <input
+                  type="checkbox"
+                  checked={detachAllManagedPolicies}
+                  onChange={(e) => setDetachAllManagedPolicies(e.target.checked)}
+                  disabled={applying || !detachManagedPolicies}
+                  className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                <span className={`text-sm ${detachManagedPolicies ? 'text-red-600 font-medium' : 'text-gray-400'}`}>Detach ALL</span>
               </label>
               {(() => {
                 const blocked = shouldBlockRemediation()

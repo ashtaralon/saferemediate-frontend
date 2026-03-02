@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       dry_run = false,  // Changed default to false for direct modify
       create_snapshot = true,
       detach_managed_policies = true,  // Enable by default for managed policies
+      detach_all_managed_policies = false,  // Detach ALL policies regardless of overlap
       permissions_to_remove,  // Optional: specific permissions to remove
       ...rest
     } = body
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[CYNTRO-REMEDIATE] Starting remediation for: ${role_name}`)
-    console.log(`[CYNTRO-REMEDIATE] Options: dry_run=${dry_run}, create_snapshot=${create_snapshot}, detach_managed_policies=${detach_managed_policies}`)
+    console.log(`[CYNTRO-REMEDIATE] Options: dry_run=${dry_run}, create_snapshot=${create_snapshot}, detach_managed_policies=${detach_managed_policies}, detach_all=${detach_all_managed_policies}`)
 
     // First get gap analysis for permission info
     const gapRes = await fetch(`${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=90`, {
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
         dry_run,
         create_snapshot,
         detach_managed_policies,  // CRITICAL: Enables removal of AWS managed policies
+        detach_all_managed_policies,  // Detach ALL regardless of permission overlap
         ...rest
       }),
       cache: "no-store",
