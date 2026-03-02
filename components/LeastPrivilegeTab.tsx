@@ -2062,6 +2062,10 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
 
   // Get severity - use API severity for orphan SGs, otherwise calculate from unused percentage
   const getSeverity = (unusedPercent: number): { level: string, color: string, bgColor: string, borderColor: string, emoji: string } => {
+    // Check if role is fully remediated (0 allowed permissions)
+    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) {
+      return { level: 'REMEDIATED', color: 'text-emerald-800', bgColor: 'bg-emerald-100', borderColor: 'border-emerald-500', emoji: '✅' }
+    }
     // For orphan Security Groups, use the API's severity
     if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
       const apiSeverity = (resource.severity || '').toUpperCase()
@@ -2089,6 +2093,10 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
 
   // Get risk-based card styling
   const getRiskCardStyle = (unusedPercent: number) => {
+    // Remediated roles get special styling
+    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) {
+      return 'border-2 border-emerald-400 bg-emerald-50/50'
+    }
     if (unusedPercent >= 80) return 'border-2 border-red-400 bg-red-50/30'
     if (unusedPercent >= 50) return 'border-2 border-orange-400 bg-orange-50/30'
     if (unusedPercent >= 20) return 'border-2 border-yellow-400 bg-yellow-50/30'

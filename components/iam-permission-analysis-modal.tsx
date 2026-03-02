@@ -1206,7 +1206,39 @@ export function IAMPermissionAnalysisModal({
             )
           })()}
 
-          {/* Stats Grid */}
+          {/* Remediated State Banner - Show when role has 0 permissions */}
+          {totalPermissions === 0 && (
+            <div className="mx-6 mt-4 p-6 bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-300 rounded-xl">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-10 h-10 text-emerald-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-2xl font-bold text-emerald-700">Fully Remediated</h3>
+                  <p className="text-emerald-600 mt-1">
+                    This role has been optimized - all unused permissions have been removed.
+                  </p>
+                  <p className="text-gray-500 text-sm mt-2">
+                    AWS IAM policies have been detached. The role now follows least privilege principles.
+                  </p>
+                </div>
+                <div className="text-center px-6 py-3 bg-emerald-100 rounded-xl">
+                  <div className="text-4xl font-bold text-emerald-600">100%</div>
+                  <div className="text-emerald-700 text-sm font-medium">LP Score</div>
+                </div>
+              </div>
+              {usedCount > 0 && (
+                <div className="mt-4 pt-4 border-t border-emerald-200">
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Historical Usage:</span> This role previously used {usedCount} S3 actions based on CloudTrail data from the past {observationDays} days.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Stats Grid - Only show if not remediated */}
+          {totalPermissions > 0 && (
           <div className="grid grid-cols-3 gap-4 p-6">
             <div className="border border-gray-200 rounded-xl p-4 text-center">
               <div className="text-4xl font-bold text-gray-800">{totalPermissions}</div>
@@ -1221,9 +1253,10 @@ export function IAMPermissionAnalysisModal({
               <div className="text-red-600 mt-1">Unused ({unusedPercent}%)</div>
             </div>
           </div>
+          )}
 
-          {/* Least Privilege Violation Alert */}
-          {unusedCount > 0 && (
+          {/* Least Privilege Violation Alert - Only show if not remediated */}
+          {unusedCount > 0 && totalPermissions > 0 && (
             <div className="mx-6 p-5 bg-red-50 border-2 border-red-200 rounded-xl">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0 mt-0.5" />
@@ -1251,7 +1284,8 @@ export function IAMPermissionAnalysisModal({
             </div>
           )}
 
-          {/* Permission Usage Breakdown */}
+          {/* Permission Usage Breakdown - Only show if not remediated */}
+          {totalPermissions > 0 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-bold text-gray-900">Permission Usage Breakdown</h3>
 
@@ -1300,14 +1334,30 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
           </div>
+          )}
 
           {/* Recommended Action */}
           {(() => {
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
             const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
+            const isRemediated = totalPermissions === 0
 
-            if (isServiceRole) {
+            // Show success message for remediated roles
+            if (isRemediated) {
+              return (
+                <div className="mx-6 mb-6 p-4 border-2 border-emerald-300 bg-emerald-50 rounded-xl">
+                  <h3 className="font-bold text-emerald-800">No Action Required</h3>
+                  <p className="text-emerald-700 mt-1">
+                    This role has been fully remediated. All managed policies have been detached from AWS IAM.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 text-emerald-600">
+                    <CheckCircle className="w-5 h-5" />
+                    <span className="font-medium">Least privilege achieved - Role is optimized</span>
+                  </div>
+                </div>
+              )
+            } else if (isServiceRole) {
               return (
                 <div className="mx-6 mb-6 p-4 border-2 border-red-300 bg-red-50 rounded-xl">
                   <h3 className="font-bold text-red-800">Do Not Remediate</h3>
