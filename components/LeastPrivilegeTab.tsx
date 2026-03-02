@@ -27,6 +27,9 @@ interface GapResource {
   isRemediable?: boolean
   remediableReason?: string
   isServiceLinkedRole?: boolean
+  // Remediation metadata
+  remediatedAt?: string
+  remediatedBy?: string
   // Orphan status for Security Groups
   isOrphan?: boolean
   attachmentCount?: number
@@ -604,6 +607,9 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             isRemediable: r.isRemediable ?? r.is_remediable ?? true,
             remediableReason: r.remediableReason ?? r.remediable_reason ?? '',
             isServiceLinkedRole: r.isServiceLinkedRole ?? r.is_service_linked_role ?? false,
+            // Remediation metadata
+            remediatedAt: r.remediatedAt ?? r.remediated_at ?? null,
+            remediatedBy: r.remediatedBy ?? r.remediated_by ?? null,
             // Orphan status (for Security Groups)
             isOrphan: r.isOrphan ?? r.is_orphan ?? false,
             attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0,
@@ -2290,10 +2296,47 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
               ⚠️ AWS Managed
             </span>
           )}
+          {/* Remediation Date for remediated roles */}
+          {resource.resourceType === 'IAMRole' && resource.allowedCount === 0 && resource.remediatedAt && (
+            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium border border-emerald-200">
+              📅 {new Date(resource.remediatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {resource.remediatedBy && ` by ${resource.remediatedBy}`}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* LP Score - Prominent Display */}
+      {/* Remediated Role Banner - Show instead of LP Score for remediated roles */}
+      {resource.resourceType === 'IAMRole' && resource.allowedCount === 0 ? (
+        <div className="mb-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-lg border-2 border-emerald-200">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center border-2 border-emerald-300">
+              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-lg font-bold text-emerald-700">Fully Remediated</h4>
+              <p className="text-sm text-emerald-600">
+                All excess permissions removed. This role now follows least privilege.
+              </p>
+              {resource.remediatedAt && (
+                <p className="text-xs text-emerald-500 mt-1">
+                  Remediated on {new Date(resource.remediatedAt).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                  {resource.remediatedBy && ` by ${resource.remediatedBy}`}
+                </p>
+              )}
+            </div>
+            <div className="text-4xl">✅</div>
+          </div>
+        </div>
+      ) : (
+      /* LP Score - Prominent Display */
       <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
@@ -2317,8 +2360,10 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
           <span className="text-2xl">{severity.emoji}</span>
         </div>
       </div>
+      )}
 
-      {/* Usage Bar - Enhanced with gradients */}
+      {/* Usage Bar - Enhanced with gradients - Hide for remediated IAM roles */}
+      {!(resource.resourceType === 'IAMRole' && resource.allowedCount === 0) && (
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-gray-700">{metrics.label}</span>
@@ -2349,6 +2394,7 @@ function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResourc
           )}
         </div>
       </div>
+      )}
 
       {/* High-Risk Info - Contextual per type */}
       {resource.resourceType === 'SecurityGroup' && resource.networkExposure?.highRiskPorts?.length > 0 && (
