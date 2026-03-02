@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { SGGapCard } from './sg-gap-card';
+import { IAMPermissionAnalysisModal } from './iam-permission-analysis-modal';
 
 // Use environment variable for backend URL
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
@@ -158,6 +159,10 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
   // Sync state
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // IAM Remediation Modal state
+  const [selectedRoleForRemediation, setSelectedRoleForRemediation] = useState<string | null>(null);
+  const [isRemediationModalOpen, setIsRemediationModalOpen] = useState(false);
 
   // Traffic Simulator state
   const [showSimulator, setShowSimulator] = useState(false);
@@ -1062,6 +1067,22 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                           {role.score >= 80 ? '✓' : role.score >= 60 ? '!' : '✗'}
                         </span>
                       </div>
+                      {/* Remediate Button */}
+                      <button
+                        onClick={() => {
+                          setSelectedRoleForRemediation(role.name);
+                          setIsRemediationModalOpen(true);
+                        }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          role.unusedCount > 0
+                            ? 'bg-gradient-to-r from-rose-600 to-orange-600 text-white hover:from-rose-500 hover:to-orange-500'
+                            : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                        }`}
+                        disabled={role.unusedCount === 0}
+                        title={role.unusedCount > 0 ? `Remove ${role.unusedCount} unused permissions` : 'No unused permissions'}
+                      >
+                        {role.unusedCount > 0 ? `Remediate (${role.unusedCount})` : 'Optimized'}
+                      </button>
                     </div>
                   </div>
                   
@@ -1205,6 +1226,29 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
           {systemName && ` · Filtered by System: ${systemName}`}
         </p>
       </div>
+
+      {/* IAM Remediation Modal */}
+      {selectedRoleForRemediation && (
+        <IAMPermissionAnalysisModal
+          isOpen={isRemediationModalOpen}
+          onClose={() => {
+            setIsRemediationModalOpen(false);
+            setSelectedRoleForRemediation(null);
+          }}
+          roleName={selectedRoleForRemediation}
+          systemName={systemName || ''}
+          onSuccess={() => {
+            // Refresh IAM roles after successful remediation
+            fetchIAMRoles();
+          }}
+          onRemediationSuccess={(remediatedRole) => {
+            // Remove the role from the list or mark as remediated
+            console.log(`[LP-Tab] Role ${remediatedRole} remediated successfully`);
+            // Refresh the data
+            fetchIAMRoles();
+          }}
+        />
+      )}
     </div>
   );
 };

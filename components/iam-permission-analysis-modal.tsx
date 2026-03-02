@@ -325,15 +325,28 @@ export function IAMPermissionAnalysisModal({
 
     setApplying(true)
     try {
-      console.log('[IAM-Modal] Starting remediation for:', roleName, 'dry_run:', false)
+      // Get the list of permissions selected for removal
+      const permissionsToRemove = Array.from(selectedPermissionsToRemove)
+
+      console.log('[IAM-Modal] Starting DIRECT MODIFY remediation for:', roleName)
+      console.log('[IAM-Modal] Permissions to remove:', permissionsToRemove.length)
+      console.log('[IAM-Modal] Create snapshot:', createSnapshot)
+      console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
 
       // Call the real remediation API (not dry run)
+      // This will DIRECTLY MODIFY the IAM role in AWS:
+      // 1. Create snapshot before changes (if createSnapshot=true)
+      // 2. Modify inline policies to remove unused permissions
+      // 3. Detach managed policies (if detachManagedPolicies=true)
       const response = await fetch('/api/proxy/cyntro/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role_name: roleName,
-          dry_run: false  // Actually apply the changes
+          dry_run: false,  // Actually apply the changes
+          create_snapshot: createSnapshot,
+          detach_managed_policies: detachManagedPolicies,  // CRITICAL for managed policies
+          permissions_to_remove: permissionsToRemove  // Only remove selected permissions
         })
       })
 
@@ -341,23 +354,35 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Remediation response:', result)
 
       // Check response from proxy - it returns summary.unused_removed and success
-      const unusedRemoved = result.summary?.unused_removed || 0
+      const permissionsRemoved = result.permissions_removed || result.summary?.unused_removed || 0
       const beforeTotal = result.summary?.before_total || 0
       const afterTotal = result.summary?.after_total || 0
       const snapshotId = result.snapshot_id
-      const newRoleName = result.new_role?.name
+      const managedPoliciesDetached = result.managed_policies_detached || []
+      const inlinePoliciesModified = result.inline_policies_modified || []
 
       if (result.success) {
-        // Build description with details
+        // Build description with details about DIRECT MODIFICATION
         let desc = ''
-        if (newRoleName) {
-          desc = `Created new role "${newRoleName}" with ${afterTotal} permissions (reduced from ${beforeTotal})`
-        } else if (unusedRemoved > 0) {
-          desc = `Removed ${unusedRemoved} unused permissions`
+
+        // Show what was modified
+        if (permissionsRemoved > 0) {
+          desc = `Removed ${permissionsRemoved} unused permissions from ${roleName}`
         } else {
-          desc = `Remediated ${roleName}`
+          desc = `Modified ${roleName}`
         }
 
+        // Show managed policies detached
+        if (managedPoliciesDetached.length > 0) {
+          desc += `. Detached ${managedPoliciesDetached.length} managed policies`
+        }
+
+        // Show inline policies modified
+        if (inlinePoliciesModified.length > 0) {
+          desc += `. Modified ${inlinePoliciesModified.length} inline policies`
+        }
+
+        // Show snapshot ID for rollback
         if (snapshotId) {
           desc += `. Snapshot: ${snapshotId}`
         }

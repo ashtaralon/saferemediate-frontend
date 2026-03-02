@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
       }
 
       // Call IAM roles remediate endpoint
+      // IMPORTANT: Always enable detach_managed_policies to handle AWS managed policies
+      // Managed policies can only be detached, not modified - this is required for roles like AlonIAMTest
       const response = await fetch(`${BACKEND_URL}/api/iam-roles/remediate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -41,6 +43,8 @@ export async function POST(request: NextRequest) {
           role_name,
           permissions_to_remove: permission ? [permission] : permissions_to_remove,
           dry_run: dry_run || false,
+          detach_managed_policies: true,  // Enable removal of AWS managed policies
+          create_snapshot: true,           // Always create snapshot before modification
           ...rest
         }),
       })

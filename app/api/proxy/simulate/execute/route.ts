@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
           role_name: roleName,
           permissions_to_remove: permissions_to_remove || [],
           dry_run: false,
+          detach_managed_policies: true,  // Enable removal of AWS managed policies
+          create_snapshot: true,           // Always create snapshot before modification
           ...options
         }),
       })
