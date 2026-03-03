@@ -43,10 +43,11 @@ export function VulnerabilitiesSection() {
   const fetchSecurityGroups = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/proxy/graph/nodes?type=SecurityGroup&limit=100')
+      const response = await fetch('/api/proxy/nodes')
       if (response.ok) {
         const data = await response.json()
-        const sgs = data
+        const nodes = data.nodes || data || []
+        const sgs = nodes
           .filter((n: any) => n.type === 'SecurityGroup')
           .map((n: any) => ({
             sg_id: n.id,
