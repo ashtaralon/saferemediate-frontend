@@ -11,6 +11,7 @@ interface SecurityGroup {
   vpc_id: string
   region?: string
   rule_count?: number
+  systemName?: string
 }
 
 interface VulnerabilitySummary {
@@ -22,9 +23,14 @@ interface VulnerabilitySummary {
   medium_cves: number
 }
 
-export function VulnerabilitiesSection() {
+interface VulnerabilitiesSectionProps {
+  systemName?: string  // If provided, filter by system
+}
+
+export function VulnerabilitiesSection({ systemName }: VulnerabilitiesSectionProps) {
   const [securityGroups, setSecurityGroups] = useState<SecurityGroup[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedSgId, setSelectedSgId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [summary, setSummary] = useState<VulnerabilitySummary>({
@@ -38,28 +44,41 @@ export function VulnerabilitiesSection() {
 
   useEffect(() => {
     fetchSecurityGroups()
-  }, [])
+  }, [systemName])
 
   const fetchSecurityGroups = async () => {
     setLoading(true)
+    setError(null)
     try {
       const response = await fetch('/api/proxy/nodes')
-      if (response.ok) {
-        const data = await response.json()
-        const nodes = data.nodes || data || []
-        const sgs = nodes
-          .filter((n: any) => n.type === 'SecurityGroup')
-          .map((n: any) => ({
-            sg_id: n.id,
-            sg_name: n.name || n.id,
-            vpc_id: n.vpc_id || 'unknown',
-            region: n.region || 'eu-west-1',
-          }))
-        setSecurityGroups(sgs)
-        setSummary(prev => ({ ...prev, total_sgs: sgs.length }))
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`)
       }
+      const data = await response.json()
+      console.log('[VulnerabilitiesSection] Raw response:', data)
+
+      const nodes = data.nodes || data || []
+      let sgs = nodes
+        .filter((n: any) => n.type === 'SecurityGroup')
+        .map((n: any) => ({
+          sg_id: n.id,
+          sg_name: n.name || n.id,
+          vpc_id: n.vpc_id || 'unknown',
+          region: n.region || 'eu-west-1',
+          systemName: n.systemName,
+        }))
+
+      // Filter by system if systemName is provided
+      if (systemName) {
+        sgs = sgs.filter((sg: any) => sg.systemName === systemName)
+      }
+
+      console.log(`[VulnerabilitiesSection] Found ${sgs.length} security groups${systemName ? ` for system ${systemName}` : ''}`)
+      setSecurityGroups(sgs)
+      setSummary(prev => ({ ...prev, total_sgs: sgs.length }))
     } catch (error) {
       console.error('Failed to fetch security groups:', error)
+      setError(error instanceof Error ? error.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -77,10 +96,13 @@ export function VulnerabilitiesSection() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Bug className="w-7 h-7 text-red-600" />
-            Vulnerability Management
+            {systemName ? `${systemName} Vulnerabilities` : 'Vulnerability Management'}
           </h1>
           <p className="text-gray-600 mt-1">
-            CVE exposure analysis and enforcement configuration for Security Groups
+            {systemName
+              ? `CVE exposure analysis for Security Groups in ${systemName}`
+              : 'CVE exposure analysis and enforcement configuration for Security Groups'
+            }
           </p>
         </div>
         <button
@@ -92,6 +114,14 @@ export function VulnerabilitiesSection() {
           Refresh
         </button>
       </div>
+
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          <p className="font-medium">Failed to load security groups</p>
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-4">

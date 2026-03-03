@@ -31,6 +31,7 @@ import {
   Clock,
   ExternalLink,
   Wrench,
+  Bug,
 } from "lucide-react"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -60,6 +61,19 @@ const LeastPrivilegeTab = dynamic(() => import("./LeastPrivilegeTab"), {
     </div>
   ),
 })
+
+const VulnerabilitiesSection = dynamic(
+  () => import("./vulnerabilities-section").then((mod) => ({ default: mod.VulnerabilitiesSection })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading vulnerabilities...</span>
+      </div>
+    ),
+  }
+)
 
 const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
   ssr: false,
@@ -856,9 +870,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "issues", label: "Issues", icon: AlertTriangle },
     { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
+    { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "dependency-map", label: "Dependency Map", icon: Map },
-    { id: "behavioral", label: "Behavioral", icon: Activity },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
     { id: "security-posture", label: "Security Posture", icon: Shield },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
@@ -1580,6 +1594,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <LeastPrivilegeTab systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "vulnerabilities" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <VulnerabilitiesSection systemName={systemName} />
         </div>
       )}
 
