@@ -14,6 +14,8 @@ import { IntegrationsSection } from "@/components/integrations-section"
 import { IdentitiesSection } from "@/components/identities-section"
 import { AutomationSection } from "@/components/automation-section"
 import { PerResourceAnalysis } from "@/components/per-resource-analysis"
+import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
+import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
@@ -648,6 +650,12 @@ export default function HomePage() {
 
       case "per-resource":
         return <PerResourceAnalysis />
+
+      case "least-privilege":
+        return <LeastPrivilegeTab systemName="alon-prod" />
+
+      case "vulnerabilities":
+        return <VulnerabilitiesSection />
 
       case "automation":
         return <AutomationSection />
