@@ -50,27 +50,46 @@ export function VulnerabilitiesSection({ systemName }: VulnerabilitiesSectionPro
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/proxy/nodes')
-      if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.status}`)
-      }
-      const data = await response.json()
-      console.log('[VulnerabilitiesSection] Raw response:', data)
+      let sgs: SecurityGroup[] = []
 
-      const nodes = data.nodes || data || []
-      let sgs = nodes
-        .filter((n: any) => n.type === 'SecurityGroup')
-        .map((n: any) => ({
-          sg_id: n.id,
-          sg_name: n.name || n.id,
-          vpc_id: n.vpc_id || 'unknown',
-          region: n.region || 'eu-west-1',
-          systemName: n.systemName,
-        }))
-
-      // Filter by system if systemName is provided
       if (systemName) {
-        sgs = sgs.filter((sg: any) => sg.systemName === systemName)
+        // Use system-resources endpoint when filtering by system
+        const response = await fetch(`/api/proxy/system-resources/${systemName}`)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch system resources: ${response.status}`)
+        }
+        const data = await response.json()
+        console.log('[VulnerabilitiesSection] System resources response:', data)
+
+        const resources = data.resources || []
+        sgs = resources
+          .filter((r: any) => r.type === 'SecurityGroup')
+          .map((r: any) => ({
+            sg_id: r.id?.startsWith('sg-') ? r.id : r.name,
+            sg_name: r.name || r.id,
+            vpc_id: r.vpc_id || 'unknown',
+            region: r.region || 'eu-west-1',
+            systemName: systemName,
+          }))
+      } else {
+        // Use nodes endpoint for all SGs (account-wide view)
+        const response = await fetch('/api/proxy/nodes')
+        if (!response.ok) {
+          throw new Error(`Failed to fetch nodes: ${response.status}`)
+        }
+        const data = await response.json()
+        console.log('[VulnerabilitiesSection] Nodes response:', data)
+
+        const nodes = data.nodes || data || []
+        sgs = nodes
+          .filter((n: any) => n.type === 'SecurityGroup')
+          .map((n: any) => ({
+            sg_id: n.id,
+            sg_name: n.name || n.id,
+            vpc_id: n.vpc_id || 'unknown',
+            region: n.region || 'eu-west-1',
+            systemName: n.systemName,
+          }))
       }
 
       console.log(`[VulnerabilitiesSection] Found ${sgs.length} security groups${systemName ? ` for system ${systemName}` : ''}`)
