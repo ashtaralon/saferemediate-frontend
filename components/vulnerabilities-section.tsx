@@ -1,5 +1,5 @@
 "use client"
 
-// Re-export VulnerabilityListView as VulnerabilitiesSection for backwards compatibility
-export { VulnerabilityListView as VulnerabilitiesSection } from './vulnerability-list-view'
-export { VulnerabilityListView as default } from './vulnerability-list-view'
+// CVE-centric vulnerability management view
+export { CVEManagementView as VulnerabilitiesSection } from './cve-management-view'
+export { CVEManagementView as default } from './cve-management-view'
