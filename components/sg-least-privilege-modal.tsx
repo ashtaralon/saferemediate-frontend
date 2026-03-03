@@ -40,7 +40,9 @@ import {
   Columns,
   Sparkles,
   Zap,
+  Bug,
 } from 'lucide-react';
+import { VulnerabilityExposurePanel } from './vulnerability-exposure-panel';
 
 // =============================================================================
 // TYPES
@@ -1175,7 +1177,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [analysis, setAnalysis] = useState<SGAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact' | 'comparison'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact' | 'comparison' | 'vulnerabilities'>('summary');
   const [syncing, setSyncing] = useState(false);
   const [orphanStatus, setOrphanStatus] = useState<{
     is_orphan: boolean;
@@ -1451,10 +1453,11 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-700/50">
+        <div className="flex border-b border-slate-700/50 overflow-x-auto">
           {[
             { id: 'summary', label: 'Summary', icon: Activity },
             { id: 'rules', label: 'Rules', icon: Shield },
+            { id: 'vulnerabilities', label: 'Vulnerabilities', icon: Bug },
             { id: 'evidence', label: 'Evidence', icon: Database },
             { id: 'impact', label: 'Impact', icon: AlertTriangle },
             { id: 'comparison', label: 'CSPM vs Behavioral', icon: Columns },
@@ -1541,6 +1544,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             <>
               {activeTab === 'summary' && <SummaryTab analysis={analysis} />}
               {activeTab === 'rules' && <RulesTab analysis={analysis} />}
+              {activeTab === 'vulnerabilities' && <VulnerabilityExposurePanel sgId={sgId} />}
               {activeTab === 'evidence' && <EvidenceTab analysis={analysis} />}
               {activeTab === 'impact' && <ImpactTab analysis={analysis} />}
               {activeTab === 'comparison' && <ComparisonTab analysis={analysis} orphanStatus={orphanStatus} sgId={sgId} />}
