@@ -593,7 +593,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       const sysData = await sysRes.json()
       const sgIds = (sysData.resources || [])
         .filter((r: any) => r.type === 'SecurityGroup')
-        .map((r: any) => r.id?.startsWith('sg-') ? r.id : null)
+        .map((r: any) => {
+          // First check if id starts with sg-
+          if (r.id?.startsWith('sg-')) return r.id
+          // Otherwise extract from ARN (arn:aws:ec2:region:account:security-group/sg-xxx)
+          if (r.arn?.includes('security-group/sg-')) {
+            const match = r.arn.match(/security-group\/(sg-[a-z0-9]+)/)
+            return match ? match[1] : null
+          }
+          return null
+        })
         .filter(Boolean)
 
       if (sgIds.length === 0) {
