@@ -340,6 +340,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const [totalChecks, setTotalChecks] = useState(0) // Declared totalChecks variable
 
+  // CVE Summary state
+  const [cveSummary, setCveSummary] = useState<{
+    critical: number
+    high: number
+    medium: number
+    low: number
+    totalCves: number
+    servicesAtRisk: string[]
+    loading: boolean
+  }>({
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    totalCves: 0,
+    servicesAtRisk: [],
+    loading: true
+  })
+
   // =============================================================================
   // Fetch issues summary for severity counts
   // =============================================================================
@@ -555,8 +574,81 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setRemediatingPermission(null)
   }
 
+  // Port to service mapping for CVE summary
+  const PORT_TO_SERVICE: Record<number, string> = {
+    22: 'SSH', 80: 'HTTP', 443: 'HTTPS', 3306: 'MySQL', 5432: 'PostgreSQL',
+    6379: 'Redis', 27017: 'MongoDB', 8080: 'Tomcat', 8443: 'HTTPS-Alt',
+    9200: 'Elasticsearch', 3389: 'RDP', 21: 'FTP', 25: 'SMTP', 53: 'DNS'
+  }
+
+  const fetchCVESummary = async () => {
+    try {
+      // Get system's security groups
+      const sysRes = await fetch(`/api/proxy/system-resources/${systemName}`)
+      if (!sysRes.ok) {
+        setCveSummary(prev => ({ ...prev, loading: false }))
+        return
+      }
+
+      const sysData = await sysRes.json()
+      const sgIds = (sysData.resources || [])
+        .filter((r: any) => r.type === 'SecurityGroup')
+        .map((r: any) => r.id?.startsWith('sg-') ? r.id : null)
+        .filter(Boolean)
+
+      if (sgIds.length === 0) {
+        setCveSummary(prev => ({ ...prev, loading: false }))
+        return
+      }
+
+      // Collect CVE counts and services
+      let critical = 0, high = 0, medium = 0, low = 0
+      const servicesSet = new Set<string>()
+
+      for (const sgId of sgIds) {
+        try {
+          const vulnRes = await fetch(`/api/proxy/vulnerability/sg/${sgId}/exposure`)
+          if (!vulnRes.ok) continue
+          const vulnData = await vulnRes.json()
+
+          for (const rule of vulnData.rules_exposure || []) {
+            const exposure = rule.vulnerability_exposure || {}
+
+            // Count CVEs by severity
+            critical += (exposure.critical_cves || []).length
+            high += (exposure.high_cves || []).length
+            medium += (exposure.medium_cves || []).length
+
+            // Track services at risk
+            const port = rule.port
+            if (port && PORT_TO_SERVICE[port]) {
+              servicesSet.add(PORT_TO_SERVICE[port])
+            } else if (port) {
+              servicesSet.add(`Port ${port}`)
+            }
+          }
+        } catch (e) {
+          console.error(`[CVESummary] Error fetching ${sgId}:`, e)
+        }
+      }
+
+      setCveSummary({
+        critical,
+        high,
+        medium,
+        low,
+        totalCves: critical + high + medium + low,
+        servicesAtRisk: Array.from(servicesSet).slice(0, 6),
+        loading: false
+      })
+    } catch (error) {
+      console.error('[CVESummary] Error:', error)
+      setCveSummary(prev => ({ ...prev, loading: false }))
+    }
+  }
+
   const fetchAllData = async () => {
-    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus()])
+    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary()])
   }
 
   useEffect(() => {
@@ -1321,6 +1413,78 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       <button className="text-xs text-blue-600 hover:underline mt-1">View gaps & remediate →</button>
                     </div>
                   </div>
+                </div>
+
+                {/* CVE Summary Card */}
+                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Bug className="w-4 h-4 text-red-500" />
+                      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">CVE Exposure</h3>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('vulnerabilities')}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      View all →
+                    </button>
+                  </div>
+
+                  {cveSummary.loading ? (
+                    <div className="flex items-center justify-center py-6">
+                      <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
+                    </div>
+                  ) : cveSummary.totalCves === 0 ? (
+                    <div className="text-center py-4">
+                      <ShieldCheck className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                      <p className="text-sm text-green-600 font-medium">No CVE Exposure</p>
+                      <p className="text-xs text-gray-500">All ports are secure</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* CVE Counts */}
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div className="text-center p-2 bg-red-50 rounded-lg">
+                          <p className="text-xl font-bold text-red-600">{cveSummary.critical}</p>
+                          <p className="text-xs text-red-500">Critical</p>
+                        </div>
+                        <div className="text-center p-2 bg-orange-50 rounded-lg">
+                          <p className="text-xl font-bold text-orange-600">{cveSummary.high}</p>
+                          <p className="text-xs text-orange-500">High</p>
+                        </div>
+                        <div className="text-center p-2 bg-yellow-50 rounded-lg">
+                          <p className="text-xl font-bold text-yellow-600">{cveSummary.medium}</p>
+                          <p className="text-xs text-yellow-500">Medium</p>
+                        </div>
+                      </div>
+
+                      {/* Services at Risk */}
+                      {cveSummary.servicesAtRisk.length > 0 && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-2">Services at Risk:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {cveSummary.servicesAtRisk.map((service) => (
+                              <span
+                                key={service}
+                                className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded"
+                              >
+                                {service}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Quick Action */}
+                      <button
+                        onClick={() => setActiveTab('vulnerabilities')}
+                        className="w-full mt-4 py-2 px-3 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-sm font-medium text-red-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <ShieldAlert className="w-4 h-4" />
+                        View & Remediate CVEs
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
