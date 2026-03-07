@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink } from 'lucide-react';
+import { AttackPathDetailPanel } from './attack-path-detail-panel';
 
 // ============================================
 // TYPES
@@ -68,6 +69,31 @@ interface SystemArchitecture {
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
+}
+
+// Attack Path types
+interface AttackPathNode {
+  id: string;
+  name: string;
+  type: string;
+  is_internet_exposed: boolean;
+  cve_count: number;
+  critical_cves: number;
+  high_cves: number;
+}
+
+interface AttackPath {
+  id: string;
+  nodes: AttackPathNode[];
+  edges: { source: string; target: string; relationship_type: string }[];
+  risk_score: number;
+  path_length: number;
+  source_type: string;
+  target_type: string;
+  target_name: string;
+  total_cves: number;
+  critical_cves: number;
+  evidence_type: string;
 }
 
 // ============================================
@@ -1233,6 +1259,7 @@ function AnimatedTrafficLine({
   x1, y1, x2, y2,
   isActive,
   isHighlighted,
+  isAttackPath = false,
   flowData,
   animate,
   trafficIntensity = 'medium',
@@ -1240,6 +1267,7 @@ function AnimatedTrafficLine({
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
   isHighlighted: boolean;
+  isAttackPath?: boolean;
   flowData?: TrafficFlow;
   animate: boolean;
   trafficIntensity?: 'low' | 'medium' | 'high';
@@ -1248,38 +1276,50 @@ function AnimatedTrafficLine({
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 
   // Speed based on intensity - faster = more traffic (slower base for better visibility)
+  // Attack paths animate faster (2x speed) to draw attention
   const baseDuration = Math.max(3, length / 80);
-  const duration = trafficIntensity === 'high' ? baseDuration * 0.7 :
+  const duration = isAttackPath ? baseDuration * 0.4 :
+                   trafficIntensity === 'high' ? baseDuration * 0.7 :
                    trafficIntensity === 'low' ? baseDuration * 1.3 : baseDuration;
 
-  // More particles for higher traffic
-  const particleCount = trafficIntensity === 'high' ? 5 : trafficIntensity === 'medium' ? 3 : 2;
+  // More particles for attack paths and higher traffic
+  const particleCount = isAttackPath ? 6 : trafficIntensity === 'high' ? 5 : trafficIntensity === 'medium' ? 3 : 2;
   const particleOffsets = Array.from({ length: particleCount }, (_, i) => i / particleCount);
 
-  // Colors based on state
-  const lineColor = isHighlighted ? '#10b981' : isActive ? '#3b82f6' : '#475569';
-  const particleColor = isHighlighted ? '#10b981' : '#3b82f6';
-  const glowColor = isHighlighted ? '#34d399' : '#60a5fa';
+  // Colors based on state - attack paths use red
+  const lineColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : isActive ? '#3b82f6' : '#475569';
+  const particleColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : '#3b82f6';
+  const glowColor = isAttackPath ? '#f87171' : isHighlighted ? '#34d399' : '#60a5fa';
 
   return (
     <g>
-      {/* Glow effect for active lines */}
-      {isActive && (
+      {/* Glow effect for active lines and attack paths */}
+      {(isActive || isAttackPath) && (
         <line
           x1={x1} y1={y1} x2={x2} y2={y2}
           stroke={glowColor}
-          strokeWidth={isHighlighted ? 12 : 6}
-          opacity={isHighlighted ? 0.4 : 0.2}
+          strokeWidth={isAttackPath ? 14 : isHighlighted ? 12 : 6}
+          opacity={isAttackPath ? 0.5 : isHighlighted ? 0.4 : 0.2}
           strokeLinecap="round"
-        />
+        >
+          {isAttackPath && (
+            <animate
+              attributeName="opacity"
+              values="0.5;0.3;0.5"
+              dur="1.5s"
+              repeatCount="indefinite"
+            />
+          )}
+        </line>
       )}
 
-      {/* Main line */}
+      {/* Main line - dashed for attack paths */}
       <line
         x1={x1} y1={y1} x2={x2} y2={y2}
         stroke={lineColor}
-        strokeWidth={isHighlighted ? 3 : 2}
+        strokeWidth={isAttackPath ? 4 : isHighlighted ? 3 : 2}
         strokeLinecap="round"
+        strokeDasharray={isAttackPath ? "10,5" : undefined}
         className="transition-all duration-300"
       />
 
@@ -1294,11 +1334,11 @@ function AnimatedTrafficLine({
             stroke="transparent"
           />
 
-          {/* Main particles */}
+          {/* Main particles - larger and more prominent for attack paths */}
           {particleOffsets.map((offset, i) => (
             <g key={i}>
               {/* Outer glow */}
-              <circle r={isHighlighted ? 8 : 6} fill={glowColor} opacity={0.3}>
+              <circle r={isAttackPath ? 10 : isHighlighted ? 8 : 6} fill={glowColor} opacity={isAttackPath ? 0.5 : 0.3}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -1308,7 +1348,7 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Core particle */}
-              <circle r={isHighlighted ? 5 : 4} fill={particleColor} opacity={isHighlighted ? 1 : 0.9}>
+              <circle r={isAttackPath ? 7 : isHighlighted ? 5 : 4} fill={particleColor} opacity={1}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -1318,7 +1358,7 @@ function AnimatedTrafficLine({
                 </animateMotion>
               </circle>
               {/* Inner bright core */}
-              <circle r={isHighlighted ? 2 : 1.5} fill="#ffffff" opacity={0.8}>
+              <circle r={isAttackPath ? 3 : isHighlighted ? 2 : 1.5} fill="#ffffff" opacity={0.9}>
                 <animateMotion
                   dur={`${duration}s`}
                   repeatCount="indefinite"
@@ -1374,11 +1414,13 @@ function ConnectionLinesSVG({
   hoveredId,
   containerRef,
   animate,
+  attackPathEdges = new Set<string>(),
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
   containerRef: React.RefObject<HTMLDivElement>;
   animate: boolean;
+  attackPathEdges?: Set<string>;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
@@ -1386,6 +1428,7 @@ function ConnectionLinesSVG({
     isHighlighted: boolean;
     isActive: boolean;
     trafficIntensity: 'low' | 'medium' | 'high';
+    isAttackPath: boolean;
   }>>([]);
 
   // Calculate traffic intensity thresholds
@@ -1440,6 +1483,10 @@ function ConnectionLinesSVG({
         const isActive = true;
         const trafficIntensity = getTrafficIntensity(flow.bytes);
 
+        // Check if this edge is part of an attack path
+        const isAttackPath = attackPathEdges.has(`${flow.sourceId}->${flow.targetId}`) ||
+                            attackPathEdges.has(`${flow.targetId}->${flow.sourceId}`);
+
         // Build checkpoint chain: Compute -> SG -> NACL -> IAM -> API -> Resource
         const checkpoints: { el: Element; posL: { x: number; y: number }; posR: { x: number; y: number } }[] = [];
 
@@ -1468,19 +1515,19 @@ function ConnectionLinesSVG({
         // Draw lines through all checkpoints
         if (checkpoints.length > 0) {
           // Source to first checkpoint
-          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: checkpoints[0].posL.x, y2: checkpoints[0].posL.y, flow, isHighlighted, isActive, trafficIntensity });
+          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: checkpoints[0].posL.x, y2: checkpoints[0].posL.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
 
           // Between checkpoints
           for (let i = 0; i < checkpoints.length - 1; i++) {
-            newLines.push({ x1: checkpoints[i].posR.x, y1: checkpoints[i].posR.y, x2: checkpoints[i + 1].posL.x, y2: checkpoints[i + 1].posL.y, flow, isHighlighted, isActive, trafficIntensity });
+            newLines.push({ x1: checkpoints[i].posR.x, y1: checkpoints[i].posR.y, x2: checkpoints[i + 1].posL.x, y2: checkpoints[i + 1].posL.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
           }
 
           // Last checkpoint to target
           const lastCheckpoint = checkpoints[checkpoints.length - 1];
-          newLines.push({ x1: lastCheckpoint.posR.x, y1: lastCheckpoint.posR.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity });
+          newLines.push({ x1: lastCheckpoint.posR.x, y1: lastCheckpoint.posR.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
         } else {
           // Direct line if no checkpoints
-          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity });
+          newLines.push({ x1: sourcePos.x, y1: sourcePos.y, x2: targetPos.x, y2: targetPos.y, flow, isHighlighted, isActive, trafficIntensity, isAttackPath });
         }
       });
 
@@ -1509,13 +1556,18 @@ function ConnectionLinesSVG({
       window.removeEventListener('resize', updateLines);
       container?.removeEventListener('scroll', scrollHandler);
     };
-  }, [architecture, hoveredId, containerRef, getTrafficIntensity]);
+  }, [architecture, hoveredId, containerRef, getTrafficIntensity, attackPathEdges]);
 
   return (
     <svg className="absolute inset-0 pointer-events-none overflow-visible" style={{ zIndex: 1 }}>
-      {/* Render non-highlighted lines first, then highlighted on top */}
+      {/* Render non-highlighted lines first, then attack paths, then highlighted on top */}
       {lines
-        .sort((a, b) => (a.isHighlighted ? 1 : 0) - (b.isHighlighted ? 1 : 0))
+        .sort((a, b) => {
+          // Attack paths render on top of normal lines
+          const aScore = (a.isAttackPath ? 2 : 0) + (a.isHighlighted ? 1 : 0);
+          const bScore = (b.isAttackPath ? 2 : 0) + (b.isHighlighted ? 1 : 0);
+          return aScore - bScore;
+        })
         .map((line, i) => (
           <AnimatedTrafficLine
             key={`line-${i}-${line.flow.sourceId}-${line.flow.targetId}`}
@@ -1525,6 +1577,7 @@ function ConnectionLinesSVG({
             y2={line.y2}
             isActive={line.isActive}
             isHighlighted={line.isHighlighted}
+            isAttackPath={line.isAttackPath}
             flowData={line.flow}
             animate={animate}
             trafficIntensity={line.trafficIntensity}
@@ -1541,14 +1594,59 @@ function UnifiedArchitectureDiagram({
   architecture,
   animate,
   onSelectService,
+  attackPaths = [],
+  selectedAttackPath,
+  onSelectAttackPath,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
   onSelectService: (service: ServiceNode | SecurityCheckpoint, type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call') => void;
+  attackPaths?: AttackPath[];
+  selectedAttackPath?: string | null;
+  onSelectAttackPath?: (pathId: string | null) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [expandedSG, setExpandedSG] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Get nodes that are part of attack paths for highlighting
+  const attackPathNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    attackPaths.forEach(path => {
+      path.nodes.forEach(n => ids.add(n.id));
+    });
+    return ids;
+  }, [attackPaths]);
+
+  // Get edges that are part of attack paths for highlighting
+  const attackPathEdges = useMemo(() => {
+    const edges = new Set<string>();
+    attackPaths.forEach(path => {
+      path.edges.forEach(edge => {
+        // Create edge key from source -> target
+        edges.add(`${edge.source}->${edge.target}`);
+        // Also add reverse key for bidirectional matching
+        edges.add(`${edge.target}->${edge.source}`);
+      });
+    });
+    return edges;
+  }, [attackPaths]);
+
+  // Get vulnerability data for nodes
+  const nodeVulnerabilities = useMemo(() => {
+    const vulns = new Map<string, { cve_count: number; critical_cves: number }>();
+    attackPaths.forEach(path => {
+      path.nodes.forEach(n => {
+        if (n.cve_count > 0 || n.critical_cves > 0) {
+          const existing = vulns.get(n.id);
+          if (!existing || n.cve_count > existing.cve_count) {
+            vulns.set(n.id, { cve_count: n.cve_count, critical_cves: n.critical_cves });
+          }
+        }
+      });
+    });
+    return vulns;
+  }, [attackPaths]);
 
   // Debug: Log what the diagram receives
   useEffect(() => {
@@ -1642,6 +1740,7 @@ function UnifiedArchitectureDiagram({
           hoveredId={hoveredId}
           containerRef={containerRef}
           animate={animate}
+          attackPathEdges={attackPathEdges}
         />
 
         <div className="relative grid grid-cols-[1fr_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
@@ -1651,18 +1750,37 @@ function UnifiedArchitectureDiagram({
               <Server className="w-4 h-4 text-blue-400" />
               Compute ({architecture.computeServices.length})
             </div>
-            {architecture.computeServices.map(node => (
-              <div key={node.id} data-compute-id={node.id}>
-                <ServiceNodeBox
-                  node={node}
-                  position="left"
-                  flowInfo={computeFlowInfo.get(node.id)}
-                  isHighlighted={isNodeHighlighted(node.id)}
-                  onHover={setHoveredId}
-                  onClick={() => onSelectService(node, 'compute')}
-                />
-              </div>
-            ))}
+            {architecture.computeServices.map(node => {
+              const vuln = nodeVulnerabilities.get(node.id);
+              const isInAttackPath = attackPathNodeIds.has(node.id);
+              return (
+                <div key={node.id} data-compute-id={node.id} className="relative">
+                  {/* Attack path vulnerability indicator */}
+                  {isInAttackPath && vuln && (
+                    <div className="absolute -top-2 -left-2 z-10">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-lg ${
+                        vuln.critical_cves > 0 ? 'bg-red-500 animate-pulse' : 'bg-orange-500'
+                      }`}>
+                        {vuln.cve_count}
+                      </div>
+                    </div>
+                  )}
+                  {isInAttackPath && (
+                    <div className={`absolute inset-0 rounded-xl pointer-events-none ${
+                      vuln?.critical_cves ? 'ring-2 ring-red-500 animate-pulse' : 'ring-2 ring-orange-500/50'
+                    }`} />
+                  )}
+                  <ServiceNodeBox
+                    node={node}
+                    position="left"
+                    flowInfo={computeFlowInfo.get(node.id)}
+                    isHighlighted={isNodeHighlighted(node.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(node, 'compute')}
+                  />
+                </div>
+              );
+            })}
           </div>
 
           {/* SECURITY GROUPS */}
@@ -1845,18 +1963,36 @@ function UnifiedArchitectureDiagram({
               <Database className="w-4 h-4 text-purple-400" />
               Resources ({architecture.resources.length})
             </div>
-            {architecture.resources.map(node => (
-              <div key={node.id} data-resource-id={node.id}>
-                <ServiceNodeBox
-                  node={node}
-                  position="right"
-                  flowInfo={resourceFlowInfo.get(node.id)}
-                  isHighlighted={isNodeHighlighted(node.id)}
-                  onHover={setHoveredId}
-                  onClick={() => onSelectService(node, 'resource')}
-                />
-              </div>
-            ))}
+            {architecture.resources.map(node => {
+              const vuln = nodeVulnerabilities.get(node.id);
+              const isInAttackPath = attackPathNodeIds.has(node.id);
+              const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
+              return (
+                <div key={node.id} data-resource-id={node.id} className="relative">
+                  {/* Attack path target indicator */}
+                  {isInAttackPath && isTarget && (
+                    <div className="absolute -top-2 -right-2 z-10">
+                      <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center animate-pulse shadow-lg">
+                        <Target className="w-3 h-3 text-white" />
+                      </div>
+                    </div>
+                  )}
+                  {isInAttackPath && (
+                    <div className={`absolute inset-0 rounded-xl pointer-events-none ${
+                      isTarget ? 'ring-2 ring-red-500 animate-pulse' : 'ring-2 ring-orange-500/50'
+                    }`} />
+                  )}
+                  <ServiceNodeBox
+                    node={node}
+                    position="right"
+                    flowInfo={resourceFlowInfo.get(node.id)}
+                    isHighlighted={isNodeHighlighted(node.id)}
+                    onHover={setHoveredId}
+                    onClick={() => onSelectService(node, 'resource')}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -2050,6 +2186,11 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
   const [autoRefresh, setAutoRefresh] = useState(false); // Manual refresh by default
   const [refreshInterval, setRefreshInterval] = useState(600); // 10 minutes
   const [selectedService, setSelectedService] = useState<{ service: ServiceNode | SecurityCheckpoint; type: 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'api_call' } | null>(null);
+  const [showAttackPaths, setShowAttackPaths] = useState(false);
+  const [attackPaths, setAttackPaths] = useState<AttackPath[]>([]);
+  const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
+  const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
+  const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const previousArchRef = useRef<SystemArchitecture | null>(null);
 
@@ -2650,6 +2791,57 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
     loadData(true);
   }, [loadData]);
 
+  // Load attack paths when enabled
+  const loadAttackPaths = useCallback(async () => {
+    if (!showAttackPaths) {
+      setAttackPaths([]);
+      return;
+    }
+
+    setLoadingAttackPaths(true);
+    try {
+      const res = await fetch(`/api/proxy/attack-paths/${systemName}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAttackPaths(data.paths || []);
+        console.log(`[TrafficFlowMap] Loaded ${data.paths?.length || 0} attack paths`);
+      }
+    } catch (err) {
+      console.error('[TrafficFlowMap] Failed to load attack paths:', err);
+    } finally {
+      setLoadingAttackPaths(false);
+    }
+  }, [showAttackPaths, systemName]);
+
+  useEffect(() => { loadAttackPaths(); }, [loadAttackPaths]);
+
+  // Inject CVE attack scenario into Neo4j
+  const [injectingCVE, setInjectingCVE] = useState(false);
+  const injectAttackScenario = useCallback(async () => {
+    setInjectingCVE(true);
+    try {
+      const res = await fetch('/api/proxy/inject-cve/preset', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[TrafficFlowMap] Injected CVE data:', data);
+        // Reload attack paths after injection
+        if (showAttackPaths) {
+          await loadAttackPaths();
+        }
+        alert(`✅ Injected attack scenario: ${data.updated_nodes} nodes updated with CVE data`);
+      } else {
+        const error = await res.text();
+        console.error('[TrafficFlowMap] CVE injection failed:', error);
+        alert('❌ Failed to inject CVE data. Make sure the backend is deployed with the inject-cve API.');
+      }
+    } catch (err) {
+      console.error('[TrafficFlowMap] CVE injection error:', err);
+      alert('❌ Failed to inject CVE data. Check console for details.');
+    } finally {
+      setInjectingCVE(false);
+    }
+  }, [showAttackPaths, loadAttackPaths]);
+
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -2714,6 +2906,48 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Attack Paths toggle */}
+          <button
+            onClick={() => setShowAttackPaths(!showAttackPaths)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+              showAttackPaths
+                ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse'
+                : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-500/10'
+            }`}
+            title="Show vulnerability attack paths to sensitive data"
+          >
+            {loadingAttackPaths ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <AlertTriangle className="w-3 h-3" />
+            )}
+            Attack Paths
+            {attackPaths.length > 0 && showAttackPaths && (
+              <span className="px-1.5 py-0.5 bg-red-700 rounded text-[10px] font-bold">
+                {attackPaths.length}
+              </span>
+            )}
+          </button>
+
+          {/* Inject CVE Scenario */}
+          <button
+            onClick={injectAttackScenario}
+            disabled={injectingCVE}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+              injectingCVE
+                ? 'bg-purple-500/50 text-purple-200 cursor-wait'
+                : 'bg-purple-600 hover:bg-purple-500 text-white'
+            }`}
+            title="Inject simulated CVE data into Neo4j nodes for testing"
+          >
+            {injectingCVE ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <Target className="w-3 h-3" />
+            )}
+            Inject CVEs
+          </button>
+
           {/* Auto-refresh toggle */}
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
@@ -2760,12 +2994,15 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 relative">
         {architecture && (architecture.computeServices.length > 0 || architecture.resources.length > 0) ? (
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
             onSelectService={(service, type) => setSelectedService({ service, type })}
+            attackPaths={showAttackPaths ? attackPaths : []}
+            selectedAttackPath={selectedAttackPath}
+            onSelectAttackPath={setSelectedAttackPath}
           />
         ) : (
           <div className="text-center py-16">
@@ -2779,6 +3016,113 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             </button>
           </div>
         )}
+
+        {/* Attack Paths Summary Panel */}
+        {showAttackPaths && attackPaths.length > 0 && (
+          <div className="absolute top-4 right-4 w-72 bg-slate-800/95 rounded-xl border border-red-500/50 shadow-2xl overflow-hidden z-20">
+            <div className="px-4 py-3 border-b border-red-500/30 bg-red-500/10 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <span className="text-red-400 font-bold text-sm">Attack Paths</span>
+              </div>
+              <button
+                onClick={() => setShowAttackPaths(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-red-500/20 rounded-lg p-2 text-center">
+                  <div className="text-red-400 text-xl font-bold">{attackPaths.length}</div>
+                  <div className="text-[10px] text-slate-400">Total</div>
+                </div>
+                <div className="bg-orange-500/20 rounded-lg p-2 text-center">
+                  <div className="text-orange-400 text-xl font-bold">
+                    {attackPaths.filter(p => p.risk_score >= 15).length}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Critical</div>
+                </div>
+                <div className="bg-yellow-500/20 rounded-lg p-2 text-center">
+                  <div className="text-yellow-400 text-xl font-bold">
+                    {attackPaths.reduce((sum, p) => sum + p.total_cves, 0)}
+                  </div>
+                  <div className="text-[10px] text-slate-400">CVEs</div>
+                </div>
+              </div>
+
+              {/* Path List */}
+              <div className="text-[10px] text-slate-500 uppercase mb-2 font-medium">Vulnerability Paths</div>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                {attackPaths.slice(0, 8).map((path) => (
+                  <div
+                    key={path.id}
+                    className={`p-2.5 rounded-lg cursor-pointer transition-all ${
+                      selectedAttackPath === path.id
+                        ? 'bg-red-500/30 ring-1 ring-red-500'
+                        : 'bg-slate-700/50 hover:bg-slate-700'
+                    }`}
+                    onClick={() => setSelectedAttackPath(selectedAttackPath === path.id ? null : path.id)}
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="text-white text-xs font-medium truncate flex-1">
+                        {path.source_type} → {path.target_name}
+                      </div>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        path.risk_score >= 15 ? 'bg-red-500/30 text-red-400' :
+                        path.risk_score >= 10 ? 'bg-orange-500/30 text-orange-400' :
+                        'bg-yellow-500/30 text-yellow-400'
+                      }`}>
+                        {path.risk_score}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                      <span>{path.path_length} hops</span>
+                      {path.total_cves > 0 && (
+                        <span className="text-red-400">{path.total_cves} CVEs</span>
+                      )}
+                      <span className={path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}>
+                        {path.evidence_type}
+                      </span>
+                    </div>
+                    {/* Path nodes preview */}
+                    <div className="flex items-center gap-1 mt-1.5 text-[9px] text-slate-500 overflow-hidden">
+                      {path.nodes.slice(0, 4).map((node, i) => (
+                        <React.Fragment key={node.id}>
+                          {i > 0 && <ArrowRight className="w-2 h-2 flex-shrink-0" />}
+                          <span className={`truncate ${node.cve_count > 0 ? 'text-red-400 font-medium' : ''}`}>
+                            {node.name.slice(0, 12)}
+                          </span>
+                        </React.Fragment>
+                      ))}
+                      {path.nodes.length > 4 && <span>...</span>}
+                    </div>
+                    {/* View Details Button */}
+                    {selectedAttackPath === path.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowPathDetails(path.id);
+                        }}
+                        className="mt-2 w-full py-1.5 px-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-red-400 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        View Crown Jewel Analysis
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {attackPaths.length > 8 && (
+                <div className="text-center text-[10px] text-slate-500 mt-2">
+                  +{attackPaths.length - 8} more paths
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Service Details Popup */}
@@ -2788,6 +3132,15 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           serviceType={selectedService.type}
           architecture={architecture}
           onClose={() => setSelectedService(null)}
+        />
+      )}
+
+      {/* Attack Path Detail Panel */}
+      {showPathDetails && (
+        <AttackPathDetailPanel
+          systemName={systemName}
+          pathId={showPathDetails}
+          onClose={() => setShowPathDetails(null)}
         />
       )}
     </div>

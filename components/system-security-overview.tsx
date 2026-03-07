@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Shield, Lock, Globe, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, RefreshCw, X, ChevronRight, Key, FileWarning, Zap, Map } from "lucide-react"
+import { Shield, Lock, Globe, CheckCircle, XCircle, ArrowRight, Loader2, AlertTriangle, RefreshCw, X, ChevronRight, Key, FileWarning, Zap, Map as MapIcon } from "lucide-react"
 
 interface Resource {
   id: string
@@ -2082,7 +2082,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                     className="opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
                     title="View on Map"
                   >
-                    <Map className="w-3 h-3" />
+                    <MapIcon className="w-3 h-3" />
                     Map
                   </button>
                 )}

@@ -111,6 +111,44 @@ interface SelectedItem extends Partial<GraphNode>, Partial<GraphEdge> {
   itemType: 'node' | 'edge';
 }
 
+// Attack Path types
+interface AttackPathNode {
+  id: string;
+  name: string;
+  type: string;
+  is_internet_exposed: boolean;
+  cve_count: number;
+  critical_cves: number;
+  high_cves: number;
+}
+
+interface AttackPath {
+  id: string;
+  nodes: AttackPathNode[];
+  edges: { source: string; target: string; relationship_type: string }[];
+  risk_score: number;
+  path_length: number;
+  source_type: string;
+  target_type: string;
+  target_name: string;
+  total_cves: number;
+  critical_cves: number;
+  evidence_type: string;
+}
+
+interface BlastRadiusData {
+  resource_id: string;
+  resource_name: string;
+  risk_level: string;
+  total_affected: number;
+  affected_resources: { name: string; type: string; id: string }[];
+  vulnerability_summary?: {
+    total_cves: number;
+    critical_cves: number;
+    high_cves: number;
+  };
+}
+
 // ============================================
 // ANIMATED EDGE COMPONENT
 // ============================================
@@ -188,6 +226,11 @@ export default function Neo4jAWSMap() {
   const [speed, setSpeed] = useState(1);
   const [stats, setStats] = useState({ nodes: 0, rels: 0 });
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAttackPaths, setShowAttackPaths] = useState(false);
+  const [attackPaths, setAttackPaths] = useState<AttackPath[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [blastRadius, setBlastRadius] = useState<BlastRadiusData | null>(null);
+  const [loadingPaths, setLoadingPaths] = useState(false);
   const animRef = useRef<number>();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -306,6 +349,65 @@ export default function Neo4jAWSMap() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Load attack paths when toggle is enabled
+  const loadAttackPaths = useCallback(async () => {
+    if (!showAttackPaths) {
+      setAttackPaths([]);
+      return;
+    }
+
+    setLoadingPaths(true);
+    try {
+      // Use system name from query param or default
+      const systemName = new URLSearchParams(window.location.search).get('system') || 'alon-prod';
+      const res = await fetch(`/api/proxy/attack-paths/${systemName}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAttackPaths(data.paths || []);
+      }
+    } catch (err) {
+      console.error('Failed to load attack paths:', err);
+    } finally {
+      setLoadingPaths(false);
+    }
+  }, [showAttackPaths]);
+
+  useEffect(() => { loadAttackPaths(); }, [loadAttackPaths]);
+
+  // Load blast radius when a node is selected
+  const loadBlastRadius = useCallback(async (resourceId: string) => {
+    try {
+      const res = await fetch(`/api/proxy/blast-radius/${resourceId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBlastRadius(data);
+      }
+    } catch (err) {
+      console.error('Failed to load blast radius:', err);
+      setBlastRadius(null);
+    }
+  }, []);
+
+  // Get nodes that are part of attack paths
+  const attackPathNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    attackPaths.forEach(path => {
+      path.nodes.forEach(n => ids.add(n.id));
+    });
+    return ids;
+  }, [attackPaths]);
+
+  // Get vulnerability data for a node from attack paths
+  const getNodeVulnerability = useCallback((nodeId: string) => {
+    for (const path of attackPaths) {
+      const node = path.nodes.find(n => n.id === nodeId);
+      if (node && (node.cve_count > 0 || node.critical_cves > 0)) {
+        return node;
+      }
+    }
+    return null;
+  }, [attackPaths]);
+
   // Filter nodes by search
   const filteredNodes = useMemo(() => {
     if (!searchTerm) return nodes;
@@ -410,6 +512,28 @@ export default function Neo4jAWSMap() {
               </button>
             ))}
           </div>
+
+          {/* Attack Paths Toggle */}
+          <button
+            onClick={() => setShowAttackPaths(!showAttackPaths)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all ${
+              showAttackPaths
+                ? 'bg-red-500 text-white shadow animate-pulse'
+                : 'bg-slate-700/50 text-slate-400 hover:text-red-400'
+            }`}
+          >
+            {loadingPaths ? (
+              <span className="animate-spin">⏳</span>
+            ) : (
+              <span>⚠️</span>
+            )}
+            Attack Paths
+            {attackPaths.length > 0 && (
+              <span className="ml-1 px-1 py-0.5 bg-red-700 rounded text-[9px]">
+                {attackPaths.length}
+              </span>
+            )}
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -475,30 +599,108 @@ export default function Neo4jAWSMap() {
               );
             })}
 
+            {/* Attack Path Edges (rendered behind regular edges) */}
+            {showAttackPaths && attackPaths.map((path, pathIdx) => {
+              // Render edges for this attack path
+              return path.edges.map((edge, edgeIdx) => {
+                const srcNode = filteredNodes.find(n => n.id === edge.source);
+                const tgtNode = filteredNodes.find(n => n.id === edge.target);
+                if (!srcNode || !tgtNode) return null;
+
+                const dx = tgtNode.x - srcNode.x;
+                const dy = tgtNode.y - srcNode.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 1) return null;
+
+                const off = 36;
+                const x1 = srcNode.x + (dx / dist) * off;
+                const y1 = srcNode.y + (dy / dist) * off;
+                const x2 = tgtNode.x - (dx / dist) * off;
+                const y2 = tgtNode.y - (dy / dist) * off;
+
+                const isPathSelected = selectedPath === path.id;
+
+                return (
+                  <g key={`attack-${pathIdx}-${edgeIdx}`} onClick={() => setSelectedPath(isPathSelected ? null : path.id)} className="cursor-pointer">
+                    {/* Glow effect */}
+                    <line
+                      x1={x1} y1={y1} x2={x2} y2={y2}
+                      stroke="#EF4444"
+                      strokeWidth={isPathSelected ? 8 : 6}
+                      strokeOpacity={0.2}
+                    />
+                    {/* Main line */}
+                    <line
+                      x1={x1} y1={y1} x2={x2} y2={y2}
+                      stroke="#EF4444"
+                      strokeWidth={isPathSelected ? 3 : 2}
+                      strokeDasharray="8,4"
+                      strokeOpacity={isPathSelected ? 1 : 0.7}
+                    />
+                    {/* Animated particles */}
+                    {[0, 0.33, 0.66].map((offset, i) => {
+                      const t = ((animTime * 0.003) + offset) % 1;
+                      return (
+                        <circle
+                          key={i}
+                          cx={x1 + (x2 - x1) * t}
+                          cy={y1 + (y2 - y1) * t}
+                          r={isPathSelected ? 5 : 4}
+                          fill="#EF4444"
+                          opacity={0.4 + t * 0.6}
+                        />
+                      );
+                    })}
+                    {/* Arrow */}
+                    <polygon
+                      points="0,-4 8,0 0,4"
+                      fill="#EF4444"
+                      transform={`translate(${x2},${y2}) rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI})`}
+                    />
+                  </g>
+                );
+              });
+            })}
+
             {/* Nodes */}
             {filteredNodes.map(n => {
               const isSelected = selected?.id === n.id && selected?.itemType === 'node';
               const connCount = edges.filter(e => e.source === n.id || e.target === n.id).length;
               const hasFlow = edges.some(e => (e.source === n.id || e.target === n.id) && getConnectionStyle(e.type).animated);
               const color = getCategoryColor(n.label);
+              const vuln = showAttackPaths ? getNodeVulnerability(n.id) : null;
+              const isVulnerable = vuln && (vuln.cve_count > 0 || vuln.critical_cves > 0);
+              const isCritical = vuln && vuln.critical_cves > 0;
 
               return (
-                <g 
-                  key={n.id} 
+                <g
+                  key={n.id}
                   className="interactive cursor-pointer"
-                  transform={`translate(${n.x},${n.y})`} 
-                  onClick={() => setSelected({ ...n, itemType: 'node' })}
+                  transform={`translate(${n.x},${n.y})`}
+                  onClick={() => {
+                    setSelected({ ...n, itemType: 'node' });
+                    if (showAttackPaths) {
+                      loadBlastRadius(n.id);
+                    }
+                  }}
                 >
-                  {hasFlow && playing && (
+                  {/* Vulnerability pulsing ring */}
+                  {isVulnerable && showAttackPaths && (
+                    <circle r="42" fill="none" stroke={isCritical ? '#EF4444' : '#F97316'} strokeWidth="3" strokeOpacity="0.8">
+                      <animate attributeName="r" from="38" to="48" dur="1s" repeatCount="indefinite" />
+                      <animate attributeName="stroke-opacity" from="0.8" to="0.2" dur="1s" repeatCount="indefinite" />
+                    </circle>
+                  )}
+                  {hasFlow && playing && !isVulnerable && (
                     <circle r="38" fill="none" stroke={color} strokeWidth="1.5" strokeOpacity="0.25" strokeDasharray="8 4">
                       <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="10s" repeatCount="indefinite" />
                     </circle>
                   )}
-                  <rect 
-                    x="-32" y="-32" width="64" height="64" rx="10" 
-                    fill="#1e293b" 
-                    stroke={isSelected ? '#3b82f6' : color} 
-                    strokeWidth={isSelected ? 2.5 : 1.5}
+                  <rect
+                    x="-32" y="-32" width="64" height="64" rx="10"
+                    fill="#1e293b"
+                    stroke={isVulnerable ? (isCritical ? '#EF4444' : '#F97316') : (isSelected ? '#3b82f6' : color)}
+                    strokeWidth={isVulnerable ? 3 : (isSelected ? 2.5 : 1.5)}
                     filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
                   />
                   <foreignObject x="-14" y="-18" width="28" height="28">
@@ -507,7 +709,16 @@ export default function Neo4jAWSMap() {
                   <text y="26" textAnchor="middle" fontSize="8" fill="#94a3b8" fontWeight="500">
                     {n.name.length > 10 ? n.name.slice(0, 10) + '…' : n.name}
                   </text>
-                  {connCount > 0 && (
+                  {/* CVE badge for vulnerable nodes */}
+                  {isVulnerable && showAttackPaths && (
+                    <g transform="translate(-24,-24)">
+                      <circle r="10" fill={isCritical ? '#EF4444' : '#F97316'} />
+                      <text textAnchor="middle" dominantBaseline="middle" fontSize="7" fill="white" fontWeight="bold">
+                        {vuln.cve_count > 99 ? '99+' : vuln.cve_count}
+                      </text>
+                    </g>
+                  )}
+                  {connCount > 0 && !isVulnerable && (
                     <g transform="translate(24,-24)">
                       <circle r="9" fill={color} />
                       <text textAnchor="middle" dominantBaseline="middle" fontSize="7" fill="white" fontWeight="bold">
@@ -580,7 +791,7 @@ export default function Neo4jAWSMap() {
               {selected.itemType === 'edge' && (
                 <>
                   <div className="text-white text-[10px] mb-2">
-                    {nodes.find(n => n.id === selected.source)?.name} 
+                    {nodes.find(n => n.id === selected.source)?.name}
                     <span style={{ color: getConnectionStyle(selected.type || '').color }}> → </span>
                     {nodes.find(n => n.id === selected.target)?.name}
                   </div>
@@ -602,6 +813,124 @@ export default function Neo4jAWSMap() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Blast Radius Panel - shows when attack paths enabled and node selected */}
+        {showAttackPaths && blastRadius && selected?.itemType === 'node' && (
+          <div className="absolute top-60 right-2 w-56 bg-slate-800/95 rounded-lg border border-red-500/50 overflow-hidden shadow-xl">
+            <div className="px-2.5 py-1.5 border-b border-red-500/30 flex justify-between items-center bg-red-500/10">
+              <span className="text-red-400 text-xs font-medium flex items-center gap-1">
+                <span>💥</span> Blast Radius
+              </span>
+              <button onClick={() => setBlastRadius(null)} className="text-slate-400 hover:text-white text-sm">×</button>
+            </div>
+            <div className="p-2.5 max-h-60 overflow-auto">
+              {/* Risk Level Badge */}
+              <div className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mb-2 ${
+                blastRadius.risk_level === 'critical' ? 'bg-red-500/30 text-red-400' :
+                blastRadius.risk_level === 'high' ? 'bg-orange-500/30 text-orange-400' :
+                blastRadius.risk_level === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
+                'bg-green-500/30 text-green-400'
+              }`}>
+                {blastRadius.risk_level?.toUpperCase()} RISK
+              </div>
+
+              {/* Vulnerability Summary */}
+              {blastRadius.vulnerability_summary && (
+                <div className="mb-2">
+                  <div className="text-[9px] text-slate-500 uppercase mb-1">Vulnerabilities</div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <div className="bg-red-500/20 rounded p-1 text-center">
+                      <div className="text-red-400 text-sm font-bold">{blastRadius.vulnerability_summary.critical_cves || 0}</div>
+                      <div className="text-[8px] text-slate-400">Critical</div>
+                    </div>
+                    <div className="bg-orange-500/20 rounded p-1 text-center">
+                      <div className="text-orange-400 text-sm font-bold">{blastRadius.vulnerability_summary.high_cves || 0}</div>
+                      <div className="text-[8px] text-slate-400">High</div>
+                    </div>
+                    <div className="bg-slate-500/20 rounded p-1 text-center">
+                      <div className="text-slate-300 text-sm font-bold">{blastRadius.vulnerability_summary.total_cves || 0}</div>
+                      <div className="text-[8px] text-slate-400">Total</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Affected Resources */}
+              <div className="text-[9px] text-slate-500 uppercase mb-1">
+                Affected Resources ({blastRadius.total_affected || 0})
+              </div>
+              <div className="bg-slate-900/50 rounded p-1.5 max-h-28 overflow-auto">
+                {blastRadius.affected_resources && blastRadius.affected_resources.length > 0 ? (
+                  blastRadius.affected_resources.slice(0, 10).map((r, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-[9px] py-0.5">
+                      <AWSIcon type={r.type} size={14} />
+                      <span className="text-slate-300 truncate">{r.name}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-slate-500 text-[9px] italic">No affected resources</div>
+                )}
+                {blastRadius.affected_resources && blastRadius.affected_resources.length > 10 && (
+                  <div className="text-[9px] text-slate-500 mt-1">
+                    +{blastRadius.affected_resources.length - 10} more...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Attack Path Summary Panel */}
+        {showAttackPaths && attackPaths.length > 0 && !selected && (
+          <div className="absolute top-2 right-2 w-56 bg-slate-800/95 rounded-lg border border-red-500/50 overflow-hidden shadow-xl">
+            <div className="px-2.5 py-1.5 border-b border-red-500/30 flex justify-between items-center bg-red-500/10">
+              <span className="text-red-400 text-xs font-medium flex items-center gap-1">
+                <span>⚠️</span> Attack Paths Summary
+              </span>
+            </div>
+            <div className="p-2.5 max-h-60 overflow-auto">
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="bg-red-500/20 rounded p-1.5 text-center">
+                  <div className="text-red-400 text-lg font-bold">{attackPaths.length}</div>
+                  <div className="text-[8px] text-slate-400">Total Paths</div>
+                </div>
+                <div className="bg-orange-500/20 rounded p-1.5 text-center">
+                  <div className="text-orange-400 text-lg font-bold">
+                    {attackPaths.filter(p => p.risk_score >= 15).length}
+                  </div>
+                  <div className="text-[8px] text-slate-400">Critical</div>
+                </div>
+              </div>
+
+              <div className="text-[9px] text-slate-500 uppercase mb-1">Top Paths</div>
+              <div className="space-y-1.5">
+                {attackPaths.slice(0, 5).map((path, i) => (
+                  <div
+                    key={path.id}
+                    className={`bg-slate-900/50 rounded p-1.5 cursor-pointer hover:bg-slate-700/50 transition-colors ${selectedPath === path.id ? 'ring-1 ring-red-500' : ''}`}
+                    onClick={() => setSelectedPath(selectedPath === path.id ? null : path.id)}
+                  >
+                    <div className="flex justify-between items-center text-[9px]">
+                      <span className="text-slate-300">{path.source_type} → {path.target_name}</span>
+                      <span className={`font-bold ${path.risk_score >= 15 ? 'text-red-400' : path.risk_score >= 10 ? 'text-orange-400' : 'text-yellow-400'}`}>
+                        {path.risk_score}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 mt-0.5">
+                      <span className="text-[8px] text-slate-500">{path.path_length} hops</span>
+                      {path.total_cves > 0 && (
+                        <span className="text-[8px] text-red-400">{path.total_cves} CVEs</span>
+                      )}
+                      <span className={`text-[8px] ${path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}`}>
+                        {path.evidence_type}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
