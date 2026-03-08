@@ -149,6 +149,8 @@ export function AttackSimulationPanel({
     newRiskScore?: number
     riskReduction?: number
   } | null>(null)
+  const [appliedRemediations, setAppliedRemediations] = useState<string[]>([])
+  const [rollingBack, setRollingBack] = useState<string | null>(null)
 
   useEffect(() => {
     if (isOpen && systemName && pathId) {
@@ -213,8 +215,11 @@ export function AttackSimulationPanel({
         riskReduction: data.risk_reduction
       })
 
-      // Clear selections on success
-      if (data.status === "SUCCESS") {
+      // Clear selections and track applied remediations on success
+      if (data.status === "SUCCESS" || data.status === "PARTIAL") {
+        setAppliedRemediations(prev => [...prev, ...selectedRemediations.filter(id =>
+          data.results.some((r: { remediation_id: string, status: string }) => r.remediation_id === id && r.status === "SUCCESS")
+        )])
         setSelectedRemediations([])
         // Refresh simulation data to show updated state
         setTimeout(() => fetchSimulation(), 1500)
@@ -226,6 +231,42 @@ export function AttackSimulationPanel({
       })
     } finally {
       setApplying(false)
+    }
+  }
+
+  const rollbackRemediation = async (remediationId: string) => {
+    setRollingBack(remediationId)
+
+    try {
+      const response = await fetch(
+        `/api/proxy/attack-simulation/${encodeURIComponent(systemName)}/${encodeURIComponent(pathId)}/rollback?remediation_id=${encodeURIComponent(remediationId)}`,
+        { method: "POST" }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Rollback failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      // Remove from applied remediations
+      setAppliedRemediations(prev => prev.filter(id => id !== remediationId))
+
+      setApplyResult({
+        status: "SUCCESS",
+        message: `Rollback successful: ${data.message}`
+      })
+
+      // Refresh simulation
+      setTimeout(() => fetchSimulation(), 1500)
+    } catch (err) {
+      setApplyResult({
+        status: "FAILED",
+        message: err instanceof Error ? err.message : "Rollback failed"
+      })
+    } finally {
+      setRollingBack(null)
     }
   }
 
@@ -605,34 +646,72 @@ export function AttackSimulationPanel({
 
                 {expandedSections.remediation && (
                   <div className="px-4 pb-4 space-y-3">
-                    {simulationData.remediation_options.map((option, idx) => (
+                    {simulationData.remediation_options.map((option, idx) => {
+                      const isApplied = appliedRemediations.includes(option.id)
+                      const isRollingBackThis = rollingBack === option.id
+
+                      return (
                       <div
                         key={idx}
                         className={cn(
                           "bg-[#1a1a2e] rounded-lg p-3 border transition-all",
-                          selectedRemediations.includes(option.id)
+                          isApplied
+                            ? "border-blue-500 ring-1 ring-blue-500/50 bg-blue-500/5"
+                            : selectedRemediations.includes(option.id)
                             ? "border-green-500 ring-1 ring-green-500/50"
                             : "border-gray-600"
                         )}
                       >
                         <div className="flex items-start gap-3">
-                          <button
-                            className={cn(
-                              "mt-1 h-5 w-5 rounded border flex items-center justify-center",
-                              selectedRemediations.includes(option.id)
-                                ? "bg-green-500 border-green-500"
-                                : "border-gray-500"
-                            )}
-                            onClick={() => toggleRemediation(option.id)}
-                          >
-                            {selectedRemediations.includes(option.id) && (
+                          {isApplied ? (
+                            <div className="mt-1 h-5 w-5 rounded bg-blue-500 flex items-center justify-center">
                               <Check className="h-3 w-3 text-white" />
-                            )}
-                          </button>
+                            </div>
+                          ) : (
+                            <button
+                              className={cn(
+                                "mt-1 h-5 w-5 rounded border flex items-center justify-center",
+                                selectedRemediations.includes(option.id)
+                                  ? "bg-green-500 border-green-500"
+                                  : "border-gray-500"
+                              )}
+                              onClick={() => toggleRemediation(option.id)}
+                              disabled={applying}
+                            >
+                              {selectedRemediations.includes(option.id) && (
+                                <Check className="h-3 w-3 text-white" />
+                              )}
+                            </button>
+                          )}
                           <div className="flex-1">
                             <div className="flex items-center justify-between mb-1">
-                              <span className="font-medium text-white">{option.title}</span>
-                              {getEffortBadge(option.effort)}
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-white">{option.title}</span>
+                                {isApplied && (
+                                  <Badge className="bg-blue-500/20 text-blue-400">Applied</Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {isApplied && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-xs border-orange-500/50 text-orange-400 hover:bg-orange-500/10"
+                                    onClick={() => rollbackRemediation(option.id)}
+                                    disabled={isRollingBackThis}
+                                  >
+                                    {isRollingBackThis ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-400 mr-1"></div>
+                                        Rolling back...
+                                      </>
+                                    ) : (
+                                      "Rollback"
+                                    )}
+                                  </Button>
+                                )}
+                                {getEffortBadge(option.effort)}
+                              </div>
                             </div>
                             <p className="text-sm text-gray-400 mb-2">{option.description}</p>
 
@@ -692,7 +771,7 @@ export function AttackSimulationPanel({
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )})}
 
                     {/* Apply Result Message */}
                     {applyResult && (
