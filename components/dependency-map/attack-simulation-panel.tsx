@@ -5,6 +5,14 @@ import { X, Shield, Database, AlertTriangle, ChevronDown, ChevronRight, Lock, Un
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface PortStatus {
   is_open: boolean
@@ -151,6 +159,7 @@ export function AttackSimulationPanel({
   } | null>(null)
   const [appliedRemediations, setAppliedRemediations] = useState<string[]>([])
   const [rollingBack, setRollingBack] = useState<string | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
 
   useEffect(() => {
     if (isOpen && systemName && pathId) {
@@ -823,7 +832,7 @@ export function AttackSimulationPanel({
                         </Button>
                         <Button
                           className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50"
-                          onClick={applyRemediations}
+                          onClick={() => setShowConfirmDialog(true)}
                           disabled={applying}
                         >
                           {applying ? (
@@ -844,6 +853,66 @@ export function AttackSimulationPanel({
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent className="bg-[#1a1a2e] border-gray-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-white">
+              <AlertTriangle className="h-5 w-5 text-yellow-400" />
+              Confirm Remediation
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              You are about to apply {selectedRemediations.length} remediation{selectedRemediations.length > 1 ? 's' : ''} to this attack path.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-4">
+            <p className="text-sm text-gray-300">The following actions will be applied:</p>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {simulationData?.remediation_options
+                .filter(opt => selectedRemediations.includes(opt.id))
+                .map((opt, idx) => (
+                  <div key={idx} className="flex items-start gap-2 p-2 bg-[#252540] rounded border border-gray-600">
+                    <Check className="h-4 w-4 text-green-400 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-white">{opt.title}</p>
+                      <p className="text-xs text-gray-400">{opt.description}</p>
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mt-4">
+              <p className="text-sm text-yellow-400 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  These changes will be applied to your infrastructure. You can rollback after applying if needed.
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirmDialog(false)}
+              className="border-gray-600 text-gray-300 hover:bg-gray-700"
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => {
+                setShowConfirmDialog(false)
+                applyRemediations()
+              }}
+            >
+              Confirm & Apply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
