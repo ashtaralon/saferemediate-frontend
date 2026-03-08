@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useToast } from "@/hooks/use-toast"
 
 interface PortStatus {
   is_open: boolean
@@ -160,6 +161,7 @@ export function AttackSimulationPanel({
   const [appliedRemediations, setAppliedRemediations] = useState<string[]>([])
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const { toast } = useToast()
 
   useEffect(() => {
     if (isOpen && systemName && pathId) {
@@ -230,13 +232,29 @@ export function AttackSimulationPanel({
           data.results.some((r: { remediation_id: string, status: string }) => r.remediation_id === id && r.status === "SUCCESS")
         )])
         setSelectedRemediations([])
+
+        // Show success toast
+        toast({
+          title: "✓ Remediation Applied Successfully",
+          description: `Risk reduced by ${data.risk_reduction}% (${data.new_risk_score} new score)`,
+          variant: "default",
+        })
+
         // Refresh simulation data to show updated state
         setTimeout(() => fetchSimulation(), 1500)
       }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to apply remediations"
       setApplyResult({
         status: "FAILED",
-        message: err instanceof Error ? err.message : "Failed to apply remediations"
+        message: errorMessage
+      })
+
+      // Show error toast
+      toast({
+        title: "✗ Remediation Failed",
+        description: errorMessage,
+        variant: "destructive",
       })
     } finally {
       setApplying(false)
@@ -267,12 +285,27 @@ export function AttackSimulationPanel({
         message: `Rollback successful: ${data.message}`
       })
 
+      // Show success toast
+      toast({
+        title: "↩ Rollback Successful",
+        description: data.message,
+        variant: "default",
+      })
+
       // Refresh simulation
       setTimeout(() => fetchSimulation(), 1500)
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Rollback failed"
       setApplyResult({
         status: "FAILED",
-        message: err instanceof Error ? err.message : "Rollback failed"
+        message: errorMessage
+      })
+
+      // Show error toast
+      toast({
+        title: "✗ Rollback Failed",
+        description: errorMessage,
+        variant: "destructive",
       })
     } finally {
       setRollingBack(null)
