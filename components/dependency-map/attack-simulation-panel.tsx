@@ -142,6 +142,13 @@ export function AttackSimulationPanel({
   })
   const [selectedRemediations, setSelectedRemediations] = useState<string[]>([])
   const [expandedImpact, setExpandedImpact] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState<{
+    status: string
+    message: string
+    newRiskScore?: number
+    riskReduction?: number
+  } | null>(null)
 
   useEffect(() => {
     if (isOpen && systemName && pathId) {
@@ -174,6 +181,52 @@ export function AttackSimulationPanel({
     setSelectedRemediations(prev =>
       prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
     )
+  }
+
+  const applyRemediations = async () => {
+    if (selectedRemediations.length === 0) return
+
+    setApplying(true)
+    setApplyResult(null)
+
+    try {
+      const response = await fetch(
+        `/api/proxy/attack-simulation/${encodeURIComponent(systemName)}/${encodeURIComponent(pathId)}/apply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remediation_ids: selectedRemediations })
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      setApplyResult({
+        status: data.status,
+        message: `${data.successful} of ${data.total_requested} remediations applied successfully`,
+        newRiskScore: data.new_risk_score,
+        riskReduction: data.risk_reduction
+      })
+
+      // Clear selections on success
+      if (data.status === "SUCCESS") {
+        setSelectedRemediations([])
+        // Refresh simulation data to show updated state
+        setTimeout(() => fetchSimulation(), 1500)
+      }
+    } catch (err) {
+      setApplyResult({
+        status: "FAILED",
+        message: err instanceof Error ? err.message : "Failed to apply remediations"
+      })
+    } finally {
+      setApplying(false)
+    }
   }
 
   const getSeverityColor = (severity: string) => {
@@ -641,20 +694,67 @@ export function AttackSimulationPanel({
                       </div>
                     ))}
 
+                    {/* Apply Result Message */}
+                    {applyResult && (
+                      <div className={cn(
+                        "p-3 rounded-lg border mb-3",
+                        applyResult.status === "SUCCESS"
+                          ? "bg-green-500/10 border-green-500/30"
+                          : applyResult.status === "PARTIAL"
+                          ? "bg-yellow-500/10 border-yellow-500/30"
+                          : "bg-red-500/10 border-red-500/30"
+                      )}>
+                        <div className="flex items-center gap-2 mb-1">
+                          {applyResult.status === "SUCCESS" ? (
+                            <Check className="h-4 w-4 text-green-400" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-yellow-400" />
+                          )}
+                          <span className={cn(
+                            "font-medium",
+                            applyResult.status === "SUCCESS" ? "text-green-400" : "text-yellow-400"
+                          )}>
+                            {applyResult.status === "SUCCESS" ? "Remediation Applied!" : applyResult.status}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-300">{applyResult.message}</p>
+                        {applyResult.newRiskScore !== undefined && (
+                          <div className="flex items-center gap-3 mt-2 text-sm">
+                            <span className="text-gray-400">New Risk Score:</span>
+                            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded font-medium">
+                              {applyResult.newRiskScore}
+                            </span>
+                            <span className="text-green-400">
+                              (-{applyResult.riskReduction}% reduction)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {selectedRemediations.length > 0 && (
                       <div className="flex gap-2 pt-2">
                         <Button
                           variant="outline"
                           className="flex-1"
-                          onClick={() => {/* Simulate selected */}}
+                          onClick={() => setSelectedRemediations([])}
+                          disabled={applying}
                         >
-                          Simulate Selected ({selectedRemediations.length})
+                          Clear Selection ({selectedRemediations.length})
                         </Button>
                         <Button
-                          className="flex-1 bg-green-600 hover:bg-green-700"
-                          onClick={() => {/* Apply selected */}}
+                          className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                          onClick={applyRemediations}
+                          disabled={applying}
                         >
-                          Apply Remediation
+                          {applying ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                              Applying...
+                            </>
+                          ) : (
+                            <>Apply Remediation ({selectedRemediations.length})</>
+                          )}
                         </Button>
                       </div>
                     )}
