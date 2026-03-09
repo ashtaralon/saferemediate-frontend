@@ -46,14 +46,12 @@ export async function GET(req: NextRequest) {
 
     let allSnapshots: any[] = []
 
-    // Process SG snapshots (filter out SNAP-* as they come from unified endpoint with more data)
+    // Process IAM/SG snapshots from old endpoint (now includes rollback_available)
     if (sgResponse?.ok) {
       const sgData = await sgResponse.json()
       const sgSnapshots = Array.isArray(sgData) ? sgData : (sgData.snapshots || [])
-      // Filter out SNAP-* entries - they'll come from unified endpoint with rollback_available
-      const filteredSgSnapshots = sgSnapshots.filter((s: any) => !s.snapshot_id?.startsWith('SNAP-'))
-      allSnapshots.push(...filteredSgSnapshots)
-      console.log("[proxy] SG snapshots:", filteredSgSnapshots.length, "(filtered from", sgSnapshots.length, ")")
+      allSnapshots.push(...sgSnapshots)
+      console.log("[proxy] IAM/SG snapshots:", sgSnapshots.length)
     }
 
     // Process S3 checkpoints and transform to snapshot format
