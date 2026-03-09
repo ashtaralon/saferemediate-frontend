@@ -158,20 +158,6 @@ const SnapshotsRecoveryTab = dynamic(() => import("./snapshots-recovery-tab"), {
   ),
 })
 
-// New redesigned Security Posture component (Allowed vs Observed diff view)
-const SecurityPosture = dynamic(
-  () => import("./security-posture").then((mod) => ({ default: mod.SecurityPosture })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-        <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
-        <span className="ml-3 text-slate-600">Loading security posture...</span>
-      </div>
-    ),
-  }
-)
-
 // Legacy component (kept for reference, can be removed later)
 const SystemSecurityOverviewLegacy = dynamic(
   () => import("./system-security-overview").then((mod) => ({ default: mod.SystemSecurityOverview })),
@@ -975,7 +961,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "all-services", label: "All Services", icon: Server },
     { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
-    { id: "security-posture", label: "Security Posture", icon: Shield },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
   ]
 
@@ -1809,20 +1794,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <SnapshotsRecoveryTab systemName={systemName} />
-        </div>
-      )}
-
-      {activeTab === "security-posture" && (
-        <div className="max-w-[1800px] mx-auto h-[calc(100vh-200px)]">
-          <SecurityPosture
-            systemName={systemName}
-            onViewOnMap={(highlightPath) => {
-              setActiveTab('dependency-map')
-              // Store highlightPath in state to pass to dependency-map-tab
-              setHighlightPath(highlightPath)
-              setGraphEngine('architectural')
-            }}
-          />
         </div>
       )}
 
