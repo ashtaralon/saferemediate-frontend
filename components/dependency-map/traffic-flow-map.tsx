@@ -629,6 +629,35 @@ interface BlastRadiusData {
 // ============================================
 // SERVICE DETAILS POPUP
 // ============================================
+// Risk Assessment data type
+interface RiskAssessment {
+  resource_id: string;
+  resource_name: string;
+  resource_type: string;
+  is_internet_exposed: boolean;
+  cve_summary: {
+    total: number;
+    critical: number;
+    high: number;
+    details?: Array<{ id: string; severity: string; cvss: number; description: string }>;
+  };
+  exploitable_ports: Array<{
+    port: number;
+    service: string;
+    risk: string;
+    attack_vectors: string[];
+    is_open_to_internet: boolean;
+  }>;
+  data_access_scope: {
+    data_stores: Array<{ id: string; name: string; type: string }>;
+    sensitive_permissions: Array<{ permission: string; role: string; impact: string; severity: string }>;
+    iam_roles: string[];
+  };
+  attack_impacts: Array<{ type: string; description: string; severity: string }>;
+  risk_score: number;
+  risk_level: string;
+}
+
 function ServiceDetailsPopup({
   service,
   serviceType,
@@ -641,6 +670,7 @@ function ServiceDetailsPopup({
   onClose: () => void;
 }) {
   const [blastRadius, setBlastRadius] = useState<BlastRadiusData | null>(null);
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -956,6 +986,22 @@ function ServiceDetailsPopup({
     };
 
     fetchBlastRadius();
+
+    // Also fetch risk assessment for attack impact data
+    const fetchRiskAssessment = async () => {
+      try {
+        const resourceType = serviceType === 'compute' ? 'EC2' :
+                            serviceType === 'resource' ? 'RDSInstance' : '';
+        const res = await fetch(`/api/proxy/resource-risk/${encodeURIComponent(service.id)}?resource_type=${resourceType}`);
+        if (res.ok) {
+          const data = await res.json();
+          setRiskAssessment(data);
+        }
+      } catch (err) {
+        console.error('[ServiceDetailsPopup] Risk assessment fetch error:', err);
+      }
+    };
+    fetchRiskAssessment();
   }, [service.id, service.name, serviceType, architecture]);
 
   // Get related flows
@@ -1071,6 +1117,145 @@ function ServiceDetailsPopup({
                      blastRadius.total_impact_score > 20 ? 'Medium risk - some services may be affected' :
                      'Low risk - minimal downstream impact'}
                   </p>
+                </div>
+              )}
+
+              {/* Attack Risk Assessment - What can attackers actually do? */}
+              {riskAssessment && (riskAssessment.attack_impacts?.length > 0 || riskAssessment.cve_summary?.total > 0 || riskAssessment.data_access_scope?.data_stores?.length > 0) && (
+                <div className="bg-red-500/5 rounded-xl border border-red-500/20 overflow-hidden">
+                  {/* Header with Risk Score */}
+                  <div className="px-4 py-3 bg-red-500/10 border-b border-red-500/20 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-red-400" />
+                      <h3 className="text-sm font-bold text-white">Attack Risk Assessment</h3>
+                    </div>
+                    <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      riskAssessment.risk_level === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border border-red-500/50' :
+                      riskAssessment.risk_level === 'HIGH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' :
+                      riskAssessment.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' :
+                      'bg-green-500/20 text-green-400 border border-green-500/50'
+                    }`}>
+                      {riskAssessment.risk_level} RISK ({riskAssessment.risk_score}/100)
+                    </div>
+                  </div>
+
+                  <div className="p-4 space-y-4">
+                    {/* CVE Exploitability */}
+                    {riskAssessment.cve_summary?.total > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Shield className="w-4 h-4 text-red-400" />
+                          <span className="text-xs font-semibold text-slate-300 uppercase">Vulnerabilities</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-slate-800/50 rounded-lg p-2 text-center border border-red-500/30">
+                            <div className="text-2xl font-bold text-red-400">{riskAssessment.cve_summary.critical}</div>
+                            <div className="text-[10px] text-slate-400">CRITICAL</div>
+                          </div>
+                          <div className="bg-slate-800/50 rounded-lg p-2 text-center border border-orange-500/30">
+                            <div className="text-2xl font-bold text-orange-400">{riskAssessment.cve_summary.high}</div>
+                            <div className="text-[10px] text-slate-400">HIGH</div>
+                          </div>
+                          <div className="bg-slate-800/50 rounded-lg p-2 text-center border border-slate-600">
+                            <div className="text-2xl font-bold text-slate-300">{riskAssessment.cve_summary.total}</div>
+                            <div className="text-[10px] text-slate-400">TOTAL</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Exploitable Ports */}
+                    {riskAssessment.exploitable_ports?.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Network className="w-4 h-4 text-orange-400" />
+                          <span className="text-xs font-semibold text-slate-300 uppercase">Network Exposure</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {riskAssessment.exploitable_ports.map((port, i) => (
+                            <div key={i} className={`px-2 py-1 rounded text-xs ${
+                              port.is_open_to_internet ? 'bg-red-500/20 text-red-300 border border-red-500/50' :
+                              port.risk === 'CRITICAL' ? 'bg-orange-500/20 text-orange-300 border border-orange-500/50' :
+                              'bg-slate-700 text-slate-300 border border-slate-600'
+                            }`}>
+                              <span className="font-mono font-bold">{port.port}</span>
+                              <span className="text-slate-400 mx-1">/</span>
+                              <span>{port.service}</span>
+                              {port.is_open_to_internet && <span className="ml-1 text-red-400">INTERNET</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Data Access - What can be stolen */}
+                    {riskAssessment.data_access_scope?.data_stores?.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Database className="w-4 h-4 text-purple-400" />
+                          <span className="text-xs font-semibold text-slate-300 uppercase">Data at Risk</span>
+                        </div>
+                        <div className="space-y-1">
+                          {riskAssessment.data_access_scope.data_stores.slice(0, 5).map((store, i) => (
+                            <div key={i} className="flex items-center gap-2 px-2 py-1.5 bg-slate-800/50 rounded border border-purple-500/20">
+                              <Database className="w-3 h-3 text-purple-400" />
+                              <span className="text-sm text-white">{store.name}</span>
+                              <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded">{store.type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dangerous Permissions */}
+                    {riskAssessment.data_access_scope?.sensitive_permissions?.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Key className="w-4 h-4 text-pink-400" />
+                          <span className="text-xs font-semibold text-slate-300 uppercase">Dangerous Permissions</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {riskAssessment.data_access_scope.sensitive_permissions.slice(0, 6).map((perm, i) => (
+                            <span key={i} className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                              perm.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-300' :
+                              perm.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-300' :
+                              'bg-slate-700 text-slate-300'
+                            }`}>
+                              {perm.permission}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Attack Impacts - What damage can be done */}
+                    {riskAssessment.attack_impacts?.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <Zap className="w-4 h-4 text-yellow-400" />
+                          <span className="text-xs font-semibold text-slate-300 uppercase">Potential Attack Impacts</span>
+                        </div>
+                        <div className="space-y-1">
+                          {riskAssessment.attack_impacts.slice(0, 4).map((impact, i) => (
+                            <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded border ${
+                              impact.severity === 'CRITICAL' ? 'bg-red-500/10 border-red-500/30' :
+                              impact.severity === 'HIGH' ? 'bg-orange-500/10 border-orange-500/30' :
+                              'bg-slate-800/50 border-slate-700'
+                            }`}>
+                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                                impact.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
+                                impact.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
+                                'bg-slate-700 text-slate-400'
+                              }`}>
+                                {impact.type.replace(/_/g, ' ')}
+                              </span>
+                              <span className="text-xs text-slate-300">{impact.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

@@ -168,6 +168,47 @@ interface AttackPathDetailPanelProps {
   onClose: () => void
 }
 
+// Risk Assessment interface for node risk popup
+interface RiskAssessmentData {
+  resource_id: string
+  resource_name: string
+  resource_type: string
+  risk_score: number
+  risk_level: string
+  cve_summary: {
+    total: number
+    critical: number
+    high: number
+    medium: number
+    low: number
+  }
+  exploitable_ports: Array<{
+    port: number
+    service: string
+    cves: string[]
+    attack_vectors: string[]
+  }>
+  data_stores_at_risk: Array<{
+    name: string
+    type: string
+    sensitivity: string
+    data_types: string[]
+    access_path: string
+  }>
+  dangerous_permissions: Array<{
+    permission: string
+    risk: string
+    attached_to: string[]
+  }>
+  attack_impacts: string[]
+}
+
+interface SelectedNodeInfo {
+  id: string
+  name: string
+  type: string
+}
+
 // Get icon for node type
 function getNodeIcon(type: string) {
   switch (type) {
@@ -193,7 +234,15 @@ function getNodeIcon(type: string) {
 }
 
 // Attack Path Diagram Component
-function AttackPathDiagram({ details }: { details: PathDetails }) {
+function AttackPathDiagram({
+  details,
+  selectedNodeId,
+  onSelectNode
+}: {
+  details: PathDetails
+  selectedNodeId: string | null
+  onSelectNode: (node: { id: string; name: string; type: string }) => void
+}) {
   const nodes = details.path_nodes
   const networkPath = details.network_layer.network_path
   const securityGroups = details.network_layer.security_groups
@@ -366,62 +415,17 @@ function AttackPathDiagram({ details }: { details: PathDetails }) {
       </div>
 
       {/* Path Diagram */}
-      <div className="relative flex items-center justify-between gap-4 py-8">
-        {/* Connection lines */}
-        <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
-          <defs>
-            <linearGradient id="attackGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#3b82f6" />
-              <stop offset="33%" stopColor="#f97316" />
-              <stop offset="66%" stopColor="#eab308" />
-              <stop offset="100%" stopColor="#a855f7" />
-            </linearGradient>
-            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-              <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444" />
-            </marker>
-          </defs>
-          {enhancedPath.slice(0, -1).map((_, i) => {
-            const startX = (100 / enhancedPath.length) * (i + 0.5) + "%"
-            const endX = (100 / enhancedPath.length) * (i + 1.5) + "%"
-            return (
-              <g key={i}>
-                {/* Glow line */}
-                <line
-                  x1={startX}
-                  y1="50%"
-                  x2={endX}
-                  y2="50%"
-                  stroke="#ef4444"
-                  strokeWidth="8"
-                  opacity="0.3"
-                  strokeLinecap="round"
-                />
-                {/* Main line */}
-                <line
-                  x1={startX}
-                  y1="50%"
-                  x2={endX}
-                  y2="50%"
-                  stroke="#ef4444"
-                  strokeWidth="3"
-                  strokeDasharray="10,5"
-                  markerEnd="url(#arrowhead)"
-                >
-                  <animate
-                    attributeName="stroke-dashoffset"
-                    from="30"
-                    to="0"
-                    dur="1s"
-                    repeatCount="indefinite"
-                  />
-                </line>
-              </g>
-            )
-          })}
-        </svg>
-
-        {/* Nodes */}
-        {enhancedPath.map((node, i) => {
+      <div className="relative py-8">
+        {/* Grid container for nodes */}
+        <div
+          className="grid items-center"
+          style={{
+            gridTemplateColumns: `repeat(${enhancedPath.length}, 1fr)`,
+            gap: '16px'
+          }}
+        >
+          {/* Nodes */}
+          {enhancedPath.map((node, i) => {
           const colors = getCategoryColor(node.category)
           const Icon = getNodeIcon(node.type)
           const isVulnerable = node.cve_count > 0
@@ -434,9 +438,13 @@ function AttackPathDiagram({ details }: { details: PathDetails }) {
               className="relative flex-1 flex flex-col items-center"
               style={{ zIndex: 1, minWidth: 100 }}
             >
-              {/* Node */}
+              {/* Node - Clickable for risk details */}
               <div
-                className={`relative w-28 h-28 rounded-2xl ${colors.bg} border-2 ${colors.border} flex flex-col items-center justify-center p-2 shadow-lg ${colors.glow} transition-all hover:scale-105`}
+                className={`relative w-28 h-28 rounded-2xl ${colors.bg} border-2 ${colors.border} flex flex-col items-center justify-center p-2 shadow-lg ${colors.glow} transition-all hover:scale-105 cursor-pointer ${
+                  selectedNodeId === node.id ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-900' : ''
+                }`}
+                onClick={() => onSelectNode({ id: node.id, name: node.name, type: node.type })}
+                title="Click to view risk assessment"
               >
                 {/* CVE badge */}
                 {isVulnerable && (
@@ -515,6 +523,53 @@ function AttackPathDiagram({ details }: { details: PathDetails }) {
             </div>
           )
         })}
+        </div>
+
+        {/* Connection lines - CSS-based connectors between nodes */}
+        {enhancedPath.slice(0, -1).map((_, i) => {
+          const n = enhancedPath.length
+          // Position at the gap between columns i and i+1
+          // Each column is 1/n of the container, gap is 16px between them
+          // Connector starts at end of column i (at (i+1)/n position - half of gap)
+          const leftPercent = ((i + 1) / n) * 100
+          return (
+            <div
+              key={`connector-${i}`}
+              className="absolute flex items-center justify-center pointer-events-none"
+              style={{
+                left: `${leftPercent}%`,
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: '32px',
+                height: '20px',
+                zIndex: 0
+              }}
+            >
+              {/* Arrow line */}
+              <div className="relative w-full h-0.5 bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
+                {/* Animated dash overlay */}
+                <div
+                  className="absolute inset-0 bg-gradient-to-r from-transparent via-red-300 to-transparent"
+                  style={{
+                    animation: 'dashMove 1s linear infinite',
+                    backgroundSize: '20px 100%'
+                  }}
+                />
+                {/* Arrow head */}
+                <div
+                  className="absolute right-0 top-1/2 transform -translate-y-1/2"
+                  style={{
+                    width: 0,
+                    height: 0,
+                    borderTop: '5px solid transparent',
+                    borderBottom: '5px solid transparent',
+                    borderLeft: '8px solid #ef4444'
+                  }}
+                />
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Traffic indicator + Zero Trust banner */}
@@ -572,6 +627,40 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
   const [blockResult, setBlockResult] = useState<BlockResult | null>(null)
   const [showBlockSuccess, setShowBlockSuccess] = useState(false)
   const [showSimulation, setShowSimulation] = useState(false)
+  const [selectedNode, setSelectedNode] = useState<SelectedNodeInfo | null>(null)
+  const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentData | null>(null)
+  const [riskLoading, setRiskLoading] = useState(false)
+
+  // Fetch risk assessment when a node is selected
+  useEffect(() => {
+    if (!selectedNode) {
+      setRiskAssessment(null)
+      return
+    }
+
+    const fetchRiskAssessment = async () => {
+      setRiskLoading(true)
+      try {
+        const res = await fetch(
+          `/api/proxy/resource-risk/${encodeURIComponent(selectedNode.id)}?resource_type=${encodeURIComponent(selectedNode.type)}`
+        )
+        if (res.ok) {
+          const data = await res.json()
+          setRiskAssessment(data)
+        } else {
+          console.error('[AttackPathDetailPanel] Risk assessment fetch failed:', res.status)
+          setRiskAssessment(null)
+        }
+      } catch (err) {
+        console.error('[AttackPathDetailPanel] Risk assessment error:', err)
+        setRiskAssessment(null)
+      } finally {
+        setRiskLoading(false)
+      }
+    }
+
+    fetchRiskAssessment()
+  }, [selectedNode])
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -1427,7 +1516,206 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 pb-8 space-y-6">
         {/* Attack Path Diagram - Full Width */}
-        <AttackPathDiagram details={details} />
+        <AttackPathDiagram
+          details={details}
+          selectedNodeId={selectedNode?.id || null}
+          onSelectNode={setSelectedNode}
+        />
+
+        {/* Node Risk Assessment Popup - Shows when a node is clicked */}
+        {selectedNode && (
+          <div className="bg-slate-900/95 rounded-2xl border border-cyan-500/50 shadow-2xl shadow-cyan-500/20 overflow-hidden">
+            <div className="px-5 py-4 border-b border-cyan-500/30 bg-cyan-500/10 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <Target className="w-5 h-5 text-cyan-400" />
+                <div>
+                  <h3 className="text-white font-bold">Risk Assessment</h3>
+                  <p className="text-xs text-slate-400">{selectedNode.name} ({selectedNode.type})</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedNode(null)}
+                className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {riskLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                  <span className="ml-3 text-slate-400">Loading risk assessment...</span>
+                </div>
+              ) : riskAssessment ? (
+                <div className="space-y-5">
+                  {/* Risk Score Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={`px-4 py-2 rounded-xl font-bold text-lg ${
+                        riskAssessment.risk_level === 'critical' ? 'bg-red-500/20 text-red-400 border border-red-500/50' :
+                        riskAssessment.risk_level === 'high' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' :
+                        riskAssessment.risk_level === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' :
+                        'bg-green-500/20 text-green-400 border border-green-500/50'
+                      }`}>
+                        {riskAssessment.risk_score} Risk Score
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium uppercase ${
+                        riskAssessment.risk_level === 'critical' ? 'bg-red-500/20 text-red-400' :
+                        riskAssessment.risk_level === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                        riskAssessment.risk_level === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-green-500/20 text-green-400'
+                      }`}>
+                        {riskAssessment.risk_level}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Grid of Risk Details */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {/* CVE Summary */}
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Bug className="w-4 h-4 text-red-400" />
+                        <span className="text-sm font-medium text-white">CVE Summary</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div className="bg-red-500/10 rounded-lg p-2">
+                          <div className="text-xl font-bold text-red-400">{riskAssessment.cve_summary?.critical ?? 0}</div>
+                          <div className="text-[10px] text-slate-500 uppercase">Critical</div>
+                        </div>
+                        <div className="bg-orange-500/10 rounded-lg p-2">
+                          <div className="text-xl font-bold text-orange-400">{riskAssessment.cve_summary?.high ?? 0}</div>
+                          <div className="text-[10px] text-slate-500 uppercase">High</div>
+                        </div>
+                        <div className="bg-yellow-500/10 rounded-lg p-2">
+                          <div className="text-xl font-bold text-yellow-400">{riskAssessment.cve_summary?.medium ?? 0}</div>
+                          <div className="text-[10px] text-slate-500 uppercase">Medium</div>
+                        </div>
+                        <div className="bg-slate-700/50 rounded-lg p-2">
+                          <div className="text-xl font-bold text-slate-300">{riskAssessment.cve_summary?.total ?? 0}</div>
+                          <div className="text-[10px] text-slate-500 uppercase">Total</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Exploitable Ports */}
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Network className="w-4 h-4 text-orange-400" />
+                        <span className="text-sm font-medium text-white">Exploitable Ports</span>
+                      </div>
+                      {(riskAssessment.exploitable_ports?.length || 0) > 0 ? (
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                          {(riskAssessment.exploitable_ports || []).slice(0, 4).map((port, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs">
+                              <span className="font-mono text-orange-400">:{port.port}</span>
+                              <span className="text-slate-400">{port.service}</span>
+                              {(port.cves?.length || 0) > 0 && (
+                                <span className="text-red-400">{port.cves.length} CVEs</span>
+                              )}
+                            </div>
+                          ))}
+                          {(riskAssessment.exploitable_ports?.length || 0) > 4 && (
+                            <div className="text-[10px] text-slate-500">
+                              +{(riskAssessment.exploitable_ports?.length || 0) - 4} more
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-slate-500 text-sm">No exploitable ports detected</div>
+                      )}
+                    </div>
+
+                    {/* Data Stores at Risk */}
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Database className="w-4 h-4 text-purple-400" />
+                        <span className="text-sm font-medium text-white">Data at Risk</span>
+                      </div>
+                      {(riskAssessment.data_stores_at_risk?.length || 0) > 0 ? (
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                          {(riskAssessment.data_stores_at_risk || []).slice(0, 3).map((store, i) => (
+                            <div key={i} className="bg-slate-900/50 rounded-lg p-2">
+                              <div className="text-xs text-white font-medium truncate">{store.name}</div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                  store.sensitivity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                                  store.sensitivity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                                  'bg-yellow-500/20 text-yellow-400'
+                                }`}>
+                                  {store.sensitivity}
+                                </span>
+                                <span className="text-[10px] text-slate-500">{store.type}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {(riskAssessment.data_stores_at_risk?.length || 0) > 3 && (
+                            <div className="text-[10px] text-slate-500">
+                              +{(riskAssessment.data_stores_at_risk?.length || 0) - 3} more
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-slate-500 text-sm">No data stores at risk</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dangerous Permissions */}
+                  {(riskAssessment.dangerous_permissions?.length || 0) > 0 && (
+                    <div className="bg-red-500/5 rounded-xl p-4 border border-red-500/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Key className="w-4 h-4 text-red-400" />
+                        <span className="text-sm font-medium text-white">Dangerous Permissions</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(riskAssessment.dangerous_permissions || []).slice(0, 6).map((perm, i) => (
+                          <span key={i} className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded-lg font-mono">
+                            {perm.permission}
+                          </span>
+                        ))}
+                        {(riskAssessment.dangerous_permissions?.length || 0) > 6 && (
+                          <span className="px-2 py-1 bg-slate-700 text-slate-400 text-xs rounded-lg">
+                            +{(riskAssessment.dangerous_permissions?.length || 0) - 6} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Attack Impacts */}
+                  {(riskAssessment.attack_impacts?.length || 0) > 0 && (
+                    <div className="bg-orange-500/5 rounded-xl p-4 border border-orange-500/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="w-4 h-4 text-orange-400" />
+                        <span className="text-sm font-medium text-white">Potential Attack Impacts</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {(riskAssessment.attack_impacts || []).map((impact, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm text-slate-300">
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              typeof impact === 'object' && impact.severity === 'critical' ? 'bg-red-400' :
+                              typeof impact === 'object' && impact.severity === 'high' ? 'bg-orange-400' :
+                              'bg-yellow-400'
+                            }`} />
+                            {typeof impact === 'string' ? impact : (impact.description || impact.type || JSON.stringify(impact))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <AlertTriangle className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-500">No risk assessment data available</p>
+                  <p className="text-xs text-slate-600 mt-1">This resource may not have enough data for assessment</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Risk Formula */}
         <div className="bg-slate-900/50 rounded-2xl border border-slate-700 p-6">

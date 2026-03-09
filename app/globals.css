@@ -124,3 +124,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Attack path connector animation */
+@keyframes dashMove {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 20px 0;
+  }
+}
