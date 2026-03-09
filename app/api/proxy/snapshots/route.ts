@@ -130,7 +130,9 @@ export async function GET(req: NextRequest) {
           timestamp: snap.created_at,
           created_by: 'iam-remediation-engine',
           reason: 'IAM remediation snapshot',
-          status: 'ACTIVE',
+          status: snap.rollback_available === false ? 'RESTORED' : 'ACTIVE',
+          rollback_available: snap.rollback_available,
+          rolled_back_at: snap.rolled_back_at,
           original_role: snap.original_role,
           new_role: snap.new_role,
           current_state: {
