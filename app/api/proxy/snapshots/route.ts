@@ -147,7 +147,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Deduplicate by snapshot_id, keeping the most complete entry
-    // Prefer entries with original_role (from unified snapshots) over others
+    // Prefer entries with rollback_available field (from unified snapshots) as they have more data
     const snapshotMap = new Map<string, any>()
     for (const snap of allSnapshots) {
       const id = snap.snapshot_id || snap.id
@@ -157,18 +157,23 @@ export async function GET(req: NextRequest) {
       if (!existing) {
         snapshotMap.set(id, snap)
       } else {
-        // Prefer the entry with original_role or more complete data
-        const existingHasRole = existing.original_role || existing.current_state?.role_name
-        const newHasRole = snap.original_role || snap.current_state?.role_name
+        // Prefer entries with rollback_available field (indicates more complete data)
+        const existingHasRollback = existing.rollback_available !== undefined
+        const newHasRollback = snap.rollback_available !== undefined
 
-        if (newHasRole && !existingHasRole) {
+        if (newHasRollback && !existingHasRollback) {
+          // New entry has rollback info, prefer it
           snapshotMap.set(id, snap)
-        } else if (newHasRole && existingHasRole) {
-          // Both have role info - prefer the one with original_role directly
-          if (snap.original_role && !existing.original_role) {
+        } else if (!newHasRollback && !existingHasRollback) {
+          // Neither has rollback info - prefer the one with original_role or more complete data
+          const existingHasRole = existing.original_role || existing.current_state?.role_name
+          const newHasRole = snap.original_role || snap.current_state?.role_name
+
+          if (newHasRole && !existingHasRole) {
             snapshotMap.set(id, snap)
           }
         }
+        // If existing has rollback info, keep it (don't replace)
       }
     }
 
