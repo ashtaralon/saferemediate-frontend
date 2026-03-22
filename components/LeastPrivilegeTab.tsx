@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
@@ -173,6 +173,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
   const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'Remediated'>('all')
+  const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const { toast } = useToast()
 
@@ -780,7 +781,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       setIamGapAnalysisCache({})
 
       toast({
-        title: '✅ Data refreshed',
+        title: 'Data refreshed',
         description: `Refreshed all resources from database.`,
       })
     } catch (err) {
@@ -801,8 +802,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Analyzing least privilege gaps...</p>
+          <RefreshCw className="w-10 h-10 animate-spin mx-auto mb-3" style={{ color: "#8b5cf6" }} />
+          <p style={{ color: "var(--text-secondary)" }}>Analyzing least privilege gaps...</p>
         </div>
       </div>
     )
@@ -810,12 +811,12 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-6">
+      <div className="rounded-lg border p-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
         <div className="flex items-center gap-3">
-          <AlertTriangle className="w-6 h-6 text-red-600" />
+          <AlertTriangle className="w-6 h-6" style={{ color: "#ef4444" }} />
           <div>
-            <h3 className="font-semibold text-red-900">Error Loading Data</h3>
-            <p className="text-sm text-red-700">{error}</p>
+            <h3 className="font-semibold" style={{ color: "#ef4444" }}>Error Loading Data</h3>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{error}</p>
           </div>
         </div>
       </div>
@@ -825,15 +826,134 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   if (!data || data.resources.length === 0) {
     return (
       <div className="text-center py-12">
-        <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-        <p className="text-lg font-medium text-gray-900">No GAP issues found!</p>
-        <p className="text-sm text-gray-500 mt-2">All permissions are being used. Your system follows least privilege! 🎉</p>
+        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>No GAP issues found!</p>
+        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>All permissions are being used. Your system follows least privilege.</p>
       </div>
     )
   }
 
   const { summary, resources } = data
   const defaultRegion = getDefaultRegion()
+
+  // ---------- Helpers for table rendering ----------
+  const getResourceTypeColor = (type: string) => {
+    if (type === 'IAMRole') return '#8b5cf6'
+    if (type === 'SecurityGroup') return '#3b82f6'
+    if (type === 'S3Bucket') return '#22c55e'
+    return '#6b7280'
+  }
+  const getResourceTypeLabel = (type: string) => {
+    if (type === 'IAMRole') return 'IAM Role'
+    if (type === 'SecurityGroup') return 'Security Group'
+    if (type === 'S3Bucket') return 'S3 Bucket'
+    return type
+  }
+  const getResourceTypeIcon = (type: string) => {
+    if (type === 'IAMRole') return Shield
+    if (type === 'SecurityGroup') return Network
+    if (type === 'S3Bucket') return Database
+    return AlertTriangle
+  }
+  const getSeverityColor = (resource: GapResource) => {
+    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) return '#10b981'
+    const pct = resource.gapPercent ?? 0
+    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
+      const s = (resource.severity || '').toUpperCase()
+      if (s === 'CRITICAL') return '#ef4444'
+      if (s === 'HIGH') return '#f97316'
+      if (s === 'MEDIUM') return '#eab308'
+      return '#22c55e'
+    }
+    if (pct >= 80) return '#ef4444'
+    if (pct >= 50) return '#f97316'
+    if (pct >= 20) return '#eab308'
+    return '#22c55e'
+  }
+  const getSeverityLabel = (resource: GapResource) => {
+    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) return 'Remediated'
+    const pct = resource.gapPercent ?? 0
+    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
+      return (resource.severity || 'low').toUpperCase()
+    }
+    if (pct >= 80) return 'Critical'
+    if (pct >= 50) return 'High'
+    if (pct >= 20) return 'Medium'
+    return 'Low'
+  }
+  const getUsageMetricsForResource = (resource: GapResource) => {
+    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
+      const totalRules = resource.networkExposure.totalRules || 0
+      const exposedRules = resource.networkExposure.internetExposedRules || 0
+      const secureRules = totalRules - exposedRules
+      return { usedCount: secureRules, unusedCount: exposedRules, total: totalRules, gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0 }
+    } else if (resource.resourceType === 'S3Bucket') {
+      const used = resource.usedCount ?? 0
+      const unused = resource.gapCount ?? 0
+      const total = used + unused || 1
+      return { usedCount: used, unusedCount: unused, total, gapPct: Math.round((unused / total) * 100) }
+    } else {
+      const used = resource.usedCount ?? 0
+      const unused = resource.gapCount ?? 0
+      const total = resource.allowedCount || (used + unused) || 1
+      return { usedCount: used, unusedCount: unused, total, gapPct: Math.round((unused / total) * 100) }
+    }
+  }
+
+  // Handle resource click (open appropriate modal)
+  const handleResourceClick = (resource: GapResource) => {
+    if (resource.resourceType === 'IAMRole') {
+      setSelectedIAMRole(resource.resourceName)
+      setIamModalOpen(true)
+    } else if (resource.resourceType === 'S3Bucket') {
+      setSelectedS3Bucket(resource.resourceName)
+      setSelectedS3Resource(resource)
+      setS3ModalOpen(true)
+    } else if (resource.resourceType === 'SecurityGroup') {
+      let sgId = resource.id
+      if (!sgId?.startsWith('sg-')) {
+        if (resource.resourceName?.startsWith('sg-')) {
+          sgId = resource.resourceName
+        } else if (resource.resourceArn?.includes('security-group/')) {
+          const match = resource.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
+          if (match) sgId = match[1]
+        }
+      }
+      setSelectedSGId(sgId)
+      setSelectedSGName(resource.resourceName)
+      setSgModalOpen(true)
+    } else {
+      setSelectedResource(resource)
+      setDrawerOpen(true)
+    }
+  }
+
+  // ---------- Compute filtered resources ----------
+  const filteredResources = resources
+    .filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName))
+    .filter(r => {
+      if (resourceTypeFilter === 'all') return true
+      if (resourceTypeFilter === 'Remediated') return r.resourceType === 'IAMRole' && r.allowedCount === 0
+      return r.resourceType === resourceTypeFilter
+    })
+    .filter(r => {
+      if (!searchTerm) return true
+      const s = searchTerm.toLowerCase()
+      return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
+    })
+    .filter(r => {
+      if (r.resourceType === 'IAMRole') return (r.gapCount ?? 0) > 0 || r.allowedCount === 0
+      return true
+    })
+    .filter(r => {
+      if (r.resourceType !== 'IAMRole') return true
+      if (!showRemediableOnly) return true
+      return r.isRemediable !== false
+    })
+
+  const iamCount = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName) && r.resourceType === 'IAMRole').length
+  const sgCount = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName) && r.resourceType === 'SecurityGroup').length
+  const s3Count = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName) && r.resourceType === 'S3Bucket').length
 
   return (
     <div className="space-y-6">
@@ -844,29 +964,23 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             <DialogTitle>Refresh All Resources</DialogTitle>
             <DialogDescription className="pt-2">
               This will refresh all resources from the database including Security Groups, IAM Roles, and Least Privilege analysis.
-              <br />
-              <br />
-              <strong>Simulated data will be preserved.</strong>
+              Simulated data will be preserved.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-3">
-            <div className="flex items-center justify-between py-2 border-b">
-              <span className="text-sm font-medium text-gray-600">System:</span>
-              <span className="text-sm text-gray-900">{systemName}</span>
-            </div>
-          </div>
           <DialogFooter>
             <button
               onClick={() => setConfirmationModalOpen(false)}
               disabled={analyzing}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
             >
               Cancel
             </button>
             <button
               onClick={handleRefreshAll}
               disabled={analyzing}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50"
+              style={{ background: "#8b5cf6" }}
             >
               {analyzing && <Loader2 className="w-4 h-4 animate-spin" />}
               Refresh
@@ -875,340 +989,440 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
         </DialogContent>
       </Dialog>
 
-      {/* Header with LP Score */}
+      {/* Compact Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Least Privilege Analysis</h1>
-          <div className="flex items-center gap-3 mt-1">
-            <p className="text-gray-600">GAP between ALLOWED and ACTUAL permissions</p>
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Least Privilege Analysis</h2>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            GAP between allowed and actual permissions
             {data?.fromCache && (
-              <span className="text-xs text-slate-400 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-full">
-                <Clock className="w-3 h-3" />
-                Cached {data.cacheAge ? `${data.cacheAge}s ago` : ''}
-                {data.stale && <span className="text-orange-500">(stale)</span>}
+              <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                (cached {data.cacheAge ? `${data.cacheAge}s ago` : ''})
               </span>
             )}
-          </div>
+          </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <button
             onClick={openTrafficSimulator}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Simulate traffic between AWS resources"
+            className="px-3 py-1.5 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors hover:opacity-90"
+            style={{ background: "#8b5cf6" }}
           >
-            <Zap className="w-4 h-4" />
+            <Zap className="w-3.5 h-3.5" />
             Simulate Traffic
           </button>
           <button
             onClick={handleRefreshAll}
             disabled={analyzing || refreshing || loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Refresh all resources from database"
+            className="px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
           >
-            <RefreshCw className={`w-4 h-4 ${analyzing ? 'animate-spin' : ''}`} />
-            {analyzing ? 'Refreshing...' : 'Refresh All'}
+            <RefreshCw className={`w-3.5 h-3.5 ${analyzing ? 'animate-spin' : ''}`} />
+            {analyzing ? 'Refreshing...' : 'Refresh'}
           </button>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing || loading}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 transition-colors"
-            title="Refresh data from backend"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh Data'}
-          </button>
-          <div className="text-right">
-            <div className="text-sm text-gray-600">System LP Score</div>
-            <div className="text-4xl font-bold" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#dc2626' : (summary.avgLPScore ?? 0) < 75 ? '#ea580c' : '#10b981' }}>
-              {isNaN(summary.avgLPScore) || summary.avgLPScore === null ? (
-                <span className="text-gray-500" title="LP Score not applicable for all resource types">—</span>
-              ) : (
-                <span>{summary.avgLPScore.toFixed(0)}%</span>
-              )}
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <SummaryCard
-          icon={<Shield className="w-5 h-5" />}
-          label="Total Resources"
-          value={summary.totalResources}
-          color="blue"
-        />
-        <SummaryCard
-          icon={<TrendingDown className="w-5 h-5" />}
-          label="Excess Permissions"
-          value={summary.totalExcessPermissions}
-          color="red"
-        />
-        <SummaryCard
-          icon={<Network className="w-5 h-5" />}
-          label="Network Issues"
-          value={summary.networkIssuesCount}
-          color="orange"
-        />
-        <SummaryCard
-          icon={<Clock className="w-5 h-5" />}
-          label="Observation Days"
-          value={summary.observationDays}
-          color="gray"
-        />
+      {/* Stats Cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <Shield className="w-5 h-5" style={{ color: "#3b82f6" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Resources</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{summary.totalResources}</div>
+        </div>
+        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Critical Issues</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{summary.criticalCount}</div>
+        </div>
+        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingDown className="w-5 h-5" style={{ color: "#f97316" }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Excess Permissions</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{summary.totalExcessPermissions.toLocaleString()}</div>
+        </div>
+        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="w-5 h-5" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#ef4444' : (summary.avgLPScore ?? 0) < 75 ? '#f97316' : '#22c55e' }} />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>LP Score</span>
+          </div>
+          <div className="text-2xl font-bold" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#ef4444' : (summary.avgLPScore ?? 0) < 75 ? '#f97316' : '#22c55e' }}>
+            {isNaN(summary.avgLPScore) || summary.avgLPScore === null ? '—' : `${summary.avgLPScore.toFixed(0)}%`}
+          </div>
+        </div>
       </div>
 
       {/* Search & Filters */}
-      <div className="flex flex-col gap-3 mb-4">
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by name, ARN, ID, or type..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          {searchTerm && (
+      <div className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-muted)" }} />
+            <input
+              type="text"
+              placeholder="Search resources..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm"
+              style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            />
+          </div>
+          <select
+            value={resourceTypeFilter}
+            onChange={(e) => setResourceTypeFilter(e.target.value as any)}
+            className="px-3 py-2 rounded-lg border text-sm"
+            style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+          >
+            <option value="all">All Types ({resources.length})</option>
+            <option value="IAMRole">IAM Roles ({iamCount})</option>
+            <option value="SecurityGroup">Security Groups ({sgCount})</option>
+            <option value="S3Bucket">S3 Buckets ({s3Count})</option>
+            <option value="Remediated">Remediated</option>
+          </select>
+          <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+            <input
+              type="checkbox"
+              checked={showRemediableOnly}
+              onChange={(e) => setShowRemediableOnly(e.target.checked)}
+              className="rounded"
+            />
+            Remediable only
+          </label>
+          {deletedResources.size > 0 && (
             <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              onClick={() => { setDeletedResources(new Set()); try { localStorage.removeItem(`remediated_roles_${systemName}`) } catch {} }}
+              className="text-xs underline whitespace-nowrap"
+              style={{ color: "#3b82f6" }}
             >
-              <X className="w-4 h-4" />
+              Restore {deletedResources.size} dismissed
             </button>
           )}
-        </div>
-
-        {/* Filter Row */}
-        <div className="flex flex-col gap-3">
-          {/* Resource Type Filter Chips */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500 mr-1">Filter:</span>
-            {(() => {
-              // Calculate counts for filter chips
-              const baseResources = resources.filter(r => {
-                if (deletedResources.has(r.id) || deletedResources.has(r.resourceName)) return false
-                if (searchTerm) {
-                  const search = searchTerm.toLowerCase()
-                  const matchesName = r.resourceName?.toLowerCase().includes(search)
-                  const matchesArn = r.resourceArn?.toLowerCase().includes(search)
-                  const matchesId = r.id?.toLowerCase().includes(search)
-                  if (!matchesName && !matchesArn && !matchesId) return false
-                }
-                if (r.resourceType === 'IAMRole' && showRemediableOnly && r.isRemediable === false) return false
-                return true
-              })
-              const allCount = baseResources.length
-              const iamCount = baseResources.filter(r => r.resourceType === 'IAMRole').length
-              const sgCount = baseResources.filter(r => r.resourceType === 'SecurityGroup').length
-              const s3Count = baseResources.filter(r => r.resourceType === 'S3Bucket').length
-              const remediatedCount = baseResources.filter(r => r.resourceType === 'IAMRole' && r.allowedCount === 0).length
-
-              const filters: Array<{ key: 'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'Remediated', label: string, count: number, icon: React.ReactNode, color: string }> = [
-                { key: 'all', label: 'All', count: allCount, icon: null, color: 'gray' },
-                { key: 'IAMRole', label: 'IAM Roles', count: iamCount, icon: <Shield className="w-3.5 h-3.5" />, color: 'purple' },
-                { key: 'SecurityGroup', label: 'Security Groups', count: sgCount, icon: <Network className="w-3.5 h-3.5" />, color: 'blue' },
-                { key: 'S3Bucket', label: 'S3 Buckets', count: s3Count, icon: <Database className="w-3.5 h-3.5" />, color: 'green' },
-                { key: 'Remediated', label: 'Remediated', count: remediatedCount, icon: <CheckCircle2 className="w-3.5 h-3.5" />, color: 'emerald' }
-              ]
-
-              return filters.map(f => (
-                <button
-                  key={f.key}
-                  onClick={() => setResourceTypeFilter(f.key)}
-                  className={`
-                    flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all
-                    ${resourceTypeFilter === f.key
-                      ? f.key === 'all'
-                        ? 'bg-gray-800 text-white'
-                        : f.key === 'IAMRole'
-                          ? 'bg-purple-600 text-white'
-                          : f.key === 'SecurityGroup'
-                            ? 'bg-blue-600 text-white'
-                            : f.key === 'Remediated'
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-green-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }
-                  `}
-                >
-                  {f.icon}
-                  <span>{f.label}</span>
-                  <span className={`
-                    ml-1 px-1.5 py-0.5 rounded-full text-xs
-                    ${resourceTypeFilter === f.key
-                      ? 'bg-white/20 text-white'
-                      : 'bg-gray-200 text-gray-600'
-                    }
-                  `}>
-                    {f.count}
-                  </span>
-                </button>
-              ))
-            })()}
-          </div>
-
-          {/* Secondary filters row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              {/* Remediable Filter Toggle */}
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showRemediableOnly}
-                  onChange={(e) => setShowRemediableOnly(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-gray-600">Remediable only</span>
-              </label>
-              {/* Clear deleted button */}
-              {deletedResources.size > 0 && (
-                <button
-                  onClick={() => {
-                    setDeletedResources(new Set())
-                    // Also clear localStorage
-                    try {
-                      localStorage.removeItem(`remediated_roles_${systemName}`)
-                    } catch (e) {
-                      console.warn('Failed to clear localStorage:', e)
-                    }
-                  }}
-                  className="text-xs text-blue-600 hover:text-blue-800 underline"
-                >
-                  Restore {deletedResources.size} dismissed
-                </button>
-              )}
-            </div>
-            {data.timestamp && (
-              <div className="text-xs text-gray-500">
-                Last updated: {new Date(data.timestamp).toLocaleString()}
-              </div>
-            )}
-          </div>
+          <span className="text-sm whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>{filteredResources.length} results</span>
         </div>
       </div>
 
-      {/* Resources List */}
-      <div className="space-y-4">
-        {resources.length === 0 ? (
-          <div className="text-center py-12 border border-gray-200 rounded-lg bg-gray-50">
-            <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600">No resources found</p>
-            <p className="text-sm text-gray-500 mt-2">Try clicking "Refresh Data" to reload from backend</p>
+      {/* Resources Table */}
+      <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+        {/* Table Header */}
+        <div
+          className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+          style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
+        >
+          <span>Resource</span>
+          <span>Type</span>
+          <span className="text-center">Gap</span>
+          <span className="text-center">Used</span>
+          <span className="text-center">Unused</span>
+          <span className="text-center">Severity</span>
+          <span className="text-center">Action</span>
+        </div>
+
+        {filteredResources.length === 0 ? (
+          <div className="text-center py-12">
+            <Shield className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} />
+            <p style={{ color: "var(--text-secondary)" }}>No resources found matching filters.</p>
           </div>
         ) : (
-          resources
-            // Filter out deleted/dismissed resources
-            .filter(resource => {
-              return !deletedResources.has(resource.id) && !deletedResources.has(resource.resourceName)
-            })
-            // Apply resource type filter
-            .filter(resource => {
-              if (resourceTypeFilter === 'all') return true
-              if (resourceTypeFilter === 'Remediated') {
-                // Show only remediated IAM roles (allowedCount === 0)
-                return resource.resourceType === 'IAMRole' && resource.allowedCount === 0
-              }
-              return resource.resourceType === resourceTypeFilter
-            })
-            // Apply search filter
-            .filter(resource => {
-              if (!searchTerm) return true
-              const search = searchTerm.toLowerCase()
-              const matchesName = resource.resourceName?.toLowerCase().includes(search)
-              const matchesArn = resource.resourceArn?.toLowerCase().includes(search)
-              const matchesId = resource.id?.toLowerCase().includes(search)
-              const matchesType = resource.resourceType?.toLowerCase().includes(search)
-              return matchesName || matchesArn || matchesId || matchesType
-            })
-            // Filter out "No Action Required" resources based on resource type
-            .filter(resource => {
-              // IAM Roles: show if has unused permissions OR is remediated (allowedCount=0)
-              if (resource.resourceType === 'IAMRole') {
-                const isRemediated = resource.allowedCount === 0
-                return resource.gapCount > 0 || isRemediated
-              }
-              // S3 Buckets: show all (user can click to analyze policies)
-              if (resource.resourceType === 'S3Bucket') {
-                return true
-              }
-              // Security Groups: show all (user can click to run LP analysis)
-              if (resource.resourceType === 'SecurityGroup') {
-                return true
-              }
-              // Default: show all other resource types
-              return true
-            })
-            // Only filter based on remediable toggle (only affects IAM Roles)
-            .filter(resource => {
-              if (resource.resourceType !== 'IAMRole') return true
-              if (!showRemediableOnly) return true
-              return resource.isRemediable !== false
-            })
-            .map((resource, index) => (
-            <GapResourceCard
-              key={resource.id || resource.resourceArn || resource.resourceName || `resource-${index}`}
-              resource={resource}
-              onDelete={(id, name) => {
-                // Add to dismissed set and persist to localStorage
-                setDeletedResources(prev => {
-                  const next = new Set(prev)
-                  if (id) next.add(id)
-                  if (name) next.add(name)
+          <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+            {filteredResources.map((resource) => {
+              const typeColor = getResourceTypeColor(resource.resourceType)
+              const TypeIcon = getResourceTypeIcon(resource.resourceType)
+              const sevColor = getSeverityColor(resource)
+              const sevLabel = getSeverityLabel(resource)
+              const metrics = getUsageMetricsForResource(resource)
+              const isExpanded = expandedRow === (resource.id || resource.resourceName)
+              const rowKey = resource.id || resource.resourceArn || resource.resourceName
 
-                  // Persist to localStorage
-                  try {
-                    const remediatedKey = `remediated_roles_${systemName}`
-                    const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-                    if (name && !existing.includes(name)) existing.push(name)
-                    if (id && !existing.includes(id)) existing.push(id)
-                    localStorage.setItem(remediatedKey, JSON.stringify(existing))
-                  } catch (e) {
-                    console.warn('Failed to persist dismissed resource:', e)
-                  }
+              return (
+                <div key={rowKey}>
+                  {/* Row */}
+                  <div
+                    className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                    onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
+                  >
+                    {/* Resource */}
+                    <div className="flex items-center gap-3 min-w-0">
+                      {isExpanded
+                        ? <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                        : <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                      }
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${typeColor}20` }}>
+                        <TypeIcon className="w-4 h-4" style={{ color: typeColor }} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                        <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{resource.systemName || systemName}</div>
+                      </div>
+                    </div>
 
-                  return next
-                })
-                toast({
-                  title: "Alert dismissed",
-                  description: `${name || id} has been removed from the list. Click "Restore dismissed" to bring it back.`,
-                })
-              }}
-              onClick={() => {
-                console.log('[LeastPrivilegeTab] Card clicked! resourceType:', resource.resourceType, 'resourceName:', resource.resourceName)
-                // Use new IAM Permission Analysis modal for IAM Roles
-                if (resource.resourceType === 'IAMRole') {
-                  console.log('[LeastPrivilegeTab] Opening IAMPermissionAnalysisModal for:', resource.resourceName)
-                  setSelectedIAMRole(resource.resourceName)
-                  setIamModalOpen(true)
-                } else if (resource.resourceType === 'S3Bucket') {
-                  // Use new S3 Policy Analysis modal for S3 Buckets
-                  setSelectedS3Bucket(resource.resourceName)
-                  setSelectedS3Resource(resource)
-                  setS3ModalOpen(true)
-                } else if (resource.resourceType === 'SecurityGroup') {
-                  // Use new SG Least Privilege modal for Security Groups
-                  let sgId = resource.id
-                  if (!sgId?.startsWith('sg-')) {
-                    if (resource.resourceName?.startsWith('sg-')) {
-                      sgId = resource.resourceName
-                    } else if (resource.resourceArn?.includes('security-group/')) {
-                      const match = resource.resourceArn.match(/security-group\/(sg-[a-z0-9]+)/)
-                      if (match) sgId = match[1]
-                    }
-                  }
-                  setSelectedSGId(sgId)
-                  setSelectedSGName(resource.resourceName)
-                  setSgModalOpen(true)
-                } else {
-                  // Use drawer for other resources (Network ACLs, etc.)
-                  setSelectedResource(resource)
-                  setDrawerOpen(true)
-                }
-              }}
-            />
-          ))
+                    {/* Type */}
+                    <span className="px-2 py-0.5 rounded text-xs font-medium text-center" style={{ background: `${typeColor}15`, color: typeColor }}>
+                      {getResourceTypeLabel(resource.resourceType)}
+                    </span>
+
+                    {/* Gap bar */}
+                    <div className="flex items-center justify-center gap-1.5">
+                      <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                        <div className="h-full rounded-full" style={{ width: `${Math.min(metrics.gapPct, 100)}%`, background: sevColor }} />
+                      </div>
+                      <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{metrics.gapPct}%</span>
+                    </div>
+
+                    {/* Used */}
+                    <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{metrics.usedCount}</div>
+
+                    {/* Unused */}
+                    <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
+                      {metrics.unusedCount}
+                    </div>
+
+                    {/* Severity */}
+                    <div className="text-center">
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${sevColor}20`, color: sevColor }}>
+                        {sevLabel}
+                      </span>
+                    </div>
+
+                    {/* Action */}
+                    <div className="text-center">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleResourceClick(resource) }}
+                        className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90 transition-all"
+                        style={{ background: "#8b5cf6" }}
+                      >
+                        Review
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Detail */}
+                  {isExpanded && (
+                    <div className="px-6 py-5 border-t" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                      <div className="grid grid-cols-3 gap-5">
+                        {/* Column 1: Permission Usage */}
+                        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                            <BarChart3 className="w-3.5 h-3.5" />
+                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security' : resource.resourceType === 'S3Bucket' ? 'Policy Usage' : 'Permission Usage'}
+                          </h4>
+                          <div className="flex items-center gap-3 mb-3">
+                            <span className="text-3xl font-bold" style={{ color: sevColor }}>
+                              {resource.lpScore !== null && !isNaN(resource.lpScore ?? NaN) ? `${Math.round(resource.lpScore ?? 0)}%` : `${100 - metrics.gapPct}%`}
+                            </span>
+                            <span className="text-xs" style={{ color: "var(--text-muted)" }}>LP Score</span>
+                          </div>
+                          <div className="space-y-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+                            <div className="flex justify-between">
+                              <span>Total</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{metrics.total}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{resource.resourceType === 'SecurityGroup' ? 'Secure' : 'Used'}</span>
+                              <span className="font-medium" style={{ color: "#22c55e" }}>{metrics.usedCount}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{resource.resourceType === 'SecurityGroup' ? 'Exposed' : 'Unused'}</span>
+                              <span className="font-medium" style={{ color: "#ef4444" }}>{metrics.unusedCount}</span>
+                            </div>
+                          </div>
+                          {/* Progress bar */}
+                          <div className="mt-3 h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                            <div className="h-full rounded-full" style={{ width: `${100 - metrics.gapPct}%`, background: metrics.gapPct >= 50 ? '#ef4444' : metrics.gapPct >= 20 ? '#f97316' : '#22c55e' }} />
+                          </div>
+                        </div>
+
+                        {/* Column 2: Risk Details (type-specific) */}
+                        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            Risk Details
+                          </h4>
+
+                          {/* IAM Role: high-risk unused permissions */}
+                          {resource.resourceType === 'IAMRole' && (resource.highRiskUnused?.length || 0) > 0 && (
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium" style={{ color: "#ef4444" }}>High-Risk Unused:</div>
+                              <div className="flex flex-wrap gap-1">
+                                {(resource.highRiskUnused || []).slice(0, 5).map((p, i) => (
+                                  <span key={i} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>
+                                    {p.permission}
+                                  </span>
+                                ))}
+                                {(resource.highRiskUnused?.length || 0) > 5 && (
+                                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{(resource.highRiskUnused?.length || 0) - 5} more</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {resource.resourceType === 'IAMRole' && (!resource.highRiskUnused || resource.highRiskUnused.length === 0) && (
+                            <div className="space-y-2">
+                              {metrics.unusedCount > 0 ? (
+                                <>
+                                  <div className="text-xs font-medium" style={{ color: sevColor }}>
+                                    {metrics.unusedCount} of {metrics.total} permissions unused ({metrics.gapPct}% gap)
+                                  </div>
+                                  {(resource.unusedList?.length || 0) > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {resource.unusedList.slice(0, 5).map((p, i) => (
+                                        <span key={i} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: `${sevColor}15`, color: sevColor }}>
+                                          {p}
+                                        </span>
+                                      ))}
+                                      {resource.unusedList.length > 5 && (
+                                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{resource.unusedList.length - 5} more</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-xs" style={{ color: "#22c55e" }}>All permissions are in use.</p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Security Group: network exposure */}
+                          {resource.resourceType === 'SecurityGroup' && (
+                            <div className="space-y-2">
+                              {resource.networkExposure && (
+                                <>
+                                  <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                    <span>Exposure Score</span>
+                                    <span className="font-medium" style={{ color: sevColor }}>{resource.networkExposure.score}/100</span>
+                                  </div>
+                                  <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                    <span>Internet Exposed Rules</span>
+                                    <span className="font-medium" style={{ color: resource.networkExposure.internetExposedRules > 0 ? '#ef4444' : '#22c55e' }}>
+                                      {resource.networkExposure.internetExposedRules}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                              {resource.networkExposure?.highRiskPorts?.length > 0 && (
+                                <div>
+                                  <div className="text-xs font-medium mb-1" style={{ color: "#ef4444" }}>High-Risk Ports:</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {resource.networkExposure.highRiskPorts.slice(0, 5).map((port, i) => (
+                                      <span key={i} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>{port}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {resource.isOrphan && (
+                                <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#8b5cf620", color: "#8b5cf6" }}>
+                                  Orphan SG
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* S3 Bucket: traffic info */}
+                          {resource.resourceType === 'S3Bucket' && (
+                            <div className="space-y-2">
+                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span>Accessors</span>
+                                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.accessorCount ?? 0}</span>
+                              </div>
+                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span>Total Hits</span>
+                                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{(resource.totalHits ?? 0).toLocaleString()}</span>
+                              </div>
+                              {(resource.principals?.length ?? 0) > 0 && (
+                                <div>
+                                  <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Accessed by:</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {[...new Set(resource.principals)].slice(0, 3).map((p, i) => (
+                                      <span key={i} className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#06b6d415", color: "#06b6d4" }}>{p}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column 3: Evidence */}
+                        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                            <Eye className="w-3.5 h-3.5" />
+                            Evidence
+                          </h4>
+                          <div className="space-y-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                            <div className="flex justify-between">
+                              <span>Observation</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.evidence?.observationDays || resource.observationDays || 0} days</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Confidence</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.evidence?.confidence || 'LOW'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Data Sources</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{(resource.evidence?.dataSources || []).join(', ') || 'Neo4j'}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Last Used</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.evidence?.lastUsed || 'N/A'}</span>
+                            </div>
+                            {resource.region && (
+                              <div className="flex justify-between">
+                                <span>Region</span>
+                                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.region}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Badges row */}
+                      <div className="flex items-center gap-3 mt-4">
+                        {resource.resourceType === 'IAMRole' && resource.allowedCount === 0 && (
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#10b98120", color: "#10b981" }}>
+                            Fully Remediated
+                          </span>
+                        )}
+                        {resource.isRemediable === false && (
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#f9731620", color: "#f97316" }}>
+                            AWS Managed
+                          </span>
+                        )}
+                        {resource.remediatedAt && (
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            Remediated: {new Date(resource.remediatedAt).toLocaleDateString()}
+                            {resource.remediatedBy && ` by ${resource.remediatedBy}`}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => {
+                            setDeletedResources(prev => {
+                              const next = new Set(prev)
+                              if (resource.id) next.add(resource.id)
+                              if (resource.resourceName) next.add(resource.resourceName)
+                              try {
+                                const k = `remediated_roles_${systemName}`
+                                const ex = JSON.parse(localStorage.getItem(k) || '[]')
+                                if (resource.resourceName && !ex.includes(resource.resourceName)) ex.push(resource.resourceName)
+                                localStorage.setItem(k, JSON.stringify(ex))
+                              } catch {}
+                              return next
+                            })
+                            toast({ title: "Dismissed", description: `${resource.resourceName} removed from list.` })
+                          }}
+                          className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:opacity-80"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          <Trash2 className="w-3 h-3" /> Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
@@ -1465,7 +1679,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 
                 if (result.success) {
                   toast({
-                    title: '✅ Remediation Complete',
+                    title: 'Remediation Complete',
                     description: `Snapshot: ${result.snapshot?.snapshot_id || 'Created'}. ${result.summary?.successful || 0} changes applied.`
                   })
                   setSimulationModalOpen(false)
@@ -1488,7 +1702,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                   setSelectedResource(null)
                 } else {
                   toast({
-                    title: '❌ Remediation Had Errors',
+                    title: 'Remediation Had Errors',
                     description: `${result.errors?.length || 0} errors occurred. Check console for details.`,
                     variant: 'destructive'
                   })
@@ -1550,7 +1764,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
               if (result.success) {
                 toast({
-                  title: dryRun ? '✅ Preview Complete' : '✅ Remediation Complete',
+                  title: dryRun ? 'Preview Complete' : 'Remediation Complete',
                   description: dryRun
                     ? `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0}`
                     : `Snapshot: ${result.snapshot_id || 'Created'}. Permissions reduced to ${result.new_role?.permissions_count || 0}`
@@ -1570,7 +1784,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
             } catch (error) {
               console.error('Remediation error:', error)
               toast({
-                title: '❌ Remediation Failed',
+                title: 'Remediation Failed',
                 description: error instanceof Error ? error.message : 'Check console for details',
                 variant: 'destructive'
               })
@@ -2021,498 +2235,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
   )
 }
 
-// Summary Card Component
-function SummaryCard({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: number, color: string }) {
-  const colorClasses = {
-    blue: 'text-blue-600',
-    red: 'text-red-600',
-    orange: 'text-orange-600',
-    gray: 'text-gray-600'
-  }
-  
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-2 mb-2">
-        <div className={colorClasses[color as keyof typeof colorClasses]}>{icon}</div>
-        <div className="text-sm text-gray-600">{label}</div>
-      </div>
-      <div className="text-3xl font-bold text-gray-900">{value}</div>
-    </div>
-  )
-}
+// SummaryCard and GapResourceCard removed - replaced by inline table rendering in main component
 
-// Unified Gap Resource Card Component - Polished design for all resource types
-function GapResourceCard({ resource, onClick, onDelete }: { resource: GapResource, onClick: () => void, onDelete?: (id: string, name: string) => void }) {
-  // Get role-specific icon based on name (for better visual identification)
-  const getRoleIcon = (name: string) => {
-    const lowerName = name.toLowerCase()
-    if (lowerName.includes('lambda')) return '⚡'
-    if (lowerName.includes('ec2')) return '🖥️'
-    if (lowerName.includes('vpc') || lowerName.includes('flow')) return '🌐'
-    if (lowerName.includes('s3')) return '🪣'
-    if (lowerName.includes('cloudtrail') || lowerName.includes('trail')) return '📋'
-    if (lowerName.includes('rds') || lowerName.includes('database')) return '🗄️'
-    if (lowerName.includes('eks') || lowerName.includes('kubernetes')) return '☸️'
-    if (lowerName.includes('ecs') || lowerName.includes('container')) return '📦'
-    if (lowerName.includes('sns') || lowerName.includes('sqs')) return '📨'
-    if (lowerName.includes('kms') || lowerName.includes('key')) return '🔑'
-    return '🔐' // Default IAM role icon
-  }
-
-  // Get service tags from role name
-  const getServiceTags = (name: string): Array<{label: string, color: string}> => {
-    const tags: Array<{label: string, color: string}> = []
-    const lowerName = name.toLowerCase()
-
-    if (lowerName.includes('lambda')) tags.push({ label: 'Lambda', color: 'purple' })
-    if (lowerName.includes('ec2')) tags.push({ label: 'EC2', color: 'blue' })
-    if (lowerName.includes('s3')) tags.push({ label: 'S3', color: 'orange' })
-    if (lowerName.includes('vpc') || lowerName.includes('flow')) tags.push({ label: 'VPC', color: 'cyan' })
-    if (lowerName.includes('cloudtrail') || lowerName.includes('trail')) tags.push({ label: 'Logging', color: 'green' })
-    if (lowerName.includes('rds')) tags.push({ label: 'RDS', color: 'indigo' })
-    if (lowerName.includes('remediat')) tags.push({ label: 'Remediation', color: 'rose' })
-
-    return tags
-  }
-
-  // Get severity - use API severity for orphan SGs, otherwise calculate from unused percentage
-  const getSeverity = (unusedPercent: number): { level: string, color: string, bgColor: string, borderColor: string, emoji: string } => {
-    // Check if role is fully remediated (0 allowed permissions)
-    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) {
-      return { level: 'REMEDIATED', color: 'text-emerald-800', bgColor: 'bg-emerald-100', borderColor: 'border-emerald-500', emoji: '✅' }
-    }
-    // For orphan Security Groups, use the API's severity
-    if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
-      const apiSeverity = (resource.severity || '').toUpperCase()
-      if (apiSeverity === 'CRITICAL') {
-        return { level: 'CRITICAL', color: 'text-red-800', bgColor: 'bg-red-100', borderColor: 'border-red-500', emoji: '🚨' }
-      } else if (apiSeverity === 'HIGH') {
-        return { level: 'HIGH', color: 'text-orange-800', bgColor: 'bg-orange-100', borderColor: 'border-orange-500', emoji: '⚠️' }
-      } else if (apiSeverity === 'MEDIUM') {
-        return { level: 'MEDIUM', color: 'text-yellow-800', bgColor: 'bg-yellow-100', borderColor: 'border-yellow-500', emoji: '⚡' }
-      } else {
-        return { level: 'LOW', color: 'text-green-800', bgColor: 'bg-green-100', borderColor: 'border-green-500', emoji: '✓' }
-      }
-    }
-    // Default: calculate severity from unused percentage
-    if (unusedPercent >= 80) {
-      return { level: 'CRITICAL', color: 'text-red-800', bgColor: 'bg-red-100', borderColor: 'border-red-500', emoji: '🚨' }
-    } else if (unusedPercent >= 50) {
-      return { level: 'HIGH', color: 'text-orange-800', bgColor: 'bg-orange-100', borderColor: 'border-orange-500', emoji: '⚠️' }
-    } else if (unusedPercent >= 20) {
-      return { level: 'MEDIUM', color: 'text-yellow-800', bgColor: 'bg-yellow-100', borderColor: 'border-yellow-500', emoji: '⚡' }
-    } else {
-      return { level: 'LOW', color: 'text-green-800', bgColor: 'bg-green-100', borderColor: 'border-green-500', emoji: '✓' }
-    }
-  }
-
-  // Get risk-based card styling
-  const getRiskCardStyle = (unusedPercent: number) => {
-    // Remediated roles get special styling
-    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) {
-      return 'border-2 border-emerald-400 bg-emerald-50/50'
-    }
-    if (unusedPercent >= 80) return 'border-2 border-red-400 bg-red-50/30'
-    if (unusedPercent >= 50) return 'border-2 border-orange-400 bg-orange-50/30'
-    if (unusedPercent >= 20) return 'border-2 border-yellow-400 bg-yellow-50/30'
-    return 'border-2 border-green-400 bg-green-50/30'
-  }
-
-  // Get icon based on resource type
-  const getResourceIcon = () => {
-    if (resource.resourceType === 'IAMRole') return <Shield className="w-5 h-5 text-purple-600" />
-    if (resource.resourceType === 'SecurityGroup') return <Network className="w-5 h-5 text-blue-600" />
-    if (resource.resourceType === 'S3Bucket') return <Database className="w-5 h-5 text-green-600" />
-    return <AlertTriangle className="w-5 h-5 text-gray-600" />
-  }
-
-  // Get type-specific colors
-  const getTypeColor = () => {
-    if (resource.resourceType === 'IAMRole') return 'bg-purple-100 text-purple-700'
-    if (resource.resourceType === 'SecurityGroup') return 'bg-blue-100 text-blue-700'
-    if (resource.resourceType === 'S3Bucket') return 'bg-green-100 text-green-700'
-    return 'bg-gray-100 text-gray-700'
-  }
-
-  // Calculate unified usage metrics
-  const getUsageMetrics = () => {
-    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
-      // For Security Groups: used = secure rules, unused = exposed rules
-      const totalRules = resource.networkExposure.totalRules || 0
-      const exposedRules = resource.networkExposure.internetExposedRules || 0
-      const secureRules = totalRules - exposedRules
-      const usedPercent = totalRules > 0 ? Math.round((secureRules / totalRules) * 100) : 100
-      const unusedPercent = 100 - usedPercent
-      // For SG, LP Score = percentage of secure (non-exposed) rules
-      const lpScore = usedPercent
-      return {
-        label: 'Rule Security',
-        usedLabel: 'secure',
-        unusedLabel: 'exposed',
-        usedCount: secureRules,
-        unusedCount: exposedRules,
-        total: totalRules,
-        usedPercent,
-        unusedPercent,
-        lpScore
-      }
-    } else if (resource.resourceType === 'S3Bucket') {
-      // For S3 Buckets: use policy/permission counts if available
-      const used = resource.usedCount ?? 0
-      const unused = resource.gapCount ?? 0
-      const total = used + unused || 1
-      const usedPercent = Math.round((used / total) * 100)
-      const unusedPercent = 100 - usedPercent
-      return {
-        label: 'Policy Usage',
-        usedLabel: 'active',
-        unusedLabel: 'unused',
-        usedCount: used,
-        unusedCount: unused,
-        total,
-        usedPercent,
-        unusedPercent,
-        lpScore: resource.lpScore ?? usedPercent
-      }
-    } else {
-      // For IAM Roles: permission usage
-      const used = resource.usedCount ?? 0
-      const unused = resource.gapCount ?? 0
-      const total = resource.allowedCount || (used + unused) || 1
-      const usedPercent = Math.round((used / total) * 100)
-      const unusedPercent = 100 - usedPercent
-      return {
-        label: 'Permission Usage',
-        usedLabel: 'used',
-        unusedLabel: 'unused',
-        usedCount: used,
-        unusedCount: unused,
-        total,
-        usedPercent,
-        unusedPercent,
-        lpScore: resource.lpScore ?? usedPercent
-      }
-    }
-  }
-
-  const metrics = getUsageMetrics()
-  const severity = getSeverity(metrics.unusedPercent)
-  const serviceTags = resource.resourceType === 'IAMRole' ? getServiceTags(resource.resourceName) : []
-  const roleIcon = resource.resourceType === 'IAMRole' ? getRoleIcon(resource.resourceName) : null
-
-  // Get LP Score badge color
-  const getLPScoreColor = (score: number | null) => {
-    if (score === null) return 'bg-gray-100 text-gray-600'
-    if (score >= 80) return 'bg-green-100 text-green-700'
-    if (score >= 50) return 'bg-yellow-100 text-yellow-700'
-    return 'bg-red-100 text-red-700'
-  }
-
-  return (
-    <div
-      className={`rounded-xl shadow-sm p-6 hover:shadow-xl transition-all duration-200 cursor-pointer ${getRiskCardStyle(metrics.unusedPercent)}`}
-      onClick={onClick}
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3 flex-1">
-          {/* Role Icon with Service Icon */}
-          <div className={`p-2 rounded-lg ${getTypeColor().replace('text-', 'bg-').replace('-700', '-100')} relative`}>
-            {roleIcon ? (
-              <span className="text-2xl">{roleIcon}</span>
-            ) : (
-              getResourceIcon()
-            )}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h3 className="font-semibold text-lg text-gray-900">{resource.resourceName}</h3>
-              {/* Service Tags */}
-              {serviceTags.map((tag, idx) => (
-                <span
-                  key={idx}
-                  className={`px-2 py-0.5 text-xs font-medium rounded
-                    ${tag.color === 'purple' ? 'bg-purple-100 text-purple-700 border border-purple-200' : ''}
-                    ${tag.color === 'blue' ? 'bg-blue-100 text-blue-700 border border-blue-200' : ''}
-                    ${tag.color === 'orange' ? 'bg-orange-100 text-orange-700 border border-orange-200' : ''}
-                    ${tag.color === 'cyan' ? 'bg-cyan-100 text-cyan-700 border border-cyan-200' : ''}
-                    ${tag.color === 'green' ? 'bg-green-100 text-green-700 border border-green-200' : ''}
-                    ${tag.color === 'indigo' ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' : ''}
-                    ${tag.color === 'rose' ? 'bg-rose-100 text-rose-700 border border-rose-200' : ''}
-                  `}
-                >
-                  {tag.label}
-                </span>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <span className="flex items-center gap-1">📍 {resource.systemName || 'Unknown System'}</span>
-              {resource.region && (
-                <>
-                  <span className="text-gray-300">•</span>
-                  <span className="flex items-center gap-1">
-                    <Globe className="w-3 h-3" />
-                    {resource.region}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-        {/* Right side badges */}
-        <div className="flex flex-col items-end gap-2">
-          {/* Delete/Dismiss Button */}
-          {onDelete && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete(resource.id, resource.resourceName)
-              }}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-              title="Dismiss this alert"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-          {/* Severity Badge */}
-          <span className={`px-3 py-1 text-xs font-bold rounded-full border ${severity.bgColor} ${severity.color} border-current`}>
-            {severity.emoji} {severity.level}
-          </span>
-          {/* Orphan Badge for Security Groups */}
-          {resource.resourceType === 'SecurityGroup' && resource.isOrphan && (
-            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold border border-purple-300">
-              👻 ORPHAN
-            </span>
-          )}
-          {/* Resource Type Badge */}
-          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getTypeColor()}`}>
-            {resource.resourceType === 'IAMRole' ? 'IAM Role' :
-             resource.resourceType === 'SecurityGroup' ? 'Security Group' :
-             resource.resourceType === 'S3Bucket' ? 'S3 Bucket' : resource.resourceType}
-          </span>
-          {/* Non-remediable badge for IAM roles */}
-          {resource.resourceType === 'IAMRole' && resource.isRemediable === false && (
-            <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
-              ⚠️ AWS Managed
-            </span>
-          )}
-          {/* Remediation Date for remediated roles */}
-          {resource.resourceType === 'IAMRole' && resource.allowedCount === 0 && resource.remediatedAt && (
-            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium border border-emerald-200">
-              📅 {new Date(resource.remediatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              {resource.remediatedBy && ` by ${resource.remediatedBy}`}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Remediated Role Banner - Show instead of LP Score for remediated roles */}
-      {resource.resourceType === 'IAMRole' && resource.allowedCount === 0 ? (
-        <div className="mb-4 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-lg border-2 border-emerald-200">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center border-2 border-emerald-300">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
-            </div>
-            <div className="flex-1">
-              <h4 className="text-lg font-bold text-emerald-700">Fully Remediated</h4>
-              <p className="text-sm text-emerald-600">
-                All excess permissions removed. This role now follows least privilege.
-              </p>
-              {resource.remediatedAt && (
-                <p className="text-xs text-emerald-500 mt-1">
-                  Remediated on {new Date(resource.remediatedAt).toLocaleDateString('en-US', {
-                    weekday: 'short',
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                  {resource.remediatedBy && ` by ${resource.remediatedBy}`}
-                </p>
-              )}
-            </div>
-            <div className="text-4xl">✅</div>
-          </div>
-        </div>
-      ) : (
-      /* LP Score - Prominent Display */
-      <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
-        <div className="flex items-center gap-4">
-          <div className="flex flex-col">
-            <span className="text-xs text-gray-500 uppercase font-medium tracking-wide">Least Privilege Score</span>
-            <div className="flex items-center gap-3 mt-1">
-              <span className={`text-4xl font-bold ${metrics.lpScore !== null && metrics.lpScore < 50 ? 'text-red-600' : metrics.lpScore !== null && metrics.lpScore < 75 ? 'text-orange-600' : 'text-green-600'}`}>
-                {metrics.lpScore !== null && !isNaN(metrics.lpScore) ? `${Math.round(metrics.lpScore)}%` : 'N/A'}
-              </span>
-              <div className="flex flex-col text-xs">
-                <span className="text-gray-600">
-                  <span className="font-bold text-green-600">{metrics.usedCount}</span> {metrics.usedLabel}
-                </span>
-                <span className="text-gray-600">
-                  <span className="font-bold text-red-600">{metrics.unusedCount}</span> {metrics.unusedLabel}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className={`h-16 w-16 rounded-full flex items-center justify-center ${severity.bgColor} border-4 ${severity.bgColor.replace('bg-', 'border-').replace('-100', '-200')}`}>
-          <span className="text-2xl">{severity.emoji}</span>
-        </div>
-      </div>
-      )}
-
-      {/* Usage Bar - Enhanced with gradients - Hide for remediated IAM roles */}
-      {!(resource.resourceType === 'IAMRole' && resource.allowedCount === 0) && (
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">{metrics.label}</span>
-          <span className="text-sm text-gray-500">{metrics.total} total</span>
-        </div>
-
-        {/* Progress bar with gradient */}
-        <div className="relative h-12 rounded-xl overflow-hidden border-2 border-gray-200 shadow-inner">
-          {metrics.usedPercent > 0 && (
-            <div
-              className="absolute left-0 h-full bg-gradient-to-r from-green-400 to-green-600 flex items-center justify-center text-white text-sm font-bold shadow-lg transition-all"
-              style={{ width: `${metrics.usedPercent}%` }}
-            >
-              {metrics.usedCount > 0 && metrics.usedPercent >= 20 && (
-                <span className="drop-shadow-lg">✓ {metrics.usedCount} {metrics.usedLabel}</span>
-              )}
-            </div>
-          )}
-          {metrics.unusedPercent > 0 && (
-            <div
-              className="absolute right-0 h-full bg-gradient-to-r from-red-500 to-red-700 flex items-center justify-center text-white text-sm font-bold shadow-lg transition-all"
-              style={{ width: `${metrics.unusedPercent}%` }}
-            >
-              {metrics.unusedCount > 0 && metrics.unusedPercent >= 20 && (
-                <span className="drop-shadow-lg">✗ {metrics.unusedCount} {metrics.unusedLabel} ({metrics.unusedPercent}%)</span>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      )}
-
-      {/* High-Risk Info - Contextual per type */}
-      {resource.resourceType === 'SecurityGroup' && resource.networkExposure?.highRiskPorts?.length > 0 && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <div className="text-sm font-medium text-red-700">⚠️ High-Risk Ports Exposed:</div>
-          <div className="flex flex-wrap gap-2 mt-1">
-            {resource.networkExposure.highRiskPorts.slice(0, 5).map((port, idx) => (
-              <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-mono">
-                {port}
-              </span>
-            ))}
-            {resource.networkExposure.highRiskPorts.length > 5 && (
-              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
-                +{resource.networkExposure.highRiskPorts.length - 5} more
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* S3 Bucket Traffic Info */}
-      {resource.resourceType === 'S3Bucket' && (resource.accessorCount ?? 0) > 0 && (
-        <div className="mb-4 p-3 bg-cyan-50 border border-cyan-200 rounded-lg">
-          <div className="text-sm font-medium text-cyan-700 mb-2">📊 Observed Traffic:</div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-cyan-700">{resource.accessorCount}</span>
-              <span className="text-xs text-cyan-600">principals<br/>accessing</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-cyan-700">{(resource.totalHits ?? 0).toLocaleString()}</span>
-              <span className="text-xs text-cyan-600">total<br/>accesses</span>
-            </div>
-          </div>
-          {(resource.principals?.length ?? 0) > 0 && (
-            <div className="mt-2 pt-2 border-t border-cyan-200">
-              <div className="text-xs text-cyan-600 mb-1">Accessed by:</div>
-              <div className="flex flex-wrap gap-1">
-                {[...new Set(resource.principals)].slice(0, 3).map((principal, idx) => (
-                  <span key={idx} className="px-2 py-0.5 bg-cyan-100 text-cyan-800 rounded text-xs font-medium">
-                    {principal}
-                  </span>
-                ))}
-                {[...new Set(resource.principals)].length > 3 && (
-                  <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                    +{[...new Set(resource.principals)].length - 3} more
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {(resource.highRiskUnused?.length || 0) > 0 && resource.resourceType !== 'SecurityGroup' && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <div className="text-sm font-medium text-red-700">⚠️ High-Risk Unused Permissions:</div>
-          <div className="flex flex-wrap gap-2 mt-1">
-            {(resource.highRiskUnused || []).slice(0, 3).map((perm, idx) => (
-              <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-mono">
-                {perm.permission}
-              </span>
-            ))}
-            {(resource.highRiskUnused?.length || 0) > 3 && (
-              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
-                +{(resource.highRiskUnused?.length || 0) - 3} more
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Analysis & Action Summary */}
-      <div className="mb-4 space-y-2">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <span>📊</span>
-          <span>
-            <strong>Analysis:</strong> {resource.evidence?.observationDays || 365} days | {(resource.evidence?.dataSources || ['Neo4j', 'CloudTrail']).join(' + ')} | {resource.evidence?.confidence || 'LOW'} confidence
-          </span>
-        </div>
-        <div className={`flex items-center gap-2 text-sm font-medium ${severity.color}`}>
-          <span>💡</span>
-          <span>
-            <strong>Action:</strong> {
-              metrics.unusedPercent >= 80
-                ? `Remove ${metrics.unusedCount} permissions immediately`
-                : metrics.unusedPercent >= 50
-                ? `Review and reduce ${metrics.unusedCount} permissions`
-                : metrics.unusedPercent >= 20
-                ? `Monitor and optimize ${metrics.unusedCount} permissions`
-                : metrics.unusedCount > 0
-                ? `Well-scoped, remove ${metrics.unusedCount} unused permissions`
-                : 'Fully optimized - no action needed'
-            }
-          </span>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-        <div className="flex items-center gap-2 text-xs text-gray-400">
-          <Clock className="w-3 h-3" />
-          <span>Last updated: {resource.evidence?.lastUsed || 'N/A'}</span>
-        </div>
-        <button
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-semibold flex items-center gap-2 transition-colors shadow-md hover:shadow-lg"
-          onClick={(e) => {
-            e.stopPropagation()
-            onClick()
-          }}
-        >
-          View Remediation
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  )
-}
 
 // Remediation Drawer Component
 function RemediationDrawer({ 

@@ -1,0 +1,5 @@
+export { IdentitiesOverviewTab } from "./identities-overview-tab"
+export { NHITab } from "./nhi-tab"
+export { HumanIdentitiesTab } from "./human-identities-tab"
+export { ThirdPartyTab } from "./third-party-tab"
+export { PrivilegedAccessTab } from "./privileged-access-tab"
