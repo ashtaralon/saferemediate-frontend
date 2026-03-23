@@ -438,8 +438,8 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <RefreshCw className="w-12 h-12 text-blue-600 animate-spin mx-auto" />
-          <p className="mt-4 text-gray-600">Loading snapshots...</p>
+          <RefreshCw className="w-12 h-12 text-[#3b82f6] animate-spin mx-auto" />
+          <p className="mt-4 text-[var(--muted-foreground,#4b5563)]">Loading snapshots...</p>
         </div>
       </div>
     )
@@ -447,9 +447,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
 
   if (error && snapshots.length === 0) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-        <h3 className="text-red-800 font-semibold mb-2">Error</h3>
-        <p className="text-red-600">{error}</p>
+      <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-6">
+        <h3 className="text-[#ef4444] font-semibold mb-2">Error</h3>
+        <p className="text-[#ef4444]">{error}</p>
         <button
           onClick={loadSnapshots}
           className="mt-4 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 flex items-center gap-2"
@@ -466,11 +466,11 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Recovery & Rollback</h2>
-          <p className="text-gray-600 mt-1">Restore Security Groups, S3 Buckets, and IAM Roles to previous snapshots</p>
+          <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Recovery & Rollback</h2>
+          <p className="text-[var(--muted-foreground,#4b5563)] mt-1">Restore Security Groups, S3 Buckets, and IAM Roles to previous snapshots</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+          <span className="text-sm text-[var(--muted-foreground,#6b7280)] bg-gray-100 px-3 py-1 rounded-full">
             {snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''}
           </span>
           <button
@@ -512,9 +512,9 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
               type="checkbox"
               checked={selectedSnapshots.size === snapshots.length && snapshots.length > 0}
               onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-[var(--border,#d1d5db)] text-[#3b82f6] focus:ring-[#8b5cf6]"
             />
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-[var(--foreground,#374151)]">
               Select All ({selectedSnapshots.size} of {snapshots.length} selected)
             </span>
           </label>
@@ -523,17 +523,17 @@ export default function RecoveryTab({ systemName }: RecoveryTabProps) {
 
       {/* Error Banner */}
       {error && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <p className="text-yellow-800">{error}</p>
+        <div className="bg-[#eab30810] border border-[#eab30840] rounded-lg p-4">
+          <p className="text-[#eab308]">{error}</p>
         </div>
       )}
 
       {/* Empty State */}
       {snapshots.length === 0 ? (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
+        <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-lg p-12 text-center">
           <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900">No snapshots yet</h3>
-          <p className="mt-2 text-gray-600">
+          <h3 className="text-lg font-medium text-[var(--foreground,#111827)]">No snapshots yet</h3>
+          <p className="mt-2 text-[var(--muted-foreground,#4b5563)]">
             Snapshots are automatically created when you execute Security Group or IAM Role remediations.
           </p>
         </div>
@@ -621,15 +621,15 @@ function SnapshotCard({
 
   return (
     <div className={`bg-white border-2 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden ${
-      isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'
+      isSelected ? 'border-[#3b82f6] ring-2 ring-blue-200' : 'border-[var(--border,#e5e7eb)]'
     }`}>
       {/* Header */}
-      <div className={`px-4 py-3 border-b border-gray-100 ${
+      <div className={`px-4 py-3 border-b border-[var(--border,#f3f4f6)] ${
         isIAMRole
-          ? 'bg-gradient-to-r from-purple-50 to-violet-50'
+          ? 'bg-purple-50'
           : isS3Bucket
-            ? 'bg-gradient-to-r from-orange-50 to-amber-50'
-            : 'bg-gradient-to-r from-blue-50 to-indigo-50'
+            ? 'bg-green-50'
+            : 'bg-blue-50'
       }`}>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -638,38 +638,38 @@ function SnapshotCard({
               type="checkbox"
               checked={isSelected}
               onChange={onToggleSelect}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+              className="w-4 h-4 rounded border-[var(--border,#d1d5db)] text-[#3b82f6] focus:ring-[#8b5cf6] cursor-pointer"
             />
             <div className={`p-2 rounded-lg ${
-              isIAMRole ? 'bg-purple-100' : isS3Bucket ? 'bg-orange-100' : 'bg-blue-100'
+              isIAMRole ? 'bg-[#8b5cf615]' : isS3Bucket ? 'bg-[#f9731620]' : 'bg-[#3b82f620]'
             }`}>
               {isIAMRole ? (
-                <Key className="w-5 h-5 text-purple-600" />
+                <Key className="w-5 h-5 text-[#8b5cf6]" />
               ) : isS3Bucket ? (
                 <Database className="w-5 h-5 text-orange-600" />
               ) : (
-                <Shield className="w-5 h-5 text-blue-600" />
+                <Shield className="w-5 h-5 text-[#3b82f6]" />
               )}
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{resourceName}</h3>
-              <p className="text-xs text-gray-500 font-mono truncate max-w-[200px]">{resourceId}</p>
+              <h3 className="font-semibold text-[var(--foreground,#111827)]">{resourceName}</h3>
+              <p className="text-xs text-[var(--muted-foreground,#6b7280)] font-mono truncate max-w-[200px]">{resourceId}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
               isIAMRole
-                ? 'bg-purple-100 text-purple-700'
+                ? 'bg-[#8b5cf615] text-[#7c3aed]'
                 : isS3Bucket
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-blue-100 text-blue-700'
+                  ? 'bg-[#f9731620] text-[#f97316]'
+                  : 'bg-[#3b82f620] text-[#3b82f6]'
             }`}>
               {isIAMRole ? 'IAM Role' : isS3Bucket ? 'S3 Bucket' : 'Security Group'}
             </span>
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
               status === 'available' 
-                ? 'bg-green-100 text-green-700' 
-                : 'bg-blue-100 text-blue-700'
+                ? 'bg-[#22c55e20] text-[#22c55e]' 
+                : 'bg-[#3b82f620] text-[#3b82f6]'
             }`}>
               {status === 'available' ? '● Available' : '↺ Restored'}
             </span>
@@ -682,44 +682,44 @@ function SnapshotCard({
         {/* Resource-specific Info */}
         {isIAMRole ? (
           /* IAM Role Details */
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Lock className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-500">Permissions:</span>
-            <span className="font-medium text-gray-900">{permissionsCount} total</span>
+          <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
+            <Lock className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
+            <span className="text-[var(--muted-foreground,#6b7280)]">Permissions:</span>
+            <span className="font-medium text-[var(--foreground,#111827)]">{permissionsCount} total</span>
             {removedPermissions.length > 0 && (
-              <span className="text-red-600">({removedPermissions.length} removed)</span>
+              <span className="text-[#ef4444]">({removedPermissions.length} removed)</span>
             )}
           </div>
         ) : isS3Bucket ? (
           /* S3 Bucket Details */
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Database className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-500">Bucket:</span>
-            <span className="font-mono text-xs bg-orange-50 px-2 py-0.5 rounded text-orange-700">{bucketName}</span>
+          <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
+            <Database className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
+            <span className="text-[var(--muted-foreground,#6b7280)]">Bucket:</span>
+            <span className="font-mono text-xs bg-[#f9731610] px-2 py-0.5 rounded text-[#f97316]">{bucketName}</span>
           </div>
         ) : (
           /* Security Group Details */
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <Server className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-500">VPC:</span>
+          <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
+            <Server className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
+            <span className="text-[var(--muted-foreground,#6b7280)]">VPC:</span>
             <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">{vpcId}</span>
           </div>
         )}
 
         {/* Metadata Grid */}
         <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="flex items-center gap-2 text-gray-600">
-            <Calendar className="w-4 h-4 text-gray-400" />
+          <div className="flex items-center gap-2 text-[var(--muted-foreground,#4b5563)]">
+            <Calendar className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
             <div>
-              <span className="text-gray-900">{formatDate(timestamp)}</span>
+              <span className="text-[var(--foreground,#111827)]">{formatDate(timestamp)}</span>
               {getTimeAgo(timestamp) && (
-                <span className="text-gray-400 ml-1">({getTimeAgo(timestamp)})</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)] ml-1">({getTimeAgo(timestamp)})</span>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-gray-600">
-            <User className="w-4 h-4 text-gray-400" />
-            <span>by <span className="text-gray-900">{triggeredBy}</span></span>
+          <div className="flex items-center gap-2 text-[var(--muted-foreground,#4b5563)]">
+            <User className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
+            <span>by <span className="text-[var(--foreground,#111827)]">{triggeredBy}</span></span>
           </div>
         </div>
 
@@ -727,16 +727,16 @@ function SnapshotCard({
         {isIAMRole ? (
           /* IAM Removed Permissions Preview */
           removedPermissions.length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              <p className="text-xs text-red-600 font-medium mb-1">Removed Permissions:</p>
+            <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg px-3 py-2">
+              <p className="text-xs text-[#ef4444] font-medium mb-1">Removed Permissions:</p>
               <div className="flex flex-wrap gap-1">
                 {removedPermissions.slice(0, 3).map((perm, i) => (
-                  <span key={i} className="text-xs font-mono bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                  <span key={i} className="text-xs font-mono bg-[#ef444420] text-[#ef4444] px-2 py-0.5 rounded">
                     {perm}
                   </span>
                 ))}
                 {removedPermissions.length > 3 && (
-                  <span className="text-xs text-red-600">
+                  <span className="text-xs text-[#ef4444]">
                     +{removedPermissions.length - 3} more
                   </span>
                 )}
@@ -746,44 +746,44 @@ function SnapshotCard({
         ) : isS3Bucket ? (
           /* S3 Bucket Policy Info */
           <div className="flex items-center gap-4 py-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#f9731610] rounded-lg">
               <Database className="w-4 h-4 text-orange-600" />
-              <span className="text-sm font-medium text-orange-700">Policy checkpoint saved</span>
+              <span className="text-sm font-medium text-[#f97316]">Policy checkpoint saved</span>
             </div>
           </div>
         ) : (
           /* SG Rules Count */
           <div className="flex items-center gap-4 py-2">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg">
-              <ArrowDownToLine className="w-4 h-4 text-green-600" />
-              <span className="text-sm font-medium text-green-700">{inboundRules} inbound</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#22c55e10] rounded-lg">
+              <ArrowDownToLine className="w-4 h-4 text-[#22c55e]" />
+              <span className="text-sm font-medium text-[#22c55e]">{inboundRules} inbound</span>
             </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-50 rounded-lg">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#f9731610] rounded-lg">
               <ArrowUpFromLine className="w-4 h-4 text-orange-600" />
-              <span className="text-sm font-medium text-orange-700">{outboundRules} outbound</span>
+              <span className="text-sm font-medium text-[#f97316]">{outboundRules} outbound</span>
             </div>
           </div>
         )}
 
         {/* Reason */}
         <div className="bg-gray-50 rounded-lg px-3 py-2">
-          <p className="text-sm text-gray-600">
-            <span className="text-gray-400">Reason:</span>{' '}
-            <span className="text-gray-700">{reason}</span>
+          <p className="text-sm text-[var(--muted-foreground,#4b5563)]">
+            <span className="text-[var(--muted-foreground,#9ca3af)]">Reason:</span>{' '}
+            <span className="text-[var(--foreground,#374151)]">{reason}</span>
           </p>
         </div>
 
         {/* Restored At (if applicable) */}
         {snapshot.restored_at && (
-          <div className="text-xs text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg">
+          <div className="text-xs text-[#3b82f6] bg-[#3b82f610] px-3 py-1.5 rounded-lg">
             ↺ Restored on {formatDate(snapshot.restored_at)}
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-        <span className="text-xs font-mono text-gray-400">{snapshot.snapshot_id}</span>
+      <div className="px-4 py-3 bg-gray-50 border-t border-[var(--border,#f3f4f6)] flex items-center justify-between">
+        <span className="text-xs font-mono text-[var(--muted-foreground,#9ca3af)]">{snapshot.snapshot_id}</span>
         <div className="flex items-center gap-2">
           {/* Delete Button */}
           <button
@@ -791,8 +791,8 @@ function SnapshotCard({
             disabled={isDeleting || isRestoring}
             className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
               isDeleting
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-gray-200 text-gray-700 hover:bg-red-100 hover:text-red-700'
+                ? 'bg-gray-200 text-[var(--muted-foreground,#9ca3af)] cursor-not-allowed'
+                : 'bg-gray-200 text-[var(--foreground,#374151)] hover:bg-[#ef444420] hover:text-[#ef4444]'
             }`}
             title="Delete snapshot"
           >
@@ -808,9 +808,9 @@ function SnapshotCard({
             disabled={isRestoring || isDeleting}
             className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
               isRestoring
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                ? 'bg-gray-300 text-[var(--muted-foreground,#6b7280)] cursor-not-allowed'
                 : isIAMRole
-                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  ? 'bg-[#8b5cf6] text-white hover:bg-[#7c3aed]'
                   : isS3Bucket
                     ? 'bg-orange-600 text-white hover:bg-orange-700'
                     : 'bg-red-600 text-white hover:bg-red-700'

@@ -53,13 +53,13 @@ const getResourceIcon = (key: string, type?: string) => {
 const RiskFlagBadge: React.FC<{ flag: string }> = ({ flag }) => {
   const flagColors: Record<string, string> = {
     database_access: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-    no_iam_auth: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    no_iam_auth: 'bg-[#f9731610]0/20 text-amber-400 border-amber-500/30',
     internet_exposed: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
     cross_account: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
-    sensitive_data: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    sensitive_data: 'bg-[#f9731610]0/20 text-orange-400 border-orange-500/30',
     admin_access: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-    write_access: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-    unexpected_port: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    write_access: 'bg-[#f9731610]0/20 text-amber-400 border-amber-500/30',
+    unexpected_port: 'bg-[#f9731610]0/20 text-orange-400 border-orange-500/30',
     default: 'bg-slate-600/50 text-slate-400 border-slate-500/30',
   }
 

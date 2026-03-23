@@ -463,27 +463,27 @@ export function RiskyPortsDashboard() {
   }, [ports, simulationResults])
 
   const getRiskColor = (cvss: number) => {
-    if (cvss >= 9.0) return 'bg-red-100 text-red-800 border-red-200'
-    if (cvss >= 7.0) return 'bg-orange-100 text-orange-800 border-orange-200'
-    if (cvss >= 4.0) return 'bg-amber-100 text-amber-800 border-amber-200'
-    return 'bg-green-100 text-green-800 border-green-200'
+    if (cvss >= 9.0) return 'bg-[#ef444420] text-[#ef4444] border-[#ef444440]'
+    if (cvss >= 7.0) return 'bg-[#f9731620] text-[#f97316] border-[#f9731640]'
+    if (cvss >= 4.0) return 'bg-[#f9731620] text-[#f97316] border-[#f9731640]'
+    return 'bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]'
   }
 
   const getRecommendationStyle = (rec: SimulationResult['recommendation']) => {
     switch (rec) {
-      case 'SAFE_TO_BLOCK': return 'bg-green-100 text-green-800 border-green-300'
-      case 'BLOCK_WITH_CAUTION': return 'bg-amber-100 text-amber-800 border-amber-300'
-      case 'RESTRICT_INSTEAD': return 'bg-blue-100 text-blue-800 border-blue-300'
-      case 'DO_NOT_BLOCK': return 'bg-red-100 text-red-800 border-red-300'
+      case 'SAFE_TO_BLOCK': return 'bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]'
+      case 'BLOCK_WITH_CAUTION': return 'bg-[#f9731620] text-[#f97316] border-[#f9731640]'
+      case 'RESTRICT_INSTEAD': return 'bg-[#3b82f620] text-[#3b82f6] border-blue-300'
+      case 'DO_NOT_BLOCK': return 'bg-[#ef444420] text-[#ef4444] border-[#ef444440]'
     }
   }
 
   const getRecommendationIcon = (rec: SimulationResult['recommendation']) => {
     switch (rec) {
-      case 'SAFE_TO_BLOCK': return <CheckCircle2 className="w-5 h-5 text-green-600" />
-      case 'BLOCK_WITH_CAUTION': return <AlertTriangle className="w-5 h-5 text-amber-600" />
-      case 'RESTRICT_INSTEAD': return <Shield className="w-5 h-5 text-blue-600" />
-      case 'DO_NOT_BLOCK': return <XCircle className="w-5 h-5 text-red-600" />
+      case 'SAFE_TO_BLOCK': return <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
+      case 'BLOCK_WITH_CAUTION': return <AlertTriangle className="w-5 h-5 text-[#f97316]" />
+      case 'RESTRICT_INSTEAD': return <Shield className="w-5 h-5 text-[#3b82f6]" />
+      case 'DO_NOT_BLOCK': return <XCircle className="w-5 h-5 text-[#ef4444]" />
     }
   }
 
@@ -492,11 +492,11 @@ export function RiskyPortsDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Network className="w-7 h-7 text-indigo-600" />
+          <h1 className="text-2xl font-bold text-[var(--foreground,#111827)] flex items-center gap-2">
+            <Network className="w-7 h-7 text-[#8b5cf6]" />
             Risky Ports Dashboard
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-[var(--muted-foreground,#4b5563)] mt-1">
             Analyze exposed ports, traffic patterns, and get remediation recommendations
           </p>
         </div>
@@ -504,7 +504,7 @@ export function RiskyPortsDashboard() {
           <button
             onClick={runBulkSimulation}
             disabled={loading || runningBulkSimulation || filteredPorts.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-lg text-sm font-medium disabled:opacity-50"
           >
             {runningBulkSimulation ? (
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -516,7 +516,7 @@ export function RiskyPortsDashboard() {
           <button
             onClick={fetchRiskyPorts}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-[var(--foreground,#374151)] rounded-lg text-sm font-medium"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -526,47 +526,47 @@ export function RiskyPortsDashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-6 gap-4">
-        <div className="rounded-xl p-4 border bg-gray-50 border-gray-200">
-          <div className="flex items-center gap-2 text-gray-600 mb-1">
+        <div className="rounded-xl p-4 border bg-gray-50 border-[var(--border,#e5e7eb)]">
+          <div className="flex items-center gap-2 text-[var(--muted-foreground,#4b5563)] mb-1">
             <Target className="w-4 h-4" />
             <span className="text-sm font-medium">Total Ports</span>
           </div>
-          <div className="text-3xl font-bold text-gray-900">{stats.totalPorts}</div>
+          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{stats.totalPorts}</div>
         </div>
 
-        <div className="rounded-xl p-4 border bg-red-50 border-red-200">
-          <div className="flex items-center gap-2 text-red-600 mb-1">
+        <div className="rounded-xl p-4 border bg-[#ef444410] border-[#ef444440]">
+          <div className="flex items-center gap-2 text-[#ef4444] mb-1">
             <AlertTriangle className="w-4 h-4" />
             <span className="text-sm font-medium">Critical Risk</span>
           </div>
-          <div className="text-3xl font-bold text-red-700">{stats.criticalPorts}</div>
-          <div className="text-xs text-red-500 mt-1">CVSS 9.0+</div>
+          <div className="text-3xl font-bold text-[#ef4444]">{stats.criticalPorts}</div>
+          <div className="text-xs text-[#ef4444] mt-1">CVSS 9.0+</div>
         </div>
 
-        <div className="rounded-xl p-4 border bg-amber-50 border-amber-200">
-          <div className="flex items-center gap-2 text-amber-600 mb-1">
+        <div className="rounded-xl p-4 border bg-[#f9731610] border-[#f9731640]">
+          <div className="flex items-center gap-2 text-[#f97316] mb-1">
             <Globe className="w-4 h-4" />
             <span className="text-sm font-medium">Public Exposed</span>
           </div>
-          <div className="text-3xl font-bold text-amber-700">{stats.publicPorts}</div>
+          <div className="text-3xl font-bold text-[#f97316]">{stats.publicPorts}</div>
           <div className="text-xs text-amber-500 mt-1">0.0.0.0/0</div>
         </div>
 
-        <div className="rounded-xl p-4 border bg-green-50 border-green-200">
-          <div className="flex items-center gap-2 text-green-600 mb-1">
+        <div className="rounded-xl p-4 border bg-[#22c55e10] border-[#22c55e40]">
+          <div className="flex items-center gap-2 text-[#22c55e] mb-1">
             <Ban className="w-4 h-4" />
             <span className="text-sm font-medium">No Traffic</span>
           </div>
-          <div className="text-3xl font-bold text-green-700">{stats.unusedPorts}</div>
-          <div className="text-xs text-green-500 mt-1">Safe to block</div>
+          <div className="text-3xl font-bold text-[#22c55e]">{stats.unusedPorts}</div>
+          <div className="text-xs text-[#22c55e] mt-1">Safe to block</div>
         </div>
 
-        <div className="rounded-xl p-4 border bg-emerald-50 border-emerald-200">
-          <div className="flex items-center gap-2 text-emerald-600 mb-1">
+        <div className="rounded-xl p-4 border bg-[#10b98110] border-[#10b98140]">
+          <div className="flex items-center gap-2 text-[#10b981] mb-1">
             <CheckCircle2 className="w-4 h-4" />
             <span className="text-sm font-medium">Can Block</span>
           </div>
-          <div className="text-3xl font-bold text-emerald-700">{stats.safeToBlock}</div>
+          <div className="text-3xl font-bold text-[#10b981]">{stats.safeToBlock}</div>
           <div className="text-xs text-emerald-500 mt-1">From {stats.simulated} simulated</div>
         </div>
 
@@ -583,20 +583,20 @@ export function RiskyPortsDashboard() {
       {/* Filters */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
           <input
             type="text"
             placeholder="Search by port number or service..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full pl-10 pr-4 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
 
         <select
           value={filterRisk}
           onChange={(e) => setFilterRisk(e.target.value as any)}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="all">All Risk Levels</option>
           <option value="critical">Critical (CVSS 9+)</option>
@@ -607,7 +607,7 @@ export function RiskyPortsDashboard() {
         <select
           value={filterTraffic}
           onChange={(e) => setFilterTraffic(e.target.value as any)}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <option value="all">All Traffic Status</option>
           <option value="unused">Unused (No Traffic)</option>
@@ -617,7 +617,7 @@ export function RiskyPortsDashboard() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+        <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4 text-[#ef4444]">
           <p className="font-medium">Failed to load ports</p>
           <p className="text-sm">{error}</p>
         </div>
@@ -625,25 +625,25 @@ export function RiskyPortsDashboard() {
 
       {/* Loading */}
       {loading && (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-indigo-600" />
-          <p className="text-gray-600">Analyzing ports across all security groups...</p>
+        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-12 text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-[#8b5cf6]" />
+          <p className="text-[var(--muted-foreground,#4b5563)]">Analyzing ports across all security groups...</p>
         </div>
       )}
 
       {/* Ports List */}
       {!loading && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-gray-200 bg-gray-50">
-            <h2 className="font-semibold text-gray-900">
+        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
+            <h2 className="font-semibold text-[var(--foreground,#111827)]">
               Exposed Ports ({filteredPorts.length})
             </h2>
           </div>
 
           <div className="divide-y divide-gray-100">
             {filteredPorts.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <ShieldCheck className="w-12 h-12 mx-auto mb-3 text-green-500" />
+              <div className="p-8 text-center text-[var(--muted-foreground,#6b7280)]">
+                <ShieldCheck className="w-12 h-12 mx-auto mb-3 text-[#22c55e]" />
                 <p className="font-medium">No risky ports found</p>
                 <p className="text-sm">All ports are secure</p>
               </div>
@@ -663,8 +663,8 @@ export function RiskyPortsDashboard() {
                         <div className="flex items-center gap-4">
                           {/* Port/Service */}
                           <div className="w-24">
-                            <div className="text-lg font-bold text-gray-900">{port.port}</div>
-                            <div className="text-sm text-gray-500">{port.service}</div>
+                            <div className="text-lg font-bold text-[var(--foreground,#111827)]">{port.port}</div>
+                            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">{port.service}</div>
                           </div>
 
                           {/* Risk Badge */}
@@ -674,14 +674,14 @@ export function RiskyPortsDashboard() {
 
                           {/* CVE Count */}
                           <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-500">{port.cve_count} CVEs</span>
+                            <span className="text-sm text-[var(--muted-foreground,#6b7280)]">{port.cve_count} CVEs</span>
                             {port.critical_cves > 0 && (
                               <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-600 text-white">
                                 {port.critical_cves} CRITICAL
                               </span>
                             )}
                             {port.exploits_available && (
-                              <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">
+                              <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[#ef444420] text-[#ef4444]">
                                 <Zap className="w-3 h-3" /> Exploits
                               </span>
                             )}
@@ -689,7 +689,7 @@ export function RiskyPortsDashboard() {
 
                           {/* Public Badge */}
                           {port.is_public && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">
+                            <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[#f9731620] text-[#f97316]">
                               <Globe className="w-3 h-3" /> PUBLIC
                             </span>
                           )}
@@ -700,21 +700,21 @@ export function RiskyPortsDashboard() {
                           <div className="text-right">
                             {port.traffic.bytes > 0 ? (
                               <>
-                                <div className="flex items-center gap-1 text-sm text-gray-900">
-                                  <Activity className="w-4 h-4 text-green-500" />
+                                <div className="flex items-center gap-1 text-sm text-[var(--foreground,#111827)]">
+                                  <Activity className="w-4 h-4 text-[#22c55e]" />
                                   <span className="font-medium">{formatBytes(port.traffic.bytes)}</span>
                                 </div>
-                                <div className="text-xs text-gray-500">
+                                <div className="text-xs text-[var(--muted-foreground,#6b7280)]">
                                   Last: {formatTimeAgo(port.traffic.last_seen)}
                                 </div>
                               </>
                             ) : (
                               <>
-                                <div className="flex items-center gap-1 text-sm text-gray-500">
-                                  <Ban className="w-4 h-4 text-gray-400" />
+                                <div className="flex items-center gap-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                                  <Ban className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                                   <span>No traffic</span>
                                 </div>
-                                <div className="text-xs text-green-600 font-medium">
+                                <div className="text-xs text-[#22c55e] font-medium">
                                   Safe to block
                                 </div>
                               </>
@@ -739,7 +739,7 @@ export function RiskyPortsDashboard() {
                                 runSimulation(port)
                               }}
                               disabled={simulating === port.port}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                              className="flex items-center gap-1 px-3 py-1.5 bg-[#8b5cf6] text-white rounded-lg text-sm font-medium hover:bg-[#7c3aed] disabled:opacity-50"
                             >
                               {simulating === port.port ? (
                                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -750,9 +750,9 @@ export function RiskyPortsDashboard() {
                             </button>
 
                             {isExpanded ? (
-                              <ChevronUp className="w-5 h-5 text-gray-400" />
+                              <ChevronUp className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
                             ) : (
-                              <ChevronDown className="w-5 h-5 text-gray-400" />
+                              <ChevronDown className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
                             )}
                           </div>
                         </div>
@@ -765,33 +765,33 @@ export function RiskyPortsDashboard() {
                         <div className="grid grid-cols-3 gap-4">
                           {/* Traffic Analysis */}
                           <div className="bg-gray-50 rounded-lg p-4">
-                            <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3 flex items-center gap-2">
                               <Activity className="w-4 h-4" />
                               Traffic Analysis
                             </h4>
                             <div className="space-y-2 text-sm">
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Total Data:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Total Data:</span>
                                 <span className="font-medium">{formatBytes(port.traffic.bytes)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Packets:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Packets:</span>
                                 <span className="font-medium">{port.traffic.packets.toLocaleString()}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Unique Sources:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Unique Sources:</span>
                                 <span className="font-medium">{port.traffic.unique_sources}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Last Activity:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Last Activity:</span>
                                 <span className="font-medium">{formatTimeAgo(port.traffic.last_seen)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Classification:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Classification:</span>
                                 <span className={`font-bold ${
-                                  port.classification === 'UNUSED' ? 'text-green-600' :
-                                  port.classification === 'LOW_USAGE' ? 'text-amber-600' :
-                                  'text-blue-600'
+                                  port.classification === 'UNUSED' ? 'text-[#22c55e]' :
+                                  port.classification === 'LOW_USAGE' ? 'text-[#f97316]' :
+                                  'text-[#3b82f6]'
                                 }`}>{port.classification}</span>
                               </div>
                             </div>
@@ -799,30 +799,30 @@ export function RiskyPortsDashboard() {
 
                           {/* Security Groups */}
                           <div className="bg-gray-50 rounded-lg p-4">
-                            <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3 flex items-center gap-2">
                               <Shield className="w-4 h-4" />
                               Security Groups ({port.sg_rules.length})
                             </h4>
                             <div className="space-y-2">
                               {port.sg_rules.slice(0, 5).map((rule, idx) => (
                                 <div key={idx} className="text-sm flex items-center justify-between">
-                                  <span className="text-gray-700 truncate max-w-[150px]">{rule.sg_name}</span>
+                                  <span className="text-[var(--foreground,#374151)] truncate max-w-[150px]">{rule.sg_name}</span>
                                   <span className={`text-xs px-2 py-0.5 rounded ${
-                                    rule.is_public ? 'bg-red-100 text-red-700' : 'bg-gray-200 text-gray-600'
+                                    rule.is_public ? 'bg-[#ef444420] text-[#ef4444]' : 'bg-gray-200 text-[var(--muted-foreground,#4b5563)]'
                                   }`}>
                                     {rule.source.length > 15 ? rule.source.substring(0, 15) + '...' : rule.source}
                                   </span>
                                 </div>
                               ))}
                               {port.sg_rules.length > 5 && (
-                                <div className="text-xs text-gray-500">+{port.sg_rules.length - 5} more</div>
+                                <div className="text-xs text-[var(--muted-foreground,#6b7280)]">+{port.sg_rules.length - 5} more</div>
                               )}
                             </div>
                           </div>
 
                           {/* Affected Resources */}
                           <div className="bg-gray-50 rounded-lg p-4">
-                            <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3 flex items-center gap-2">
                               <Server className="w-4 h-4" />
                               Affected Resources ({port.affected_resources.length})
                             </h4>
@@ -830,16 +830,16 @@ export function RiskyPortsDashboard() {
                               {port.affected_resources.slice(0, 5).map((res, idx) => (
                                 <div key={idx} className="text-sm flex items-center gap-2">
                                   <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
-                                    res.type === 'instance' ? 'bg-orange-100 text-orange-700' :
-                                    'bg-purple-100 text-purple-700'
+                                    res.type === 'instance' ? 'bg-[#f9731620] text-[#f97316]' :
+                                    'bg-[#8b5cf615] text-[#7c3aed]'
                                   }`}>
                                     {res.type === 'instance' ? 'EC2' : res.type}
                                   </span>
-                                  <span className="text-gray-700 truncate">{res.name}</span>
+                                  <span className="text-[var(--foreground,#374151)] truncate">{res.name}</span>
                                 </div>
                               ))}
                               {port.affected_resources.length > 5 && (
-                                <div className="text-xs text-gray-500">+{port.affected_resources.length - 5} more</div>
+                                <div className="text-xs text-[var(--muted-foreground,#6b7280)]">+{port.affected_resources.length - 5} more</div>
                               )}
                             </div>
                           </div>
@@ -893,7 +893,7 @@ export function RiskyPortsDashboard() {
 
                         {/* CVEs */}
                         {port.cves.length > 0 && (
-                          <div className="bg-red-50 rounded-lg p-4">
+                          <div className="bg-[#ef444410] rounded-lg p-4">
                             <h4 className="font-semibold text-red-900 mb-3 flex items-center gap-2">
                               <AlertTriangle className="w-4 h-4" />
                               Vulnerabilities ({port.cves.length})
@@ -907,15 +907,15 @@ export function RiskyPortsDashboard() {
                                     </span>
                                     <span className="font-mono text-xs">{cve.cve_id}</span>
                                     {cve.exploit_available && (
-                                      <Zap className="w-3 h-3 text-red-500" />
+                                      <Zap className="w-3 h-3 text-[#ef4444]" />
                                     )}
                                   </div>
-                                  <p className="text-gray-600 text-xs line-clamp-2">{cve.description}</p>
+                                  <p className="text-[var(--muted-foreground,#4b5563)] text-xs line-clamp-2">{cve.description}</p>
                                 </div>
                               ))}
                             </div>
                             {port.cves.length > 6 && (
-                              <div className="text-xs text-red-600 mt-2">+{port.cves.length - 6} more CVEs</div>
+                              <div className="text-xs text-[#ef4444] mt-2">+{port.cves.length - 6} more CVEs</div>
                             )}
                           </div>
                         )}

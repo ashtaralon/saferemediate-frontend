@@ -14,7 +14,7 @@ interface TabsNavigationProps {
 
 export function TabsNavigation({ tabs, activeTab, onTabChange }: TabsNavigationProps) {
   return (
-    <div className="flex items-center gap-1 mt-6 border-b border-gray-200 -mb-px">
+    <div className="flex items-center gap-1 mt-6 border-b border-[var(--border,#e5e7eb)] -mb-px">
       {tabs.map((tab) => {
         const IconComponent = tab.icon
         return (
@@ -24,7 +24,7 @@ export function TabsNavigation({ tabs, activeTab, onTabChange }: TabsNavigationP
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.id
                 ? "border-[#2D51DA] text-[#2D51DA]"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                : "border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
             }`}
           >
             <IconComponent className="w-4 h-4" />

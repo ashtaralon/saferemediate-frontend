@@ -15,12 +15,12 @@ export function TrendsActivity({ newResolvedData = [], openIssuesData = [] }: Tr
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4 text-gray-900">Trends & Activity</h2>
+      <h2 className="text-xl font-semibold mb-4 text-[var(--foreground,#111827)]">Trends & Activity</h2>
       <div className="grid grid-cols-2 gap-4">
         {/* New VS Resolved Issues Chart */}
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+        <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">New VS Resolved Issues</h3>
+            <h3 className="font-semibold text-[var(--foreground,#111827)]">New VS Resolved Issues</h3>
             <div className="flex items-center gap-2">
               <Select defaultValue="24h">
                 <SelectTrigger className="w-32 h-8 text-xs">
@@ -58,29 +58,29 @@ export function TrendsActivity({ newResolvedData = [], openIssuesData = [] }: Tr
           <div className="flex items-center gap-4 mb-3 text-xs">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-red-400 rounded-full"></div>
-              <span className="text-gray-600">New</span>
+              <span className="text-[var(--muted-foreground,#4b5563)]">New</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-green-400 rounded-full"></div>
-              <span className="text-gray-600">Resolved</span>
+              <span className="text-[var(--muted-foreground,#4b5563)]">Resolved</span>
             </div>
           </div>
 
           {hasNewResolvedData ? (
-            <div className="h-48 bg-gray-50 rounded flex items-center justify-center text-sm text-gray-500">
+            <div className="h-48 bg-gray-50 rounded flex items-center justify-center text-sm text-[var(--muted-foreground,#6b7280)]">
               Chart visualization would render here with real data
             </div>
           ) : (
-            <div className="h-48 bg-gray-50 rounded flex items-center justify-center text-sm text-gray-500">
+            <div className="h-48 bg-gray-50 rounded flex items-center justify-center text-sm text-[var(--muted-foreground,#6b7280)]">
               No trend data available yet
             </div>
           )}
         </div>
 
         {/* Open Issues Chart */}
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+        <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">Open Issues</h3>
+            <h3 className="font-semibold text-[var(--foreground,#111827)]">Open Issues</h3>
             <div className="flex items-center gap-2">
               <Select defaultValue="24h">
                 <SelectTrigger className="w-32 h-8 text-xs">
@@ -115,14 +115,14 @@ export function TrendsActivity({ newResolvedData = [], openIssuesData = [] }: Tr
             </div>
           </div>
 
-          <div className="text-5xl font-bold text-gray-900 mb-4">{currentOpenIssues}</div>
+          <div className="text-5xl font-bold text-[var(--foreground,#111827)] mb-4">{currentOpenIssues}</div>
 
           {hasOpenIssuesData ? (
-            <div className="h-32 bg-gray-50 rounded flex items-center justify-center text-sm text-gray-500">
+            <div className="h-32 bg-gray-50 rounded flex items-center justify-center text-sm text-[var(--muted-foreground,#6b7280)]">
               Chart visualization would render here with real data
             </div>
           ) : (
-            <div className="h-32 bg-gray-50 rounded flex items-center justify-center text-sm text-gray-500">
+            <div className="h-32 bg-gray-50 rounded flex items-center justify-center text-sm text-[var(--muted-foreground,#6b7280)]">
               No trend data available yet
             </div>
           )}

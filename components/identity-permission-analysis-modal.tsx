@@ -583,7 +583,7 @@ export function IdentityPermissionAnalysisModal({
               <div
                 key={index}
                 className={`flex items-start gap-4 p-4 rounded-lg transition-all ${
-                  index === simulationStep ? "ring-2 ring-purple-500" : ""
+                  index === simulationStep ? "ring-2 ring-[#8b5cf6]" : ""
                 }`}
                 style={{
                   background: index <= simulationStep ? "var(--bg-primary, #111827)" : "transparent",
@@ -603,7 +603,7 @@ export function IdentityPermissionAnalysisModal({
                   {index === simulationStep && (
                     <div className="mt-2">
                       <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                        <div className="h-full bg-purple-500 rounded-full animate-pulse" style={{ width: "70%" }} />
+                        <div className="h-full bg-[#8b5cf6] rounded-full animate-pulse" style={{ width: "70%" }} />
                       </div>
                     </div>
                   )}

@@ -95,16 +95,16 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3 flex-1">
                 <div className={`p-2 rounded-lg ${
-                  severity === "critical" ? "bg-red-100" :
-                  severity === "high" ? "bg-orange-100" :
-                  severity === "medium" ? "bg-yellow-100" :
-                  "bg-blue-100"
+                  severity === "critical" ? "bg-[#ef444420]" :
+                  severity === "high" ? "bg-[#f9731620]" :
+                  severity === "medium" ? "bg-[#eab30820]" :
+                  "bg-[#3b82f620]"
                 }`}>
                   <Shield className={`w-5 h-5 ${
-                    severity === "critical" ? "text-red-600" :
+                    severity === "critical" ? "text-[#ef4444]" :
                     severity === "high" ? "text-orange-600" :
                     severity === "medium" ? "text-yellow-600" :
-                    "text-blue-600"
+                    "text-[#3b82f6]"
                   }`} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -120,7 +120,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                     )}
                   </div>
                   <CardTitle className="text-lg mb-1">{finding.title}</CardTitle>
-                  <p className="text-sm text-gray-600 line-clamp-2">{finding.description}</p>
+                  <p className="text-sm text-[var(--muted-foreground,#4b5563)] line-clamp-2">{finding.description}</p>
                 </div>
               </div>
               <Button
@@ -138,41 +138,41 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <CardContent className="space-y-4 pt-0">
               {/* IAM Details */}
               <div className="bg-gray-50 rounded-lg p-4 border">
-                <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3 flex items-center gap-2">
                   <Shield className="w-4 h-4" />
                   IAM Details
                 </h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-gray-600">Role Name:</span>
-                    <div className="font-mono text-gray-900 mt-1">{roleName}</div>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">Role Name:</span>
+                    <div className="font-mono text-[var(--foreground,#111827)] mt-1">{roleName}</div>
                   </div>
                   <div>
-                    <span className="text-gray-600">Resource:</span>
-                    <div className="text-gray-900 mt-1 truncate">{finding.resource}</div>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">Resource:</span>
+                    <div className="text-[var(--foreground,#111827)] mt-1 truncate">{finding.resource}</div>
                   </div>
                 </div>
               </div>
 
               {/* Gap Analysis */}
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="bg-[#3b82f610] rounded-lg p-4 border border-[#3b82f640]">
                 <h4 className="font-semibold text-blue-900 mb-3">📊 Gap Analysis</h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">{allowedCount}</div>
-                    <div className="text-xs text-gray-600 mt-1">Allowed Actions</div>
+                    <div className="text-2xl font-bold text-[#3b82f6]">{allowedCount}</div>
+                    <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Allowed Actions</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{usedCount}</div>
-                    <div className="text-xs text-gray-600 mt-1">Actually Used</div>
+                    <div className="text-2xl font-bold text-[#22c55e]">{usedCount}</div>
+                    <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Actually Used</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">{unusedCount}</div>
-                    <div className="text-xs text-gray-600 mt-1">Unused</div>
+                    <div className="text-2xl font-bold text-[#ef4444]">{unusedCount}</div>
+                    <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Unused</div>
                   </div>
                 </div>
                 {iamData.observation_days && (
-                  <div className="mt-3 text-xs text-gray-600 text-center">
+                  <div className="mt-3 text-xs text-[var(--muted-foreground,#4b5563)] text-center">
                     Based on {iamData.observation_days} days of CloudTrail analysis
                   </div>
                 )}
@@ -180,17 +180,17 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
 
               {/* Unused Permissions */}
               {unusedActions.length > 0 && (
-                <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                <div className="bg-[#ef444410] rounded-lg p-4 border border-[#ef444440]">
                   <h4 className="font-semibold text-red-900 mb-3">
                     ⚠️ Unused Permissions ({unusedActions.length})
                   </h4>
                   <div className="max-h-40 overflow-y-auto">
                     <div className="text-xs font-mono space-y-1">
                       {unusedActions.slice(0, 20).map((action: string, i: number) => (
-                        <div key={i} className="text-red-700">• {action}</div>
+                        <div key={i} className="text-[#ef4444]">• {action}</div>
                       ))}
                       {unusedActions.length > 20 && (
-                        <div className="text-red-600 font-semibold">
+                        <div className="text-[#ef4444] font-semibold">
                           + {unusedActions.length - 20} more permissions
                         </div>
                       )}
@@ -200,9 +200,9 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
               )}
 
               {/* Remediation */}
-              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
                 <h4 className="font-semibold text-green-900 mb-2">💡 Remediation</h4>
-                <p className="text-sm text-gray-700 mb-3">{finding.remediation || "Remove unused permissions to follow least privilege principle"}</p>
+                <p className="text-sm text-[var(--foreground,#374151)] mb-3">{finding.remediation || "Remove unused permissions to follow least privilege principle"}</p>
                 <Button
                   onClick={handleSimulate}
                   disabled={isSimulating}
@@ -224,7 +224,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           {!isExpanded && (
             <CardContent className="pt-0">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
                   {unusedCount} unused permissions • {iamData.confidence || 0}% confidence
                 </div>
                 <Button
@@ -268,17 +268,17 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3 flex-1">
-                <div className="p-2 rounded-lg bg-red-100">
-                  <User className="w-5 h-5 text-red-600" />
+                <div className="p-2 rounded-lg bg-[#ef444420]">
+                  <User className="w-5 h-5 text-[#ef4444]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <Badge className="bg-red-600 text-white">CRITICAL</Badge>
                     <Badge variant="outline">Admin User</Badge>
-                    <Badge variant="outline" className="bg-red-100 text-red-700">No MFA</Badge>
+                    <Badge variant="outline" className="bg-[#ef444420] text-[#ef4444]">No MFA</Badge>
                   </div>
                   <CardTitle className="text-lg mb-1">{finding.title}</CardTitle>
-                  <p className="text-sm text-gray-600 line-clamp-2">{finding.description}</p>
+                  <p className="text-sm text-[var(--muted-foreground,#4b5563)] line-clamp-2">{finding.description}</p>
                 </div>
               </div>
               <Button
@@ -296,88 +296,88 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <CardContent className="space-y-4 pt-0">
               {/* User Details */}
               <div className="bg-gray-50 rounded-lg p-4 border">
-                <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3 flex items-center gap-2">
                   <User className="w-4 h-4" />
                   User Details
                 </h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-gray-600">Username:</span>
-                    <div className="font-mono text-gray-900 mt-1">{userName}</div>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">Username:</span>
+                    <div className="font-mono text-[var(--foreground,#111827)] mt-1">{userName}</div>
                   </div>
                   {accessKeyAge && (
                     <div>
-                      <span className="text-gray-600">Access Key Age:</span>
-                      <div className="text-red-600 font-semibold mt-1">{accessKeyAge} days</div>
+                      <span className="text-[var(--muted-foreground,#4b5563)]">Access Key Age:</span>
+                      <div className="text-[#ef4444] font-semibold mt-1">{accessKeyAge} days</div>
                     </div>
                   )}
                   {lastActivity && (
                     <div className="col-span-2">
-                      <span className="text-gray-600">Last Activity:</span>
-                      <div className="text-gray-900 mt-1">{new Date(lastActivity).toLocaleString()}</div>
+                      <span className="text-[var(--muted-foreground,#4b5563)]">Last Activity:</span>
+                      <div className="text-[var(--foreground,#111827)] mt-1">{new Date(lastActivity).toLocaleString()}</div>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* Admin Policies */}
-              <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+              <div className="bg-[#ef444410] rounded-lg p-4 border border-[#ef444440]">
                 <h4 className="font-semibold text-red-900 mb-3 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
                   Risk Factors
                 </h4>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4 text-red-600" />
-                    <span className="text-gray-700">No MFA enabled</span>
+                    <Lock className="w-4 h-4 text-[#ef4444]" />
+                    <span className="text-[var(--foreground,#374151)]">No MFA enabled</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-red-600" />
-                    <span className="text-gray-700">Has AdministratorAccess policy</span>
+                    <Shield className="w-4 h-4 text-[#ef4444]" />
+                    <span className="text-[var(--foreground,#374151)]">Has AdministratorAccess policy</span>
                   </div>
                   {accessKeyAge && accessKeyAge > 180 && (
                     <div className="flex items-center gap-2">
-                      <Key className="w-4 h-4 text-red-600" />
-                      <span className="text-gray-700">Access keys are {accessKeyAge} days old</span>
+                      <Key className="w-4 h-4 text-[#ef4444]" />
+                      <span className="text-[var(--foreground,#374151)]">Access keys are {accessKeyAge} days old</span>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* Usage Gap */}
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="bg-[#3b82f610] rounded-lg p-4 border border-[#3b82f640]">
                 <h4 className="font-semibold text-blue-900 mb-3">📊 Usage Gap Analysis</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">2,500+</div>
-                    <div className="text-xs text-gray-600 mt-1">Allowed (Admin)</div>
+                    <div className="text-2xl font-bold text-[#ef4444]">2,500+</div>
+                    <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Allowed (Admin)</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{usedActions.length}</div>
-                    <div className="text-xs text-gray-600 mt-1">Actually Used</div>
+                    <div className="text-2xl font-bold text-[#22c55e]">{usedActions.length}</div>
+                    <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Actually Used</div>
                   </div>
                 </div>
                 <div className="mt-3 text-center">
-                  <div className="text-lg font-bold text-red-600">
+                  <div className="text-lg font-bold text-[#ef4444]">
                     GAP: {2500 - usedActions.length} unused permissions
                   </div>
                 </div>
                 {usedActions.length > 0 && (
                   <div className="mt-3 p-2 bg-white rounded text-xs font-mono max-h-24 overflow-y-auto">
                     {usedActions.slice(0, 10).map((action: string, i: number) => (
-                      <div key={i} className="text-gray-700">• {action}</div>
+                      <div key={i} className="text-[var(--foreground,#374151)]">• {action}</div>
                     ))}
                     {usedActions.length > 10 && (
-                      <div className="text-gray-500">+ {usedActions.length - 10} more</div>
+                      <div className="text-[var(--muted-foreground,#6b7280)]">+ {usedActions.length - 10} more</div>
                     )}
                   </div>
                 )}
               </div>
 
               {/* Remediation */}
-              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
                 <h4 className="font-semibold text-green-900 mb-2">💡 Remediation</h4>
-                <div className="space-y-2 text-sm text-gray-700 mb-3">
+                <div className="space-y-2 text-sm text-[var(--foreground,#374151)] mb-3">
                   <div>1. Replace AdministratorAccess with scoped policy ({usedActions.length} actions)</div>
                   <div>2. Enforce MFA requirement</div>
                   {accessKeyAge && accessKeyAge > 90 && (
@@ -405,7 +405,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           {!isExpanded && (
             <CardContent className="pt-0">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
                   {usedActions.length} actions used • {userData.confidence || 99}% confidence
                 </div>
                 <Button
@@ -451,10 +451,10 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3 flex-1">
                 <div className={`p-2 rounded-lg ${
-                  severity === "critical" ? "bg-red-100" : "bg-orange-100"
+                  severity === "critical" ? "bg-[#ef444420]" : "bg-[#f9731620]"
                 }`}>
                   <Network className={`w-5 h-5 ${
-                    severity === "critical" ? "text-red-600" : "text-orange-600"
+                    severity === "critical" ? "text-[#ef4444]" : "text-orange-600"
                   }`} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -465,7 +465,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                     <Badge variant="outline">Network ACL</Badge>
                   </div>
                   <CardTitle className="text-lg mb-1">{finding.title}</CardTitle>
-                  <p className="text-sm text-gray-600 line-clamp-2">{finding.description}</p>
+                  <p className="text-sm text-[var(--muted-foreground,#4b5563)] line-clamp-2">{finding.description}</p>
                 </div>
               </div>
               <Button
@@ -483,37 +483,37 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             <CardContent className="space-y-4 pt-0">
               {/* Network Details */}
               <div className="bg-gray-50 rounded-lg p-4 border">
-                <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3 flex items-center gap-2">
                   <Network className="w-4 h-4" />
                   Network Details
                 </h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-gray-600">NACL ID:</span>
-                    <div className="font-mono text-gray-900 mt-1">{naclId}</div>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">NACL ID:</span>
+                    <div className="font-mono text-[var(--foreground,#111827)] mt-1">{naclId}</div>
                   </div>
                   <div>
-                    <span className="text-gray-600">VPC ID:</span>
-                    <div className="font-mono text-gray-900 mt-1">{vpcId}</div>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">VPC ID:</span>
+                    <div className="font-mono text-[var(--foreground,#111827)] mt-1">{vpcId}</div>
                   </div>
                 </div>
               </div>
 
               {/* Permissive Rules */}
-              <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+              <div className="bg-[#ef444410] rounded-lg p-4 border border-[#ef444440]">
                 <h4 className="font-semibold text-red-900 mb-3">
                   ⚠️ Permissive Rules (0.0.0.0/0)
                 </h4>
                 <div className="space-y-2">
                   {permissiveRules.map((rule: any, i: number) => (
-                    <div key={i} className="p-2 bg-white rounded border border-red-200">
+                    <div key={i} className="p-2 bg-white rounded border border-[#ef444440]">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-mono text-red-700">Rule #{rule.rule_number}</span>
+                        <span className="font-mono text-[#ef4444]">Rule #{rule.rule_number}</span>
                         <Badge className="bg-red-600 text-white">
                           {rule.port_range} (Protocol: {rule.protocol})
                         </Badge>
                       </div>
-                      <div className="text-xs text-red-600 mt-1">
+                      <div className="text-xs text-[#ef4444] mt-1">
                         Allows traffic from 0.0.0.0/0 (all IPs)
                       </div>
                     </div>
@@ -522,9 +522,9 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
               </div>
 
               {/* Remediation */}
-              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
                 <h4 className="font-semibold text-green-900 mb-2">💡 Remediation</h4>
-                <div className="text-sm text-gray-700 mb-3 space-y-1">
+                <div className="text-sm text-[var(--foreground,#374151)] mb-3 space-y-1">
                   <div>• Replace 0.0.0.0/0 with specific CIDR blocks</div>
                   <div>• Use security groups for application-level access</div>
                   <div>• Remove overly permissive rules if not needed</div>
@@ -550,7 +550,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           {!isExpanded && (
             <CardContent className="pt-0">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
                   {permissiveRules.length} permissive rules • {naclData.confidence || 95}% confidence
                 </div>
                 <Button
@@ -593,10 +593,10 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-3 flex-1">
               <div className={`p-2 rounded-lg ${
-                severity === "critical" ? "bg-red-100" :
-                severity === "high" ? "bg-orange-100" :
-                severity === "medium" ? "bg-yellow-100" :
-                "bg-blue-100"
+                severity === "critical" ? "bg-[#ef444420]" :
+                severity === "high" ? "bg-[#f9731620]" :
+                severity === "medium" ? "bg-[#eab30820]" :
+                "bg-[#3b82f620]"
               }`}>
                 {getSeverityIcon(severity)}
               </div>
@@ -608,7 +608,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                   <Badge variant="outline">{finding.category || finding.resourceType}</Badge>
                 </div>
                 <CardTitle className="text-lg mb-1">{finding.title}</CardTitle>
-                <p className="text-sm text-gray-600 line-clamp-2">{finding.description}</p>
+                <p className="text-sm text-[var(--muted-foreground,#4b5563)] line-clamp-2">{finding.description}</p>
               </div>
             </div>
             <Button
@@ -625,29 +625,29 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
         {isExpanded && (
           <CardContent className="space-y-4 pt-0">
             <div className="bg-gray-50 rounded-lg p-4 border">
-              <h4 className="font-semibold text-gray-900 mb-3">Details</h4>
+              <h4 className="font-semibold text-[var(--foreground,#111827)] mb-3">Details</h4>
               <div className="space-y-2 text-sm">
                 <div>
-                  <span className="text-gray-600">Resource:</span>
-                  <div className="text-gray-900 mt-1">{finding.resource}</div>
+                  <span className="text-[var(--muted-foreground,#4b5563)]">Resource:</span>
+                  <div className="text-[var(--foreground,#111827)] mt-1">{finding.resource}</div>
                 </div>
                 <div>
-                  <span className="text-gray-600">Type:</span>
-                  <div className="text-gray-900 mt-1">{finding.resourceType}</div>
+                  <span className="text-[var(--muted-foreground,#4b5563)]">Type:</span>
+                  <div className="text-[var(--foreground,#111827)] mt-1">{finding.resourceType}</div>
                 </div>
                 {finding.discoveredAt && (
                   <div>
-                    <span className="text-gray-600">Discovered:</span>
-                    <div className="text-gray-900 mt-1">{new Date(finding.discoveredAt).toLocaleString()}</div>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">Discovered:</span>
+                    <div className="text-[var(--foreground,#111827)] mt-1">{new Date(finding.discoveredAt).toLocaleString()}</div>
                   </div>
                 )}
               </div>
             </div>
 
             {finding.remediation && (
-              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
                 <h4 className="font-semibold text-green-900 mb-2">💡 Remediation</h4>
-                <p className="text-sm text-gray-700 mb-3">{finding.remediation}</p>
+                <p className="text-sm text-[var(--foreground,#374151)] mb-3">{finding.remediation}</p>
                 <Button
                   onClick={handleSimulate}
                   disabled={isSimulating}
@@ -670,7 +670,7 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
         {!isExpanded && finding.remediation && (
           <CardContent className="pt-0">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
                 {finding.category || "Security Finding"}
               </div>
               <Button

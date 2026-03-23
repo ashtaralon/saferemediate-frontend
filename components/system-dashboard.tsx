@@ -91,19 +91,19 @@ export function SystemDashboard({ systemId }: SystemDashboardProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Top Navigation Bar */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white border-b border-[var(--border,#e5e7eb)]">
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm mb-4 text-gray-600">
-            <Link href="/" className="hover:text-blue-600 transition-colors">
+          <div className="flex items-center gap-2 text-sm mb-4 text-[var(--muted-foreground,#4b5563)]">
+            <Link href="/" className="hover:text-[#3b82f6] transition-colors">
               Dashboard
             </Link>
             <ChevronRight className="w-4 h-4" />
-            <Link href="/?tab=systems" className="hover:text-blue-600 transition-colors">
+            <Link href="/?tab=systems" className="hover:text-[#3b82f6] transition-colors">
               Systems
             </Link>
             <ChevronRight className="w-4 h-4" />
-            <span className="text-gray-900 font-medium">Payment-Prod</span>
+            <span className="text-[var(--foreground,#111827)] font-medium">Payment-Prod</span>
           </div>
         </div>
       </div>

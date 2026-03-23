@@ -343,9 +343,9 @@ export function S3PolicyAnalysisModal({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
         <div className="relative w-[600px] bg-white rounded-2xl shadow-2xl p-8 text-center">
-          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-green-600" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Analyzing Policies</h2>
-          <p className="text-gray-500">Fetching S3 access data for {bucketName}...</p>
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-[#22c55e]" />
+          <h2 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Analyzing Policies</h2>
+          <p className="text-[var(--muted-foreground,#6b7280)]">Fetching S3 access data for {bucketName}...</p>
         </div>
       </div>
     )
@@ -357,9 +357,9 @@ export function S3PolicyAnalysisModal({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
         <div className="relative w-[600px] bg-white rounded-2xl shadow-2xl p-8 text-center">
-          <XCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Failed to Load Data</h2>
-          <p className="text-gray-500 mb-4">{error}</p>
+          <XCircle className="w-12 h-12 mx-auto mb-4 text-[#ef4444]" />
+          <h2 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Failed to Load Data</h2>
+          <p className="text-[var(--muted-foreground,#6b7280)] mb-4">{error}</p>
           <div className="flex justify-center gap-3">
             <button
               onClick={fetchGapAnalysis}
@@ -370,7 +370,7 @@ export function S3PolicyAnalysisModal({
             </button>
             <button
               onClick={handleClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50"
             >
               Close
             </button>
@@ -386,8 +386,8 @@ export function S3PolicyAnalysisModal({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60" />
         <div className="relative w-[700px] bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Simulating Policy Removal</h2>
-          <p className="text-gray-500 mb-6">{bucketName} - Analyzing {observationDays} days of access patterns...</p>
+          <h2 className="text-2xl font-bold text-[var(--foreground,#111827)] mb-2">Simulating Policy Removal</h2>
+          <p className="text-[var(--muted-foreground,#6b7280)] mb-6">{bucketName} - Analyzing {observationDays} days of access patterns...</p>
           
           <div className="space-y-4">
             {[
@@ -396,14 +396,14 @@ export function S3PolicyAnalysisModal({
               { title: "Checking public access...", subtitle: hasPublicAccess ? "⚠️ Public access detected" : "No public access", done: true },
               { title: "Calculating confidence score...", subtitle: `${safetyScore}% safe to remove`, done: false }
             ].map((step, i) => (
-              <div key={i} className={`flex items-start gap-4 p-4 rounded-lg ${step.done ? 'bg-gray-50' : 'bg-green-50 ring-2 ring-green-500'}`}>
+              <div key={i} className={`flex items-start gap-4 p-4 rounded-lg ${step.done ? 'bg-gray-50' : 'bg-[#22c55e10] ring-2 ring-green-500'}`}>
                 <div className="text-2xl">{step.done ? '✅' : '⏳'}</div>
                 <div>
-                  <div className="font-semibold text-gray-900">{step.title}</div>
-                  <div className="text-sm text-gray-500">{step.subtitle}</div>
+                  <div className="font-semibold text-[var(--foreground,#111827)]">{step.title}</div>
+                  <div className="text-sm text-[var(--muted-foreground,#6b7280)]">{step.subtitle}</div>
                   {!step.done && (
                     <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500 rounded-full animate-pulse" style={{ width: '70%' }} />
+                      <div className="h-full bg-[#22c55e10]0 rounded-full animate-pulse" style={{ width: '70%' }} />
                     </div>
                   )}
                 </div>
@@ -422,12 +422,12 @@ export function S3PolicyAnalysisModal({
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
         <div className="relative w-[900px] max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4">
           {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+          <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between bg-gray-50">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Simulation Results</h2>
-              <p className="text-gray-500">Policy Removal Analysis</p>
+              <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
+              <p className="text-[var(--muted-foreground,#6b7280)]">Policy Removal Analysis</p>
             </div>
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -435,35 +435,35 @@ export function S3PolicyAnalysisModal({
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* Safety Score Banner */}
-            <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl text-center">
+            <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
               <div className="flex items-center justify-center gap-3">
-                <CheckSquare className="w-10 h-10 text-green-500" />
-                <span className="text-5xl font-bold text-green-600">{safetyScore}%</span>
-                <span className="text-2xl font-bold text-green-600">SAFE TO APPLY</span>
+                <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
+                <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
               </div>
-              <p className="text-green-600 mt-2">No applications will be affected</p>
+              <p className="text-[#22c55e] mt-2">No applications will be affected</p>
             </div>
 
             {/* What Will Change */}
             <div>
-              <h3 className="font-bold text-lg text-gray-900 mb-3">What Will Change:</h3>
+              <h3 className="font-bold text-lg text-[var(--foreground,#111827)] mb-3">What Will Change:</h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
                   <span>Remove {unusedCount} unused policies from {bucketName}</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
                   <span>Reduce attack surface by {unusedPercent}%</span>
                 </div>
                 {hasPublicAccess && (
-                  <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
-                    <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                    <span className="text-red-700">Remove public access policies (security improvement)</span>
+                  <div className="flex items-center gap-3 p-3 bg-[#ef444410] rounded-lg">
+                    <AlertTriangle className="w-5 h-5 text-[#ef4444] flex-shrink-0" />
+                    <span className="text-[#ef4444]">Remove public access policies (security improvement)</span>
                   </div>
                 )}
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
                   <span>Improve LP score to 100%</span>
                 </div>
               </div>
@@ -471,13 +471,13 @@ export function S3PolicyAnalysisModal({
 
             {/* Policies to Remove */}
             <div>
-              <h3 className="font-bold text-lg text-gray-900 mb-3">Policies to Remove ({unusedCount}):</h3>
-              <div className="p-4 bg-red-50 border border-red-200 rounded-xl max-h-48 overflow-y-auto">
+              <h3 className="font-bold text-lg text-[var(--foreground,#111827)] mb-3">Policies to Remove ({unusedCount}):</h3>
+              <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-48 overflow-y-auto">
                 <div className="grid grid-cols-2 gap-2">
                   {unusedPolicies.map((policy, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm">
-                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                      <span className="font-mono text-gray-700 truncate">{policy.policy_name}</span>
+                      <XCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                      <span className="font-mono text-[var(--foreground,#374151)] truncate">{policy.policy_name}</span>
                       {policy.is_public && (
                         <span className="px-1.5 py-0.5 bg-red-600 text-white text-xs rounded font-medium">
                           PUBLIC
@@ -491,29 +491,29 @@ export function S3PolicyAnalysisModal({
 
             {/* Policies to Keep */}
             <div>
-              <h3 className="font-bold text-lg text-gray-900 mb-3">Policies to Keep ({usedCount}):</h3>
+              <h3 className="font-bold text-lg text-[var(--foreground,#111827)] mb-3">Policies to Keep ({usedCount}):</h3>
               {usedPolicies.length > 0 ? (
-                <div className="p-4 bg-green-50 border border-green-200 rounded-xl max-h-32 overflow-y-auto">
+                <div className="p-4 bg-[#22c55e10] border border-[#22c55e40] rounded-xl max-h-32 overflow-y-auto">
                   <div className="space-y-2">
                     {usedPolicies.map((policy, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                        <span className="font-mono text-sm text-gray-700">{policy.policy_name}</span>
-                        <span className="text-green-600 text-sm">{policy.access_count || 0} accesses/day</span>
+                        <Check className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
+                        <span className="font-mono text-sm text-[var(--foreground,#374151)]">{policy.policy_name}</span>
+                        <span className="text-[#22c55e] text-sm">{policy.access_count || 0} accesses/day</span>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                  <p className="text-amber-700 italic">No policies currently in use</p>
+                <div className="p-4 bg-[#f9731610] border border-[#f9731640] rounded-xl">
+                  <p className="text-[#f97316] italic">No policies currently in use</p>
                 </div>
               )}
             </div>
 
             {/* Confidence Factors */}
             <div className="p-4 bg-gray-50 rounded-xl">
-              <h3 className="font-bold text-gray-900 mb-3">Confidence Factors:</h3>
+              <h3 className="font-bold text-[var(--foreground,#111827)] mb-3">Confidence Factors:</h3>
               <div className="space-y-2">
                 {[
                   { label: `${observationDays} days of S3 access analysis`, score: 99 },
@@ -523,10 +523,10 @@ export function S3PolicyAnalysisModal({
                 ].map((factor, i) => (
                   <div key={i} className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
+                      <Check className="w-4 h-4 text-[#22c55e]" />
                       {factor.label}
                     </span>
-                    <span className="text-green-600 font-semibold">{factor.score}%</span>
+                    <span className="text-[#22c55e] font-semibold">{factor.score}%</span>
                   </div>
                 ))}
               </div>
@@ -534,11 +534,11 @@ export function S3PolicyAnalysisModal({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="px-6 py-4 border-t border-[var(--border,#e5e7eb)] bg-gray-50 flex items-center justify-between">
             <button 
               onClick={() => setShowSimulation(false)}
               disabled={applying}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium disabled:opacity-50"
+              className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-100 font-medium disabled:opacity-50"
             >
               ← BACK
             </button>
@@ -549,14 +549,14 @@ export function S3PolicyAnalysisModal({
                   checked={createSnapshot}
                   onChange={(e) => setCreateSnapshot(e.target.checked)}
                   disabled={applying}
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                  className="rounded border-[var(--border,#d1d5db)] text-[#22c55e] focus:ring-green-500"
                 />
-                <span className="text-sm text-gray-600">Create rollback checkpoint first</span>
+                <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Create rollback checkpoint first</span>
               </label>
               <button 
                 onClick={handleApplyFix}
                 disabled={applying}
-                className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {applying ? (
                   <>
@@ -580,18 +580,18 @@ export function S3PolicyAnalysisModal({
       <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
       <div className="relative w-[950px] max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">S3 Bucket Analysis</h2>
-            <p className="text-gray-500">{bucketName} - S3Bucket - {systemName}</p>
+            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">S3 Bucket Analysis</h2>
+            <p className="text-[var(--muted-foreground,#6b7280)]">{bucketName} - S3Bucket - {systemName}</p>
           </div>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
             <X className="w-6 h-6" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 px-6">
+        <div className="border-b border-[var(--border,#e5e7eb)] px-6">
           <div className="flex gap-1">
             {[
               { id: 'analysis' as const, label: 'Usage Analysis', icon: Eye },
@@ -605,14 +605,14 @@ export function S3PolicyAnalysisModal({
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-3 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
                   activeTab === tab.id
-                    ? 'border-green-600 text-green-600 bg-green-50'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    ? 'border-green-600 text-[#22c55e] bg-[#22c55e10]'
+                    : 'border-transparent text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)] hover:bg-gray-50'
                 }`}
               >
                 <tab.icon className="w-4 h-4" />
                 {tab.label}
                 {tab.comingSoon && (
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-700 rounded">
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-[#f9731620] text-[#f97316] rounded">
                     SOON
                   </span>
                 )}
@@ -663,20 +663,20 @@ export function S3PolicyAnalysisModal({
           )}
           {activeTab === 'simulate' && (
             <div className="p-8 text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
-                <Zap className="w-8 h-8 text-green-600" />
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#22c55e20] flex items-center justify-center">
+                <Zap className="w-8 h-8 text-[#22c55e]" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Remediation Simulation</h3>
-              <p className="text-gray-600 max-w-md mx-auto mb-6">
+              <h3 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Remediation Simulation</h3>
+              <p className="text-[var(--muted-foreground,#4b5563)] max-w-md mx-auto mb-6">
                 {unusedCount > 0
                   ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy' : 'policies'} that can be safely removed. Click the REMEDIATE button below to preview the changes before applying.`
                   : 'No unused policies detected. This bucket is following least privilege principles.'
                 }
               </p>
               {unusedCount > 0 ? (
-                <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-red-700 mb-2">Remediation Preview:</h4>
-                  <ul className="text-sm text-red-600 text-left space-y-1">
+                <div className="bg-white border border-[#ef444440] rounded-lg p-4 max-w-md mx-auto">
+                  <h4 className="font-semibold text-[#ef4444] mb-2">Remediation Preview:</h4>
+                  <ul className="text-sm text-[#ef4444] text-left space-y-1">
                     <li>• Remove {unusedCount} unused {unusedCount === 1 ? 'policy' : 'policies'}</li>
                     <li>• Reduce attack surface by ~{Math.round((unusedCount / Math.max(totalPolicies, 1)) * 100)}%</li>
                     <li>• Create rollback checkpoint before changes</li>
@@ -684,16 +684,16 @@ export function S3PolicyAnalysisModal({
                   </ul>
                   <button
                     onClick={handleSimulate}
-                    className="mt-4 px-6 py-2.5 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
+                    className="mt-4 px-6 py-2.5 bg-white hover:from-red-700 hover:to-orange-700 text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
                   >
                     <Zap className="w-4 h-4" />
                     START SIMULATION
                   </button>
                 </div>
               ) : (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-green-700 mb-2">Bucket Status:</h4>
-                  <ul className="text-sm text-green-600 text-left space-y-1">
+                <div className="bg-[#22c55e10] border border-[#22c55e40] rounded-lg p-4 max-w-md mx-auto">
+                  <h4 className="font-semibold text-[#22c55e] mb-2">Bucket Status:</h4>
+                  <ul className="text-sm text-[#22c55e] text-left space-y-1">
                     <li>✓ All policies are actively used</li>
                     <li>✓ No remediation needed</li>
                     <li>✓ Following least privilege principles</li>
@@ -705,10 +705,10 @@ export function S3PolicyAnalysisModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+        <div className="px-6 py-4 border-t border-[var(--border,#e5e7eb)] bg-gray-50 flex items-center justify-between">
           <button 
             onClick={handleClose}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium"
+            className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-100 font-medium"
           >
             CLOSE
           </button>
@@ -717,7 +717,7 @@ export function S3PolicyAnalysisModal({
             disabled={!gapData || unusedCount === 0}
             className={`px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-all ${
               gapData && unusedCount > 0
-                ? 'bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white shadow-lg hover:shadow-xl'
+                ? 'bg-white hover:from-red-700 hover:to-orange-700 text-white shadow-lg hover:shadow-xl'
                 : 'bg-slate-400 text-white cursor-not-allowed'
             }`}
           >
@@ -767,51 +767,51 @@ function AnalysisTab({
   return (
     <>
       {/* Recording Period Banner */}
-      <div className="mx-6 mt-4 p-4 border-l-4 border-blue-500 bg-blue-50 rounded-r-lg">
+      <div className="mx-6 mt-4 p-4 border-l-4 border-[#3b82f6] bg-[#3b82f610] rounded-r-lg">
         <div className="flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-blue-600" />
-          <span className="font-semibold text-gray-900">{observationDays}-Day Recording Period</span>
+          <Calendar className="w-5 h-5 text-[#3b82f6]" />
+          <span className="font-semibold text-[var(--foreground,#111827)]">{observationDays}-Day Recording Period</span>
         </div>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
           Tracked from {formatDate(startDate)} to {formatDate(endDate)} - CloudTrail S3 events analyzed
         </p>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-3 gap-4 p-6">
-        <div className="border border-gray-200 rounded-xl p-4 text-center">
-          <div className="text-4xl font-bold text-gray-800">{totalPolicies}</div>
-          <div className="text-gray-500 mt-1">Total Policies</div>
+        <div className="border border-[var(--border,#e5e7eb)] rounded-xl p-4 text-center">
+          <div className="text-4xl font-bold text-[var(--foreground,#1f2937)]">{totalPolicies}</div>
+          <div className="text-[var(--muted-foreground,#6b7280)] mt-1">Total Policies</div>
         </div>
-        <div className="border-2 border-green-200 bg-green-50 rounded-xl p-4 text-center">
-          <div className="text-4xl font-bold text-green-600">{usedCount}</div>
-          <div className="text-green-600 mt-1">Actually Used ({usedPercent}%)</div>
+        <div className="border-2 border-[#22c55e40] bg-[#22c55e10] rounded-xl p-4 text-center">
+          <div className="text-4xl font-bold text-[#22c55e]">{usedCount}</div>
+          <div className="text-[#22c55e] mt-1">Actually Used ({usedPercent}%)</div>
         </div>
-        <div className="border-2 border-red-200 bg-red-50 rounded-xl p-4 text-center">
-          <div className="text-4xl font-bold text-red-600">{unusedCount}</div>
-          <div className="text-red-600 mt-1">Unused ({unusedPercent}%)</div>
+        <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4 text-center">
+          <div className="text-4xl font-bold text-[#ef4444]">{unusedCount}</div>
+          <div className="text-[#ef4444] mt-1">Unused ({unusedPercent}%)</div>
         </div>
       </div>
 
       {/* Security Issue Alert */}
       {(unusedCount > 0 || hasPublicAccess) ? (
-        <div className="mx-6 p-5 bg-red-50 border-2 border-red-200 rounded-xl">
+        <div className="mx-6 p-5 bg-[#ef444410] border-2 border-[#ef444440] rounded-xl">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="w-7 h-7 text-[#ef4444] flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-xl font-bold text-red-600">
+              <h3 className="text-xl font-bold text-[#ef4444]">
                 {hasPublicAccess ? 'Security Issue Detected' : 'Least Privilege Violation Detected'}
               </h3>
-              <p className="mt-2 text-gray-700">
+              <p className="mt-2 text-[var(--foreground,#374151)]">
                 {hasPublicAccess && <>This bucket has <strong>public access enabled</strong>. </>}
                 <strong>{unusedCount} policies</strong> are not required based on {observationDays} days of access analysis.
               </p>
               <div className="flex items-center gap-3 mt-3">
                 <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                  overallRisk === 'CRITICAL' ? 'bg-red-100 text-red-700' :
-                  overallRisk === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                  overallRisk === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-gray-100 text-gray-700'
+                  overallRisk === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                  overallRisk === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                  overallRisk === 'MEDIUM' ? 'bg-[#eab30820] text-[#eab308]' :
+                  'bg-gray-100 text-[var(--foreground,#374151)]'
                 }`}>
                   {overallRisk} Risk
                 </span>
@@ -831,7 +831,7 @@ function AnalysisTab({
             <FileText className="w-7 h-7 text-slate-400 flex-shrink-0 mt-0.5" />
             <div>
               <h3 className="text-xl font-bold text-slate-600">No Bucket Policy Configured</h3>
-              <p className="mt-2 text-gray-600">
+              <p className="mt-2 text-[var(--muted-foreground,#4b5563)]">
                 This bucket has no bucket policy. Access is controlled via IAM policies attached to roles/users.
                 Check the IAM roles in the Least Privilege dashboard for access analysis.
               </p>
@@ -839,12 +839,12 @@ function AnalysisTab({
           </div>
         </div>
       ) : (
-        <div className="mx-6 p-5 bg-green-50 border-2 border-green-200 rounded-xl">
+        <div className="mx-6 p-5 bg-[#22c55e10] border-2 border-[#22c55e40] rounded-xl">
           <div className="flex items-start gap-3">
-            <CheckCircle className="w-7 h-7 text-green-500 flex-shrink-0 mt-0.5" />
+            <CheckCircle className="w-7 h-7 text-[#22c55e] flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-xl font-bold text-green-600">Least Privilege Compliant</h3>
-              <p className="mt-2 text-gray-700">
+              <h3 className="text-xl font-bold text-[#22c55e]">Least Privilege Compliant</h3>
+              <p className="mt-2 text-[var(--foreground,#374151)]">
                 This bucket has no unused policies based on {observationDays} days of access analysis.
                 No remediation is needed.
               </p>
@@ -855,49 +855,49 @@ function AnalysisTab({
 
       {/* Policy Usage Breakdown */}
       <div className="p-6 space-y-4">
-        <h3 className="text-lg font-bold text-gray-900">Policy Usage Breakdown</h3>
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Policy Usage Breakdown</h3>
 
         {/* Actually Used Policies */}
-        <div className="border border-green-200 rounded-xl p-4">
+        <div className="border border-[#22c55e40] rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-500" />
-              <span className="font-semibold text-gray-900">Actually Used Policies ({usedCount})</span>
+              <CheckCircle className="w-5 h-5 text-[#22c55e]" />
+              <span className="font-semibold text-[var(--foreground,#111827)]">Actually Used Policies ({usedCount})</span>
             </div>
-            <span className="px-3 py-1 border border-green-300 text-green-600 rounded-lg text-sm font-medium bg-green-50">
+            <span className="px-3 py-1 border border-[#22c55e40] text-[#22c55e] rounded-lg text-sm font-medium bg-[#22c55e10]">
               Keep these
             </span>
           </div>
           <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
             {usedPolicies.length > 0 ? usedPolicies.map((policy, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="text-green-500">✓</span>
-                <span className="font-mono text-gray-800">{policy.policy_name}</span>
-                <span className="text-gray-400">- {policy.access_count || 0} accesses/day</span>
+                <span className="text-[#22c55e]">✓</span>
+                <span className="font-mono text-[var(--foreground,#1f2937)]">{policy.policy_name}</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)]">- {policy.access_count || 0} accesses/day</span>
               </div>
             )) : (
-              <p className="text-gray-400 text-sm italic">No policies currently in use</p>
+              <p className="text-[var(--muted-foreground,#9ca3af)] text-sm italic">No policies currently in use</p>
             )}
           </div>
         </div>
 
         {/* Issues to Fix - only show if there are issues */}
         {unusedCount > 0 ? (
-          <div className="border-2 border-red-200 bg-red-50 rounded-xl p-4">
+          <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
-                <span className="font-semibold text-red-700">Issues to Fix ({unusedCount})</span>
+                <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+                <span className="font-semibold text-[#ef4444]">Issues to Fix ({unusedCount})</span>
               </div>
-              <span className="px-3 py-1 bg-red-100 text-red-600 border border-red-300 rounded-lg text-sm font-medium">
+              <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
                 Remove these
               </span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
               {unusedPolicies.map((policy, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm">
-                  <X className="w-4 h-4 text-red-500 flex-shrink-0" />
-                  <span className="font-mono text-gray-700 truncate">{policy.policy_name}</span>
+                  <X className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                  <span className="font-mono text-[var(--foreground,#374151)] truncate">{policy.policy_name}</span>
                   {policy.is_public && (
                     <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded font-medium">
                       PUBLIC
@@ -918,12 +918,12 @@ function AnalysisTab({
             </p>
           </div>
         ) : (
-          <div className="border-2 border-green-200 bg-green-50 rounded-xl p-4">
+          <div className="border-2 border-[#22c55e40] bg-[#22c55e10] rounded-xl p-4">
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-500" />
-              <span className="font-semibold text-green-700">No Issues Found</span>
+              <CheckCircle className="w-5 h-5 text-[#22c55e]" />
+              <span className="font-semibold text-[#22c55e]">No Issues Found</span>
             </div>
-            <p className="mt-2 text-sm text-green-600">
+            <p className="mt-2 text-sm text-[#22c55e]">
               All bucket policies are actively used. No remediation needed.
             </p>
           </div>
@@ -932,13 +932,13 @@ function AnalysisTab({
 
       {/* Recommended Action - only show if there are issues to fix */}
       {unusedCount > 0 ? (
-        <div className="mx-6 mb-6 p-4 border border-gray-200 rounded-xl">
-          <h3 className="font-bold text-gray-900">Recommended Action</h3>
-          <p className="text-gray-600 mt-1">
+        <div className="mx-6 mb-6 p-4 border border-[var(--border,#e5e7eb)] rounded-xl">
+          <h3 className="font-bold text-[var(--foreground,#111827)]">Recommended Action</h3>
+          <p className="text-[var(--muted-foreground,#4b5563)] mt-1">
             Remove {unusedCount} unused policies to achieve least privilege compliance.
             This will reduce the attack surface by {unusedPercent}% while maintaining all current access patterns.
           </p>
-          <div className="flex items-center gap-2 mt-3 text-green-600">
+          <div className="flex items-center gap-2 mt-3 text-[#22c55e]">
             <Shield className="w-5 h-5" />
             <span className="font-medium">High confidence remediation - No service disruption expected</span>
           </div>
@@ -951,9 +951,9 @@ function AnalysisTab({
           </p>
         </div>
       ) : (
-        <div className="mx-6 mb-6 p-4 border border-green-200 bg-green-50 rounded-xl">
-          <h3 className="font-bold text-green-700">No Action Required</h3>
-          <p className="text-green-600 mt-1">
+        <div className="mx-6 mb-6 p-4 border border-[#22c55e40] bg-[#22c55e10] rounded-xl">
+          <h3 className="font-bold text-[#22c55e]">No Action Required</h3>
+          <p className="text-[#22c55e] mt-1">
             This bucket is already following least privilege principles. All configured policies are being actively used.
           </p>
         </div>
@@ -973,8 +973,8 @@ function PoliciesTab({
   if (policyLoading) {
     return (
       <div className="p-8 text-center">
-        <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-green-600" />
-        <p className="text-gray-500">Loading bucket policies...</p>
+        <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-[#22c55e]" />
+        <p className="text-[var(--muted-foreground,#6b7280)]">Loading bucket policies...</p>
       </div>
     )
   }
@@ -984,7 +984,7 @@ function PoliciesTab({
       {/* Bucket Policy */}
       <div className="space-y-4">
         <h3 className="font-bold text-lg flex items-center gap-2">
-          <FileText className="w-5 h-5 text-gray-600" />
+          <FileText className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
           Bucket Policy
         </h3>
         
@@ -995,7 +995,7 @@ function PoliciesTab({
             </pre>
           </div>
         ) : (
-          <div className="bg-gray-100 rounded-lg p-4 text-gray-500 flex items-center gap-2">
+          <div className="bg-gray-100 rounded-lg p-4 text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
             <XCircle className="w-5 h-5" />
             No bucket policy configured
           </div>
@@ -1005,7 +1005,7 @@ function PoliciesTab({
       {/* Public Access Block Settings */}
       <div className="space-y-4">
         <h3 className="font-bold text-lg flex items-center gap-2">
-          <Lock className="w-5 h-5 text-gray-600" />
+          <Lock className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
           Public Access Block
         </h3>
         
@@ -1029,7 +1029,7 @@ function PoliciesTab({
             />
           </div>
         ) : (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-700 flex items-center gap-2">
+          <div className="bg-[#f9731610] border border-[#f9731640] rounded-lg p-4 text-[#f97316] flex items-center gap-2">
             <AlertTriangle className="w-5 h-5" />
             Public access block settings not configured - bucket may be publicly accessible
           </div>
@@ -1039,7 +1039,7 @@ function PoliciesTab({
       {/* ACL Settings */}
       <div className="space-y-4">
         <h3 className="font-bold text-lg flex items-center gap-2">
-          <Users className="w-5 h-5 text-gray-600" />
+          <Users className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
           Access Control List (ACL)
         </h3>
         
@@ -1048,23 +1048,23 @@ function PoliciesTab({
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Grantee</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Permission</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--foreground,#374151)]">Grantee</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--foreground,#374151)]">Type</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-[var(--foreground,#374151)]">Permission</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {policyData.acl.grants.map((grant, i) => (
                   <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-sm text-gray-700">{grant.grantee}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{grant.grantee_type}</td>
+                    <td className="px-4 py-3 font-mono text-sm text-[var(--foreground,#374151)]">{grant.grantee}</td>
+                    <td className="px-4 py-3 text-sm text-[var(--muted-foreground,#4b5563)]">{grant.grantee_type}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded text-sm font-medium ${
                         grant.permission === 'FULL_CONTROL' 
-                          ? 'bg-red-100 text-red-700' 
+                          ? 'bg-[#ef444420] text-[#ef4444]' 
                           : grant.permission === 'WRITE' || grant.permission === 'WRITE_ACP'
-                          ? 'bg-orange-100 text-orange-700'
-                          : 'bg-gray-100 text-gray-700'
+                          ? 'bg-[#f9731620] text-[#f97316]'
+                          : 'bg-gray-100 text-[var(--foreground,#374151)]'
                       }`}>
                         {grant.permission}
                       </span>
@@ -1075,7 +1075,7 @@ function PoliciesTab({
             </table>
           </div>
         ) : (
-          <div className="bg-gray-100 rounded-lg p-4 text-gray-500 flex items-center gap-2">
+          <div className="bg-gray-100 rounded-lg p-4 text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
             <XCircle className="w-5 h-5" />
             No ACL grants configured (using bucket owner enforced)
           </div>
@@ -1086,19 +1086,19 @@ function PoliciesTab({
       {policyData?.encryption && (
         <div className="space-y-4">
           <h3 className="font-bold text-lg flex items-center gap-2">
-            <Shield className="w-5 h-5 text-gray-600" />
+            <Shield className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
             Encryption
           </h3>
           
           <div className="border rounded-lg p-4">
             <div className="flex items-center justify-between">
-              <span className="text-gray-700">Server-Side Encryption</span>
-              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+              <span className="text-[var(--foreground,#374151)]">Server-Side Encryption</span>
+              <span className="px-3 py-1 bg-[#22c55e20] text-[#22c55e] rounded-full text-sm font-medium">
                 {policyData.encryption.type}
               </span>
             </div>
             {policyData.encryption.kms_key_id && (
-              <div className="mt-2 text-sm text-gray-500">
+              <div className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
                 KMS Key: <span className="font-mono">{policyData.encryption.kms_key_id}</span>
               </div>
             )}
@@ -1110,18 +1110,18 @@ function PoliciesTab({
       {policyData?.versioning && (
         <div className="space-y-4">
           <h3 className="font-bold text-lg flex items-center gap-2">
-            <Database className="w-5 h-5 text-gray-600" />
+            <Database className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
             Versioning
           </h3>
           
           <div className="grid grid-cols-2 gap-4">
             <div className="border rounded-lg p-4">
               <div className="flex items-center justify-between">
-                <span className="text-gray-700">Versioning Status</span>
+                <span className="text-[var(--foreground,#374151)]">Versioning Status</span>
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                   policyData.versioning.status === 'Enabled' 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-gray-100 text-gray-600'
+                    ? 'bg-[#22c55e20] text-[#22c55e]' 
+                    : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                 }`}>
                   {policyData.versioning.status}
                 </span>
@@ -1129,11 +1129,11 @@ function PoliciesTab({
             </div>
             <div className="border rounded-lg p-4">
               <div className="flex items-center justify-between">
-                <span className="text-gray-700">MFA Delete</span>
+                <span className="text-[var(--foreground,#374151)]">MFA Delete</span>
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                   policyData.versioning.mfa_delete === 'Enabled' 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-gray-100 text-gray-600'
+                    ? 'bg-[#22c55e20] text-[#22c55e]' 
+                    : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                 }`}>
                   {policyData.versioning.mfa_delete}
                 </span>
@@ -1150,13 +1150,13 @@ function PoliciesTab({
 function AccessBlockSetting({ label, enabled }: { label: string; enabled: boolean }) {
   return (
     <div className="flex items-center justify-between p-3 border rounded-lg bg-white">
-      <span className="text-gray-700">{label}</span>
+      <span className="text-[var(--foreground,#374151)]">{label}</span>
       {enabled ? (
-        <span className="text-green-600 flex items-center gap-1 font-medium">
+        <span className="text-[#22c55e] flex items-center gap-1 font-medium">
           <Check className="w-4 h-4" /> Enabled
         </span>
       ) : (
-        <span className="text-red-600 flex items-center gap-1 font-medium">
+        <span className="text-[#ef4444] flex items-center gap-1 font-medium">
           <X className="w-4 h-4" /> Disabled
         </span>
       )}
@@ -1179,10 +1179,10 @@ function getActionCategory(action: string): 'read' | 'write' | 'delete' | 'admin
 function getActionStyle(action: string): string {
   const category = getActionCategory(action)
   switch (category) {
-    case 'read': return 'bg-blue-50 text-blue-700 border border-blue-200'
-    case 'write': return 'bg-green-50 text-green-700 border border-green-200'
-    case 'delete': return 'bg-orange-50 text-orange-700 border border-orange-200'
-    case 'admin': return 'bg-purple-50 text-purple-700 border border-purple-200'
+    case 'read': return 'bg-[#3b82f610] text-[#3b82f6] border border-[#3b82f640]'
+    case 'write': return 'bg-[#22c55e10] text-[#22c55e] border border-[#22c55e40]'
+    case 'delete': return 'bg-[#f9731610] text-[#f97316] border border-[#f9731640]'
+    case 'admin': return 'bg-[#8b5cf610] text-[#7c3aed] border border-purple-200'
   }
 }
 
@@ -1197,8 +1197,8 @@ function AccessTab({
   if (accessLoading) {
     return (
       <div className="p-6 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-green-600" />
-        <span className="ml-2 text-gray-500">Loading access data...</span>
+        <Loader2 className="w-8 h-8 animate-spin text-[#22c55e]" />
+        <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">Loading access data...</span>
       </div>
     )
   }
@@ -1206,12 +1206,12 @@ function AccessTab({
   if (!accessData || accessData.dataEventsStatus !== 'enabled') {
     return (
       <div className="p-6">
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <div className="bg-[#f9731610] border border-[#f9731640] rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 text-[#f97316] flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-medium text-amber-800">No Access Data Available</h4>
-              <p className="text-sm text-amber-700 mt-1">
+              <h4 className="font-medium text-[#f97316]">No Access Data Available</h4>
+              <p className="text-sm text-[#f97316] mt-1">
                 S3 data events are not enabled or no access patterns have been recorded for this bucket.
               </p>
             </div>
@@ -1231,35 +1231,35 @@ function AccessTab({
     <div className="p-6 space-y-6">
       {/* Summary Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-center">
-          <div className="text-3xl font-bold text-blue-600">
+        <div className="bg-[#3b82f610] border border-blue-100 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-[#3b82f6]">
             {accessData.totalRequests?.toLocaleString() || 0}
           </div>
-          <div className="text-sm text-blue-600 mt-1">Total Requests</div>
+          <div className="text-sm text-[#3b82f6] mt-1">Total Requests</div>
         </div>
-        <div className="bg-green-50 border border-green-100 rounded-lg p-4 text-center">
-          <div className="text-3xl font-bold text-green-600">
+        <div className="bg-[#22c55e10] border border-green-100 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-[#22c55e]">
             {accessData.uniquePrincipals || 0}
           </div>
-          <div className="text-sm text-green-600 mt-1">Active Principals</div>
+          <div className="text-sm text-[#22c55e] mt-1">Active Principals</div>
         </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-          <div className="text-sm font-medium text-gray-900">
+        <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-lg p-4 text-center">
+          <div className="text-sm font-medium text-[var(--foreground,#111827)]">
             {accessData.lastActivity
               ? new Date(accessData.lastActivity).toLocaleDateString()
               : 'N/A'}
           </div>
-          <div className="text-sm text-gray-500 mt-1">Last Activity</div>
+          <div className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Last Activity</div>
         </div>
       </div>
 
       {/* Info Banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-[#3b82f610] border border-[#3b82f640] rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <Activity className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <Activity className="w-5 h-5 text-[#3b82f6] flex-shrink-0 mt-0.5" />
           <div>
-            <h4 className="font-medium text-blue-800">Observed Access Patterns</h4>
-            <p className="text-sm text-blue-700 mt-1">
+            <h4 className="font-medium text-[#3b82f6]">Observed Access Patterns</h4>
+            <p className="text-sm text-[#3b82f6] mt-1">
               These principals have actively accessed this bucket. This data helps identify which permissions are actually being used for safe remediation.
             </p>
           </div>
@@ -1278,23 +1278,23 @@ function AccessTab({
             {principalsWithTotals.map((principal, idx) => (
               <div
                 key={idx}
-                className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:border-green-300 transition-colors"
+                className="bg-white border border-[var(--border,#e5e7eb)] rounded-lg p-4 shadow-sm hover:border-[#22c55e40] transition-colors"
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                      <Users className="w-5 h-5 text-green-600" />
+                    <div className="w-10 h-10 rounded-full bg-[#22c55e20] flex items-center justify-center">
+                      <Users className="w-5 h-5 text-[#22c55e]" />
                     </div>
                     <div>
-                      <div className="font-semibold text-gray-900">{principal.principal}</div>
-                      <div className="text-xs text-gray-500">IAM Principal</div>
+                      <div className="font-semibold text-[var(--foreground,#111827)]">{principal.principal}</div>
+                      <div className="text-xs text-[var(--muted-foreground,#6b7280)]">IAM Principal</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xl font-bold text-gray-700">
+                    <div className="text-xl font-bold text-[var(--foreground,#374151)]">
                       {principal.totalActions.toLocaleString()}
                     </div>
-                    <div className="text-xs text-gray-500">Total Actions</div>
+                    <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Total Actions</div>
                   </div>
                 </div>
 
@@ -1311,7 +1311,7 @@ function AccessTab({
                     </span>
                   ))}
                   {(principal.actionCounts?.length || 0) > 8 && (
-                    <span className="inline-flex items-center px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                    <span className="inline-flex items-center px-2 py-1 bg-gray-100 text-[var(--muted-foreground,#4b5563)] rounded text-xs">
                       +{(principal.actionCounts?.length || 0) - 8} more
                     </span>
                   )}
@@ -1320,7 +1320,7 @@ function AccessTab({
             ))}
           </div>
         ) : (
-          <div className="text-center py-8 text-gray-500">
+          <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
             No principals have accessed this bucket recently.
           </div>
         )}
@@ -1328,12 +1328,12 @@ function AccessTab({
 
       {/* Legend */}
       <div className="border-t pt-4">
-        <div className="text-sm text-gray-500 mb-2">Action Types:</div>
+        <div className="text-sm text-[var(--muted-foreground,#6b7280)] mb-2">Action Types:</div>
         <div className="flex flex-wrap gap-2">
-          <span className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs">Read</span>
-          <span className="px-2 py-1 bg-green-50 text-green-700 border border-green-200 rounded text-xs">Write</span>
-          <span className="px-2 py-1 bg-orange-50 text-orange-700 border border-orange-200 rounded text-xs">Delete</span>
-          <span className="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded text-xs">Admin</span>
+          <span className="px-2 py-1 bg-[#3b82f610] text-[#3b82f6] border border-[#3b82f640] rounded text-xs">Read</span>
+          <span className="px-2 py-1 bg-[#22c55e10] text-[#22c55e] border border-[#22c55e40] rounded text-xs">Write</span>
+          <span className="px-2 py-1 bg-[#f9731610] text-[#f97316] border border-[#f9731640] rounded text-xs">Delete</span>
+          <span className="px-2 py-1 bg-[#8b5cf610] text-[#7c3aed] border border-purple-200 rounded text-xs">Admin</span>
         </div>
       </div>
     </div>
@@ -1357,25 +1357,25 @@ function EvidenceTab({
         
         <div className="grid grid-cols-2 gap-4">
           <div className="border rounded-lg p-4">
-            <div className="text-sm text-gray-500">Observation Period</div>
-            <div className="text-2xl font-bold text-gray-900">{observationDays} days</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Observation Period</div>
+            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{observationDays} days</div>
           </div>
           <div className="border rounded-lg p-4">
-            <div className="text-sm text-gray-500">S3 Access Events Analyzed</div>
-            <div className="text-2xl font-bold text-gray-900">{s3Events.toLocaleString()}</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">S3 Access Events Analyzed</div>
+            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{s3Events.toLocaleString()}</div>
           </div>
           <div className="border rounded-lg p-4">
-            <div className="text-sm text-gray-500">Analysis Confidence</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Analysis Confidence</div>
             <div className={`text-2xl font-bold ${
-              confidence === 'HIGH' ? 'text-green-600' :
-              confidence === 'MEDIUM' ? 'text-yellow-600' : 'text-red-600'
+              confidence === 'HIGH' ? 'text-[#22c55e]' :
+              confidence === 'MEDIUM' ? 'text-yellow-600' : 'text-[#ef4444]'
             }`}>
               {confidence}
             </div>
           </div>
           <div className="border rounded-lg p-4">
-            <div className="text-sm text-gray-500">Data Source</div>
-            <div className="text-2xl font-bold text-gray-900">CloudTrail</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Data Source</div>
+            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">CloudTrail</div>
           </div>
         </div>
       </div>
@@ -1385,19 +1385,19 @@ function EvidenceTab({
         
         <div className="bg-gray-50 rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <Check className="w-5 h-5 text-green-500" />
+            <Check className="w-5 h-5 text-[#22c55e]" />
             <span>CloudTrail S3 data events enabled</span>
           </div>
           <div className="flex items-center gap-2">
-            <Check className="w-5 h-5 text-green-500" />
+            <Check className="w-5 h-5 text-[#22c55e]" />
             <span>All regions analyzed</span>
           </div>
           <div className="flex items-center gap-2">
-            <Check className="w-5 h-5 text-green-500" />
+            <Check className="w-5 h-5 text-[#22c55e]" />
             <span>Bucket policy statements tracked</span>
           </div>
           <div className="flex items-center gap-2">
-            <Check className="w-5 h-5 text-green-500" />
+            <Check className="w-5 h-5 text-[#22c55e]" />
             <span>ACL permissions verified</span>
           </div>
         </div>
@@ -1562,12 +1562,12 @@ function SimulationTab({
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg p-4">
+      <div className="bg-white border border-purple-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <Zap className="w-6 h-6 text-purple-600 flex-shrink-0" />
+          <Zap className="w-6 h-6 text-[#8b5cf6] flex-shrink-0" />
           <div>
             <h4 className="font-bold text-purple-900">S3 Access Simulation</h4>
-            <p className="text-sm text-purple-700 mt-1">
+            <p className="text-sm text-[#7c3aed] mt-1">
               Generate simulated S3 access events for demo purposes. Events are saved to Neo4j and will appear in the "Who Accessed" tab.
             </p>
           </div>
@@ -1580,20 +1580,20 @@ function SimulationTab({
 
         {/* Principal Name */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Principal Name</label>
+          <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Principal Name</label>
           <input
             type="text"
             value={principalName}
             onChange={(e) => setPrincipalName(e.target.value)}
             placeholder="e.g., demo-user, suspicious-actor"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg focus:ring-2 focus:ring-[#8b5cf6] focus:border-purple-500"
             disabled={isRunning}
           />
         </div>
 
         {/* Pattern Type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Access Pattern</label>
+          <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-2">Access Pattern</label>
           <div className="grid grid-cols-2 gap-3">
             {patterns.map((pattern) => (
               <button
@@ -1602,15 +1602,15 @@ function SimulationTab({
                 disabled={isRunning}
                 className={`p-3 rounded-lg border-2 text-left transition-all ${
                   patternType === pattern.value
-                    ? pattern.color === 'green' ? 'border-green-500 bg-green-50' :
-                      pattern.color === 'yellow' ? 'border-yellow-500 bg-yellow-50' :
-                      pattern.color === 'orange' ? 'border-orange-500 bg-orange-50' :
-                      'border-red-500 bg-red-50'
-                    : 'border-gray-200 hover:border-gray-300'
+                    ? pattern.color === 'green' ? 'border-green-500 bg-[#22c55e10]' :
+                      pattern.color === 'yellow' ? 'border-yellow-500 bg-[#eab30810]' :
+                      pattern.color === 'orange' ? 'border-orange-500 bg-[#f9731610]' :
+                      'border-red-500 bg-[#ef444410]'
+                    : 'border-[var(--border,#e5e7eb)] hover:border-[var(--border,#d1d5db)]'
                 } disabled:opacity-50`}
               >
-                <div className="font-semibold text-gray-900">{pattern.label}</div>
-                <div className="text-xs text-gray-500 mt-1">{pattern.description}</div>
+                <div className="font-semibold text-[var(--foreground,#111827)]">{pattern.label}</div>
+                <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{pattern.description}</div>
               </button>
             ))}
           </div>
@@ -1618,8 +1618,8 @@ function SimulationTab({
 
         {/* Event Count */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Event Count: <span className="font-bold text-purple-600">{eventCount}</span>
+          <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">
+            Event Count: <span className="font-bold text-[#8b5cf6]">{eventCount}</span>
           </label>
           <input
             type="range"
@@ -1631,7 +1631,7 @@ function SimulationTab({
             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
             disabled={isRunning}
           />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <div className="flex justify-between text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
             <span>10</span>
             <span>50</span>
             <span>100</span>
@@ -1644,13 +1644,13 @@ function SimulationTab({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-lg">Live Events</h3>
-            <span className="text-sm text-gray-500">{progress}% complete</span>
+            <span className="text-sm text-[var(--muted-foreground,#6b7280)]">{progress}% complete</span>
           </div>
 
           {/* Progress Bar */}
           <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all duration-300 ${completed ? 'bg-green-500' : 'bg-purple-500'}`}
+              className={`h-full transition-all duration-300 ${completed ? 'bg-[#22c55e10]0' : 'bg-[#8b5cf6]'}`}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -1668,16 +1668,16 @@ function SimulationTab({
                   event.action_type === 'read' ? 'bg-blue-600 text-white' :
                   event.action_type === 'write' ? 'bg-green-600 text-white' :
                   event.action_type === 'delete' ? 'bg-orange-600 text-white' :
-                  'bg-purple-600 text-white'
+                  'bg-[#8b5cf6] text-white'
                 }`}>
                   {event.action_type}
                 </span>
-                <span className="text-gray-400">{event.event_name}</span>
-                <span className="text-gray-600 ml-auto">{event.principal}</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)]">{event.event_name}</span>
+                <span className="text-[var(--muted-foreground,#4b5563)] ml-auto">{event.principal}</span>
               </div>
             ))}
             {isRunning && !completed && (
-              <div className="flex items-center gap-2 py-1 text-gray-400">
+              <div className="flex items-center gap-2 py-1 text-[var(--muted-foreground,#9ca3af)]">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 <span>Generating events...</span>
               </div>
@@ -1691,7 +1691,7 @@ function SimulationTab({
         <button
           onClick={runSimulation}
           disabled={isRunning || !principalName.trim()}
-          className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="flex-1 px-4 py-2.5 bg-white text-white rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {isRunning ? (
             <>
@@ -1709,7 +1709,7 @@ function SimulationTab({
         {events.length > 0 && !isRunning && (
           <button
             onClick={cleanupPrincipal}
-            className="px-4 py-2.5 border border-red-300 text-red-600 rounded-lg font-medium hover:bg-red-50 flex items-center gap-2"
+            className="px-4 py-2.5 border border-[#ef444440] text-[#ef4444] rounded-lg font-medium hover:bg-[#ef444410] flex items-center gap-2"
           >
             <XCircle className="w-4 h-4" />
             Cleanup

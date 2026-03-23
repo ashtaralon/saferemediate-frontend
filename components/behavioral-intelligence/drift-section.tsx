@@ -49,7 +49,7 @@ const getDriftTypeLabel = (type: string) => {
 const getDriftTypeColor = (type: string) => {
   switch (type.toUpperCase()) {
     case 'OVER_PERMISSION':
-      return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+      return 'bg-[#f9731610]0/20 text-amber-400 border-amber-500/30'
     case 'SHADOW_PERMISSION':
       return 'bg-rose-500/20 text-rose-400 border-rose-500/30'
     case 'CONFIG_MISMATCH':
@@ -64,11 +64,11 @@ const getSeverityColor = (severity: string) => {
     case 'CRITICAL':
       return 'bg-rose-500/20 text-rose-400'
     case 'HIGH':
-      return 'bg-orange-500/20 text-orange-400'
+      return 'bg-[#f9731610]0/20 text-orange-400'
     case 'MEDIUM':
-      return 'bg-amber-500/20 text-amber-400'
+      return 'bg-[#f9731610]0/20 text-amber-400'
     case 'LOW':
-      return 'bg-emerald-500/20 text-emerald-400'
+      return 'bg-[#10b98110]0/20 text-emerald-400'
     default:
       return 'bg-slate-600/50 text-slate-400'
   }
@@ -152,7 +152,7 @@ const DriftCard: React.FC<{ item: DriftItem; isExpanded: boolean; onToggle: () =
 
           {/* Recommendation */}
           {item.recommendation && (
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+            <div className="bg-[#10b98110]0/10 border border-emerald-500/20 rounded-lg p-3">
               <div className="flex items-center gap-2 mb-1">
                 <CheckCircle className="w-4 h-4 text-emerald-400" />
                 <span className="text-xs text-emerald-400 uppercase tracking-wider font-medium">
@@ -233,7 +233,7 @@ export const DriftSection: React.FC<DriftSectionProps> = ({ items }) => {
             )}
             {severityCounts.HIGH && (
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-orange-500" />
+                <div className="w-2 h-2 rounded-full bg-[#f9731610]0" />
                 <span className="text-sm text-slate-400">
                   {severityCounts.HIGH} High
                 </span>
@@ -241,7 +241,7 @@ export const DriftSection: React.FC<DriftSectionProps> = ({ items }) => {
             )}
             {severityCounts.MEDIUM && (
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-amber-500" />
+                <div className="w-2 h-2 rounded-full bg-[#f9731610]0" />
                 <span className="text-sm text-slate-400">
                   {severityCounts.MEDIUM} Medium
                 </span>
@@ -249,7 +249,7 @@ export const DriftSection: React.FC<DriftSectionProps> = ({ items }) => {
             )}
             {severityCounts.LOW && (
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <div className="w-2 h-2 rounded-full bg-[#10b98110]0" />
                 <span className="text-sm text-slate-400">
                   {severityCounts.LOW} Low
                 </span>

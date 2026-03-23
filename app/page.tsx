@@ -415,7 +415,7 @@ export default function HomePage() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2D51DA] mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading infrastructure data...</p>
+            <p className="text-[var(--muted-foreground,#4b5563)]">Loading infrastructure data...</p>
           </div>
         </div>
       </div>
@@ -457,11 +457,11 @@ export default function HomePage() {
   }
 
   const AutoRefreshToggle = () => (
-    <div className="flex items-center gap-3 bg-white rounded-lg px-4 py-2 border border-gray-200 shadow-sm">
-      <RefreshCw className={`h-4 w-4 text-gray-500 ${autoRefresh ? "animate-spin" : ""}`} />
-      <span className="text-sm text-gray-600">Auto-refresh</span>
+    <div className="flex items-center gap-3 bg-white rounded-lg px-4 py-2 border border-[var(--border,#e5e7eb)] shadow-sm">
+      <RefreshCw className={`h-4 w-4 text-[var(--muted-foreground,#6b7280)] ${autoRefresh ? "animate-spin" : ""}`} />
+      <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Auto-refresh</span>
       <Switch checked={autoRefresh} onCheckedChange={setAutoRefresh} />
-      <span className="text-xs text-gray-400">Updated {lastRefresh.toLocaleTimeString()}</span>
+      <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Updated {lastRefresh.toLocaleTimeString()}</span>
     </div>
   )
 
@@ -497,44 +497,44 @@ export default function HomePage() {
                 <PostureScoreCard systemName="Eltro" />
               </div>
               <div className="lg:col-span-1">
-                <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
+                <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-[#8b5cf640]">
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg font-semibold text-indigo-900 flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-indigo-600" />
+                      <CardTitle className="text-lg font-semibold text-[#8b5cf6] flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-[#8b5cf6]" />
                         Gap Analysis
                       </CardTitle>
-                      <span className="text-xs bg-indigo-600 text-white px-2 py-1 rounded-full font-medium">LIVE</span>
+                      <span className="text-xs bg-[#8b5cf6] text-white px-2 py-1 rounded-full font-medium">LIVE</span>
                     </div>
-                    <p className="text-xs text-indigo-600 truncate" title={gapRoleName}>
+                    <p className="text-xs text-[#8b5cf6] truncate" title={gapRoleName}>
                       {gapRoleName}
                     </p>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-gray-900">{gapAllowed}</div>
-                        <div className="text-xs text-gray-600">Allowed</div>
+                        <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{gapAllowed}</div>
+                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Allowed</div>
                       </div>
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-green-600">{gapUsed}</div>
-                        <div className="text-xs text-gray-600">Used</div>
+                        <div className="text-2xl font-bold text-[#22c55e]">{gapUsed}</div>
+                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Used</div>
                       </div>
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-red-600">{gapUnused}</div>
-                        <div className="text-xs text-gray-600 flex items-center justify-center gap-1">
+                        <div className="text-2xl font-bold text-[#ef4444]">{gapUnused}</div>
+                        <div className="text-xs text-[var(--muted-foreground,#4b5563)] flex items-center justify-center gap-1">
                           <TrendingDown className="h-3 w-3" />
                           Unused
                         </div>
                       </div>
                       <div className="bg-white/60 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-indigo-600">{gapConfidence}%</div>
-                        <div className="text-xs text-gray-600">Confidence</div>
+                        <div className="text-2xl font-bold text-[#8b5cf6]">{gapConfidence}%</div>
+                        <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Confidence</div>
                       </div>
                     </div>
                     {gapUnused > 0 && gapAllowed > 0 && (
-                      <div className="mt-3 p-2 bg-amber-100 rounded-lg text-center">
-                        <span className="text-xs font-medium text-amber-800">
+                      <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
+                        <span className="text-xs font-medium text-[#f97316]">
                           {Math.round((gapUnused / gapAllowed) * 100)}% permissions can be removed
                         </span>
                       </div>
@@ -545,52 +545,52 @@ export default function HomePage() {
             </div>
             {/* Security Hub Findings Card */}
             {securityHubData.total > 0 && (
-              <Card className="bg-gradient-to-br from-red-50 to-orange-50 border-red-200">
+              <Card className="bg-gradient-to-br from-red-50 to-orange-50 border-[#ef444440]">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg font-semibold text-red-900 flex items-center gap-2">
-                      <AlertOctagon className="h-5 w-5 text-red-600" />
+                      <AlertOctagon className="h-5 w-5 text-[#ef4444]" />
                       Security Hub Findings
                     </CardTitle>
                     <span className="text-xs bg-red-600 text-white px-2 py-1 rounded-full font-medium">
                       {securityHubData.total} Active
                     </span>
                   </div>
-                  <p className="text-xs text-red-600">
+                  <p className="text-xs text-[#ef4444]">
                     AWS Security Hub aggregated findings
                   </p>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-4 gap-3">
                     <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-red-600">
-                      <div className="text-2xl font-bold text-red-600">{securityHubData.critical}</div>
-                      <div className="text-xs text-gray-600">Critical</div>
+                      <div className="text-2xl font-bold text-[#ef4444]">{securityHubData.critical}</div>
+                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Critical</div>
                     </div>
                     <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-orange-500">
                       <div className="text-2xl font-bold text-orange-500">{securityHubData.high}</div>
-                      <div className="text-xs text-gray-600">High</div>
+                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">High</div>
                     </div>
                     <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-amber-500">
                       <div className="text-2xl font-bold text-amber-500">{securityHubData.medium}</div>
-                      <div className="text-xs text-gray-600">Medium</div>
+                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Medium</div>
                     </div>
                     <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-blue-400">
                       <div className="text-2xl font-bold text-blue-500">{securityHubData.low}</div>
-                      <div className="text-xs text-gray-600">Low</div>
+                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Low</div>
                     </div>
                   </div>
                   {Object.keys(securityHubData.byProduct).length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {Object.entries(securityHubData.byProduct).slice(0, 4).map(([product, count]) => (
-                        <span key={product} className="text-xs bg-white/80 px-2 py-1 rounded-full text-gray-700">
+                        <span key={product} className="text-xs bg-white/80 px-2 py-1 rounded-full text-[var(--foreground,#374151)]">
                           {product}: {count}
                         </span>
                       ))}
                     </div>
                   )}
                   {(securityHubData.critical > 0 || securityHubData.high > 0) && (
-                    <div className="mt-3 p-2 bg-red-100 rounded-lg text-center">
-                      <span className="text-xs font-medium text-red-800">
+                    <div className="mt-3 p-2 bg-[#ef444420] rounded-lg text-center">
+                      <span className="text-xs font-medium text-[#ef4444]">
                         {securityHubData.critical + securityHubData.high} findings need immediate attention
                       </span>
                     </div>
@@ -600,8 +600,8 @@ export default function HomePage() {
             )}
             <SecurityIssuesOverview {...securityIssuesData} />
             {securityFindings.length > 0 && (
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Security Findings Details</h2>
+              <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
+                <h2 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-4">Security Findings Details</h2>
                 <SecurityFindingsList findings={securityFindings} />
               </div>
             )}
@@ -624,8 +624,8 @@ export default function HomePage() {
               totalCritical={securityIssuesData.critical}
               missionCriticalCount={0}
             />
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">All Security Findings</h2>
+            <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
+              <h2 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-4">All Security Findings</h2>
               <SecurityFindingsList findings={securityFindings} />
             </div>
           </div>
@@ -636,7 +636,7 @@ export default function HomePage() {
 
       case "compliance":
         return (
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
+          <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
             <EmptyState
               icon="shield"
               title="Compliance Dashboard Coming Soon"
@@ -666,7 +666,7 @@ export default function HomePage() {
       default:
         return (
           <div>
-            <h1 className="text-4xl font-bold mb-4 text-gray-900">Welcome to CYNTRO</h1>
+            <h1 className="text-4xl font-bold mb-4 text-[var(--foreground,#111827)]">Welcome to CYNTRO</h1>
           </div>
         )
     }
@@ -681,7 +681,7 @@ export default function HomePage() {
       {showSimulator && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSimulator(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -696,7 +696,7 @@ export default function HomePage() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Quick Scenarios</label>
+                <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-2">Quick Scenarios</label>
                 <div className="flex flex-wrap gap-2">
                   {DEMO_SCENARIOS.map((scenario, i) => (
                     <button
@@ -710,32 +710,32 @@ export default function HomePage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Source Resource</label>
+                <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Source Resource</label>
                 <input type="text" value={simSource} onChange={(e) => setSimSource(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Target S3 Bucket</label>
+                <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Target S3 Bucket</label>
                 <input type="text" value={simTarget} onChange={(e) => setSimTarget(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Days</label>
+                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Days</label>
                   <input type="number" value={simDays} onChange={(e) => setSimDays(parseInt(e.target.value) || 30)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="730" />
+                    className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="730" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Events/Day</label>
+                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Events/Day</label>
                   <input type="number" value={simEventsPerDay} onChange={(e) => setSimEventsPerDay(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="100" />
+                    className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500" min="1" max="100" />
                 </div>
               </div>
-              <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+              <div className="p-3 bg-gray-50 rounded-lg text-sm text-[var(--muted-foreground,#4b5563)]">
                 <strong>Will simulate:</strong> {simDays * simEventsPerDay} events over {simDays} days ({Math.round(simDays/30)} months)
               </div>
               <div className="flex gap-3 pt-2">
-                <button onClick={() => setShowSimulator(false)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button onClick={() => setShowSimulator(false)} className="flex-1 px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50">Cancel</button>
                 <button onClick={simulateTraffic} disabled={isSimulating || !simSource || !simTarget}
                   className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-medium flex items-center justify-center gap-2">
                   {isSimulating ? 'Simulating...' : 'Simulate Traffic'}

@@ -10,11 +10,11 @@ interface PostureScoreCardProps {
 }
 
 const GRADE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  A: { bg: "bg-green-100", text: "text-green-700", border: "border-green-200" },
-  B: { bg: "bg-blue-100", text: "text-blue-700", border: "border-blue-200" },
-  C: { bg: "bg-yellow-100", text: "text-yellow-700", border: "border-yellow-200" },
-  D: { bg: "bg-orange-100", text: "text-orange-700", border: "border-orange-200" },
-  F: { bg: "bg-red-100", text: "text-red-700", border: "border-red-200" },
+  A: { bg: "bg-[#22c55e20]", text: "text-[#22c55e]", border: "border-[#22c55e40]" },
+  B: { bg: "bg-[#3b82f620]", text: "text-[#3b82f6]", border: "border-[#3b82f640]" },
+  C: { bg: "bg-[#eab30820]", text: "text-[#eab308]", border: "border-[#eab30840]" },
+  D: { bg: "bg-[#f9731620]", text: "text-[#f97316]", border: "border-[#f9731640]" },
+  F: { bg: "bg-[#ef444420]", text: "text-[#ef4444]", border: "border-[#ef444440]" },
 }
 
 const DIMENSION_CONFIG: Record<string, { label: string; color: string }> = {
@@ -56,12 +56,12 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
   const gradeColors = data?.grade ? GRADE_COLORS[data.grade] : GRADE_COLORS.F
 
   return (
-    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+    <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5 text-indigo-600" />
-          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Security Posture</h3>
+          <Shield className="w-5 h-5 text-[#8b5cf6]" />
+          <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">Security Posture</h3>
         </div>
         {!loading && !error && data && (
           <span className={`px-3 py-1 ${gradeColors.bg} ${gradeColors.text} text-lg font-bold rounded-lg ${gradeColors.border} border`}>
@@ -76,14 +76,14 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-6 text-center">
-          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-            <AlertTriangle className="w-6 h-6 text-red-500" />
+          <div className="w-12 h-12 bg-[#ef444420] rounded-full flex items-center justify-center mb-3">
+            <AlertTriangle className="w-6 h-6 text-[#ef4444]" />
           </div>
-          <p className="text-sm font-medium text-gray-900 mb-1">Unable to load posture score</p>
-          <p className="text-xs text-gray-500 mb-3">{error}</p>
+          <p className="text-sm font-medium text-[var(--foreground,#111827)] mb-1">Unable to load posture score</p>
+          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-3">{error}</p>
           <button
             onClick={loadData}
-            className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="flex items-center gap-1 px-3 py-1.5 border border-[var(--border,#d1d5db)] rounded-lg text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50"
           >
             <RefreshCw className="w-3 h-3" />
             Retry
@@ -117,15 +117,15 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold text-gray-900">{Math.round(data.overall_score)}</span>
-                <span className="text-xs text-gray-500">/ 100</span>
+                <span className="text-2xl font-bold text-[var(--foreground,#111827)]">{Math.round(data.overall_score)}</span>
+                <span className="text-xs text-[var(--muted-foreground,#6b7280)]">/ 100</span>
               </div>
             </div>
             <div className="flex-1">
-              <p className="text-sm text-gray-600 mb-1">
+              <p className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">
                 {data.resources_analyzed} resources analyzed
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
                 {data.window_days}-day observation window
               </p>
             </div>
@@ -139,7 +139,7 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
               return (
                 <div key={key}>
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-medium text-gray-600">{config.label}</span>
+                    <span className="text-xs font-medium text-[var(--muted-foreground,#4b5563)]">{config.label}</span>
                     <span className="text-xs font-semibold" style={{ color: config.color }}>
                       {Math.round(dim.score)}%
                     </span>
@@ -157,8 +157,8 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
 
           {/* Top Issues */}
           {data.top_issues && data.top_issues.length > 0 && (
-            <div className="border-t border-gray-100 pt-4">
-              <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+            <div className="border-t border-[var(--border,#f3f4f6)] pt-4">
+              <h4 className="text-xs font-semibold text-[var(--foreground,#374151)] uppercase tracking-wide mb-2">
                 Top Issues to Address
               </h4>
               <div className="space-y-2">
@@ -166,10 +166,10 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
                   <div key={idx} className="flex items-start gap-2 text-xs">
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-medium text-gray-700 capitalize">
+                      <span className="font-medium text-[var(--foreground,#374151)] capitalize">
                         {issue.dimension.replace(/_/g, ' ')}
                       </span>
-                      <span className="text-gray-500"> - {issue.recommendation}</span>
+                      <span className="text-[var(--muted-foreground,#6b7280)]"> - {issue.recommendation}</span>
                     </div>
                   </div>
                 ))}
@@ -181,7 +181,7 @@ export function PostureScoreCard({ systemName, onViewDetails }: PostureScoreCard
           {onViewDetails && (
             <button
               onClick={onViewDetails}
-              className="mt-4 w-full flex items-center justify-center gap-1 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+              className="mt-4 w-full flex items-center justify-center gap-1 py-2 text-sm font-medium text-[#8b5cf6] hover:text-[#7c3aed] hover:bg-[#8b5cf610] rounded-lg transition-colors"
             >
               View Detailed Breakdown
               <ChevronRight className="w-4 h-4" />

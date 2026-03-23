@@ -232,13 +232,13 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
 
   const getRiskIndicator = (source: string, isUsed?: boolean) => {
     if (source === '0.0.0.0/0') {
-      return <span className="text-xs text-red-600 flex items-center gap-1"><Globe className="w-3 h-3" />RISK</span>
+      return <span className="text-xs text-[#ef4444] flex items-center gap-1"><Globe className="w-3 h-3" />RISK</span>
     }
     if (isUsed === false) {
-      return <span className="text-xs text-amber-600">unused</span>
+      return <span className="text-xs text-[#f97316]">unused</span>
     }
     if (isUsed === true) {
-      return <CheckCircle className="w-3 h-3 text-green-500" />
+      return <CheckCircle className="w-3 h-3 text-[#22c55e]" />
     }
     return null
   }
@@ -247,7 +247,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-[#f9731620] flex items-center justify-center">
             <Network className="w-5 h-5 text-orange-600" />
           </div>
           <div>
@@ -267,7 +267,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-[#f9731620] flex items-center justify-center">
             <Network className="w-5 h-5 text-orange-600" />
           </div>
           <div>
@@ -285,7 +285,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-[#f9731620] flex items-center justify-center">
             <Network className="w-5 h-5 text-orange-600" />
           </div>
           <div>
@@ -310,7 +310,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
           ) : (
             <ChevronRight className="w-5 h-5 text-slate-400" />
           )}
-          <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-[#f9731620] flex items-center justify-center">
             <Network className="w-5 h-5 text-orange-600" />
           </div>
           <div className="text-left">
@@ -330,7 +330,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                 VPC
               </div>
               <div className="ml-6">
-                <div className="font-mono text-blue-600 text-sm">{data.vpc.vpc_id}</div>
+                <div className="font-mono text-[#3b82f6] text-sm">{data.vpc.vpc_id}</div>
                 {data.vpc.cidr_block && (
                   <div className="text-slate-500 text-sm mt-1">
                     └── CIDR: <span className="font-mono">{data.vpc.cidr_block}</span>
@@ -363,7 +363,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                       </div>
                     </div>
                     <span className={`px-2 py-0.5 rounded text-xs ${
-                      subnet.is_public ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
+                      subnet.is_public ? 'bg-[#f9731620] text-[#f97316]' : 'bg-[#22c55e20] text-[#22c55e]'
                     }`}>
                       {subnet.is_public ? 'public' : 'private'}
                     </span>
@@ -404,8 +404,8 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                   {expandedSGs.has(sg.sg_id) && (
                     <div className="border-t divide-y">
                       {/* Inbound Rules */}
-                      <div className="p-4 bg-green-50/50">
-                        <div className="flex items-center gap-2 text-sm font-medium text-green-700 mb-3">
+                      <div className="p-4 bg-[#22c55e10]/50">
+                        <div className="flex items-center gap-2 text-sm font-medium text-[#22c55e] mb-3">
                           <ArrowDown className="w-4 h-4" />
                           Inbound Rules ({sg.inbound_rules.length})
                         </div>
@@ -415,7 +415,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                           ) : (
                             sg.inbound_rules.map((rule, i) => (
                               <div key={i} className={`flex items-center justify-between text-sm p-2.5 rounded-lg ${
-                                rule.source === '0.0.0.0/0' ? 'bg-red-50 border border-red-200' : 'bg-white border'
+                                rule.source === '0.0.0.0/0' ? 'bg-[#ef444410] border border-[#ef444440]' : 'bg-white border'
                               }`}>
                                 <div className="flex items-center gap-2">
                                   <span className="text-slate-500">├──</span>
@@ -423,13 +423,13 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                                     {rule.protocol}:{rule.port_range}
                                   </span>
                                   <span className="text-slate-500">from</span>
-                                  <span className={`font-mono text-xs ${rule.source === '0.0.0.0/0' ? 'text-red-600' : ''}`}>
+                                  <span className={`font-mono text-xs ${rule.source === '0.0.0.0/0' ? 'text-[#ef4444]' : ''}`}>
                                     {rule.source}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {rule.traffic_count !== undefined && rule.traffic_count > 0 && (
-                                    <span className="text-xs text-green-600">{rule.traffic_count.toLocaleString()} hits</span>
+                                    <span className="text-xs text-[#22c55e]">{rule.traffic_count.toLocaleString()} hits</span>
                                   )}
                                   {getRiskIndicator(rule.source, rule.is_used)}
                                 </div>
@@ -440,8 +440,8 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                       </div>
                       
                       {/* Outbound Rules */}
-                      <div className="p-4 bg-blue-50/50">
-                        <div className="flex items-center gap-2 text-sm font-medium text-blue-700 mb-3">
+                      <div className="p-4 bg-[#3b82f610]/50">
+                        <div className="flex items-center gap-2 text-sm font-medium text-[#3b82f6] mb-3">
                           <ArrowUp className="w-4 h-4" />
                           Outbound Rules ({sg.outbound_rules.length})
                         </div>
@@ -451,7 +451,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                           ) : (
                             sg.outbound_rules.map((rule, i) => (
                               <div key={i} className={`flex items-center justify-between text-sm p-2.5 rounded-lg ${
-                                rule.destination === '0.0.0.0/0' ? 'bg-amber-50 border border-amber-200' : 'bg-white border'
+                                rule.destination === '0.0.0.0/0' ? 'bg-[#f9731610] border border-[#f9731640]' : 'bg-white border'
                               }`}>
                                 <div className="flex items-center gap-2">
                                   <span className="text-slate-500">└──</span>
@@ -462,7 +462,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                                   <span className="font-mono text-xs">{rule.destination}</span>
                                 </div>
                                 {rule.destination === '0.0.0.0/0' && (
-                                  <span className="text-xs text-amber-600 flex items-center gap-1">⚠️</span>
+                                  <span className="text-xs text-[#f97316] flex items-center gap-1">⚠️</span>
                                 )}
                               </div>
                             ))
@@ -507,7 +507,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                           <div key={i} className="flex items-center gap-2 text-xs mb-1">
                             <span className="text-slate-500">├──</span>
                             <span>Rule {rule.rule_number}:</span>
-                            <span className={rule.action === 'allow' ? 'text-green-600' : 'text-red-600'}>
+                            <span className={rule.action === 'allow' ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
                               {rule.action.toUpperCase()}
                             </span>
                             <span className="font-mono">{rule.protocol === '-1' ? 'ALL' : rule.protocol}</span>
@@ -522,7 +522,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                           <div key={i} className="flex items-center gap-2 text-xs mb-1">
                             <span className="text-slate-500">└──</span>
                             <span>Rule {rule.rule_number}:</span>
-                            <span className={rule.action === 'allow' ? 'text-green-600' : 'text-red-600'}>
+                            <span className={rule.action === 'allow' ? 'text-[#22c55e]' : 'text-[#ef4444]'}>
                               {rule.action.toUpperCase()}
                             </span>
                             <span className="font-mono">{rule.protocol === '-1' ? 'ALL' : rule.protocol}</span>
@@ -553,7 +553,7 @@ export default function NetworkSection({ resourceId, resourceType, resourceName 
                         <span className="text-slate-400">{j === rtb.routes.length - 1 ? '└──' : '├──'}</span>
                         <span className="font-mono">{route.destination}</span>
                         <span className="text-slate-400">→</span>
-                        <span className="font-mono text-blue-600">{route.target}</span>
+                        <span className="font-mono text-[#3b82f6]">{route.target}</span>
                       </div>
                     ))}
                   </div>

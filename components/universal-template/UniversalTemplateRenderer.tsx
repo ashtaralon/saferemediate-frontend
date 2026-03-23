@@ -66,9 +66,9 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           )}
         </div>
         {isOpen ? (
-          <ChevronDown className="w-5 h-5 text-gray-400" />
+          <ChevronDown className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
         ) : (
-          <ChevronRight className="w-5 h-5 text-gray-400" />
+          <ChevronRight className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
         )}
       </button>
       {isOpen && <div className="mt-2">{children}</div>}
@@ -110,14 +110,14 @@ const Header: React.FC<HeaderProps> = ({ data, onClose }) => {
           <h2 className="text-xl font-bold text-white">
             {data.header.identity.name || data.header.resource_id}
           </h2>
-          <p className="text-gray-400 text-sm">{data.header.display_name}</p>
+          <p className="text-[var(--muted-foreground,#9ca3af)] text-sm">{data.header.display_name}</p>
           <div className="flex items-center gap-2 mt-2">
             {data.header.identity.system_name && (
               <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded font-medium">
                 {data.header.identity.system_name}
               </span>
             )}
-            <span className="text-gray-400 text-sm">• Production</span>
+            <span className="text-[var(--muted-foreground,#9ca3af)] text-sm">• Production</span>
           </div>
           {/* Plane Coverage Chips */}
           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -130,7 +130,7 @@ const Header: React.FC<HeaderProps> = ({ data, onClose }) => {
                   className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                     isAvailable
                       ? `bg-${plane.color}-500/20 text-${plane.color}-300 border border-${plane.color}-500/30`
-                      : 'bg-gray-800 text-gray-500 border border-gray-700'
+                      : 'bg-gray-800 text-[var(--muted-foreground,#6b7280)] border border-gray-700'
                   }`}
                   title={coverage?.reason || (isAvailable ? 'Data available' : 'No data')}
                 >
@@ -144,7 +144,7 @@ const Header: React.FC<HeaderProps> = ({ data, onClose }) => {
               );
             })}
           </div>
-          <p className="text-gray-500 text-sm mt-2">
+          <p className="text-[var(--muted-foreground,#6b7280)] text-sm mt-2">
             Last seen: {data.header.last_seen ? formatDateTime(data.header.last_seen) : 'Unknown'}
           </p>
         </div>
@@ -152,7 +152,7 @@ const Header: React.FC<HeaderProps> = ({ data, onClose }) => {
       {onClose && (
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-white transition-colors"
+          className="text-[var(--muted-foreground,#9ca3af)] hover:text-white transition-colors"
         >
           <X className="w-6 h-6" />
         </button>
@@ -210,7 +210,7 @@ const WhatsBroadSection: React.FC<WhatsBroadProps> = ({ data }) => {
       defaultOpen={true}
     >
       {/* Purple summary bar */}
-      <div className="bg-purple-600 rounded-lg p-3 mb-3">
+      <div className="bg-[#8b5cf6] rounded-lg p-3 mb-3">
         <span className="text-white font-medium">
           {resourceName} - {formatSummary()}
         </span>
@@ -275,10 +275,10 @@ const WhyItsRiskySection: React.FC<WhyItsRiskyProps> = ({ data }) => {
               key={idx}
               className={`px-3 py-2 rounded text-sm ${
                 insight.severity === 'critical'
-                  ? 'bg-red-500/20 text-red-300'
+                  ? 'bg-[#ef444410]0/20 text-red-300'
                   : insight.severity === 'warning'
-                  ? 'bg-yellow-500/20 text-yellow-300'
-                  : 'bg-blue-500/20 text-blue-300'
+                  ? 'bg-[#eab30810]0/20 text-yellow-300'
+                  : 'bg-[#3b82f610]0/20 text-blue-300'
               }`}
             >
               {insight.text}
@@ -291,7 +291,7 @@ const WhyItsRiskySection: React.FC<WhyItsRiskyProps> = ({ data }) => {
           ))}
         </div>
       ) : (
-        <div className="text-gray-400 text-sm px-3 py-2">
+        <div className="text-[var(--muted-foreground,#9ca3af)] text-sm px-3 py-2">
           {riskLevel === 'low'
             ? 'No significant risks identified.'
             : 'Risk analysis in progress...'}
@@ -348,7 +348,7 @@ const WhatsActuallyUsedSection: React.FC<WhatsActuallyUsedProps> = ({ data }) =>
       defaultOpen={true}
     >
       {/* Credential context */}
-      <div className="bg-purple-600/30 border border-purple-500/50 rounded-lg p-3 mb-3">
+      <div className="bg-[#8b5cf6]/30 border border-purple-500/50 rounded-lg p-3 mb-3">
         <span className="text-purple-300">
           Credential context:{' '}
           <span className="text-purple-200 font-medium">
@@ -363,8 +363,8 @@ const WhatsActuallyUsedSection: React.FC<WhatsActuallyUsedProps> = ({ data }) =>
           Last activity:{' '}
           <span className="font-medium">{formatObservedUsage()}</span>
         </span>
-        <span className="flex items-center gap-1 text-gray-400">
-          <span className={`w-2 h-2 rounded-full ${hasAllowedData ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+        <span className="flex items-center gap-1 text-[var(--muted-foreground,#9ca3af)]">
+          <span className={`w-2 h-2 rounded-full ${hasAllowedData ? 'bg-[#22c55e10]0' : 'bg-[#eab30810]0'}`}></span>
           IAM: {formatAnalyzedCount()}
         </span>
       </div>
@@ -409,7 +409,7 @@ const RecommendedTighteningSection: React.FC<RecommendedTighteningProps> = ({ da
   return (
     <CollapsibleSection
       title="Recommended Tightening"
-      icon={<Wrench className="w-5 h-5 text-gray-400" />}
+      icon={<Wrench className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />}
       defaultOpen={true}
     >
       {/* Two column layout */}
@@ -512,7 +512,7 @@ const EvidenceSourcesFooter: React.FC<EvidenceSourcesProps> = ({ data }) => {
 
   return (
     <div className="mt-6 pt-4 border-t border-gray-700">
-      <p className="text-gray-500 text-xs uppercase tracking-wider mb-2">
+      <p className="text-[var(--muted-foreground,#6b7280)] text-xs uppercase tracking-wider mb-2">
         Evidence Sources
       </p>
       <div className="flex flex-wrap gap-2">
@@ -522,7 +522,7 @@ const EvidenceSourcesFooter: React.FC<EvidenceSourcesProps> = ({ data }) => {
             className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
               source.available
                 ? 'bg-gray-700 text-gray-300'
-                : 'bg-gray-800/50 text-gray-500'
+                : 'bg-gray-800/50 text-[var(--muted-foreground,#6b7280)]'
             }`}
           >
             {source.available ? (
@@ -561,7 +561,7 @@ const BlastRadiusSection: React.FC<BlastRadiusProps> = ({ data }) => {
       icon={<Globe className="w-5 h-5 text-red-400" />}
       defaultOpen={true}
     >
-      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-3">
+      <div className="bg-[#ef444410]0/10 border border-red-500/30 rounded-lg p-3 mb-3">
         <p className="text-red-300 text-sm font-medium">
           {blastRadius?.message || `This resource is used by ${totalAffected} other resource${totalAffected > 1 ? 's' : ''}`}
         </p>
@@ -570,12 +570,12 @@ const BlastRadiusSection: React.FC<BlastRadiusProps> = ({ data }) => {
       <div className="space-y-2">
         {affectedResources.slice(0, 5).map((resource, idx) => (
           <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-white/5 rounded text-sm">
-            <span className="text-gray-400">{resource.type || 'Resource'}:</span>
+            <span className="text-[var(--muted-foreground,#9ca3af)]">{resource.type || 'Resource'}:</span>
             <span className="text-gray-200">{resource.name}</span>
           </div>
         ))}
         {totalAffected > 5 && (
-          <p className="text-gray-500 text-xs px-3">
+          <p className="text-[var(--muted-foreground,#6b7280)] text-xs px-3">
             ...and {totalAffected - 5} more resources
           </p>
         )}

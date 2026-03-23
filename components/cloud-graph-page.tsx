@@ -317,13 +317,13 @@ export default function CloudGraphPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Cloud Graph - System Dependencies</h2>
-            <p className="text-gray-600 mt-1">Visualize all connections, data flow, and risk propagation</p>
+            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Cloud Graph - System Dependencies</h2>
+            <p className="text-[var(--muted-foreground,#4b5563)] mt-1">Visualize all connections, data flow, and risk propagation</p>
           </div>
-          <button className="px-6 py-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg border border-blue-400 flex items-center gap-2">
+          <button className="px-6 py-3 rounded-lg bg-white text-white font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg border border-blue-400 flex items-center gap-2">
             <Download className="w-4 h-4" />
             Export Graph
           </button>
@@ -333,23 +333,23 @@ export default function CloudGraphPage() {
         <div className="flex flex-wrap gap-4">
           {/* Search */}
           <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
             <input
               type="text"
               placeholder="Search resources..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white border border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-white border border-[var(--border,#e5e7eb)] text-[var(--foreground,#111827)] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
             />
           </div>
 
           {/* Risk Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-600" />
+            <Filter className="w-4 h-4 text-[var(--muted-foreground,#4b5563)]" />
             <select
               value={filterRisk}
               onChange={(e) => setFilterRisk(e.target.value as any)}
-              className="px-4 py-2.5 rounded-lg bg-white border border-gray-200 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-4 py-2.5 rounded-lg bg-white border border-[var(--border,#e5e7eb)] text-[var(--foreground,#111827)] focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
             >
               <option value="all">All Risk Levels</option>
               <option value="critical">Critical Only</option>
@@ -363,8 +363,8 @@ export default function CloudGraphPage() {
             onClick={() => setShowLabels(!showLabels)}
             className={`px-4 py-2.5 rounded-lg flex items-center gap-2 transition-all ${
               showLabels
-                ? "bg-blue-50 text-blue-600 border border-blue-200"
-                : "bg-white text-gray-600 border border-gray-200"
+                ? "bg-[#3b82f610] text-[#3b82f6] border border-[#3b82f640]"
+                : "bg-white text-[var(--muted-foreground,#4b5563)] border border-[var(--border,#e5e7eb)]"
             }`}
           >
             {showLabels ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
@@ -375,8 +375,8 @@ export default function CloudGraphPage() {
             onClick={() => setShowMetrics(!showMetrics)}
             className={`px-4 py-2.5 rounded-lg flex items-center gap-2 transition-all ${
               showMetrics
-                ? "bg-blue-50 text-blue-600 border border-blue-200"
-                : "bg-white text-gray-600 border border-gray-200"
+                ? "bg-[#3b82f610] text-[#3b82f6] border border-[#3b82f640]"
+                : "bg-white text-[var(--muted-foreground,#4b5563)] border border-[var(--border,#e5e7eb)]"
             }`}
           >
             <BarChart3 className="w-4 h-4" />
@@ -386,7 +386,7 @@ export default function CloudGraphPage() {
       </div>
 
       {/* Main Graph Area */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-[var(--border,#e5e7eb)] overflow-hidden">
         <svg width="100%" height={600} className="bg-gradient-to-br from-slate-50 to-blue-50">
           {/* Grid background */}
           <defs>
@@ -574,26 +574,26 @@ export default function CloudGraphPage() {
       </div>
 
       {/* Legend */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Legend</h3>
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Legend</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           {/* Risk Levels */}
           <div>
-            <div className="text-sm font-semibold text-gray-900 mb-3">Risk Level</div>
+            <div className="text-sm font-semibold text-[var(--foreground,#111827)] mb-3">Risk Level</div>
             {["critical", "high", "medium", "low"].map((level) => (
               <div key={level} className="flex items-center gap-2 mb-2">
                 <div
                   className="w-4 h-4 rounded-full"
                   style={{ backgroundColor: getRiskColor(level), border: `2px solid ${getRiskColor(level)}` }}
                 />
-                <span className="text-sm text-gray-600 capitalize">{level}</span>
+                <span className="text-sm text-[var(--muted-foreground,#4b5563)] capitalize">{level}</span>
               </div>
             ))}
           </div>
 
           {/* Status */}
           <div>
-            <div className="text-sm font-semibold text-gray-900 mb-3">Status</div>
+            <div className="text-sm font-semibold text-[var(--foreground,#111827)] mb-3">Status</div>
             {[
               { name: "Healthy", color: "#10b981" },
               { name: "Warning", color: "#eab308" },
@@ -601,14 +601,14 @@ export default function CloudGraphPage() {
             ].map((status) => (
               <div key={status.name} className="flex items-center gap-2 mb-2">
                 <div className="w-4 h-4 rounded-full border-2 border-white" style={{ backgroundColor: status.color }} />
-                <span className="text-sm text-gray-600">{status.name}</span>
+                <span className="text-sm text-[var(--muted-foreground,#4b5563)]">{status.name}</span>
               </div>
             ))}
           </div>
 
           {/* Resource Types */}
           <div>
-            <div className="text-sm font-semibold text-gray-900 mb-3">Resource Types</div>
+            <div className="text-sm font-semibold text-[var(--foreground,#111827)] mb-3">Resource Types</div>
             {[
               { icon: "🖥️", name: "Compute" },
               { icon: "🗄️", name: "Database" },
@@ -617,15 +617,15 @@ export default function CloudGraphPage() {
             ].map((type) => (
               <div key={type.name} className="flex items-center gap-2 mb-2">
                 <span className="text-lg">{type.icon}</span>
-                <span className="text-sm text-gray-600">{type.name}</span>
+                <span className="text-sm text-[var(--muted-foreground,#4b5563)]">{type.name}</span>
               </div>
             ))}
           </div>
 
           {/* Connection Types */}
           <div>
-            <div className="text-sm font-semibold text-gray-900 mb-3">Connection Info</div>
-            <div className="space-y-2 text-sm text-gray-600">
+            <div className="text-sm font-semibold text-[var(--foreground,#111827)] mb-3">Connection Info</div>
+            <div className="space-y-2 text-sm text-[var(--muted-foreground,#4b5563)]">
               <div>📊 Line thickness = importance</div>
               <div>🔗 Label = connection type</div>
               <div>⚡ Metrics = bandwidth</div>
@@ -637,13 +637,13 @@ export default function CloudGraphPage() {
 
       {/* Node Details Panel */}
       {selectedNode && nodeDetails[selectedNode] && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <h3 className="text-xl font-bold text-gray-900">{nodeDetails[selectedNode].name}</h3>
-              <p className="text-gray-600 mt-1">{nodeDetails[selectedNode].description}</p>
+              <h3 className="text-xl font-bold text-[var(--foreground,#111827)]">{nodeDetails[selectedNode].name}</h3>
+              <p className="text-[var(--muted-foreground,#4b5563)] mt-1">{nodeDetails[selectedNode].description}</p>
             </div>
-            <button onClick={() => setSelectedNode(null)} className="text-gray-400 hover:text-gray-600">
+            <button onClick={() => setSelectedNode(null)} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
               ✕
             </button>
           </div>
@@ -652,7 +652,7 @@ export default function CloudGraphPage() {
             {/* Status & Metrics */}
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-semibold text-gray-600">Status</label>
+                <label className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">Status</label>
                 <div className="flex items-center gap-2 mt-1">
                   <div
                     className="w-3 h-3 rounded-full"
@@ -666,29 +666,29 @@ export default function CloudGraphPage() {
                       ),
                     }}
                   />
-                  <span className="text-gray-900 font-medium">{nodeDetails[selectedNode].status}</span>
+                  <span className="text-[var(--foreground,#111827)] font-medium">{nodeDetails[selectedNode].status}</span>
                 </div>
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-600">Uptime</label>
-                <p className="text-gray-900 font-medium mt-1">{nodeDetails[selectedNode].uptime}</p>
+                <label className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">Uptime</label>
+                <p className="text-[var(--foreground,#111827)] font-medium mt-1">{nodeDetails[selectedNode].uptime}</p>
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-600">Last Issue</label>
-                <p className="text-gray-900 font-medium mt-1">{nodeDetails[selectedNode].lastIssue}</p>
+                <label className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">Last Issue</label>
+                <p className="text-[var(--foreground,#111827)] font-medium mt-1">{nodeDetails[selectedNode].lastIssue}</p>
               </div>
             </div>
 
             {/* Metrics */}
             <div>
-              <label className="text-sm font-semibold text-gray-600 block mb-3">Key Metrics</label>
+              <label className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)] block mb-3">Key Metrics</label>
               <div className="space-y-2">
                 {Object.entries(nodeDetails[selectedNode].metrics).map(([key, value]) => (
                   <div key={key} className="flex justify-between p-2 rounded bg-gray-50">
-                    <span className="text-gray-600">{key}:</span>
-                    <span className="font-semibold text-gray-900">{value as string}</span>
+                    <span className="text-[var(--muted-foreground,#4b5563)]">{key}:</span>
+                    <span className="font-semibold text-[var(--foreground,#111827)]">{value as string}</span>
                   </div>
                 ))}
               </div>
@@ -698,12 +698,12 @@ export default function CloudGraphPage() {
           {/* Issues */}
           {nodeDetails[selectedNode]?.issues && nodeDetails[selectedNode].issues.length > 0 && (
             <div>
-              <label className="text-sm font-semibold text-gray-600 block mb-3">Active Issues</label>
+              <label className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)] block mb-3">Active Issues</label>
               <div className="space-y-2">
                 {nodeDetails[selectedNode].issues.map((issue: string, idx: number) => (
-                  <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-red-50 border border-red-200">
-                    <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                    <span className="text-sm text-red-700">{issue}</span>
+                  <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-[#ef444410] border border-[#ef444440]">
+                    <AlertCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#ef4444]">{issue}</span>
                   </div>
                 ))}
               </div>
@@ -714,38 +714,38 @@ export default function CloudGraphPage() {
 
       {/* Analytics Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <div className="text-sm text-gray-600 font-medium mb-2">Total Resources</div>
-          <div className="text-3xl font-bold text-gray-900">{filteredNodes.length}</div>
-          <div className="text-xs text-gray-500 mt-2">{nodes.length} total resources</div>
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)] font-medium mb-2">Total Resources</div>
+          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{filteredNodes.length}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">{nodes.length} total resources</div>
         </div>
 
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <div className="text-sm text-gray-600 font-medium mb-2">Active Connections</div>
-          <div className="text-3xl font-bold text-gray-900">{filteredEdges.length}</div>
-          <div className="text-xs text-gray-500 mt-2">{edges.length} total connections</div>
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)] font-medium mb-2">Active Connections</div>
+          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{filteredEdges.length}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">{edges.length} total connections</div>
         </div>
 
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <div className="text-sm text-gray-600 font-medium mb-2">Critical Resources</div>
-          <div className="text-3xl font-bold text-red-600">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)] font-medium mb-2">Critical Resources</div>
+          <div className="text-3xl font-bold text-[#ef4444]">
             {filteredNodes.filter((n) => n.risk === "critical").length}
           </div>
-          <div className="text-xs text-gray-500 mt-2">At risk or unhealthy</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">At risk or unhealthy</div>
         </div>
 
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <div className="text-sm text-gray-600 font-medium mb-2">Healthy Status</div>
-          <div className="text-3xl font-bold text-green-600">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)] font-medium mb-2">Healthy Status</div>
+          <div className="text-3xl font-bold text-[#22c55e]">
             {filteredNodes.filter((n) => n.status === "healthy").length}/{filteredNodes.length}
           </div>
-          <div className="text-xs text-gray-500 mt-2">Resources operational</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">Resources operational</div>
         </div>
       </div>
 
       {/* Risk Propagation Analysis */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Risk Propagation Analysis</h3>
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-[var(--border,#e5e7eb)]">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Risk Propagation Analysis</h3>
         <div className="space-y-3">
           {[
             {
@@ -783,7 +783,7 @@ export default function CloudGraphPage() {
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="font-semibold text-gray-900">
+                  <div className="font-semibold text-[var(--foreground,#111827)]">
                     {item.source}
                     <span
                       className="ml-2 px-2 py-1 rounded text-xs font-bold text-white"
@@ -792,10 +792,10 @@ export default function CloudGraphPage() {
                       {item.severity.toUpperCase()}
                     </span>
                   </div>
-                  <div className="text-sm text-gray-600 mt-1">
+                  <div className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
                     <strong>Propagates to:</strong> {item.propagates}
                   </div>
-                  <div className="text-sm text-gray-600 mt-1">
+                  <div className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
                     <strong>Impact:</strong> {item.impact}
                   </div>
                 </div>

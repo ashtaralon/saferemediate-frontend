@@ -14,7 +14,7 @@ interface HeaderProps {
 
 export function Header({ systemName, severityCounts, onBack, onTagAll, onAutoTag, autoTagLoading }: HeaderProps) {
   return (
-    <div className="bg-white border-b border-gray-200 px-6 py-4">
+    <div className="bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4">
       <div className="max-w-[1800px] mx-auto px-8 py-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -23,25 +23,25 @@ export function Header({ systemName, severityCounts, onBack, onTagAll, onAutoTag
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               aria-label="Go back"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
+              <ArrowLeft className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
             </button>
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-gray-900">{systemName}</h1>
-                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">
+                <h1 className="text-2xl font-bold text-[var(--foreground,#111827)]">{systemName}</h1>
+                <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">
                   PRODUCTION
                 </span>
-                <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                <span className="px-2 py-1 bg-[#3b82f620] text-[#3b82f6] text-xs font-medium rounded">
                   MISSION CRITICAL
                 </span>
                 {severityCounts.critical > 0 && (
-                  <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded flex items-center gap-1">
+                  <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" />
                     {severityCounts.critical} CRITICAL
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
                 AWS eu-west-1 • Production environment • Last scan: 2 min ago
               </p>
             </div>
@@ -59,7 +59,7 @@ export function Header({ systemName, severityCounts, onBack, onTagAll, onAutoTag
               <button
                 onClick={onAutoTag}
                 disabled={autoTagLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
               >
                 {autoTagLoading ? (
                   <>

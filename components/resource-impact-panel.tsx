@@ -56,10 +56,10 @@ const typeIcons: Record<string, any> = {
 }
 
 const severityColors: Record<string, string> = {
-  CRITICAL: "bg-red-500",
-  HIGH: "bg-orange-500",
-  MEDIUM: "bg-yellow-500",
-  LOW: "bg-green-500",
+  CRITICAL: "bg-[#ef444410]0",
+  HIGH: "bg-[#f9731610]0",
+  MEDIUM: "bg-[#eab30810]0",
+  LOW: "bg-[#22c55e10]0",
   "N/A": "bg-gray-400",
 }
 
@@ -206,14 +206,14 @@ export function ResourceImpactPanel() {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200 h-full flex flex-col">
-      <div className="flex border-b border-gray-200">
+    <div className="bg-white rounded-xl shadow-lg border border-[var(--border,#e5e7eb)] h-full flex flex-col">
+      <div className="flex border-b border-[var(--border,#e5e7eb)]">
         <button
           onClick={() => setActiveTab("resources")}
           className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
             activeTab === "resources"
-              ? "text-purple-600 border-b-2 border-purple-600 bg-purple-50"
-              : "text-gray-500 hover:text-gray-700"
+              ? "text-[#8b5cf6] border-b-2 border-purple-600 bg-[#8b5cf610]"
+              : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
           }`}
         >
           Resources
@@ -222,8 +222,8 @@ export function ResourceImpactPanel() {
           onClick={() => setActiveTab("impact")}
           className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
             activeTab === "impact"
-              ? "text-purple-600 border-b-2 border-purple-600 bg-purple-50"
-              : "text-gray-500 hover:text-gray-700"
+              ? "text-[#8b5cf6] border-b-2 border-purple-600 bg-[#8b5cf610]"
+              : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
           }`}
         >
           Impact
@@ -232,13 +232,13 @@ export function ResourceImpactPanel() {
           onClick={() => setActiveTab("history")}
           className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors relative ${
             activeTab === "history"
-              ? "text-purple-600 border-b-2 border-purple-600 bg-purple-50"
-              : "text-gray-500 hover:text-gray-700"
+              ? "text-[#8b5cf6] border-b-2 border-purple-600 bg-[#8b5cf610]"
+              : "text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
           }`}
         >
           History
           {history.length > 0 && (
-            <span className="absolute -top-1 -right-1 bg-purple-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+            <span className="absolute -top-1 -right-1 bg-[#8b5cf6] text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
               {history.length}
             </span>
           )}
@@ -248,21 +248,21 @@ export function ResourceImpactPanel() {
       <div className="flex-1 overflow-hidden">
         {activeTab === "resources" && (
           <div className="h-full flex flex-col">
-            <div className="p-2 border-b border-gray-100 space-y-2">
+            <div className="p-2 border-b border-[var(--border,#f3f4f6)] space-y-2">
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--muted-foreground,#9ca3af)]" />
                 <input
                   type="text"
                   placeholder="Search..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full pl-8 pr-2 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                 />
               </div>
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full text-xs border border-[var(--border,#e5e7eb)] rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
               >
                 <option value="all">All ({resources.length})</option>
                 {resourceTypes.map(type => (
@@ -282,7 +282,7 @@ export function ResourceImpactPanel() {
                 <div className="space-y-2">
                   {Object.entries(groupedResources).map(([type, items]) => (
                     <div key={type}>
-                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-1 py-0.5">
+                      <div className="text-[10px] font-semibold text-[var(--muted-foreground,#9ca3af)] uppercase tracking-wider px-1 py-0.5">
                         {type} ({items.length})
                       </div>
                       <div className="space-y-0.5">
@@ -294,12 +294,12 @@ export function ResourceImpactPanel() {
                               onClick={() => handleResourceClick(resource)}
                               className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors ${
                                 selectedResource?.id === resource.id
-                                  ? "bg-purple-100 border border-purple-300"
+                                  ? "bg-[#8b5cf615] border border-purple-300"
                                   : "hover:bg-gray-50"
                               }`}
                             >
-                              <Icon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                              <span className="text-xs text-gray-700 truncate flex-1">
+                              <Icon className="w-3.5 h-3.5 text-[var(--muted-foreground,#9ca3af)] flex-shrink-0" />
+                              <span className="text-xs text-[var(--foreground,#374151)] truncate flex-1">
                                 {resource.name}
                               </span>
                               <ChevronRight className="w-3 h-3 text-gray-300" />
@@ -318,7 +318,7 @@ export function ResourceImpactPanel() {
         {activeTab === "impact" && (
           <div className="h-full overflow-y-auto p-3">
             {!selectedResource ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <div className="flex flex-col items-center justify-center h-full text-[var(--muted-foreground,#9ca3af)]">
                 <AlertTriangle className="w-10 h-10 mb-2" />
                 <p className="text-xs">Select a resource to analyze</p>
               </div>
@@ -328,7 +328,7 @@ export function ResourceImpactPanel() {
               </div>
             ) : selectedResource.type === "SecurityGroup" && sgImpact ? (
               <div className="space-y-3">
-                <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg p-3 text-white">
+                <div className="bg-white rounded-lg p-3 text-white">
                   <div className="flex items-center gap-2">
                     <Shield className="w-4 h-4" />
                     <span className="font-semibold text-sm">{sgImpact.sg_name}</span>
@@ -342,21 +342,21 @@ export function ResourceImpactPanel() {
                   <span className={`px-2 py-0.5 rounded-full text-white text-xs font-medium ${severityColors[sgImpact.overall_severity]}`}>
                     {sgImpact.overall_severity}
                   </span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-[var(--muted-foreground,#6b7280)]">
                     {sgImpact.total_affected} affected
                   </span>
                 </div>
 
                 <button
                   onClick={() => setShowPath(!showPath)}
-                  className="w-full text-xs text-purple-600 hover:text-purple-800 flex items-center justify-center gap-1 py-1"
+                  className="w-full text-xs text-[#8b5cf6] hover:text-purple-800 flex items-center justify-center gap-1 py-1"
                 >
                   {showPath ? "Hide" : "Show"} Dependency Path
                 </button>
 
                 {showPath && (
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="text-xs font-medium text-gray-600 mb-2">Dependency Chain</div>
+                    <div className="text-xs font-medium text-[var(--muted-foreground,#4b5563)] mb-2">Dependency Chain</div>
                     <DependencyPathVertical 
                       nodes={buildPathNodes()}
                       showBlockingPoint={selectedResource.id}
@@ -371,20 +371,20 @@ export function ResourceImpactPanel() {
                         key={idx}
                         className={`border rounded-lg p-3 ${
                           impact.severity === "CRITICAL"
-                            ? "border-red-200 bg-red-50"
+                            ? "border-[#ef444440] bg-[#ef444410]"
                             : impact.severity === "HIGH"
-                            ? "border-orange-200 bg-orange-50"
-                            : "border-yellow-200 bg-yellow-50"
+                            ? "border-[#f9731640] bg-[#f9731610]"
+                            : "border-[#eab30840] bg-[#eab30810]"
                         }`}
                       >
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-sm text-gray-800">{impact.title}</span>
+                          <span className="font-medium text-sm text-[var(--foreground,#1f2937)]">{impact.title}</span>
                         </div>
-                        <p className="text-xs text-gray-600 mb-2">{impact.description}</p>
+                        <p className="text-xs text-[var(--muted-foreground,#4b5563)] mb-2">{impact.description}</p>
                         
                         <div className="space-y-0.5">
                           {impact.affected_resources.slice(0, 3).map((res, i) => (
-                            <div key={i} className="flex items-center gap-1 text-xs text-gray-600">
+                            <div key={i} className="flex items-center gap-1 text-xs text-[var(--muted-foreground,#4b5563)]">
                               <ChevronRight className="w-3 h-3" />
                               <span>{res.name}</span>
                             </div>
@@ -394,18 +394,18 @@ export function ResourceImpactPanel() {
                     ))}
                   </div>
                 ) : (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <span className="text-sm text-green-700">Safe to restrict</span>
+                  <div className="bg-[#22c55e10] border border-[#22c55e40] rounded-lg p-3">
+                    <span className="text-sm text-[#22c55e]">Safe to restrict</span>
                   </div>
                 )}
 
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs font-medium text-gray-600 mb-1">Recommendation</div>
-                  <p className="text-xs text-gray-700">{sgImpact.recommendation}</p>
+                  <div className="text-xs font-medium text-[var(--muted-foreground,#4b5563)] mb-1">Recommendation</div>
+                  <p className="text-xs text-[var(--foreground,#374151)]">{sgImpact.recommendation}</p>
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-gray-500 text-center py-8">
+              <div className="text-xs text-[var(--muted-foreground,#6b7280)] text-center py-8">
                 Select a Security Group to see impact analysis
               </div>
             )}
@@ -415,7 +415,7 @@ export function ResourceImpactPanel() {
         {activeTab === "history" && (
           <div className="h-full overflow-y-auto p-2">
             {history.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <div className="flex flex-col items-center justify-center h-full text-[var(--muted-foreground,#9ca3af)]">
                 <Clock className="w-10 h-10 mb-2" />
                 <p className="text-xs">No analysis history yet</p>
               </div>
@@ -428,20 +428,20 @@ export function ResourceImpactPanel() {
                     className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left"
                   >
                     <div className={`w-2 h-2 rounded-full ${
-                      entry.result?.overall_severity === "CRITICAL" ? "bg-red-500" :
-                      entry.result?.overall_severity === "HIGH" ? "bg-orange-500" :
-                      entry.result?.overall_severity === "MEDIUM" ? "bg-yellow-500" :
-                      "bg-green-500"
+                      entry.result?.overall_severity === "CRITICAL" ? "bg-[#ef444410]0" :
+                      entry.result?.overall_severity === "HIGH" ? "bg-[#f9731610]0" :
+                      entry.result?.overall_severity === "MEDIUM" ? "bg-[#eab30810]0" :
+                      "bg-[#22c55e10]0"
                     }`} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-gray-700 truncate">
+                      <div className="text-xs font-medium text-[var(--foreground,#374151)] truncate">
                         {entry.resource_name}
                       </div>
-                      <div className="text-[10px] text-gray-400">
+                      <div className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">
                         {new Date(entry.timestamp).toLocaleString()}
                       </div>
                     </div>
-                    <span className="text-[10px] text-gray-400">
+                    <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">
                       {entry.result?.total_affected || 0} affected
                     </span>
                   </button>

@@ -99,41 +99,41 @@ const TIER_CONFIG: Record<string, {
   AUTO_ENFORCE: {
     label: "Auto-Enforce",
     shortLabel: "Auto",
-    color: "text-emerald-700",
-    bgColor: "bg-emerald-50",
-    borderColor: "border-emerald-200",
+    color: "text-[#10b981]",
+    bgColor: "bg-[#10b98110]",
+    borderColor: "border-[#10b98140]",
     icon: ShieldCheck,
   },
   AUTO_WITH_APPROVAL: {
     label: "Auto + Approval",
     shortLabel: "Approve",
-    color: "text-blue-700",
-    bgColor: "bg-blue-50",
-    borderColor: "border-blue-200",
+    color: "text-[#3b82f6]",
+    bgColor: "bg-[#3b82f610]",
+    borderColor: "border-[#3b82f640]",
     icon: Shield,
   },
   REVIEW_AND_APPLY: {
     label: "Review & Apply",
     shortLabel: "Review",
-    color: "text-amber-700",
-    bgColor: "bg-amber-50",
-    borderColor: "border-amber-200",
+    color: "text-[#f97316]",
+    bgColor: "bg-[#f9731610]",
+    borderColor: "border-[#f9731640]",
     icon: Eye,
   },
   SUGGEST_WITH_WARNING: {
     label: "Suggestion",
     shortLabel: "Suggest",
-    color: "text-orange-700",
-    bgColor: "bg-orange-50",
-    borderColor: "border-orange-200",
+    color: "text-[#f97316]",
+    bgColor: "bg-[#f9731610]",
+    borderColor: "border-[#f9731640]",
     icon: ShieldQuestion,
   },
   ALERT_ONLY: {
     label: "Alert Only",
     shortLabel: "Alert",
-    color: "text-gray-600",
+    color: "text-[var(--muted-foreground,#4b5563)]",
     bgColor: "bg-gray-50",
-    borderColor: "border-gray-200",
+    borderColor: "border-[var(--border,#e5e7eb)]",
     icon: ShieldAlert,
   },
 }
@@ -143,10 +143,10 @@ const STATUS_CONFIG: Record<string, {
   color: string
   bgColor: string
 }> = {
-  ENFORCED: { label: "Enforced", color: "text-emerald-700", bgColor: "bg-emerald-100" },
-  DRIFT_DETECTED: { label: "Drift!", color: "text-red-700", bgColor: "bg-red-100" },
-  ROLLED_BACK: { label: "Rolled Back", color: "text-amber-700", bgColor: "bg-amber-100" },
-  NONE: { label: "Not Enforced", color: "text-gray-500", bgColor: "bg-gray-100" },
+  ENFORCED: { label: "Enforced", color: "text-[#10b981]", bgColor: "bg-[#10b98120]" },
+  DRIFT_DETECTED: { label: "Drift!", color: "text-[#ef4444]", bgColor: "bg-[#ef444420]" },
+  ROLLED_BACK: { label: "Rolled Back", color: "text-[#f97316]", bgColor: "bg-[#f9731620]" },
+  NONE: { label: "Not Enforced", color: "text-[var(--muted-foreground,#6b7280)]", bgColor: "bg-gray-100" },
 }
 
 const DRIFT_SEVERITY_CONFIG: Record<string, {
@@ -154,10 +154,10 @@ const DRIFT_SEVERITY_CONFIG: Record<string, {
   color: string
   bgColor: string
 }> = {
-  CRITICAL: { label: "Critical", color: "text-red-700", bgColor: "bg-red-100" },
-  HIGH: { label: "High", color: "text-orange-700", bgColor: "bg-orange-100" },
-  MEDIUM: { label: "Medium", color: "text-amber-700", bgColor: "bg-amber-100" },
-  LOW: { label: "Low", color: "text-yellow-700", bgColor: "bg-yellow-100" },
+  CRITICAL: { label: "Critical", color: "text-[#ef4444]", bgColor: "bg-[#ef444420]" },
+  HIGH: { label: "High", color: "text-[#f97316]", bgColor: "bg-[#f9731620]" },
+  MEDIUM: { label: "Medium", color: "text-[#f97316]", bgColor: "bg-[#f9731620]" },
+  LOW: { label: "Low", color: "text-[#eab308]", bgColor: "bg-[#eab30820]" },
 }
 
 // --- Component ---
@@ -341,11 +341,11 @@ export function PermissionBoundaryPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-indigo-600" />
+          <h2 className="text-lg font-semibold text-[var(--foreground,#111827)] flex items-center gap-2">
+            <Shield className="h-5 w-5 text-[#8b5cf6]" />
             Permission Boundary Enforcement
           </h2>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-0.5">
             Safe enforcement via IAM permission boundaries — caps permissions without modifying shared roles
           </p>
         </div>
@@ -356,8 +356,8 @@ export function PermissionBoundaryPanel() {
             disabled={syncing}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border ${
               driftCount > 0
-                ? "text-red-700 bg-red-50 border-red-200 hover:bg-red-100"
-                : "text-gray-700 bg-white border-gray-300 hover:bg-gray-50"
+                ? "text-[#ef4444] bg-[#ef444410] border-[#ef444440] hover:bg-[#ef444420]"
+                : "text-[var(--foreground,#374151)] bg-white border-[var(--border,#d1d5db)] hover:bg-gray-50"
             } disabled:opacity-50`}
             title="Check all enforced boundaries for drift (removal or modification)"
           >
@@ -369,7 +369,7 @@ export function PermissionBoundaryPanel() {
           <button
             onClick={fetchCandidates}
             disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--foreground,#374151)] bg-white border border-[var(--border,#d1d5db)] rounded-md hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -390,15 +390,15 @@ export function PermissionBoundaryPanel() {
               className={`p-3 rounded-lg border text-left transition-all ${
                 isSelected
                   ? `${config.bgColor} ${config.borderColor} ring-2 ring-offset-1 ring-indigo-300`
-                  : "bg-white border-gray-200 hover:border-gray-300"
+                  : "bg-white border-[var(--border,#e5e7eb)] hover:border-[var(--border,#d1d5db)]"
               }`}
             >
               <div className="flex items-center gap-1.5">
                 <Icon className={`h-4 w-4 ${config.color}`} />
                 <span className={`text-xs font-medium ${config.color}`}>{config.shortLabel}</span>
               </div>
-              <div className="text-xl font-bold text-gray-900 mt-1">{count}</div>
-              <div className="text-[10px] text-gray-500">{config.label}</div>
+              <div className="text-xl font-bold text-[var(--foreground,#111827)] mt-1">{count}</div>
+              <div className="text-[10px] text-[var(--muted-foreground,#6b7280)]">{config.label}</div>
             </button>
           )
         })}
@@ -406,10 +406,10 @@ export function PermissionBoundaryPanel() {
 
       {/* Error */}
       {error && (
-        <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div className="flex items-center gap-2 p-3 bg-[#ef444410] border border-[#ef444440] rounded-lg text-sm text-[#ef4444]">
           <XCircle className="h-4 w-4 flex-shrink-0" />
           {error}
-          <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">
+          <button onClick={() => setError(null)} className="ml-auto text-[#ef4444] hover:text-[#ef4444]">
             <XCircle className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -420,12 +420,12 @@ export function PermissionBoundaryPanel() {
         <div
           className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${
             actionResult.type === "error"
-              ? "bg-red-50 border-red-200 text-red-700"
+              ? "bg-[#ef444410] border-[#ef444440] text-[#ef4444]"
               : actionResult.type === "warning"
-              ? "bg-amber-50 border-amber-200 text-amber-700"
+              ? "bg-[#f9731610] border-[#f9731640] text-[#f97316]"
               : actionResult.type === "dry_run"
-              ? "bg-blue-50 border-blue-200 text-blue-700"
-              : "bg-emerald-50 border-emerald-200 text-emerald-700"
+              ? "bg-[#3b82f610] border-[#3b82f640] text-[#3b82f6]"
+              : "bg-[#10b98110] border-[#10b98140] text-[#10b981]"
           }`}
         >
           {actionResult.type === "error" ? (
@@ -446,7 +446,7 @@ export function PermissionBoundaryPanel() {
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-12 text-gray-500">
+        <div className="flex items-center justify-center py-12 text-[var(--muted-foreground,#6b7280)]">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
           Loading candidates...
         </div>
@@ -454,16 +454,16 @@ export function PermissionBoundaryPanel() {
 
       {/* Candidates List */}
       {!loading && candidates.length === 0 && (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-[var(--muted-foreground,#9ca3af)]">
           <Shield className="h-10 w-10 mx-auto mb-2 opacity-30" />
           <p>No enforcement candidates found{selectedTier ? ` for tier "${TIER_CONFIG[selectedTier]?.label}"` : ""}.</p>
         </div>
       )}
 
       {!loading && candidates.length > 0 && (
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-[var(--border,#e5e7eb)] rounded-lg overflow-hidden">
           {/* Table Header */}
-          <div className="grid grid-cols-[1fr_100px_80px_80px_100px_120px_180px] gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <div className="grid grid-cols-[1fr_100px_80px_80px_100px_120px_180px] gap-2 px-4 py-2.5 bg-gray-50 border-b border-[var(--border,#e5e7eb)] text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
             <div>Role</div>
             <div className="text-center">Gap</div>
             <div className="text-center">Used</div>
@@ -490,10 +490,10 @@ export function PermissionBoundaryPanel() {
               <div key={c.role_name}>
                 {/* Drift Warning Banner */}
                 {hasDrift && (
-                  <div className="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2 text-sm">
-                    <ShieldOff className="h-4 w-4 text-red-600 flex-shrink-0" />
-                    <span className="text-red-700 font-medium">Drift Detected:</span>
-                    <span className="text-red-600">{c.drift_info?.details}</span>
+                  <div className="px-4 py-2 bg-[#ef444410] border-b border-[#ef444440] flex items-center gap-2 text-sm">
+                    <ShieldOff className="h-4 w-4 text-[#ef4444] flex-shrink-0" />
+                    <span className="text-[#ef4444] font-medium">Drift Detected:</span>
+                    <span className="text-[#ef4444]">{c.drift_info?.details}</span>
                     <button
                       onClick={() => handleRemediate(c.role_name)}
                       disabled={isRemediating}
@@ -506,34 +506,34 @@ export function PermissionBoundaryPanel() {
                 )}
 
                 {/* Row */}
-                <div className={`grid grid-cols-[1fr_100px_80px_80px_100px_120px_180px] gap-2 px-4 py-3 border-b border-gray-100 items-center hover:bg-gray-50/50 transition-colors ${hasDrift ? "bg-red-50/30" : ""}`}>
+                <div className={`grid grid-cols-[1fr_100px_80px_80px_100px_120px_180px] gap-2 px-4 py-3 border-b border-[var(--border,#f3f4f6)] items-center hover:bg-gray-50/50 transition-colors ${hasDrift ? "bg-[#ef444410]/30" : ""}`}>
                   {/* Role Name */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                       {hasDrift ? (
-                        <ShieldOff className="h-4 w-4 flex-shrink-0 text-red-500" />
+                        <ShieldOff className="h-4 w-4 flex-shrink-0 text-[#ef4444]" />
                       ) : (
                         <TierIcon className={`h-4 w-4 flex-shrink-0 ${tierCfg.color}`} />
                       )}
-                      <span className="text-sm font-medium text-gray-900 truncate">{c.role_name}</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)] truncate">{c.role_name}</span>
                     </div>
-                    <div className="text-[11px] text-gray-400 mt-0.5 truncate">
+                    <div className="text-[11px] text-[var(--muted-foreground,#9ca3af)] mt-0.5 truncate">
                       {c.resources_using_role} resource{c.resources_using_role !== 1 ? "s" : ""} using this role
                     </div>
                   </div>
 
                   {/* Gap */}
                   <div className="text-center">
-                    <span className={`text-sm font-semibold ${c.gap_percentage >= 70 ? "text-red-600" : c.gap_percentage >= 40 ? "text-amber-600" : "text-gray-700"}`}>
+                    <span className={`text-sm font-semibold ${c.gap_percentage >= 70 ? "text-[#ef4444]" : c.gap_percentage >= 40 ? "text-[#f97316]" : "text-[var(--foreground,#374151)]"}`}>
                       {c.gap_percentage.toFixed(0)}%
                     </span>
                   </div>
 
                   {/* Used */}
-                  <div className="text-center text-sm text-gray-600">{c.used_count}</div>
+                  <div className="text-center text-sm text-[var(--muted-foreground,#4b5563)]">{c.used_count}</div>
 
                   {/* Unused */}
-                  <div className="text-center text-sm font-medium text-gray-900">{c.unused_count}</div>
+                  <div className="text-center text-sm font-medium text-[var(--foreground,#111827)]">{c.unused_count}</div>
 
                   {/* Confidence */}
                   <div className="text-center">
@@ -553,7 +553,7 @@ export function PermissionBoundaryPanel() {
                   <div className="flex items-center justify-end gap-1.5">
                     <button
                       onClick={() => handlePreview(c.role_name)}
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-[var(--muted-foreground,#4b5563)] bg-white border border-[var(--border,#e5e7eb)] rounded hover:bg-gray-50"
                     >
                       <Eye className="h-3 w-3" />
                       {isExpanded ? "Hide" : "Preview"}
@@ -573,7 +573,7 @@ export function PermissionBoundaryPanel() {
                       <button
                         onClick={() => handleRollback(c.role_name)}
                         disabled={isRollingBack}
-                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 disabled:opacity-50"
+                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-[#f97316] bg-[#f9731610] border border-[#f9731640] rounded hover:bg-[#f9731620] disabled:opacity-50"
                       >
                         {isRollingBack ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
                         Rollback
@@ -582,7 +582,7 @@ export function PermissionBoundaryPanel() {
                       <button
                         onClick={() => handleEnforce(c.role_name)}
                         disabled={isEnforcing}
-                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-indigo-600 border border-indigo-600 rounded hover:bg-indigo-700 disabled:opacity-50"
+                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-[#8b5cf6] border border-indigo-600 rounded hover:bg-[#7c3aed] disabled:opacity-50"
                       >
                         {isEnforcing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                         Enforce
@@ -593,9 +593,9 @@ export function PermissionBoundaryPanel() {
 
                 {/* Expanded Preview */}
                 {isExpanded && (
-                  <div className="px-4 py-4 bg-gray-50/80 border-b border-gray-200">
+                  <div className="px-4 py-4 bg-gray-50/80 border-b border-[var(--border,#e5e7eb)]">
                     {previewLoading ? (
-                      <div className="flex items-center text-gray-500 text-sm">
+                      <div className="flex items-center text-[var(--muted-foreground,#6b7280)] text-sm">
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                         Loading preview...
                       </div>
@@ -603,21 +603,21 @@ export function PermissionBoundaryPanel() {
                       <div className="space-y-4">
                         {/* Summary Row */}
                         <div className="grid grid-cols-4 gap-4">
-                          <div className="bg-white rounded-lg border border-gray-200 p-3">
-                            <div className="text-[11px] text-gray-500 uppercase tracking-wider">Total Permissions</div>
-                            <div className="text-lg font-bold text-gray-900">{previewData.current_policy_summary.total_permissions}</div>
+                          <div className="bg-white rounded-lg border border-[var(--border,#e5e7eb)] p-3">
+                            <div className="text-[11px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">Total Permissions</div>
+                            <div className="text-lg font-bold text-[var(--foreground,#111827)]">{previewData.current_policy_summary.total_permissions}</div>
                           </div>
-                          <div className="bg-white rounded-lg border border-emerald-200 p-3">
-                            <div className="text-[11px] text-emerald-600 uppercase tracking-wider">Kept (Observed)</div>
-                            <div className="text-lg font-bold text-emerald-700">{previewData.permissions_kept_count}</div>
+                          <div className="bg-white rounded-lg border border-[#10b98140] p-3">
+                            <div className="text-[11px] text-[#10b981] uppercase tracking-wider">Kept (Observed)</div>
+                            <div className="text-lg font-bold text-[#10b981]">{previewData.permissions_kept_count}</div>
                           </div>
-                          <div className="bg-white rounded-lg border border-red-200 p-3">
-                            <div className="text-[11px] text-red-600 uppercase tracking-wider">Blocked (Unused)</div>
-                            <div className="text-lg font-bold text-red-700">{previewData.permissions_removed_count}</div>
+                          <div className="bg-white rounded-lg border border-[#ef444440] p-3">
+                            <div className="text-[11px] text-[#ef4444] uppercase tracking-wider">Blocked (Unused)</div>
+                            <div className="text-lg font-bold text-[#ef4444]">{previewData.permissions_removed_count}</div>
                           </div>
-                          <div className="bg-white rounded-lg border border-indigo-200 p-3">
-                            <div className="text-[11px] text-indigo-600 uppercase tracking-wider">Confidence</div>
-                            <div className="text-lg font-bold text-indigo-700">{previewData.confidence_score.toFixed(1)}%</div>
+                          <div className="bg-white rounded-lg border border-[#8b5cf640] p-3">
+                            <div className="text-[11px] text-[#8b5cf6] uppercase tracking-wider">Confidence</div>
+                            <div className="text-lg font-bold text-[#7c3aed]">{previewData.confidence_score.toFixed(1)}%</div>
                           </div>
                         </div>
 
@@ -625,13 +625,13 @@ export function PermissionBoundaryPanel() {
                         <div className="grid grid-cols-2 gap-4">
                           {/* Kept */}
                           <div>
-                            <h4 className="text-xs font-medium text-emerald-700 mb-1.5 flex items-center gap-1">
+                            <h4 className="text-xs font-medium text-[#10b981] mb-1.5 flex items-center gap-1">
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               Permissions Kept ({previewData.permissions_kept.length})
                             </h4>
-                            <div className="bg-white border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto">
+                            <div className="bg-white border border-[var(--border,#e5e7eb)] rounded-lg p-2 max-h-40 overflow-y-auto">
                               {previewData.permissions_kept.map((p: string) => (
-                                <div key={p} className="text-[11px] font-mono text-gray-700 py-0.5 px-1 hover:bg-emerald-50 rounded">
+                                <div key={p} className="text-[11px] font-mono text-[var(--foreground,#374151)] py-0.5 px-1 hover:bg-[#10b98110] rounded">
                                   {p}
                                 </div>
                               ))}
@@ -640,18 +640,18 @@ export function PermissionBoundaryPanel() {
 
                           {/* Removed */}
                           <div>
-                            <h4 className="text-xs font-medium text-red-700 mb-1.5 flex items-center gap-1">
+                            <h4 className="text-xs font-medium text-[#ef4444] mb-1.5 flex items-center gap-1">
                               <XCircle className="h-3.5 w-3.5" />
                               Permissions Blocked ({previewData.permissions_removed.length})
                             </h4>
-                            <div className="bg-white border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto">
+                            <div className="bg-white border border-[var(--border,#e5e7eb)] rounded-lg p-2 max-h-40 overflow-y-auto">
                               {previewData.permissions_removed.map((p: string) => (
-                                <div key={p} className="text-[11px] font-mono text-gray-700 py-0.5 px-1 hover:bg-red-50 rounded line-through opacity-70">
+                                <div key={p} className="text-[11px] font-mono text-[var(--foreground,#374151)] py-0.5 px-1 hover:bg-[#ef444410] rounded line-through opacity-70">
                                   {p}
                                 </div>
                               ))}
                               {previewData.permissions_removed_count > previewData.permissions_removed.length && (
-                                <div className="text-[11px] text-gray-400 py-0.5 px-1 italic">
+                                <div className="text-[11px] text-[var(--muted-foreground,#9ca3af)] py-0.5 px-1 italic">
                                   ... and {previewData.permissions_removed_count - previewData.permissions_removed.length} more
                                 </div>
                               )}
@@ -661,7 +661,7 @@ export function PermissionBoundaryPanel() {
 
                         {/* Boundary Policy JSON */}
                         <div>
-                          <h4 className="text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-1">
+                          <h4 className="text-xs font-medium text-[var(--muted-foreground,#4b5563)] mb-1.5 flex items-center gap-1">
                             <Info className="h-3.5 w-3.5" />
                             Proposed Boundary Policy
                           </h4>
@@ -675,7 +675,7 @@ export function PermissionBoundaryPanel() {
                           <button
                             onClick={() => handleEnforce(c.role_name, true)}
                             disabled={enforcing === c.role_name}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 disabled:opacity-50"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#3b82f6] bg-[#3b82f610] border border-[#3b82f640] rounded-md hover:bg-[#3b82f620] disabled:opacity-50"
                           >
                             {enforcing === c.role_name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
                             Dry Run
@@ -684,7 +684,7 @@ export function PermissionBoundaryPanel() {
                             <button
                               onClick={() => handleEnforce(c.role_name)}
                               disabled={enforcing === c.role_name}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 border border-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#8b5cf6] border border-indigo-600 rounded-md hover:bg-[#7c3aed] disabled:opacity-50"
                             >
                               {enforcing === c.role_name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                               Apply Boundary
@@ -694,20 +694,20 @@ export function PermissionBoundaryPanel() {
                             <button
                               onClick={() => handleRollback(c.role_name)}
                               disabled={rollingBack === c.role_name}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md hover:bg-amber-100 disabled:opacity-50"
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#f97316] bg-[#f9731610] border border-[#f9731640] rounded-md hover:bg-[#f9731620] disabled:opacity-50"
                             >
                               {rollingBack === c.role_name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                               Rollback
                             </button>
                           )}
-                          <div className="ml-auto flex items-center gap-1 text-[11px] text-gray-400">
+                          <div className="ml-auto flex items-center gap-1 text-[11px] text-[var(--muted-foreground,#9ca3af)]">
                             <Activity className="h-3 w-3" />
                             Blast radius: {previewData.blast_radius.resources_using_role} resource{previewData.blast_radius.resources_using_role !== 1 ? "s" : ""}
                           </div>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-400">No preview data available.</div>
+                      <div className="text-sm text-[var(--muted-foreground,#9ca3af)]">No preview data available.</div>
                     )}
                   </div>
                 )}
@@ -719,7 +719,7 @@ export function PermissionBoundaryPanel() {
 
       {/* Footer */}
       {!loading && totalCount > 0 && (
-        <div className="flex items-center justify-between text-xs text-gray-400 px-1">
+        <div className="flex items-center justify-between text-xs text-[var(--muted-foreground,#9ca3af)] px-1">
           <span>
             Showing {candidates.length} of {totalCount} candidates
           </span>

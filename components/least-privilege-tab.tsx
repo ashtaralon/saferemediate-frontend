@@ -98,7 +98,7 @@ const MetricCard: React.FC<{
     green: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/30',
     red: 'from-rose-500/20 to-rose-600/10 border-rose-500/30',
     orange: 'from-amber-500/20 to-amber-600/10 border-amber-500/30',
-    blue: 'from-blue-500/20 to-blue-600/10 border-blue-500/30',
+    blue: 'from-blue-500/20 to-blue-600/10 border-[#3b82f6]/30',
     default: 'from-slate-700/50 to-slate-800/50 border-slate-600/30',
   };
 
@@ -545,7 +545,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
             onClick={e => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -608,7 +608,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     <select
                       value={simSource}
                       onChange={(e) => setSimSource(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     >
                       <option value="">Select source...</option>
                       {/* Group services by type */}
@@ -642,7 +642,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     value={simSource}
                     onChange={(e) => setSimSource(e.target.value)}
                     placeholder="Or type custom name..."
-                    className="w-full mt-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full mt-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                   />
                 </div>
 
@@ -658,7 +658,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     <select
                       value={simTarget}
                       onChange={(e) => setSimTarget(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     >
                       <option value="">Select destination...</option>
                       {/* Group by service type */}
@@ -688,7 +688,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     value={simTarget}
                     onChange={(e) => setSimTarget(e.target.value)}
                     placeholder="Or type custom name..."
-                    className="w-full mt-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full mt-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                   />
                 </div>
               </div>
@@ -755,7 +755,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
 
               {/* API Call Options */}
               {simConnectionType === 'api' && (
-                <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-xl space-y-4">
+                <div className="p-4 bg-blue-900/20 border border-[#3b82f6]/30 rounded-xl space-y-4">
                   <div className="text-sm font-medium text-blue-400 flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -801,7 +801,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     type="number"
                     value={simDays}
                     onChange={(e) => setSimDays(parseInt(e.target.value) || 30)}
-                    className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     min="1"
                     max="730"
                   />
@@ -813,7 +813,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                     type="number"
                     value={simEventsPerDay}
                     onChange={(e) => setSimEventsPerDay(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     min="1"
                     max="1000"
                   />
@@ -861,8 +861,8 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                   disabled={isSimulating || !simSource || !simTarget}
                   className={`flex-1 px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
                     isSimulating || !simSource || !simTarget
-                      ? 'bg-purple-600/50 text-purple-200 cursor-not-allowed'
-                      : 'bg-purple-600 hover:bg-purple-500 text-white'
+                      ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-not-allowed'
+                      : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
                   }`}
                 >
                   {isSimulating ? (
@@ -900,7 +900,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
             {/* Simulate Traffic Button */}
             <button
               onClick={openSimulator}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -916,7 +916,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                 syncing
                   ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-500 text-white'
+                  : 'bg-blue-600 hover:bg-[#3b82f610]0 text-white'
               }`}
             >
               {syncing ? (
@@ -938,7 +938,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
             <button
               onClick={handleRefresh}
               disabled={sgLoading || iamLoading}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-emerald-600 hover:bg-[#10b98110]0 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className={`w-4 h-4 ${(sgLoading || iamLoading) ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1054,8 +1054,8 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                       </div>
                       <div
                         className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                          role.score >= 80 ? 'bg-emerald-500/20' :
-                          role.score >= 60 ? 'bg-amber-500/20' :
+                          role.score >= 80 ? 'bg-[#10b98110]0/20' :
+                          role.score >= 60 ? 'bg-[#f9731610]0/20' :
                           'bg-rose-500/20'
                         }`}
                       >
@@ -1075,7 +1075,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                         }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           role.unusedCount > 0
-                            ? 'bg-gradient-to-r from-rose-600 to-orange-600 text-white hover:from-rose-500 hover:to-orange-500'
+                            ? 'bg-white text-white hover:from-rose-500 hover:to-orange-500'
                             : 'bg-slate-700 text-slate-400 cursor-not-allowed'
                         }`}
                         disabled={role.unusedCount === 0}
@@ -1159,7 +1159,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                         onClick={() => toggleSGExpand(sg.sg_id)}
                         className={`p-3 rounded-lg border transition-colors text-left ${
                           expandedSGs.has(sg.sg_id)
-                            ? 'bg-emerald-500/10 border-emerald-500/30'
+                            ? 'bg-[#10b98110]0/10 border-emerald-500/30'
                             : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
                         }`}
                       >
@@ -1176,12 +1176,12 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                             </span>
                           )}
                           {sg.summary.overly_broad_rules > 0 && (
-                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded text-xs">
+                            <span className="px-1.5 py-0.5 bg-[#f9731610]0/20 text-amber-400 rounded text-xs">
                               {sg.summary.overly_broad_rules} broad
                             </span>
                           )}
                           {sg.summary.unused_rules === 0 && sg.summary.overly_broad_rules === 0 && (
-                            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-xs">
+                            <span className="px-1.5 py-0.5 bg-[#10b98110]0/20 text-emerald-400 rounded text-xs">
                               ✓ OK
                             </span>
                           )}

@@ -138,16 +138,16 @@ export default function SimulationModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Simulation Results</h2>
-            <p className="text-sm text-gray-600 mt-1">
+            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
+            <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
               Analyzing: <strong>{resourceName}</strong> ({resourceType})
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)] transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
@@ -158,9 +158,9 @@ export default function SimulationModal({
           {loading && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-indigo-600" />
-                <p className="text-lg font-medium text-gray-900 mb-2">Running Simulation...</p>
-                <p className="text-sm text-gray-500">
+                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-[#8b5cf6]" />
+                <p className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">Running Simulation...</p>
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
                   Building virtual infrastructure replica and computing blast radius...
                 </p>
               </div>
@@ -168,12 +168,12 @@ export default function SimulationModal({
           )}
 
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <div className="rounded-lg border border-[#ef444440] bg-[#ef444410] p-4">
               <div className="flex items-start gap-3">
-                <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
                 <div>
                   <h3 className="font-semibold text-red-900 mb-1">Simulation Error</h3>
-                  <p className="text-sm text-red-700">{error}</p>
+                  <p className="text-sm text-[#ef4444]">{error}</p>
                   <button
                     onClick={runSimulation}
                     className="mt-3 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
@@ -212,50 +212,50 @@ export default function SimulationModal({
                 </div>
 
                 {/* Confidence */}
-                <div className="rounded-lg p-4 border border-gray-200 bg-white">
+                <div className="rounded-lg p-4 border border-[var(--border,#e5e7eb)] bg-white">
                   <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-5 h-5 text-indigo-600" />
-                    <div className="text-sm text-gray-600">Confidence</div>
+                    <Shield className="w-5 h-5 text-[#8b5cf6]" />
+                    <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Confidence</div>
                   </div>
-                  <div className="text-3xl font-bold text-gray-900">
+                  <div className="text-3xl font-bold text-[var(--foreground,#111827)]">
                     {(result.confidence * 100).toFixed(0)}%
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                     Based on multi-source evidence
                   </div>
                 </div>
 
                 {/* Blast Radius */}
-                <div className="rounded-lg p-4 border border-gray-200 bg-white">
+                <div className="rounded-lg p-4 border border-[var(--border,#e5e7eb)] bg-white">
                   <div className="flex items-center gap-2 mb-2">
                     <TrendingUp className="w-5 h-5 text-orange-600" />
-                    <div className="text-sm text-gray-600">Blast Radius</div>
+                    <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Blast Radius</div>
                   </div>
-                  <div className="text-3xl font-bold text-gray-900">
+                  <div className="text-3xl font-bold text-[var(--foreground,#111827)]">
                     {(result.blast_radius * 100).toFixed(1)}%
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                     {result.affected_resources_count} resources affected
                   </div>
                 </div>
               </div>
 
               {/* Safety Score */}
-              <div className="rounded-lg p-4 border border-gray-200 bg-gray-50">
+              <div className="rounded-lg p-4 border border-[var(--border,#e5e7eb)] bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-1">Safety Score</div>
-                    <div className="text-2xl font-bold text-gray-900">
+                    <div className="text-sm font-medium text-[var(--foreground,#374151)] mb-1">Safety Score</div>
+                    <div className="text-2xl font-bold text-[var(--foreground,#111827)]">
                       {(result.safety_score * 100).toFixed(0)}%
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                       Health: {(result.health_validation * 100).toFixed(0)}% • 
                       Rollback Ready: {(result.rollback_readiness * 100).toFixed(0)}%
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm text-gray-600">Formula</div>
-                    <div className="text-xs font-mono text-gray-500 mt-1">
+                    <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Formula</div>
+                    <div className="text-xs font-mono text-[var(--muted-foreground,#6b7280)] mt-1">
                       Confidence × Health × Rollback × (1 - BlastRadius)
                     </div>
                   </div>
@@ -264,21 +264,21 @@ export default function SimulationModal({
 
               {/* B. Affected Resources */}
               {result.affected_resources.length > 0 && (
-                <div className="rounded-lg border border-gray-200 bg-white">
-                  <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                    <h3 className="font-semibold text-gray-900">Affected Resources</h3>
-                    <p className="text-xs text-gray-600 mt-1">
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white">
+                  <div className="px-4 py-3 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
+                    <h3 className="font-semibold text-[var(--foreground,#111827)]">Affected Resources</h3>
+                    <p className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">
                       {result.affected_resources.length} resources will be impacted by this change
                     </p>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead className="bg-gray-50 border-b border-gray-200">
+                      <thead className="bg-gray-50 border-b border-[var(--border,#e5e7eb)]">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Resource</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Impact</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Resource</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Type</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Impact</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Reason</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -288,27 +288,27 @@ export default function SimulationModal({
                               <div className="flex items-center gap-2">
                                 {getResourceTypeIcon(resource.type)}
                                 <div>
-                                  <div className="text-sm font-medium text-gray-900">{resource.name}</div>
+                                  <div className="text-sm font-medium text-[var(--foreground,#111827)]">{resource.name}</div>
                                   {resource.arn && (
-                                    <div className="text-xs text-gray-500 truncate max-w-xs">{resource.arn}</div>
+                                    <div className="text-xs text-[var(--muted-foreground,#6b7280)] truncate max-w-xs">{resource.arn}</div>
                                   )}
                                 </div>
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <span className="text-sm text-gray-600">{resource.type}</span>
+                              <span className="text-sm text-[var(--muted-foreground,#4b5563)]">{resource.type}</span>
                             </td>
                             <td className="px-4 py-3">
                               <span className={`text-sm font-medium ${
-                                resource.impact.includes('❌') ? 'text-red-600' :
+                                resource.impact.includes('❌') ? 'text-[#ef4444]' :
                                 resource.impact.includes('⚠️') ? 'text-yellow-600' :
-                                'text-green-600'
+                                'text-[#22c55e]'
                               }`}>
                                 {resource.impact}
                               </span>
                             </td>
                             <td className="px-4 py-3">
-                              <span className="text-sm text-gray-600">{resource.reason}</span>
+                              <span className="text-sm text-[var(--muted-foreground,#4b5563)]">{resource.reason}</span>
                             </td>
                           </tr>
                         ))}
@@ -319,18 +319,18 @@ export default function SimulationModal({
               )}
 
               {/* C. Evidence */}
-              <div className="rounded-lg border border-gray-200 bg-white">
-                <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-                  <h3 className="font-semibold text-gray-900">Evidence</h3>
-                  <p className="text-xs text-gray-600 mt-1">
+              <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white">
+                <div className="px-4 py-3 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
+                  <h3 className="font-semibold text-[var(--foreground,#111827)]">Evidence</h3>
+                  <p className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">
                     Multi-source validation from {result.evidence.summary.total_sources} sources
                   </p>
                 </div>
                 <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* CloudTrail */}
-                  <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                  <div className="p-3 bg-[#3b82f610] rounded border border-[#3b82f640]">
                     <div className="text-sm font-medium text-blue-900 mb-2">CloudTrail</div>
-                    <div className="text-xs text-blue-700 space-y-1">
+                    <div className="text-xs text-[#3b82f6] space-y-1">
                       <div>Total Events: {result.evidence.cloudtrail.total_events}</div>
                       <div>Matched: {result.evidence.cloudtrail.matched_events}</div>
                       {result.evidence.cloudtrail.days_since_last_use !== undefined && (
@@ -340,18 +340,18 @@ export default function SimulationModal({
                   </div>
 
                   {/* VPC Flow Logs */}
-                  <div className="p-3 bg-green-50 rounded border border-green-200">
+                  <div className="p-3 bg-[#22c55e10] rounded border border-[#22c55e40]">
                     <div className="text-sm font-medium text-green-900 mb-2">VPC Flow Logs</div>
-                    <div className="text-xs text-green-700 space-y-1">
+                    <div className="text-xs text-[#22c55e] space-y-1">
                       <div>Total Flows: {result.evidence.flowlogs.total_flows}</div>
                       <div>Matched: {result.evidence.flowlogs.matched_flows}</div>
                     </div>
                   </div>
 
                   {/* Triggers */}
-                  <div className="p-3 bg-yellow-50 rounded border border-yellow-200">
+                  <div className="p-3 bg-[#eab30810] rounded border border-[#eab30840]">
                     <div className="text-sm font-medium text-yellow-900 mb-2">Dependencies</div>
-                    <div className="text-xs text-yellow-700 space-y-1">
+                    <div className="text-xs text-[#eab308] space-y-1">
                       <div>Has Dependencies: {result.evidence.triggers.has_dependencies ? 'Yes' : 'No'}</div>
                       <div>Agreeing Sources: {result.evidence.summary.agreeing_sources}/{result.evidence.summary.total_sources}</div>
                     </div>
@@ -361,28 +361,28 @@ export default function SimulationModal({
 
               {/* D. Recommendation */}
               <div className={`rounded-lg p-4 border-2 ${
-                result.status === 'EXECUTE' ? 'bg-green-50 border-green-200' :
-                result.status === 'CANARY' ? 'bg-yellow-50 border-yellow-200' :
-                result.status === 'REVIEW' ? 'bg-orange-50 border-orange-200' :
-                'bg-red-50 border-red-200'
+                result.status === 'EXECUTE' ? 'bg-[#22c55e10] border-[#22c55e40]' :
+                result.status === 'CANARY' ? 'bg-[#eab30810] border-[#eab30840]' :
+                result.status === 'REVIEW' ? 'bg-[#f9731610] border-[#f9731640]' :
+                'bg-[#ef444410] border-[#ef444440]'
               }`}>
                 <div className="flex items-start gap-3">
-                  {result.status === 'EXECUTE' && <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />}
+                  {result.status === 'EXECUTE' && <CheckCircle2 className="w-6 h-6 text-[#22c55e] flex-shrink-0 mt-0.5" />}
                   {result.status === 'CANARY' && <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />}
                   {result.status === 'REVIEW' && <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />}
-                  {result.status === 'BLOCK' && <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />}
+                  {result.status === 'BLOCK' && <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />}
                   <div>
-                    <div className="font-semibold text-gray-900 mb-1">Recommendation</div>
-                    <p className="text-sm text-gray-700">{result.recommendation}</p>
+                    <div className="font-semibold text-[var(--foreground,#111827)] mb-1">Recommendation</div>
+                    <p className="text-sm text-[var(--foreground,#374151)]">{result.recommendation}</p>
                   </div>
                 </div>
               </div>
 
               {/* E. Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--border,#e5e7eb)]">
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm font-medium"
+                  className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-md text-[var(--foreground,#374151)] hover:bg-gray-50 text-sm font-medium"
                 >
                   Cancel
                 </button>
@@ -417,7 +417,7 @@ export default function SimulationModal({
                       alert('Proceed with caution - Coming soon')
                       onClose()
                     }}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium"
+                    className="px-4 py-2 bg-[#8b5cf6] text-white rounded-md hover:bg-[#7c3aed] text-sm font-medium"
                   >
                     Proceed Anyway
                   </button>

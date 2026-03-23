@@ -75,16 +75,16 @@ const getSeverityStyles = (severity: string) => {
       }
     case 'high':
       return {
-        bg: 'bg-orange-500/10',
+        bg: 'bg-[#f9731610]0/10',
         border: 'border-orange-500/30',
-        badge: 'bg-orange-500/20 text-orange-400',
+        badge: 'bg-[#f9731610]0/20 text-orange-400',
         icon: 'text-orange-400',
       }
     case 'medium':
       return {
-        bg: 'bg-amber-500/10',
+        bg: 'bg-[#f9731610]0/10',
         border: 'border-amber-500/30',
-        badge: 'bg-amber-500/20 text-amber-400',
+        badge: 'bg-[#f9731610]0/20 text-amber-400',
         icon: 'text-amber-400',
       }
     default:
@@ -253,7 +253,7 @@ export const DetectionsSection: React.FC<DetectionsSectionProps> = ({
 
   if (detections.length === 0) {
     return (
-      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-8 text-center">
+      <div className="bg-[#10b98110]0/5 border border-emerald-500/20 rounded-xl p-8 text-center">
         <Shield className="w-12 h-12 text-emerald-400 mx-auto mb-4" />
         <p className="text-emerald-400 font-medium">No Detections</p>
         <p className="text-sm text-slate-500 mt-1">

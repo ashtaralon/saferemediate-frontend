@@ -150,7 +150,7 @@ export function AutomationRulesView({
 
         <div className="p-4 rounded-lg" style={{ background: "var(--bg-secondary)" }}>
           <div className="flex items-center gap-2 mb-2">
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
+            <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
             <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
               Issues Fixed
             </span>
@@ -158,7 +158,7 @@ export function AutomationRulesView({
           <div className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
             {displayStats.issuesFixed}
           </div>
-          <div className="text-xs mt-1 text-green-500">Last 30 days</div>
+          <div className="text-xs mt-1 text-[#22c55e]">Last 30 days</div>
         </div>
 
         <div className="p-4 rounded-lg" style={{ background: "var(--bg-secondary)" }}>
@@ -171,7 +171,7 @@ export function AutomationRulesView({
           <div className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
             {displayStats.successRate}%
           </div>
-          <div className="text-xs mt-1 text-green-500">Average across all rules</div>
+          <div className="text-xs mt-1 text-[#22c55e]">Average across all rules</div>
         </div>
 
         <div className="p-4 rounded-lg" style={{ background: "var(--bg-secondary)" }}>
@@ -322,18 +322,18 @@ export function AutomationRulesView({
                     )}
                   </button>
                   <button
-                    className="p-2 rounded hover:bg-red-50"
+                    className="p-2 rounded hover:bg-[#ef444410]"
                     title="Delete"
                     onClick={() => onDeleteRule?.(rule.id)}
                   >
-                    <Trash2 className="w-4 h-4 text-red-500" />
+                    <Trash2 className="w-4 h-4 text-[#ef4444]" />
                   </button>
                 </div>
 
                 <div className="text-right text-xs" style={{ color: "var(--text-secondary)" }}>
                   <div>Next run: {rule.nextRun || "Not scheduled"}</div>
                   <div className="mt-1">
-                    <span className="text-green-500 font-medium">{rule.successRate}%</span> success •{" "}
+                    <span className="text-[#22c55e] font-medium">{rule.successRate}%</span> success •{" "}
                     <span className="font-medium">{rule.issuesFixed}</span> fixed
                   </div>
                 </div>

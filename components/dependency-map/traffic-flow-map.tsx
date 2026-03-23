@@ -100,18 +100,18 @@ interface AttackPath {
 // NODE CONFIGURATION
 // ============================================
 const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: string; border: string; text: string }> = {
-  internet: { icon: Globe, color: 'text-red-400', bg: 'bg-red-500/20', border: 'border-red-500/50', text: 'Internet' },
-  compute: { icon: Server, color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/50', text: 'EC2' },
-  database: { icon: Database, color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/50', text: 'RDS' },
-  storage: { icon: HardDrive, color: 'text-green-400', bg: 'bg-green-500/20', border: 'border-green-500/50', text: 'S3' },
-  lambda: { icon: Zap, color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/50', text: 'Lambda' },
-  api_gateway: { icon: Network, color: 'text-indigo-400', bg: 'bg-indigo-500/20', border: 'border-indigo-500/50', text: 'API GW' },
+  internet: { icon: Globe, color: 'text-red-400', bg: 'bg-[#ef444410]0/20', border: 'border-red-500/50', text: 'Internet' },
+  compute: { icon: Server, color: 'text-blue-400', bg: 'bg-[#3b82f610]0/20', border: 'border-[#3b82f6]/50', text: 'EC2' },
+  database: { icon: Database, color: 'text-purple-400', bg: 'bg-[#8b5cf6]/20', border: 'border-purple-500/50', text: 'RDS' },
+  storage: { icon: HardDrive, color: 'text-green-400', bg: 'bg-[#22c55e10]0/20', border: 'border-green-500/50', text: 'S3' },
+  lambda: { icon: Zap, color: 'text-amber-400', bg: 'bg-[#f9731610]0/20', border: 'border-amber-500/50', text: 'Lambda' },
+  api_gateway: { icon: Network, color: 'text-indigo-400', bg: 'bg-[#8b5cf6]/20', border: 'border-indigo-500/50', text: 'API GW' },
   load_balancer: { icon: Network, color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'ALB' },
-  dynamodb: { icon: Database, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/50', text: 'DynamoDB' },
+  dynamodb: { icon: Database, color: 'text-orange-400', bg: 'bg-[#f9731610]0/20', border: 'border-orange-500/50', text: 'DynamoDB' },
   sqs: { icon: Network, color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/50', text: 'SQS' },
   sns: { icon: Network, color: 'text-violet-400', bg: 'bg-violet-500/20', border: 'border-violet-500/50', text: 'SNS' },
   iam_role: { icon: Key, color: 'text-pink-400', bg: 'bg-pink-500/20', border: 'border-pink-500/50', text: 'IAM' },
-  security_group: { icon: Shield, color: 'text-orange-400', bg: 'bg-orange-500/20', border: 'border-orange-500/50', text: 'SG' },
+  security_group: { icon: Shield, color: 'text-orange-400', bg: 'bg-[#f9731610]0/20', border: 'border-orange-500/50', text: 'SG' },
   nacl: { icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'NACL' },
   api_call: { icon: Zap, color: 'text-lime-400', bg: 'bg-lime-500/20', border: 'border-lime-500/50', text: 'API' },
   network: { icon: Network, color: 'text-slate-400', bg: 'bg-slate-500/20', border: 'border-slate-500/50', text: 'Network' },
@@ -203,7 +203,7 @@ function ServiceNodeBox({
 
       {/* Live traffic indicator */}
       {flowInfo && flowInfo.bytes > 0 && (
-        <div className="absolute -top-2 -right-2 flex items-center gap-1 px-2 py-0.5 bg-emerald-500 rounded-full shadow-lg">
+        <div className="absolute -top-2 -right-2 flex items-center gap-1 px-2 py-0.5 bg-[#10b98110]0 rounded-full shadow-lg">
           <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
           <span className="text-[10px] font-bold text-white">{formatBytes(flowInfo.bytes)}</span>
         </div>
@@ -211,7 +211,7 @@ function ServiceNodeBox({
 
       {/* Connection point */}
       <div className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-colors
-        ${isHighlighted ? 'bg-emerald-500' : 'bg-slate-600'} border-2 border-slate-500
+        ${isHighlighted ? 'bg-[#10b98110]0' : 'bg-slate-600'} border-2 border-slate-500
         ${position === 'left' ? '-right-1.5' : '-left-1.5'}`} />
     </div>
   );
@@ -223,9 +223,9 @@ function ServiceNodeBox({
 function RuleRow({ rule }: { rule: SGRule }): JSX.Element {
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'used': return { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'USED', icon: '✓' };
-      case 'unused': return { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', label: 'UNUSED', icon: '✗' };
-      case 'unobserved': return { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400', label: 'GAP', icon: '?' };
+      case 'used': return { bg: 'bg-[#10b98110]0/10', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'USED', icon: '✓' };
+      case 'unused': return { bg: 'bg-[#ef444410]0/10', border: 'border-red-500/30', text: 'text-red-400', label: 'UNUSED', icon: '✗' };
+      case 'unobserved': return { bg: 'bg-[#f9731610]0/10', border: 'border-amber-500/30', text: 'text-amber-400', label: 'GAP', icon: '?' };
       default: return { bg: 'bg-slate-700/50', border: 'border-slate-600', text: 'text-slate-400', label: 'NO DATA', icon: '—' };
     }
   };
@@ -282,8 +282,8 @@ function RuleRow({ rule }: { rule: SGRule }): JSX.Element {
       {/* Protocol & Port */}
       <div className="flex items-center gap-1.5 min-w-[70px]">
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-          protocol === 'TCP' ? 'bg-blue-500/20 text-blue-400' :
-          protocol === 'UDP' ? 'bg-purple-500/20 text-purple-400' :
+          protocol === 'TCP' ? 'bg-[#3b82f610]0/20 text-blue-400' :
+          protocol === 'UDP' ? 'bg-[#8b5cf6]/20 text-purple-400' :
           protocol === 'ICMP' ? 'bg-cyan-500/20 text-cyan-400' :
           'bg-slate-500/20 text-slate-400'
         }`}>
@@ -298,7 +298,7 @@ function RuleRow({ rule }: { rule: SGRule }): JSX.Element {
       {/* Source/Destination */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0">
         {rule.isPublic && (
-          <span className="text-[8px] px-1.5 py-0.5 bg-red-500/30 text-red-300 rounded font-semibold flex-shrink-0">
+          <span className="text-[8px] px-1.5 py-0.5 bg-[#ef444410]0/30 text-red-300 rounded font-semibold flex-shrink-0">
             PUBLIC
           </span>
         )}
@@ -353,7 +353,7 @@ function SecurityGroupPanel({
   return (
     <div
       className={`relative rounded-xl border-2 transition-all duration-200 overflow-hidden
-        ${isHighlighted ? 'bg-orange-500/20 border-orange-500/50 shadow-lg shadow-orange-500/20' : 'bg-slate-800/50 border-slate-700'}
+        ${isHighlighted ? 'bg-[#f9731610]0/20 border-orange-500/50 shadow-lg shadow-orange-500/20' : 'bg-slate-800/50 border-slate-700'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}
         ${hasPublicAccess ? 'ring-2 ring-red-400/30' : ''}`}
       onMouseEnter={() => onHover(sg.id)}
@@ -366,7 +366,7 @@ function SecurityGroupPanel({
         onClick={onToggle}
       >
         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          hasPublicAccess ? 'bg-red-500/20' : 'bg-orange-500/20'
+          hasPublicAccess ? 'bg-[#ef444410]0/20' : 'bg-[#f9731610]0/20'
         }`}>
           <Shield className={`w-5 h-5 ${hasPublicAccess ? 'text-red-400' : 'text-orange-400'}`} />
         </div>
@@ -383,7 +383,7 @@ function SecurityGroupPanel({
               <span className="text-emerald-400">↑{outboundRules.length} out</span>
             )}
             {hasPublicAccess && (
-              <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded text-[9px] font-semibold">
+              <span className="px-1.5 py-0.5 bg-[#ef444410]0/20 text-red-400 rounded text-[9px] font-semibold">
                 {publicRules.length} PUBLIC
               </span>
             )}
@@ -403,12 +403,12 @@ function SecurityGroupPanel({
           {sg.rules.length > 0 && (
             <div className="flex gap-2 pb-2 border-b border-slate-700/50">
               {usedRules.length > 0 && (
-                <span className="text-[9px] px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded">
+                <span className="text-[9px] px-2 py-1 bg-[#10b98110]0/10 border border-emerald-500/30 text-emerald-400 rounded">
                   {usedRules.length} used
                 </span>
               )}
               {unusedRules.length > 0 && (
-                <span className="text-[9px] px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-400 rounded">
+                <span className="text-[9px] px-2 py-1 bg-[#ef444410]0/10 border border-red-500/30 text-red-400 rounded">
                   {unusedRules.length} unused
                 </span>
               )}
@@ -507,7 +507,7 @@ function NACLNode({
           Network ACL
         </div>
         <div className="flex items-center gap-2 mt-1">
-          <span className={`text-[9px] px-1.5 py-0.5 rounded ${blastRadius > 0 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-600/50 text-slate-400'}`}>
+          <span className={`text-[9px] px-1.5 py-0.5 rounded ${blastRadius > 0 ? 'bg-[#f9731610]0/20 text-amber-400' : 'bg-slate-600/50 text-slate-400'}`}>
             {blastRadius} affected
           </span>
         </div>
@@ -542,9 +542,9 @@ function IAMRoleNode({
   // Determine status color based on usage
   const getStatusColor = () => {
     if (!hasData) return { bg: 'bg-slate-500/20', text: 'text-slate-400', ring: '' };
-    if (usagePercent >= 80) return { bg: 'bg-emerald-500/20', text: 'text-emerald-400', ring: '' };
-    if (usagePercent >= 50) return { bg: 'bg-amber-500/20', text: 'text-amber-400', ring: 'ring-2 ring-amber-400/30' };
-    return { bg: 'bg-red-500/20', text: 'text-red-400', ring: 'ring-2 ring-red-400/30' };
+    if (usagePercent >= 80) return { bg: 'bg-[#10b98110]0/20', text: 'text-emerald-400', ring: '' };
+    if (usagePercent >= 50) return { bg: 'bg-[#f9731610]0/20', text: 'text-amber-400', ring: 'ring-2 ring-amber-400/30' };
+    return { bg: 'bg-[#ef444410]0/20', text: 'text-red-400', ring: 'ring-2 ring-red-400/30' };
   };
 
   const statusColor = getStatusColor();
@@ -575,11 +575,11 @@ function IAMRoleNode({
             </div>
             <div className="flex items-center gap-2 mt-1">
               {hasGap ? (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#f9731610]0/20 text-amber-400">
                   {role.gapCount} unused
                 </span>
               ) : (
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#10b98110]0/20 text-emerald-400">
                   {usagePercent}% used
                 </span>
               )}
@@ -720,14 +720,14 @@ function ServiceDetailsPopup({
   // Get color for a node type
   const getNodeColor = (type: string, name?: string) => {
     const t = inferTypeFromName(name || '', type).toLowerCase();
-    if (t.includes('ec2') || t === 'compute') return 'text-blue-400 bg-blue-500/20 border-blue-500/50';
-    if (t.includes('lambda')) return 'text-amber-400 bg-amber-500/20 border-amber-500/50';
-    if (t.includes('rds') || t.includes('database')) return 'text-purple-400 bg-purple-500/20 border-purple-500/50';
-    if (t.includes('s3') || t.includes('storage') || t.includes('bucket')) return 'text-green-400 bg-green-500/20 border-green-500/50';
-    if (t.includes('security') || t.includes('sg')) return 'text-orange-400 bg-orange-500/20 border-orange-500/50';
+    if (t.includes('ec2') || t === 'compute') return 'text-blue-400 bg-[#3b82f610]0/20 border-[#3b82f6]/50';
+    if (t.includes('lambda')) return 'text-amber-400 bg-[#f9731610]0/20 border-amber-500/50';
+    if (t.includes('rds') || t.includes('database')) return 'text-purple-400 bg-[#8b5cf6]/20 border-purple-500/50';
+    if (t.includes('s3') || t.includes('storage') || t.includes('bucket')) return 'text-green-400 bg-[#22c55e10]0/20 border-green-500/50';
+    if (t.includes('security') || t.includes('sg')) return 'text-orange-400 bg-[#f9731610]0/20 border-orange-500/50';
     if (t.includes('iam') || t.includes('role')) return 'text-pink-400 bg-pink-500/20 border-pink-500/50';
     if (t.includes('nacl') || t.includes('acl')) return 'text-cyan-400 bg-cyan-500/20 border-cyan-500/50';
-    if (t.includes('resourceexplorer') || t.includes('explorer')) return 'text-indigo-400 bg-indigo-500/20 border-indigo-500/50';
+    if (t.includes('resourceexplorer') || t.includes('explorer')) return 'text-indigo-400 bg-[#8b5cf6]/20 border-indigo-500/50';
     if (t.includes('cloudwatch')) return 'text-teal-400 bg-teal-500/20 border-teal-500/50';
     return 'text-slate-400 bg-slate-500/20 border-slate-500/50';
   };
@@ -1028,7 +1028,7 @@ function ServiceDetailsPopup({
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-900">
+        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between bg-white
           <div className="flex items-center gap-4">
             <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${getNodeColor(serviceType)}`}>
               {getNodeIcon(serviceType)}
@@ -1093,9 +1093,9 @@ function ServiceDetailsPopup({
               {/* Impact Score */}
               {blastRadius && blastRadius.total_impact_score > 0 && (
                 <div className={`rounded-xl p-4 border ${
-                  blastRadius.total_impact_score > 50 ? 'bg-red-500/10 border-red-500/30' :
-                  blastRadius.total_impact_score > 20 ? 'bg-amber-500/10 border-amber-500/30' :
-                  'bg-emerald-500/10 border-emerald-500/30'
+                  blastRadius.total_impact_score > 50 ? 'bg-[#ef444410]0/10 border-red-500/30' :
+                  blastRadius.total_impact_score > 20 ? 'bg-[#f9731610]0/10 border-amber-500/30' :
+                  'bg-[#10b98110]0/10 border-emerald-500/30'
                 }`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1122,18 +1122,18 @@ function ServiceDetailsPopup({
 
               {/* Attack Risk Assessment - What can attackers actually do? */}
               {riskAssessment && (riskAssessment.attack_impacts?.length > 0 || riskAssessment.cve_summary?.total > 0 || riskAssessment.data_access_scope?.data_stores?.length > 0) && (
-                <div className="bg-red-500/5 rounded-xl border border-red-500/20 overflow-hidden">
+                <div className="bg-[#ef444410]0/5 rounded-xl border border-red-500/20 overflow-hidden">
                   {/* Header with Risk Score */}
-                  <div className="px-4 py-3 bg-red-500/10 border-b border-red-500/20 flex items-center justify-between">
+                  <div className="px-4 py-3 bg-[#ef444410]0/10 border-b border-red-500/20 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="w-5 h-5 text-red-400" />
                       <h3 className="text-sm font-bold text-white">Attack Risk Assessment</h3>
                     </div>
                     <div className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      riskAssessment.risk_level === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border border-red-500/50' :
-                      riskAssessment.risk_level === 'HIGH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' :
-                      riskAssessment.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' :
-                      'bg-green-500/20 text-green-400 border border-green-500/50'
+                      riskAssessment.risk_level === 'CRITICAL' ? 'bg-[#ef444410]0/20 text-red-400 border border-red-500/50' :
+                      riskAssessment.risk_level === 'HIGH' ? 'bg-[#f9731610]0/20 text-orange-400 border border-orange-500/50' :
+                      riskAssessment.risk_level === 'MEDIUM' ? 'bg-[#eab30810]0/20 text-yellow-400 border border-yellow-500/50' :
+                      'bg-[#22c55e10]0/20 text-green-400 border border-green-500/50'
                     }`}>
                       {riskAssessment.risk_level} RISK ({riskAssessment.risk_score}/100)
                     </div>
@@ -1174,8 +1174,8 @@ function ServiceDetailsPopup({
                         <div className="flex flex-wrap gap-2">
                           {riskAssessment.exploitable_ports.map((port, i) => (
                             <div key={i} className={`px-2 py-1 rounded text-xs ${
-                              port.is_open_to_internet ? 'bg-red-500/20 text-red-300 border border-red-500/50' :
-                              port.risk === 'CRITICAL' ? 'bg-orange-500/20 text-orange-300 border border-orange-500/50' :
+                              port.is_open_to_internet ? 'bg-[#ef444410]0/20 text-red-300 border border-red-500/50' :
+                              port.risk === 'CRITICAL' ? 'bg-[#f9731610]0/20 text-orange-300 border border-orange-500/50' :
                               'bg-slate-700 text-slate-300 border border-slate-600'
                             }`}>
                               <span className="font-mono font-bold">{port.port}</span>
@@ -1200,7 +1200,7 @@ function ServiceDetailsPopup({
                             <div key={i} className="flex items-center gap-2 px-2 py-1.5 bg-slate-800/50 rounded border border-purple-500/20">
                               <Database className="w-3 h-3 text-purple-400" />
                               <span className="text-sm text-white">{store.name}</span>
-                              <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded">{store.type}</span>
+                              <span className="text-[10px] text-purple-400 bg-[#8b5cf6]/20 px-1.5 py-0.5 rounded">{store.type}</span>
                             </div>
                           ))}
                         </div>
@@ -1217,8 +1217,8 @@ function ServiceDetailsPopup({
                         <div className="flex flex-wrap gap-1">
                           {riskAssessment.data_access_scope.sensitive_permissions.slice(0, 6).map((perm, i) => (
                             <span key={i} className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                              perm.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-300' :
-                              perm.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-300' :
+                              perm.severity === 'CRITICAL' ? 'bg-[#ef444410]0/20 text-red-300' :
+                              perm.severity === 'HIGH' ? 'bg-[#f9731610]0/20 text-orange-300' :
                               'bg-slate-700 text-slate-300'
                             }`}>
                               {perm.permission}
@@ -1238,13 +1238,13 @@ function ServiceDetailsPopup({
                         <div className="space-y-1">
                           {riskAssessment.attack_impacts.slice(0, 4).map((impact, i) => (
                             <div key={i} className={`flex items-center gap-2 px-2 py-1.5 rounded border ${
-                              impact.severity === 'CRITICAL' ? 'bg-red-500/10 border-red-500/30' :
-                              impact.severity === 'HIGH' ? 'bg-orange-500/10 border-orange-500/30' :
+                              impact.severity === 'CRITICAL' ? 'bg-[#ef444410]0/10 border-red-500/30' :
+                              impact.severity === 'HIGH' ? 'bg-[#f9731610]0/10 border-orange-500/30' :
                               'bg-slate-800/50 border-slate-700'
                             }`}>
                               <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                                impact.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
-                                impact.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
+                                impact.severity === 'CRITICAL' ? 'bg-[#ef444410]0/20 text-red-400' :
+                                impact.severity === 'HIGH' ? 'bg-[#f9731610]0/20 text-orange-400' :
                                 'bg-slate-700 text-slate-400'
                               }`}>
                                 {impact.type.replace(/_/g, ' ')}
@@ -1884,7 +1884,7 @@ function UnifiedArchitectureDiagram({
       {/* Header */}
       <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-700">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center">
+          <div className="w-10 h-10 bg-[#10b98110]0/20 rounded-xl flex items-center justify-center">
             <Cloud className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
@@ -1892,8 +1892,8 @@ function UnifiedArchitectureDiagram({
             <p className="text-xs text-slate-400">Live traffic flow based on actual usage</p>
           </div>
           {/* Live indicator */}
-          <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/20 rounded-full ml-4">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          <div className="flex items-center gap-2 px-3 py-1 bg-[#10b98110]0/20 rounded-full ml-4">
+            <span className="w-2 h-2 bg-[#10b98110]0 rounded-full animate-pulse" />
             <span className="text-xs font-medium text-emerald-400">LIVE</span>
           </div>
         </div>
@@ -1907,7 +1907,7 @@ function UnifiedArchitectureDiagram({
             <div className="text-[10px] text-slate-500">Connections</div>
           </div>
           {architecture.totalGaps > 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/20 rounded-lg border-l border-slate-700">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-[#f9731610]0/20 rounded-lg border-l border-slate-700">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               <div>
                 <div className="text-amber-400 font-bold">{architecture.totalGaps}</div>
@@ -1944,7 +1944,7 @@ function UnifiedArchitectureDiagram({
                   {isInAttackPath && vuln && (
                     <div className="absolute -top-2 -left-2 z-10">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-lg ${
-                        vuln.critical_cves > 0 ? 'bg-red-500 animate-pulse' : 'bg-orange-500'
+                        vuln.critical_cves > 0 ? 'bg-[#ef444410]0 animate-pulse' : 'bg-[#f9731610]0'
                       }`}>
                         {vuln.cve_count}
                       </div>
@@ -2157,7 +2157,7 @@ function UnifiedArchitectureDiagram({
                   {/* Attack path target indicator */}
                   {isInAttackPath && isTarget && (
                     <div className="absolute -top-2 -right-2 z-10">
-                      <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center animate-pulse shadow-lg">
+                      <div className="w-6 h-6 rounded-full bg-[#ef444410]0 flex items-center justify-center animate-pulse shadow-lg">
                         <Target className="w-3 h-3 text-white" />
                       </div>
                     </div>
@@ -2250,7 +2250,7 @@ function UnifiedArchitectureDiagram({
           <span className="text-slate-400">Storage</span>
         </span>
         <span className="flex items-center gap-1.5 ml-auto">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+          <span className="w-2 h-2 bg-[#10b98110]0 rounded-full animate-pulse" />
           <span className="text-emerald-400">Live Traffic</span>
         </span>
         <span className="flex items-center gap-1.5">
@@ -2325,9 +2325,9 @@ function RefreshStatusBadge({
 
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 ${
-      status === 'fetching' ? 'bg-blue-500/20 text-blue-400' :
-      status === 'error' ? 'bg-red-500/20 text-red-400' :
-      changes && changes.totalChanges > 0 ? 'bg-emerald-500/20 text-emerald-400' :
+      status === 'fetching' ? 'bg-[#3b82f610]0/20 text-blue-400' :
+      status === 'error' ? 'bg-[#ef444410]0/20 text-red-400' :
+      changes && changes.totalChanges > 0 ? 'bg-[#10b98110]0/20 text-emerald-400' :
       'bg-slate-700 text-slate-400'
     }`}>
       {status === 'fetching' && (
@@ -3053,7 +3053,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-6 text-center max-w-sm">
           <p className="text-red-400 font-medium mb-2">Error</p>
           <p className="text-slate-400 text-sm mb-4">{error}</p>
-          <button onClick={loadData} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm">
+          <button onClick={loadData} className="px-4 py-2 bg-[#ef444410]0 hover:bg-red-600 text-white rounded-lg text-sm">
             Retry
           </button>
         </div>
@@ -3069,8 +3069,8 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           <h2 className="text-white font-bold text-lg">Traffic Flow Map</h2>
 
           {/* Live indicator */}
-          <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/10 rounded-full">
-            <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
+          <div className="flex items-center gap-2 px-2 py-1 bg-[#10b98110]0/10 rounded-full">
+            <span className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-[#10b98110]0 animate-pulse' : 'bg-slate-500'}`} />
             <span className="text-xs text-emerald-400 font-medium">
               {autoRefresh ? 'LIVE' : 'PAUSED'}
             </span>
@@ -3096,8 +3096,8 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             onClick={() => setShowAttackPaths(!showAttackPaths)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
               showAttackPaths
-                ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse'
-                : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-500/10'
+                ? 'bg-[#ef444410]0 text-white shadow-lg shadow-red-500/30 animate-pulse'
+                : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-[#ef444410]0/10'
             }`}
             title="Show vulnerability attack paths to sensitive data"
           >
@@ -3120,8 +3120,8 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             disabled={injectingCVE}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
               injectingCVE
-                ? 'bg-purple-500/50 text-purple-200 cursor-wait'
-                : 'bg-purple-600 hover:bg-purple-500 text-white'
+                ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
+                : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
             }`}
             title="Inject simulated CVE data into Neo4j nodes for testing"
           >
@@ -3137,7 +3137,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 ${
-              autoRefresh ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'
+              autoRefresh ? 'bg-[#10b98110]0/20 text-emerald-400' : 'bg-slate-700 text-slate-400'
             }`}
             title={autoRefresh ? `Auto-refresh every ${refreshInterval}s` : 'Auto-refresh disabled'}
           >
@@ -3149,7 +3149,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           <button
             onClick={() => setAnimate(!animate)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              animate ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-400'
+              animate ? 'bg-[#3b82f610]0/20 text-blue-400' : 'bg-slate-700 text-slate-400'
             }`}
           >
             {animate ? '⏸ Pause' : '▶ Play'}
@@ -3161,8 +3161,8 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             disabled={refreshStatus === 'fetching'}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
               refreshStatus === 'fetching'
-                ? 'bg-blue-500/20 text-blue-400 cursor-wait'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40'
+                ? 'bg-[#3b82f610]0/20 text-blue-400 cursor-wait'
+                : 'bg-emerald-600 hover:bg-[#10b98110]0 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40'
             }`}
           >
             <RefreshCw className={`w-4 h-4 ${refreshStatus === 'fetching' ? 'animate-spin' : ''}`} />
@@ -3205,7 +3205,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         {/* Attack Paths Summary Panel */}
         {showAttackPaths && attackPaths.length > 0 && (
           <div className="absolute top-4 right-4 w-72 bg-slate-800/95 rounded-xl border border-red-500/50 shadow-2xl overflow-hidden z-20">
-            <div className="px-4 py-3 border-b border-red-500/30 bg-red-500/10 flex justify-between items-center">
+            <div className="px-4 py-3 border-b border-red-500/30 bg-[#ef444410]0/10 flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-red-400" />
                 <span className="text-red-400 font-bold text-sm">Attack Paths</span>
@@ -3220,17 +3220,17 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             <div className="p-4">
               {/* Stats */}
               <div className="grid grid-cols-3 gap-2 mb-4">
-                <div className="bg-red-500/20 rounded-lg p-2 text-center">
+                <div className="bg-[#ef444410]0/20 rounded-lg p-2 text-center">
                   <div className="text-red-400 text-xl font-bold">{attackPaths.length}</div>
                   <div className="text-[10px] text-slate-400">Total</div>
                 </div>
-                <div className="bg-orange-500/20 rounded-lg p-2 text-center">
+                <div className="bg-[#f9731610]0/20 rounded-lg p-2 text-center">
                   <div className="text-orange-400 text-xl font-bold">
                     {attackPaths.filter(p => p.risk_score >= 15).length}
                   </div>
                   <div className="text-[10px] text-slate-400">Critical</div>
                 </div>
-                <div className="bg-yellow-500/20 rounded-lg p-2 text-center">
+                <div className="bg-[#eab30810]0/20 rounded-lg p-2 text-center">
                   <div className="text-yellow-400 text-xl font-bold">
                     {attackPaths.reduce((sum, p) => sum + p.total_cves, 0)}
                   </div>
@@ -3246,7 +3246,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     key={path.id}
                     className={`p-2.5 rounded-lg cursor-pointer transition-all ${
                       selectedAttackPath === path.id
-                        ? 'bg-red-500/30 ring-1 ring-red-500'
+                        ? 'bg-[#ef444410]0/30 ring-1 ring-red-500'
                         : 'bg-slate-700/50 hover:bg-slate-700'
                     }`}
                     onClick={() => setSelectedAttackPath(selectedAttackPath === path.id ? null : path.id)}
@@ -3256,9 +3256,9 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                         {path.source_type} → {path.target_name}
                       </div>
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        path.risk_score >= 15 ? 'bg-red-500/30 text-red-400' :
-                        path.risk_score >= 10 ? 'bg-orange-500/30 text-orange-400' :
-                        'bg-yellow-500/30 text-yellow-400'
+                        path.risk_score >= 15 ? 'bg-[#ef444410]0/30 text-red-400' :
+                        path.risk_score >= 10 ? 'bg-[#f9731610]0/30 text-orange-400' :
+                        'bg-[#eab30810]0/30 text-yellow-400'
                       }`}>
                         {path.risk_score}
                       </span>
@@ -3291,7 +3291,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                           e.stopPropagation();
                           setShowPathDetails(path.id);
                         }}
-                        className="mt-2 w-full py-1.5 px-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-red-400 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
+                        className="mt-2 w-full py-1.5 px-2 bg-[#ef444410]0/20 hover:bg-[#ef444410]0/30 border border-red-500/30 rounded text-red-400 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
                       >
                         <ExternalLink className="w-3 h-3" />
                         View Crown Jewel Analysis

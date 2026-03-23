@@ -487,27 +487,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   ]
 
   const resourceTypes = [
-    { name: "Compute", count: 8, icon: Server, color: "bg-blue-100 text-blue-600", description: "EC2, Lambda, ECS" },
+    { name: "Compute", count: 8, icon: Server, color: "bg-[#3b82f620] text-[#3b82f6]", description: "EC2, Lambda, ECS" },
     {
       name: "Network",
       count: 23,
       icon: Network,
-      color: "bg-purple-100 text-purple-600",
+      color: "bg-[#8b5cf615] text-[#8b5cf6]",
       description: "VPC, Subnets, SGs",
     },
     {
       name: "Data",
       count: 12,
       icon: Database,
-      color: "bg-green-100 text-green-600",
+      color: "bg-[#22c55e20] text-[#22c55e]",
       description: "RDS, DynamoDB, S3",
     },
-    { name: "Security", count: 16, icon: Shield, color: "bg-red-100 text-red-600", description: "IAM, KMS, Secrets" },
+    { name: "Security", count: 16, icon: Shield, color: "bg-[#ef444420] text-[#ef4444]", description: "IAM, KMS, Secrets" },
     {
       name: "Messaging",
       count: 4,
       icon: MessageSquare,
-      color: "bg-orange-100 text-orange-600",
+      color: "bg-[#f9731620] text-orange-600",
       description: "SQS, SNS, EventBridge",
     },
   ]
@@ -530,7 +530,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4">
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           {" "}
           {/* Added max-w and mx-auto for centering */}
@@ -541,25 +541,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="Go back"
               >
-                <ArrowLeft className="w-5 h-5 text-gray-600" />
+                <ArrowLeft className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
               </button>
               <div>
                 <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold text-gray-900">{systemName}</h1>
-                  <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">PRODUCTION</span>{" "}
+                  <h1 className="text-2xl font-bold text-[var(--foreground,#111827)]">{systemName}</h1>
+                  <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">PRODUCTION</span>{" "}
                   {/* Simplified span */}
-                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                  <span className="px-2 py-1 bg-[#3b82f620] text-[#3b82f6] text-xs font-medium rounded">
                     MISSION CRITICAL
                   </span>{" "}
                   {/* Simplified span */}
                   {severityCounts.critical > 0 && ( // Conditionally render critical alert
-                    <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded flex items-center gap-1">
+                    <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       {severityCounts.critical} CRITICAL
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
                   AWS eu-west-1 • Production environment • Last scan: 2 min ago
                 </p>{" "}
                 {/* Hardcoded for now */}
@@ -575,7 +575,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 Tag All Resources
               </button>
 
-              <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+              <button className="flex items-center gap-2 px-4 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-[var(--foreground,#374151)] hover:bg-gray-50 transition-colors">
                 <Download className="w-4 h-4" />
                 Generate Report
               </button>
@@ -586,7 +586,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
           </div>
           {/* Tabs */}
-          <div className="flex items-center gap-1 mt-6 border-b border-gray-200 -mb-px">
+          <div className="flex items-center gap-1 mt-6 border-b border-[var(--border,#e5e7eb)] -mb-px">
             {tabs.map((tab) => {
               const IconComponent = tab.icon
               return (
@@ -596,7 +596,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                     activeTab === tab.id
                       ? "border-[#2D51DA] text-[#2D51DA]"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
+                      : "border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
                   }`}
                 >
                   <IconComponent className="w-4 h-4" />
@@ -615,8 +615,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             {/* Stats Row - Updated with real severity counts */}
             <div className="grid grid-cols-5 gap-4 mb-6">
               {/* System Health */}
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-4">System Health</p>
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide mb-4">System Health</p>
                 <div className="flex items-center justify-center">
                   <div className="relative w-24 h-24">
                     <svg className="w-24 h-24 transform -rotate-90">
@@ -634,32 +634,32 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-2xl font-bold text-gray-900">{healthScore}</span>
-                      <span className="text-xs text-gray-500">Score</span>
+                      <span className="text-2xl font-bold text-[var(--foreground,#111827)]">{healthScore}</span>
+                      <span className="text-xs text-[var(--muted-foreground,#6b7280)]">Score</span>
                     </div>
                   </div>
                 </div>
                 <div className="text-center mt-3">
                   <span
-                    className={`text-sm font-medium ${healthScore >= 80 ? "text-green-600" : healthScore >= 60 ? "text-yellow-600" : "text-red-600"}`}
+                    className={`text-sm font-medium ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-yellow-600" : "text-[#ef4444]"}`}
                   >
                     {healthScore >= 80 ? "HEALTHY" : healthScore >= 60 ? "WARNING" : "CRITICAL"}
                   </span>
-                  <p className="text-xs text-gray-400">{totalChecks} checks</p>{" "}
+                  <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">{totalChecks} checks</p>{" "}
                   {/* totalChecks was used in original code */}
                 </div>
               </div>
 
               {/* Critical */}
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <p className="text-xs font-medium text-red-500 uppercase tracking-wide mb-2">Critical</p>
-                <p className="text-4xl font-bold text-red-500">{severityCounts.critical}</p>
-                <p className="text-sm text-gray-500 mt-1">Immediate action required</p>
-                <p className="text-xs text-green-600 mt-1">No critical issues</p> {/* Placeholder text */}
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <p className="text-xs font-medium text-[#ef4444] uppercase tracking-wide mb-2">Critical</p>
+                <p className="text-4xl font-bold text-[#ef4444]">{severityCounts.critical}</p>
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Immediate action required</p>
+                <p className="text-xs text-[#22c55e] mt-1">No critical issues</p> {/* Placeholder text */}
               </div>
 
               {/* High */}
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                 <p className="text-xs font-medium text-orange-500 uppercase tracking-wide mb-2">High</p>
                 {/* Make HIGH card clickable */}
                 <button
@@ -669,25 +669,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 >
                   {severityCounts.high}
                 </button>
-                <p className="text-sm text-gray-500 mt-1">Fix within 24 hours</p>
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Fix within 24 hours</p>
                 {/* Update placeholder text */}
                 <p className="text-xs text-orange-500 mt-2">Click to view details</p>
               </div>
 
               {/* Medium */}
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                 <p className="text-xs font-medium text-yellow-500 uppercase tracking-wide mb-2">Medium</p>
                 <p className="text-4xl font-bold text-yellow-500">{severityCounts.medium}</p>
-                <p className="text-sm text-gray-500 mt-1">Fix within 7 days</p>
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">Fix within 7 days</p>
                 <p className="text-xs text-yellow-500 mt-2">-1 from last scan</p> {/* Placeholder text */}
               </div>
 
               {/* Passing */}
-              <div className="bg-white rounded-xl p-6 border border-gray-200">
-                <p className="text-xs font-medium text-green-500 uppercase tracking-wide mb-2">Passing</p>
-                <p className="text-4xl font-bold text-green-500">{severityCounts.passing}</p>
-                <p className="text-sm text-gray-500 mt-1">All checks passed</p>
-                <p className="text-xs text-green-500 mt-2">+5 from last scan</p> {/* Placeholder text */}
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <p className="text-xs font-medium text-[#22c55e] uppercase tracking-wide mb-2">Passing</p>
+                <p className="text-4xl font-bold text-[#22c55e]">{severityCounts.passing}</p>
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">All checks passed</p>
+                <p className="text-xs text-[#22c55e] mt-2">+5 from last scan</p> {/* Placeholder text */}
               </div>
             </div>
             {/* Two Column Layout */}
@@ -695,16 +695,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               {/* Left Column - System Info */}
               <div className="space-y-6">
                 {/* GAP Analysis Card - Now uses live data */}
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-purple-600" />
-                      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">GAP Analysis</h3>
+                      <Zap className="w-4 h-4 text-[#8b5cf6]" />
+                      <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">GAP Analysis</h3>
                     </div>
                     {gapError ? (
-                      <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">Error</span>
+                      <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded-full">Error</span>
                     ) : (
-                      <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+                      <span className="px-2 py-1 bg-[#8b5cf615] text-[#7c3aed] text-xs font-medium rounded-full">
                         {loadingGap ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
                       </span>
                     )}
@@ -716,11 +716,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     </div>
                   ) : gapError ? (
                     <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-                        <AlertTriangle className="w-6 h-6 text-red-500" />
+                      <div className="w-12 h-12 bg-[#ef444420] rounded-full flex items-center justify-center mb-3">
+                        <AlertTriangle className="w-6 h-6 text-[#ef4444]" />
                       </div>
-                      <p className="text-sm font-medium text-gray-900 mb-1">Unable to load GAP Analysis</p>
-                      <p className="text-xs text-gray-500 mb-3">{gapError}</p>
+                      <p className="text-sm font-medium text-[var(--foreground,#111827)] mb-1">Unable to load GAP Analysis</p>
+                      <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-3">{gapError}</p>
                       <button
                         variant="outline"
                         size="sm"
@@ -728,7 +728,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           setLoadingGap(true)
                           fetchGapAnalysis()
                         }}
-                        className="flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        className="flex items-center gap-1 px-3 py-1 border border-[var(--border,#d1d5db)] rounded-lg text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50"
                       >
                         <RefreshCw className="w-3 h-3 mr-1" />
                         Retry
@@ -739,8 +739,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       {/* ALLOWED Bar */}
                       <div className="mb-4">
                         <div className="flex justify-between mb-1">
-                          <span className="text-sm text-gray-500">ALLOWED (IAM Policies)</span>
-                          <span className="text-sm font-medium text-gray-600">{gapAnalysis.allowed} permissions</span>
+                          <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ALLOWED (IAM Policies)</span>
+                          <span className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">{gapAnalysis.allowed} permissions</span>
                         </div>
                         <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
                           <div className="h-full bg-gray-400 rounded-full" style={{ width: "100%" }}></div>
@@ -766,14 +766,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       </div>
 
                       {/* GAP Highlight */}
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-3">
                         {" "}
                         {/* Changed bg and border color */}
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-red-700">GAP (Attack Surface)</span>
-                          <span className="text-sm font-bold text-red-700">{gapAnalysis.gap} unused permissions</span>
+                          <span className="text-sm font-medium text-[#ef4444]">GAP (Attack Surface)</span>
+                          <span className="text-sm font-bold text-[#ef4444]">{gapAnalysis.gap} unused permissions</span>
                         </div>
-                        <p className="text-xs text-red-600 mt-1">
+                        <p className="text-xs text-[#ef4444] mt-1">
                           {gapAnalysis.gapPercent}% reduction possible by removing unused permissions
                         </p>
                       </div>
@@ -781,42 +781,42 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   )}
                 </div>
 
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                   <div className="flex items-center gap-2 mb-4">
-                    <Server className="w-4 h-4 text-gray-500" />
-                    <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">System Info</h3>
+                    <Server className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+                    <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">System Info</h3>
                   </div>
                   <div className="space-y-3">
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Account</span>
-                      <span className="text-sm font-medium text-gray-900">745783559495</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Account</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">745783559495</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Region</span>
-                      <span className="text-sm font-medium text-gray-900">eu-west-1</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Region</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">eu-west-1</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Environment</span>
-                      <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Environment</span>
+                      <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">
                         Production
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Provider</span>
-                      <span className="text-sm font-medium text-gray-900">AWS</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Provider</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">AWS</span>
                     </div>
-                    <div className="border-t border-gray-100 pt-3 mt-3">
+                    <div className="border-t border-[var(--border,#f3f4f6)] pt-3 mt-3">
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-500">Graph Nodes</span>
-                        <span className="text-sm font-medium text-gray-900">60</span>
+                        <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Graph Nodes</span>
+                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">60</span>
                       </div>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Relationships</span>
-                      <span className="text-sm font-medium text-gray-900">73</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Relationships</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">73</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">ACTUAL Behavior</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ACTUAL Behavior</span>
                       <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
                         {gapAnalysis.actual || 15}
                       </span>
@@ -824,10 +824,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
                 </div>
 
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                   <div className="flex items-center gap-2 mb-4">
-                    <Database className="w-4 h-4 text-gray-500" />
-                    <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Resource Types</h3>
+                    <Database className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+                    <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">Resource Types</h3>
                   </div>
                   <div className="space-y-3">
                     {resourceTypes.map((resource) => (
@@ -837,30 +837,30 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             <resource.icon className="w-4 h-4" />
                           </div>
                           <div>
-                            <span className="text-sm text-gray-700">{resource.name}</span>
-                            <p className="text-xs text-gray-400">{resource.description}</p>
+                            <span className="text-sm text-[var(--foreground,#374151)]">{resource.name}</span>
+                            <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">{resource.description}</p>
                           </div>
                         </div>
-                        <span className="text-sm font-medium text-gray-900">{resource.count}</span>
+                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">{resource.count}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {/* Auto-Tag Service Card - Now uses live data */}
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                      <Activity className="w-4 h-4 text-gray-500" />
-                      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Auto-Tag Service</h3>
+                      <Activity className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+                      <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">Auto-Tag Service</h3>
                     </div>
                     <span
                       className={`px-2 py-1 text-xs font-medium rounded-full ${
                         autoTagStatus.status === "running"
-                          ? "bg-green-100 text-green-700"
+                          ? "bg-[#22c55e20] text-[#22c55e]"
                           : autoTagStatus.status === "error"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-gray-100 text-gray-700"
+                            ? "bg-[#ef444420] text-[#ef4444]"
+                            : "bg-gray-100 text-[var(--foreground,#374151)]"
                       }`}
                     >
                       {loadingAutoTag
@@ -874,47 +874,47 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
                   <div className="space-y-3">
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Total Cycles</span>
-                      <span className="text-sm font-medium text-gray-900">{autoTagStatus.totalCycles}</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Total Cycles</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">{autoTagStatus.totalCycles}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">ACTUAL Traffic Captured</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ACTUAL Traffic Captured</span>
                       <span className="text-sm font-bold" style={{ color: "#8B5CF6" }}>
                         {autoTagStatus.actualTrafficCaptured}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">Last Sync</span>
-                      <span className="text-sm font-medium text-gray-900">{autoTagStatus.lastSync}</span>
+                      <span className="text-sm text-[var(--muted-foreground,#6b7280)]">Last Sync</span>
+                      <span className="text-sm font-medium text-[var(--foreground,#111827)]">{autoTagStatus.lastSync}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Compliance Status Card */}
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                  <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide mb-4">
                     Compliance Status
                   </h3>
                   <div className="space-y-4">
                     <div>
                       <div className="flex justify-between mb-1">
-                        <span className="text-sm text-gray-700">PCI-DSS</span>
-                        <span className="text-sm font-medium text-gray-900">93%</span>
+                        <span className="text-sm text-[var(--foreground,#374151)]">PCI-DSS</span>
+                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">93%</span>
                       </div>
                       <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full" style={{ width: "93%" }}></div>
+                        <div className="h-full bg-[#22c55e10]0 rounded-full" style={{ width: "93%" }}></div>
                       </div>
-                      <button className="text-xs text-blue-600 hover:underline mt-1">View gaps & remediate →</button>
+                      <button className="text-xs text-[#3b82f6] hover:underline mt-1">View gaps & remediate →</button>
                     </div>
                     <div>
                       <div className="flex justify-between mb-1">
-                        <span className="text-sm text-gray-700">SOC 2</span>
-                        <span className="text-sm font-medium text-gray-900">89%</span>
+                        <span className="text-sm text-[var(--foreground,#374151)]">SOC 2</span>
+                        <span className="text-sm font-medium text-[var(--foreground,#111827)]">89%</span>
                       </div>
                       <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-yellow-500 rounded-full" style={{ width: "89%" }}></div>
+                        <div className="h-full bg-[#eab30810]0 rounded-full" style={{ width: "89%" }}></div>
                       </div>
-                      <button className="text-xs text-blue-600 hover:underline mt-1">View gaps & remediate →</button>
+                      <button className="text-xs text-[#3b82f6] hover:underline mt-1">View gaps & remediate →</button>
                     </div>
                   </div>
                 </div>
@@ -922,21 +922,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
               {/* Right Column - Critical Issues */}
               <div className="col-span-2">
-                <div className="bg-white rounded-xl border border-gray-200">
-                  <div className="p-6 border-b border-gray-200">
+                <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)]">
+                  <div className="p-6 border-b border-[var(--border,#e5e7eb)]">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-red-500" />
-                        <h3 className="text-lg font-semibold text-gray-900">
+                        <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">
                           {severityCounts.critical > 0 ? "CRITICAL" : "HIGH"} ISSUES ({severityCounts.critical > 0 ? severityCounts.critical : severityCounts.high})
                         </h3>
                       </div>
-                      <label className="flex items-center gap-2 text-sm text-gray-600">
+                      <label className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
                         <input
                           type="checkbox"
                           checked={issues.length > 0 && issues.every((i) => i.selected)}
                           onChange={selectAllIssues}
-                          className="rounded border-gray-300"
+                          className="rounded border-[var(--border,#d1d5db)]"
                         />
                         Select All
                       </label>
@@ -946,11 +946,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <div className="p-6">
                     {issues.length === 0 && severityCounts.high === 0 && severityCounts.critical === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <CheckCircle className="w-8 h-8 text-green-500" />
+                        <div className="w-16 h-16 bg-[#22c55e20] rounded-full flex items-center justify-center mx-auto mb-4">
+                          <CheckCircle className="w-8 h-8 text-[#22c55e]" />
                         </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">No Security Issues</h4>
-                        <p className="text-sm text-gray-500 max-w-md">
+                        <h4 className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">No Security Issues</h4>
+                        <p className="text-sm text-[var(--muted-foreground,#6b7280)] max-w-md">
                           Great news! This system has no security issues. Run a security scan to check for new
                           vulnerabilities.
                         </p>
@@ -974,13 +974,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       </div>
                     ) : issues.length === 0 && (severityCounts.high > 0 || unusedActionsList.length > 0) ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <div className="w-16 h-16 bg-[#f9731620] rounded-full flex items-center justify-center mx-auto mb-4">
                           <AlertTriangle className="w-8 h-8 text-orange-500" />
                         </div>
-                        <h4 className="text-lg font-medium text-gray-900 mb-2">
+                        <h4 className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">
                           {severityCounts.high} High Severity Issues Found
                         </h4>
-                        <p className="text-sm text-gray-500 max-w-md mb-4">
+                        <p className="text-sm text-[var(--muted-foreground,#6b7280)] max-w-md mb-4">
                           {unusedActionsList.length > 0 
                             ? `${unusedActionsList.length} unused IAM permissions detected. Click the HIGH card above to view details.`
                             : `${severityCounts.high} high severity issues detected. Click the HIGH card above to view details.`}
@@ -996,28 +996,28 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     ) : (
                       <div className="space-y-4">
                         {issues.map((issue) => (
-                          <div key={issue.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                          <div key={issue.id} className="border border-[var(--border,#e5e7eb)] rounded-lg overflow-hidden">
                             <div className="p-4">
                               <div className="flex items-start gap-3">
                                 <input
                                   type="checkbox"
                                   checked={issue.selected}
                                   onChange={() => toggleIssueSelected(issue.id)}
-                                  className="mt-1 rounded border-gray-300"
+                                  className="mt-1 rounded border-[var(--border,#d1d5db)]"
                                 />
                                 <div className="flex-1">
-                                  <h4 className="font-medium text-gray-900">{issue.title}</h4>
-                                  <p className="text-sm text-red-600 mt-1">
+                                  <h4 className="font-medium text-[var(--foreground,#111827)]">{issue.title}</h4>
+                                  <p className="text-sm text-[#ef4444] mt-1">
                                     <span className="font-medium">Impact:</span> {issue.impact}
                                   </p>
-                                  <p className="text-sm text-gray-500">
+                                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
                                     <span className="font-medium">Affected:</span> {issue.affected}
                                   </p>
                                   <div className="flex items-center gap-4 mt-2">
-                                    <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                                    <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs rounded-full">
                                       ✓ SAFE TO FIX • {issue.safeToFix}%
                                     </span>
-                                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                                    <span className="px-2 py-1 bg-gray-100 text-[var(--muted-foreground,#4b5563)] text-xs rounded-full">
                                       ⏱ {issue.fixTime}
                                     </span>
                                   </div>
@@ -1025,8 +1025,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                               </div>
 
                               {issue.expanded && (
-                                <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-100">
-                                  <p className="text-xs font-semibold text-purple-700 uppercase mb-1">
+                                <div className="mt-4 p-3 bg-[#8b5cf610] rounded-lg border border-purple-100">
+                                  <p className="text-xs font-semibold text-[#7c3aed] uppercase mb-1">
                                     Temporal Analysis
                                   </p>
                                   <p className="text-sm text-purple-800">{issue.temporalAnalysis}</p>
@@ -1035,14 +1035,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                               <button
                                 onClick={() => toggleIssueExpanded(issue.id)}
-                                className="mt-3 text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                                className="mt-3 text-sm text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)] flex items-center gap-1"
                               >
                                 {issue.expanded ? "Hide" : "View"} Current vs Desired State
                                 <span className={`transition-transform ${issue.expanded ? "rotate-180" : ""}`}>▼</span>
                               </button>
                             </div>
 
-                            <div className="flex border-t border-gray-200">
+                            <div className="flex border-t border-[var(--border,#e5e7eb)]">
                               <button 
                                 onClick={() => {
                                   setSelectedPermissionForSimulation(issue.title)
@@ -1053,10 +1053,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 <Play className="w-4 h-4" />
                                 SIMULATE FIX
                               </button>
-                              <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
+                              <button className="flex-1 py-3 text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50 border-l border-[var(--border,#e5e7eb)] flex items-center justify-center gap-2">
                                 ✨ AUTO-FIX
                               </button>
-                              <button className="flex-1 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 border-l border-gray-200 flex items-center justify-center gap-2">
+                              <button className="flex-1 py-3 text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50 border-l border-[var(--border,#e5e7eb)] flex items-center justify-center gap-2">
                                 👥 REQUEST
                               </button>
                             </div>
@@ -1072,11 +1072,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             {/* Security Findings Section */}
             {activeTab === "overview" && (
               <div className="mt-6">
-                <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                       <Shield className="w-5 h-5 text-blue-500" />
-                      <h3 className="text-lg font-semibold text-gray-900">Security Findings</h3>
+                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Security Findings</h3>
                     </div>
                     {loadingFindings && (
                       <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
@@ -1085,7 +1085,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   {securityFindings.length > 0 ? (
                     <SecurityFindingsList findings={securityFindings} />
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
+                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
                       <p>No security findings found for this system.</p>
                     </div>
                   )}
@@ -1123,12 +1123,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-12 text-center">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-3xl">📸</span>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Snapshots & Recovery</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
+            <h3 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-2">Snapshots & Recovery</h3>
+            <p className="text-[var(--muted-foreground,#6b7280)] max-w-md mx-auto">
               View and manage system snapshots, backup schedules, and recovery points. Coming soon.
             </p>
           </div>
@@ -1137,12 +1137,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "config-history" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-12 text-center">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-3xl">📜</span>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Configuration History</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
+            <h3 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-2">Configuration History</h3>
+            <p className="text-[var(--muted-foreground,#6b7280)] max-w-md mx-auto">
               Track configuration changes, drift detection, and compliance history. Coming soon.
             </p>
           </div>
@@ -1151,12 +1151,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "disaster-recovery" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-12 text-center">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-3xl">🔄</span>
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Disaster Recovery</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
+            <h3 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-2">Disaster Recovery</h3>
+            <p className="text-[var(--muted-foreground,#6b7280)] max-w-md mx-auto">
               Configure disaster recovery plans, failover settings, and RTO/RPO targets. Coming soon.
             </p>
           </div>
@@ -1167,7 +1167,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       <div className="mt-6">
         <button
           onClick={() => setShowTagModal(true)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
         >
           <Tag className="w-5 h-5" />
           Tag All Resources in {systemName}
@@ -1178,7 +1178,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {showTagModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-green-600 to-green-700 px-6 py-4">
+            <div className="bg-white px-6 py-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   <Tag className="w-5 h-5" />
@@ -1198,9 +1198,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
 
             <div className="p-6">
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h3 className="font-semibold text-blue-800 mb-2">How it works:</h3>
-                <ol className="text-sm text-blue-700 space-y-1">
+              <div className="mb-6 p-4 bg-[#3b82f610] rounded-lg border border-[#3b82f640]">
+                <h3 className="font-semibold text-[#3b82f6] mb-2">How it works:</h3>
+                <ol className="text-sm text-[#3b82f6] space-y-1">
                   <li>
                     1. Reads existing tags from your <strong>seed resource</strong>
                   </li>
@@ -1215,22 +1215,22 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
               <div className="space-y-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">SystemName</label>
+                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">SystemName</label>
                   <input
                     type="text"
                     value={systemName}
                     disabled
-                    className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700"
+                    className="w-full px-3 py-2 bg-gray-100 border border-[var(--border,#d1d5db)] rounded-lg text-[var(--foreground,#374151)]"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Always applied automatically</p>
+                  <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">Always applied automatically</p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Environment</label>
+                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Environment</label>
                   <select
                     value={tagForm.environment}
                     onChange={(e) => setTagForm({ ...tagForm, environment: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   >
                     {ENVIRONMENT_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -1241,11 +1241,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Criticality</label>
+                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-1">Criticality</label>
                   <select
                     value={tagForm.criticality}
                     onChange={(e) => setTagForm({ ...tagForm, criticality: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   >
                     {CRITICALITY_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -1255,21 +1255,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </select>
                 </div>
 
-                <div className="border-t border-gray-200 pt-4 mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Custom Tags (Optional)</label>
+                <div className="border-t border-[var(--border,#e5e7eb)] pt-4 mt-4">
+                  <label className="block text-sm font-medium text-[var(--foreground,#374151)] mb-2">Custom Tags (Optional)</label>
 
                   {customTags.length > 0 && (
                     <div className="space-y-2 mb-3">
                       {customTags.map((tag, index) => (
                         <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
                           <span className="flex-1 text-sm">
-                            <span className="font-medium text-gray-700">{tag.key}</span>
-                            <span className="text-gray-400 mx-1">=</span>
-                            <span className="text-gray-600">{tag.value}</span>
+                            <span className="font-medium text-[var(--foreground,#374151)]">{tag.key}</span>
+                            <span className="text-[var(--muted-foreground,#9ca3af)] mx-1">=</span>
+                            <span className="text-[var(--muted-foreground,#4b5563)]">{tag.value}</span>
                           </span>
                           <button
                             onClick={() => removeCustomTag(index)}
-                            className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors"
+                            className="p-1 text-[#ef4444] hover:bg-[#ef444420] rounded transition-colors"
                           >
                             ×
                           </button>
@@ -1280,51 +1280,51 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                   <div className="flex gap-2 items-end">
                     <div className="flex-1">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Key</label>
+                      <label className="block text-xs font-medium text-[var(--muted-foreground,#6b7280)] mb-1">Key</label>
                       <input
                         type="text"
                         placeholder="e.g., Owner"
                         value={newTagKey}
                         onChange={(e) => setNewTagKey(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       />
                     </div>
                     <div className="flex-1">
-                      <label className="block text-xs font-medium text-gray-500 mb-1">Value</label>
+                      <label className="block text-xs font-medium text-[var(--muted-foreground,#6b7280)] mb-1">Value</label>
                       <input
                         type="text"
                         placeholder="e.g., John Smith"
                         value={newTagValue}
                         onChange={(e) => setNewTagValue(e.target.value)}
                         onKeyPress={(e) => e.key === "Enter" && addCustomTag()}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        className="w-full px-3 py-2 border border-[var(--border,#d1d5db)] rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       />
                     </div>
                     <button
                       onClick={addCustomTag}
                       disabled={!newTagKey.trim() || !newTagValue.trim()}
-                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                      className="px-4 py-2 bg-gray-200 text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                     >
                       + Add
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">Add any custom key-value tags you need</p>
+                  <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">Add any custom key-value tags you need</p>
                 </div>
               </div>
 
               {tagResults && (
                 <div
                   className={`p-4 rounded-lg mb-6 ${
-                    tagResults.success ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"
+                    tagResults.success ? "bg-[#22c55e10] border border-[#22c55e40]" : "bg-[#ef444410] border border-[#ef444440]"
                   }`}
                 >
                   {tagResults.success ? (
                     <>
-                      <p className="font-semibold text-green-800 flex items-center gap-2">
+                      <p className="font-semibold text-[#22c55e] flex items-center gap-2">
                         <CheckCircle className="w-5 h-5" />
                         Tagging Complete!
                       </p>
-                      <div className="mt-2 text-sm text-green-700 space-y-1">
+                      <div className="mt-2 text-sm text-[#22c55e] space-y-1">
                         <p>
                           <strong>Tagged:</strong> {tagResults.tagged} / {tagResults.total}
                         </p>
@@ -1334,7 +1334,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           </p>
                         )}
                         {tagResults.tags_applied && (
-                          <div className="mt-2 pt-2 border-t border-green-200">
+                          <div className="mt-2 pt-2 border-t border-[#22c55e40]">
                             <p className="font-medium">Tags applied:</p>
                             {Object.entries(tagResults.tags_applied).map(([k, v]) => (
                               <p key={k} className="ml-2">
@@ -1346,7 +1346,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       </div>
                     </>
                   ) : (
-                    <p className="text-red-800">
+                    <p className="text-[#ef4444]">
                       <span className="font-semibold">Error:</span> {tagResults.error}
                     </p>
                   )}
@@ -1359,7 +1359,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     setShowTagModal(false)
                     setTagResults(null)
                   }}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+                  className="flex-1 px-4 py-2 bg-gray-200 text-[var(--foreground,#374151)] rounded-lg font-medium hover:bg-gray-300 transition-colors"
                 >
                   {tagResults?.success ? "Close" : "Cancel"}
                 </button>
@@ -1392,7 +1392,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {showHighFindingsModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 max-h-[85vh] overflow-hidden">
-            <div className="bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4">
+            <div className="bg-white px-6 py-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5" />
@@ -1408,7 +1408,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             </div>
 
             <div className="p-6 overflow-y-auto max-h-[65vh]">
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-[var(--muted-foreground,#4b5563)] mb-4">
                 These permissions are allowed but never used. Click on each to see details and take action.
               </p>
 
@@ -1430,19 +1430,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           : "Action"
 
                   return (
-                    <div key={index} className="border border-red-200 rounded-lg overflow-hidden">
+                    <div key={index} className="border border-[#ef444440] rounded-lg overflow-hidden">
                       <button
                         onClick={() => setExpandedPermission(isExpanded ? null : permission)}
-                        className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors"
+                        className="w-full flex items-center justify-between p-3 bg-[#ef444410] hover:bg-[#ef444420] transition-colors"
                       >
                         <div className="flex items-center gap-3">
-                          <EyeOff className="w-4 h-4 text-red-500" />
-                          <code className="text-sm font-mono text-gray-900">{permission}</code>
+                          <EyeOff className="w-4 h-4 text-[#ef4444]" />
+                          <code className="text-sm font-mono text-[var(--foreground,#111827)]">{permission}</code>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-red-600 font-medium px-2 py-1 bg-red-100 rounded">UNUSED</span>
+                          <span className="text-xs text-[#ef4444] font-medium px-2 py-1 bg-[#ef444420] rounded">UNUSED</span>
                           <ChevronDown
-                            className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            className={`w-4 h-4 text-[var(--muted-foreground,#6b7280)] transition-transform ${isExpanded ? "rotate-180" : ""}`}
                           />
                         </div>
                       </button>
@@ -1450,9 +1450,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       {isExpanded && (
                         <div className="p-4 bg-white border-t border-red-100 space-y-4">
                           {/* WHAT THIS PERMISSION DOES */}
-                          <div className="bg-blue-50 rounded-lg p-4">
-                            <h4 className="text-sm font-semibold text-blue-800 mb-2">What This Permission Does</h4>
-                            <p className="text-gray-700">
+                          <div className="bg-[#3b82f610] rounded-lg p-4">
+                            <h4 className="text-sm font-semibold text-[#3b82f6] mb-2">What This Permission Does</h4>
+                            <p className="text-[var(--foreground,#374151)]">
                               {service === "cloudtrail" &&
                                 action?.toLowerCase().includes("lookup") &&
                                 "Allows reading CloudTrail event history - who did what in your AWS account"}
@@ -1480,8 +1480,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                           {/* WHY IT'S ASSIGNED */}
                           <div className="bg-gray-50 rounded-lg p-4">
-                            <h4 className="text-sm font-semibold text-gray-700 mb-2">Why It's Assigned</h4>
-                            <p className="text-gray-600">
+                            <h4 className="text-sm font-semibold text-[var(--foreground,#374151)] mb-2">Why It's Assigned</h4>
+                            <p className="text-[var(--muted-foreground,#4b5563)]">
                               Part of the{" "}
                               <code className="bg-gray-200 px-1.5 py-0.5 rounded text-sm">
                                 SafeRemediate-Lambda-Remediation-Role
@@ -1492,12 +1492,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           </div>
 
                           {/* THE PROBLEM */}
-                          <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
-                            <h4 className="text-sm font-semibold text-amber-800 mb-2 flex items-center gap-2">
+                          <div className="bg-[#f9731610] rounded-lg p-4 border border-[#f9731640]">
+                            <h4 className="text-sm font-semibold text-[#f97316] mb-2 flex items-center gap-2">
                               <AlertTriangle className="w-4 h-4" />
                               The Problem
                             </h4>
-                            <p className="text-gray-700">
+                            <p className="text-[var(--foreground,#374151)]">
                               This Lambda role has permission to{" "}
                               <strong>
                                 {action
@@ -1505,7 +1505,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                   .replace(/([A-Z])/g, " $1")
                                   .trim()}
                               </strong>
-                              , but it <strong className="text-red-600">NEVER</strong> actually uses it.
+                              , but it <strong className="text-[#ef4444]">NEVER</strong> actually uses it.
                               <br />
                               <br />
                               The role was given more permissions than it needs - violating the principle of least
@@ -1514,15 +1514,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           </div>
 
                           {/* REAL RISK */}
-                          <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-                            <h4 className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-2">
+                          <div className="bg-[#ef444410] rounded-lg p-4 border border-[#ef444440]">
+                            <h4 className="text-sm font-semibold text-[#ef4444] mb-2 flex items-center gap-2">
                               <ShieldAlert className="w-4 h-4" />
                               Real Risk
                             </h4>
-                            <p className="text-gray-700 mb-3">
+                            <p className="text-[var(--foreground,#374151)] mb-3">
                               If an attacker compromises this Lambda function, they could:
                             </p>
-                            <ul className="text-gray-700 space-y-1.5 ml-4">
+                            <ul className="text-[var(--foreground,#374151)] space-y-1.5 ml-4">
                               {service === "cloudtrail" && (
                                 <>
                                   <li>• View all API activity in your account</li>
@@ -1559,24 +1559,24 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 </>
                               )}
                             </ul>
-                            <p className="text-gray-600 mt-3 italic text-sm">
+                            <p className="text-[var(--muted-foreground,#4b5563)] mt-3 italic text-sm">
                               Since the Lambda doesn't need this permission - why give attackers the option?
                             </p>
                           </div>
 
                           {/* IMPACT IF REMOVED */}
-                          <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                            <h4 className="text-sm font-semibold text-green-700 mb-2 flex items-center gap-2">
+                          <div className="bg-[#22c55e10] rounded-lg p-4 border border-[#22c55e40]">
+                            <h4 className="text-sm font-semibold text-[#22c55e] mb-2 flex items-center gap-2">
                               <CheckCircle className="w-4 h-4" />
                               Impact If Removed
                             </h4>
-                            <p className="text-gray-700">
-                              <strong className="text-green-700">None.</strong> We observed 7 days of traffic - this
+                            <p className="text-[var(--foreground,#374151)]">
+                              <strong className="text-[#22c55e]">None.</strong> We observed 7 days of traffic - this
                               permission was never used.
                               <br />
                               Removing it won't break anything.
                             </p>
-                            <div className="mt-3 flex items-center gap-4 text-sm text-gray-500">
+                            <div className="mt-3 flex items-center gap-4 text-sm text-[var(--muted-foreground,#6b7280)]">
                               <span className="flex items-center gap-1">
                                 <Eye className="w-3 h-3" />
                                 Observed: 7 days
@@ -1585,7 +1585,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 <Clock className="w-3 h-3" />
                                 Last used: Never
                               </span>
-                              <span className="flex items-center gap-1 text-green-600 font-medium">99% confidence</span>
+                              <span className="flex items-center gap-1 text-[#22c55e] font-medium">99% confidence</span>
                             </div>
                           </div>
 
@@ -1618,7 +1618,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 </>
                               )}
                             </button>
-                            <button className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm flex items-center justify-center gap-2">
+                            <button className="px-4 py-3 bg-gray-100 text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm flex items-center justify-center gap-2">
                               <ExternalLink className="w-4 h-4" />
                               View Lambda Function
                             </button>
@@ -1631,18 +1631,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
 
               {unusedActionsList.length === 0 && (
-                <div className="text-center py-8 text-gray-500">No unused permissions found</div>
+                <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">No unused permissions found</div>
               )}
             </div>
 
-            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex justify-between items-center">
-              <span className="text-sm text-gray-600">
+            <div className="border-t border-[var(--border,#e5e7eb)] px-6 py-4 bg-gray-50 flex justify-between items-center">
+              <span className="text-sm text-[var(--muted-foreground,#4b5563)]">
                 {unusedActionsList.length} permissions can be safely removed
               </span>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowHighFindingsModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="px-4 py-2 text-[var(--foreground,#374151)] bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   Close
                 </button>

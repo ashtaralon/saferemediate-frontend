@@ -234,7 +234,7 @@ export default function CloudGraph({ systemName = 'alon-prod' }: CloudGraphProps
             </button>
             <button 
               onClick={handleRefresh}
-              className={`p-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white ${loading ? 'animate-spin' : ''}`}
+              className={`p-2 rounded-lg bg-[#3b82f610]0 hover:bg-blue-600 text-white ${loading ? 'animate-spin' : ''}`}
             >
               <RefreshCw className="w-5 h-5" />
             </button>
@@ -541,9 +541,9 @@ export default function CloudGraph({ systemName = 'alon-prod' }: CloudGraphProps
                 <h4 className="text-sm font-semibold text-slate-700 mb-2">Active Issues</h4>
                 <div className="space-y-2">
                   {nodeDetails[selectedNode].issues.map((issue: string, idx: number) => (
-                    <div key={idx} className="flex items-start gap-2 p-2 bg-red-50 rounded-lg border border-red-100">
-                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-sm text-red-700">{issue}</span>
+                    <div key={idx} className="flex items-start gap-2 p-2 bg-[#ef444410] rounded-lg border border-red-100">
+                      <AlertTriangle className="w-4 h-4 text-[#ef4444] flex-shrink-0 mt-0.5" />
+                      <span className="text-sm text-[#ef4444]">{issue}</span>
                     </div>
                   ))}
                 </div>
@@ -552,7 +552,7 @@ export default function CloudGraph({ systemName = 'alon-prod' }: CloudGraphProps
 
             {/* Actions */}
             <div className="mt-6 pt-4 border-t border-slate-100">
-              <button className="w-full py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm">
+              <button className="w-full py-2 px-4 bg-[#3b82f610]0 hover:bg-blue-600 text-white rounded-lg font-medium text-sm">
                 View Details
               </button>
             </div>
@@ -596,27 +596,27 @@ export default function CloudGraph({ systemName = 'alon-prod' }: CloudGraphProps
         <h3 className="text-sm font-semibold text-slate-700 mb-4">Legend</h3>
         <div className="flex flex-wrap gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded border-2 border-green-500 bg-green-50" />
+            <div className="w-4 h-4 rounded border-2 border-green-500 bg-[#22c55e10]" />
             <span className="text-sm text-slate-600">Public Subnet</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded border-2 border-yellow-500 bg-yellow-50" />
+            <div className="w-4 h-4 rounded border-2 border-yellow-500 bg-[#eab30810]" />
             <span className="text-sm text-slate-600">Private Subnet</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded border-2 border-blue-500 bg-blue-50" />
+            <div className="w-4 h-4 rounded border-2 border-[#3b82f6] bg-[#3b82f610]" />
             <span className="text-sm text-slate-600">Database Subnet</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-emerald-500" />
+            <div className="w-3 h-3 rounded-full bg-[#10b98110]0" />
             <span className="text-sm text-slate-600">Healthy</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-amber-500" />
+            <div className="w-3 h-3 rounded-full bg-[#f9731610]0" />
             <span className="text-sm text-slate-600">Warning</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <div className="w-3 h-3 rounded-full bg-[#ef444410]0" />
             <span className="text-sm text-slate-600">Critical</span>
           </div>
         </div>

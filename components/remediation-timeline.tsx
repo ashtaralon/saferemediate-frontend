@@ -212,7 +212,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           {label}
         </p>
         {data.events > 0 && (
-          <p className="text-xs mt-1 px-2 py-1 rounded bg-purple-500/20 text-purple-400 font-medium">
+          <p className="text-xs mt-1 px-2 py-1 rounded bg-[#8b5cf6]/20 text-purple-400 font-medium">
             📍 {data.events} Event{data.events > 1 ? 's' : ''} on this date
           </p>
         )}
@@ -278,7 +278,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               <h2 className="font-semibold text-white">
                 Remediation Event
               </h2>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">
                 {event.event_id}
               </p>
             </div>
@@ -287,7 +287,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
             onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors"
           >
-            <XCircle className="w-5 h-5 text-gray-400" />
+            <XCircle className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
           </button>
         </div>
 
@@ -310,7 +310,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-3">
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
                   Date & Time
                 </p>
                 <p className="text-sm font-medium text-white">
@@ -318,7 +318,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
                   Resource
                 </p>
                 <div className="flex items-center gap-2">
@@ -329,7 +329,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </div>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
                   Action Type
                 </p>
                 <p className="text-sm font-medium text-white">
@@ -340,7 +340,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
 
             <div className="space-y-3">
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
                   Status
                 </p>
                 <span
@@ -358,7 +358,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </span>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
                   Confidence
                 </p>
                 <p className="text-sm font-medium text-white">
@@ -366,7 +366,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 </p>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
+                <p className="text-xs uppercase tracking-wide text-[var(--muted-foreground,#9ca3af)]">
                   Approved By
                 </p>
                 <p className="text-sm font-medium text-white">
@@ -398,11 +398,11 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <p className="text-xs text-gray-400 mb-1">Original Role</p>
+                        <p className="text-xs text-[var(--muted-foreground,#9ca3af)] mb-1">Original Role</p>
                         <p className="font-mono text-red-400 text-xs break-all">{event.metadata.original_role}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400 mb-1">New Role</p>
+                        <p className="text-xs text-[var(--muted-foreground,#9ca3af)] mb-1">New Role</p>
                         <p className="font-mono text-emerald-400 text-xs break-all">{event.metadata.new_role}</p>
                       </div>
                     </div>
@@ -422,7 +422,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                     .filter(([k]) => !['rules_count', 'removed_permissions', 'original_role', 'new_role'].includes(k))
                     .map(([key, value]) => (
                     <div key={key} className="flex justify-between text-sm">
-                      <span className="text-gray-400">
+                      <span className="text-[var(--muted-foreground,#9ca3af)]">
                         {key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
                       </span>
                       <span className="font-mono text-white">
@@ -1157,7 +1157,7 @@ export function RemediationTimeline({
                           e.stopPropagation()
                           handleRollback(event.event_id)
                         }}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-orange-500/20"
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors hover:bg-[#f9731610]0/20"
                         style={{ color: "#F59E0B" }}
                       >
                         <RotateCcw className="w-3 h-3" />

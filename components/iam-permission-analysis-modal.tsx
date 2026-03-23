@@ -524,10 +524,10 @@ export function IAMPermissionAnalysisModal({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
-        <div className="relative w-[600px] bg-white rounded-2xl shadow-2xl p-8 text-center">
-          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin text-purple-600" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Analyzing Permissions</h2>
-          <p className="text-gray-500">Analyzing usage data for <span className="font-bold text-gray-700">{roleName}</span>...</p>
+        <div className="relative w-[600px] rounded-2xl shadow-2xl p-8 text-center" style={{ background: "var(--card, #ffffff)" }}>
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: "#8b5cf6" }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>Analyzing Permissions</h2>
+          <p style={{ color: "var(--muted-foreground, #6b7280)" }}>Analyzing usage data for <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>...</p>
         </div>
       </div>
     )
@@ -538,21 +538,22 @@ export function IAMPermissionAnalysisModal({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
-        <div className="relative w-[600px] bg-white rounded-2xl shadow-2xl p-8 text-center">
-          <XCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Failed to Load Data</h2>
-          <p className="text-gray-500 mb-4">{error}</p>
+        <div className="relative w-[600px] rounded-2xl shadow-2xl p-8 text-center" style={{ background: "var(--card, #ffffff)" }}>
+          <XCircle className="w-12 h-12 mx-auto mb-4" style={{ color: "#ef4444" }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>Failed to Load Data</h2>
+          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>{error}</p>
           <div className="flex justify-center gap-3">
             <button
               onClick={fetchGapAnalysis}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700"
+              className="px-4 py-2 text-white rounded-lg font-medium hover:opacity-90"
+              style={{ background: "#8b5cf6" }}
             >
               <RefreshCw className="w-4 h-4 inline mr-2" />
               Retry
             </button>
             <button
               onClick={handleClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50"
             >
               Close
             </button>
@@ -567,11 +568,11 @@ export function IAMPermissionAnalysisModal({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/60" />
-        <div className="relative w-[700px] bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Simulating Permission Removal</h2>
+        <div className="relative w-[700px] rounded-2xl shadow-2xl p-8" style={{ background: "var(--card, #ffffff)" }}>
+          <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>Simulating Permission Removal</h2>
           <p className="text-lg mb-6">
-            <span className="font-bold text-gray-900">{roleName}</span>
-            <span className="text-gray-500"> - Analyzing {observationDays} days of permission usage...</span>
+            <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>
+            <span style={{ color: "var(--muted-foreground, #6b7280)" }}> - Analyzing {observationDays} days of permission usage...</span>
           </p>
           
           <div className="space-y-4">
@@ -581,14 +582,14 @@ export function IAMPermissionAnalysisModal({
               { title: "Checking service dependencies...", subtitle: "Validating active services", done: true },
               { title: "Calculating confidence score...", subtitle: `${safetyScore}% safe to remove`, done: false }
             ].map((step, i) => (
-              <div key={i} className={`flex items-start gap-4 p-4 rounded-lg ${step.done ? 'bg-gray-50' : 'bg-purple-50 ring-2 ring-purple-500'}`}>
+              <div key={i} className={`flex items-start gap-4 p-4 rounded-lg ${step.done ? '' : 'ring-2'}`}>
                 <div className="text-2xl">{step.done ? '✅' : '⏳'}</div>
                 <div>
-                  <div className="font-semibold text-gray-900">{step.title}</div>
-                  <div className="text-sm text-gray-500">{step.subtitle}</div>
+                  <div className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{step.title}</div>
+                  <div className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>{step.subtitle}</div>
                   {!step.done && (
-                    <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-purple-500 rounded-full animate-pulse" style={{ width: '70%' }} />
+                    <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--background, #f8f9fa)" }}>
+                      <div className="h-full bg-[#8b5cf6] rounded-full animate-pulse" style={{ width: '70%' }} />
                     </div>
                   )}
                 </div>
@@ -605,17 +606,17 @@ export function IAMPermissionAnalysisModal({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
-        <div className="relative w-[900px] max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4">
+        <div className="relative w-[900px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
           {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+          <div className="px-6 py-4 border-b flex items-center justify-between" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Simulation Results</h2>
+              <h2 className="text-2xl font-bold" style={{ color: "var(--foreground, #111827)" }}>Simulation Results</h2>
               <p className="text-lg">
-                <span className="font-bold text-gray-900">{roleName}</span>
-                <span className="text-gray-500"> - Permission Removal Analysis</span>
+                <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}> - Permission Removal Analysis</span>
               </p>
             </div>
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -631,13 +632,13 @@ export function IAMPermissionAnalysisModal({
               if (isServiceRole) {
                 // CRITICAL: Service role - DO NOT MODIFY
                 return (
-                  <div className="p-6 bg-gradient-to-r from-red-50 to-red-100 border-2 border-red-400 rounded-2xl text-center">
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
-                      <XCircle className="w-10 h-10 text-red-600" />
-                      <span className="text-5xl font-bold text-red-600">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-red-600">DO NOT APPLY</span>
+                      <XCircle className="w-10 h-10 text-[#ef4444]" />
+                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">DO NOT APPLY</span>
                     </div>
-                    <p className="text-red-700 mt-2 font-semibold">
+                    <p className="text-[#ef4444] mt-2 font-semibold">
                       This is an AWS service role. Removing permissions will break {backendAnalysis?.analysis?.service_name}.
                     </p>
                   </div>
@@ -645,16 +646,16 @@ export function IAMPermissionAnalysisModal({
               } else if (noCloudTrailData) {
                 // WARNING: Insufficient data - Investigation needed
                 return (
-                  <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 rounded-2xl text-center">
+                  <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
-                      <AlertTriangle className="w-10 h-10 text-amber-600" />
-                      <span className="text-5xl font-bold text-amber-600">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-amber-600">LOW CONFIDENCE</span>
+                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#f97316]">LOW CONFIDENCE</span>
                     </div>
-                    <p className="text-amber-700 mt-2 font-semibold">
+                    <p className="text-[#f97316] mt-2 font-semibold">
                       Insufficient usage data collected. Cannot verify if permissions are truly unused.
                     </p>
-                    <p className="text-amber-600 text-sm mt-1">
+                    <p className="text-[#f97316] text-sm mt-1">
                       This role may be used by an internal AWS service, or used infrequently outside the observation period.
                     </p>
                   </div>
@@ -662,13 +663,13 @@ export function IAMPermissionAnalysisModal({
               } else {
                 // SAFE: We have sufficient evidence
                 return (
-                  <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl text-center">
+                  <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
-                      <CheckSquare className="w-10 h-10 text-green-500" />
-                      <span className="text-5xl font-bold text-green-600">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-green-600">SAFE TO APPLY</span>
+                      <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
                     </div>
-                    <p className="text-green-600 mt-2">
+                    <p className="text-[#22c55e] mt-2">
                       {cloudtrailEvents.toLocaleString()} API events analyzed - No production services will be affected
                     </p>
                   </div>
@@ -678,18 +679,18 @@ export function IAMPermissionAnalysisModal({
 
             {/* What Will Change */}
             <div>
-              <h3 className="font-bold text-lg text-gray-900 mb-3">What Will Change:</h3>
+              <h3 className="font-bold text-lg  mb-3" style={{ color: "var(--foreground, #111827)" }}>What Will Change:</h3>
               <div className="space-y-2">
-                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
                   <span>Remove <strong>{selectedPermissionsToRemove.size}</strong> selected permissions from {roleName}</span>
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
                   <span>Reduce attack surface by {totalPermissions > 0 ? Math.round((selectedPermissionsToRemove.size / totalPermissions) * 100) : 0}%</span>
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
+                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
                   <span>Improve LP score from {lpScore}% to {(() => {
                     // LP score = (used / total) * 100
                     // After removing unused permissions: newTotal = total - removed, used stays same
@@ -703,47 +704,47 @@ export function IAMPermissionAnalysisModal({
             {/* Permissions to Remove - With Selection */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-lg text-gray-900">
+                <h3 className="font-bold text-lg" style={{ color: "var(--foreground, #111827)" }}>
                   Permissions to Remove ({selectedPermissionsToRemove.size} of {unusedCount} selected)
                 </h3>
                 <div className="flex gap-2 text-xs">
                   <button
                     onClick={selectAllPermissions}
-                    className="text-indigo-600 hover:underline font-medium"
+                    className="text-[#8b5cf6] hover:underline font-medium"
                   >
                     Select All
                   </button>
-                  <span className="text-gray-400">|</span>
+                  <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>|</span>
                   <button
                     onClick={deselectAllPermissions}
-                    className="text-indigo-600 hover:underline font-medium"
+                    className="text-[#8b5cf6] hover:underline font-medium"
                   >
                     Clear All
                   </button>
                 </div>
               </div>
-              <div className="p-4 bg-red-50 border border-red-200 rounded-xl max-h-64 overflow-y-auto">
+              <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-64 overflow-y-auto">
                 <div className="space-y-2">
                   {unusedPermissions.map((perm, i) => (
                     <label
                       key={i}
                       className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
                         selectedPermissionsToRemove.has(perm.permission)
-                          ? 'bg-red-100 border border-red-300'
-                          : 'bg-white border border-gray-200 hover:bg-gray-50'
+                          ? 'bg-[#ef444420] border border-[#ef444440]'
+                          : 'bg-white border border-[var(--border,#e5e7eb)] hover:bg-gray-50'
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={selectedPermissionsToRemove.has(perm.permission)}
                         onChange={() => togglePermissionSelection(perm.permission)}
-                        className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500"
+                        className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
                       />
-                      <span className="font-mono text-sm text-gray-700 flex-1 truncate">{perm.permission}</span>
+                      <span className="font-mono text-sm text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
                       <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
-                        perm.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-700' :
-                        perm.risk_level === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                        'bg-gray-100 text-gray-600'
+                        perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                        perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                        'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                       }`}>
                         {perm.risk_level}
                       </span>
@@ -752,7 +753,7 @@ export function IAMPermissionAnalysisModal({
                 </div>
               </div>
               {selectedPermissionsToRemove.size === 0 && (
-                <p className="mt-2 text-sm text-amber-600 flex items-center gap-2">
+                <p className="mt-2 text-sm text-[#f97316] flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
                   Select at least one permission to remove
                 </p>
@@ -761,22 +762,22 @@ export function IAMPermissionAnalysisModal({
 
             {/* Permissions to Keep */}
             <div>
-              <h3 className="font-bold text-lg text-gray-900 mb-3">Permissions to Keep ({usedCount}):</h3>
+              <h3 className="font-bold text-lg  mb-3" style={{ color: "var(--foreground, #111827)" }}>Permissions to Keep ({usedCount}):</h3>
               {usedPermissions.length > 0 ? (
-                <div className="p-4 bg-green-50 border border-green-200 rounded-xl max-h-32 overflow-y-auto">
+                <div className="p-4 bg-[#22c55e10] border border-[#22c55e40] rounded-xl max-h-32 overflow-y-auto">
                   <div className="space-y-2">
                     {usedPermissions.map((perm, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                        <span className="font-mono text-sm text-gray-700">{perm.permission}</span>
-                        <span className="text-green-600 text-sm">{perm.usage_count || 0} uses/day</span>
+                        <Check className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
+                        <span className="font-mono text-sm " style={{ color: "var(--foreground, #111827)" }}>{perm.permission}</span>
+                        <span className="text-[#22c55e] text-sm">{perm.usage_count || 0} uses/day</span>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                  <p className="text-amber-700 italic">No permissions currently in use - this role may be safe to delete entirely</p>
+                <div className="p-4 bg-[#f9731610] border border-[#f9731640] rounded-xl">
+                  <p className="text-[#f97316] italic">No permissions currently in use - this role may be safe to delete entirely</p>
                 </div>
               )}
             </div>
@@ -785,12 +786,12 @@ export function IAMPermissionAnalysisModal({
             {gapData?.dependency_context && (
               <div className={`p-4 rounded-xl ${
                 gapData.dependency_context.status === 'ok' && gapData.dependency_context.has_critical_dependencies
-                  ? 'bg-amber-50 border border-amber-200'
+                  ? 'bg-[#f9731610] border border-[#f9731640]'
                   : gapData.dependency_context.status !== 'ok'
-                  ? 'bg-gray-50 border border-gray-200'
-                  : 'bg-green-50 border border-green-200'
+                  ? 'bg-gray-50 border border-[var(--border,#e5e7eb)]'
+                  : 'bg-[#22c55e10] border border-[#22c55e40]'
               }`}>
-                <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+                <h3 className="font-bold mb-3 flex items-center gap-2" style={{ color: "var(--foreground, #111827)" }}>
                   {gapData.dependency_context.status === 'ok' && gapData.dependency_context.has_critical_dependencies ? (
                     <>
                       <AlertTriangle className="w-5 h-5 text-amber-500" />
@@ -798,12 +799,12 @@ export function IAMPermissionAnalysisModal({
                     </>
                   ) : gapData.dependency_context.status !== 'ok' ? (
                     <>
-                      <Activity className="w-5 h-5 text-gray-400" />
+                      <Activity className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
                       Dependency Evidence Unavailable
                     </>
                   ) : (
                     <>
-                      <Check className="w-5 h-5 text-green-500" />
+                      <Check className="w-5 h-5 text-[#22c55e]" />
                       Dependency Analysis
                     </>
                   )}
@@ -812,13 +813,13 @@ export function IAMPermissionAnalysisModal({
                 {gapData.dependency_context.status === 'ok' ? (
                   <>
                     {gapData.dependency_context.system?.name && (
-                      <p className="text-sm text-gray-600 mb-2">
+                      <p className="text-sm text-[var(--muted-foreground,#4b5563)] mb-2">
                         System: <span className="font-medium">{gapData.dependency_context.system.name}</span>
                         {gapData.dependency_context.system.criticality && (
                           <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
                             ['production', 'prod', 'critical', 'mission_critical'].includes(
                               (gapData.dependency_context.system.criticality || '').toLowerCase()
-                            ) ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                            ) ? 'bg-[#ef444420] text-[#ef4444]' : 'bg-[#3b82f620] text-[#3b82f6]'
                           }`}>
                             {gapData.dependency_context.system.criticality}
                           </span>
@@ -828,20 +829,20 @@ export function IAMPermissionAnalysisModal({
                     
                     {gapData.dependency_context.dependencies && gapData.dependency_context.dependencies.length > 0 ? (
                       <div className="space-y-1 max-h-32 overflow-y-auto">
-                        <p className="text-sm font-medium text-gray-700 mb-2">
+                        <p className="text-sm font-medium text-[var(--foreground,#374151)] mb-2">
                           Affected Resources ({gapData.dependency_context.dependencies.length}):
                         </p>
                         {gapData.dependency_context.dependencies.slice(0, 10).map((dep, i) => (
                           <div key={i} className="flex items-center gap-2 text-sm">
-                            <span className="px-1.5 py-0.5 rounded text-xs bg-gray-200 text-gray-600 font-mono">
+                            <span className="px-1.5 py-0.5 rounded text-xs bg-gray-200 text-[var(--muted-foreground,#4b5563)] font-mono">
                               {dep.type || 'Unknown'}
                             </span>
-                            <span className="text-gray-700 truncate">{dep.name || dep.arn}</span>
+                            <span className="text-[var(--foreground,#374151)] truncate">{dep.name || dep.arn}</span>
                             {dep.environment && (
                               <span className={`px-1.5 py-0.5 rounded text-xs ${
                                 ['prod', 'production'].includes(dep.environment.toLowerCase())
-                                  ? 'bg-red-100 text-red-700'
-                                  : 'bg-gray-100 text-gray-600'
+                                  ? 'bg-[#ef444420] text-[#ef4444]'
+                                  : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                               }`}>
                                 {dep.environment}
                               </span>
@@ -849,17 +850,17 @@ export function IAMPermissionAnalysisModal({
                           </div>
                         ))}
                         {gapData.dependency_context.dependencies.length > 10 && (
-                          <p className="text-xs text-gray-500 italic">
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] italic">
                             +{gapData.dependency_context.dependencies.length - 10} more...
                           </p>
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-green-700">✓ No dependent resources detected</p>
+                      <p className="text-sm text-[#22c55e]">✓ No dependent resources detected</p>
                     )}
                   </>
                 ) : (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>
                     {gapData.dependency_context.status === 'neo4j_unavailable' 
                       ? 'Graph database not configured - dependency analysis skipped'
                       : gapData.dependency_context.status === 'not_found'
@@ -872,8 +873,8 @@ export function IAMPermissionAnalysisModal({
             )}
 
             {/* Confidence Factors */}
-            <div className="p-4 bg-gray-50 rounded-xl">
-              <h3 className="font-bold text-gray-900 mb-3">Confidence Factors:</h3>
+            <div className="p-4 rounded-xl" style={{ background: "var(--background, #f8f9fa)" }}>
+              <h3 className="font-bold mb-3" style={{ color: "var(--foreground, #111827)" }}>Confidence Factors:</h3>
               <div className="space-y-2">
                 {(() => {
                   const noCloudTrailData = cloudtrailEvents === 0 && unusedCount > 0
@@ -924,20 +925,20 @@ export function IAMPermissionAnalysisModal({
                     <div key={i} className="flex items-center justify-between">
                       <span className="flex items-center gap-2 text-sm">
                         {factor.critical ? (
-                          <XCircle className="w-4 h-4 text-red-500" />
+                          <XCircle className="w-4 h-4 text-[#ef4444]" />
                         ) : factor.warning ? (
                           <AlertTriangle className="w-4 h-4 text-amber-500" />
                         ) : (
-                          <Check className="w-4 h-4 text-green-500" />
+                          <Check className="w-4 h-4 text-[#22c55e]" />
                         )}
-                        <span className={factor.critical ? 'text-red-700 font-medium' : ''}>
+                        <span className={factor.critical ? 'text-[#ef4444] font-medium' : ''}>
                           {factor.label}
                         </span>
                       </span>
                       <span className={`font-semibold ${
-                        factor.critical ? 'text-red-600' :
-                        factor.warning ? 'text-amber-600' :
-                        'text-green-600'
+                        factor.critical ? 'text-[#ef4444]' :
+                        factor.warning ? 'text-[#f97316]' :
+                        'text-[#22c55e]'
                       }`}>
                         {factor.score}%
                       </span>
@@ -949,11 +950,11 @@ export function IAMPermissionAnalysisModal({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
             <button 
               onClick={() => setShowSimulation(false)}
               disabled={applying}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium disabled:opacity-50"
+              className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-100 font-medium disabled:opacity-50"
             >
               ← BACK
             </button>
@@ -964,9 +965,9 @@ export function IAMPermissionAnalysisModal({
                   checked={createSnapshot}
                   onChange={(e) => setCreateSnapshot(e.target.checked)}
                   disabled={applying}
-                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  className="rounded border-[var(--border,#d1d5db)] text-[#8b5cf6] focus:ring-[#8b5cf6]"
                 />
-                <span className="text-sm text-gray-600">Create rollback checkpoint</span>
+                <span className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>Create rollback checkpoint</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer" title="Detach AWS managed policies that contain unused permissions. Required for roles with only managed policies.">
                 <input
@@ -974,9 +975,9 @@ export function IAMPermissionAnalysisModal({
                   checked={detachManagedPolicies}
                   onChange={(e) => setDetachManagedPolicies(e.target.checked)}
                   disabled={applying}
-                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                  className="rounded border-[var(--border,#d1d5db)] text-orange-600 focus:ring-orange-500"
                 />
-                <span className="text-sm text-gray-600">Detach managed policies</span>
+                <span className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>Detach managed policies</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer" title="Detach ALL AWS managed policies from this role, regardless of permission overlap. Use when Neo4j data doesn't match actual AWS policies.">
                 <input
@@ -984,9 +985,9 @@ export function IAMPermissionAnalysisModal({
                   checked={detachAllManagedPolicies}
                   onChange={(e) => setDetachAllManagedPolicies(e.target.checked)}
                   disabled={applying || !detachManagedPolicies}
-                  className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  className="rounded border-[var(--border,#d1d5db)] text-[#ef4444] focus:ring-[#ef4444]"
                 />
-                <span className={`text-sm ${detachManagedPolicies ? 'text-red-600 font-medium' : 'text-gray-400'}`}>Detach ALL</span>
+                <span className={`text-sm ${detachManagedPolicies ? 'text-[#ef4444] font-medium' : 'text-[var(--muted-foreground,#9ca3af)]'}`}>Detach ALL</span>
               </label>
               {(() => {
                 const blocked = shouldBlockRemediation()
@@ -1008,7 +1009,7 @@ export function IAMPermissionAnalysisModal({
                     <button
                       onClick={handleApplyFix}
                       disabled={applying || selectedPermissionsToRemove.size === 0}
-                      className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg font-bold hover:from-amber-600 hover:to-orange-600 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-amber-600 hover:to-orange-600 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       title="Low confidence - proceed with caution"
                     >
                       {applying ? (
@@ -1029,7 +1030,7 @@ export function IAMPermissionAnalysisModal({
                     <button
                       onClick={handleApplyFix}
                       disabled={applying || selectedPermissionsToRemove.size === 0}
-                      className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                       {applying ? (
                         <>
@@ -1054,25 +1055,25 @@ export function IAMPermissionAnalysisModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
-      <div className="relative w-[950px] max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4">
+      <div className="relative w-[950px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b flex items-center justify-between" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Permission Usage Analysis</h2>
-            <p className="text-lg">
-              <span className="font-bold text-gray-900">{roleName}</span>
-              <span className="text-gray-500"> - IAMRole - {systemName}</span>
+            <h2 className="text-xl font-bold" style={{ color: "var(--foreground, #111827)" }}>Permission Usage Analysis</h2>
+            <p className="text-sm">
+              <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{roleName}</span>
+              <span style={{ color: "var(--muted-foreground, #6b7280)" }}> - IAMRole - {systemName}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => fetchGapAnalysis(true)}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-              title="Refresh data"
+              className="p-2 rounded-lg hover:opacity-80"
+              style={{ color: "var(--muted-foreground, #9ca3af)" }} title="Refresh data"
             >
               <RefreshCw className="w-5 h-5" />
             </button>
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={handleClose} style={{ color: "var(--muted-foreground, #9ca3af)" }}>
               <X className="w-6 h-6" />
             </button>
           </div>
@@ -1081,12 +1082,12 @@ export function IAMPermissionAnalysisModal({
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {/* Recording Period Banner */}
-          <div className="mx-6 mt-4 p-4 border-l-4 border-blue-500 bg-blue-50 rounded-r-lg">
+          <div className="mx-6 mt-4 p-4 border-l-4 rounded-r-lg" style={{ borderColor: "#3b82f6", background: "#3b82f610" }}>
             <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-blue-600" />
-              <span className="font-semibold text-gray-900">{observationDays}-Day Observation Period</span>
+              <Calendar className="w-5 h-5" style={{ color: "#3b82f6" }} />
+              <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{observationDays}-Day Observation Period</span>
             </div>
-            <p className="text-sm text-gray-600 mt-1">
+            <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               Tracked from {formatDate(startDate)} to {formatDate(endDate)} - {cloudtrailEvents.toLocaleString()} API events analyzed
             </p>
           </div>
@@ -1103,29 +1104,29 @@ export function IAMPermissionAnalysisModal({
             const styles = {
               critical: {
                 border: 'border-red-500',
-                bg: 'bg-red-50',
-                icon: 'text-red-600',
+                bg: 'bg-[#ef444410]',
+                icon: 'text-[#ef4444]',
                 title: 'text-red-900',
-                text: 'text-red-700',
+                text: 'text-[#ef4444]',
                 badge: 'bg-red-600 text-white',
                 badgeText: 'DO NOT MODIFY'
               },
               high: {
                 border: 'border-orange-500',
-                bg: 'bg-orange-50',
+                bg: 'bg-[#f9731610]',
                 icon: 'text-orange-600',
                 title: 'text-orange-900',
-                text: 'text-orange-700',
-                badge: 'bg-orange-500 text-white',
+                text: 'text-[#f97316]',
+                badge: 'bg-[#f9731610]0 text-white',
                 badgeText: 'VERIFY FIRST'
               },
               medium: {
                 border: 'border-amber-500',
-                bg: 'bg-amber-50',
-                icon: 'text-amber-600',
+                bg: 'bg-[#f9731610]',
+                icon: 'text-[#f97316]',
                 title: 'text-amber-900',
-                text: 'text-amber-700',
-                badge: 'bg-amber-500 text-white',
+                text: 'text-[#f97316]',
+                badge: 'bg-[#f9731610]0 text-white',
                 badgeText: 'INVESTIGATION NEEDED'
               }
             }
@@ -1145,7 +1146,7 @@ export function IAMPermissionAnalysisModal({
                           {analysis.title}
                         </h4>
                         {backendAnalysis?.service_principals && backendAnalysis.service_principals.length > 0 && (
-                          <p className="text-xs text-gray-500 mt-0.5 font-mono">
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-0.5 font-mono">
                             Trust Policy: {backendAnalysis.service_principals.join(', ')}
                           </p>
                         )}
@@ -1163,7 +1164,7 @@ export function IAMPermissionAnalysisModal({
                     {/* Why no CloudTrail */}
                     {analysis.why_no_cloudtrail && (
                       <div className="mt-3 p-3 bg-white/50 rounded border border-current/10">
-                        <p className="text-xs font-semibold text-gray-600 mb-1">Why permissions appear unused:</p>
+                        <p className="text-xs font-semibold text-[var(--muted-foreground,#4b5563)] mb-1">Why permissions appear unused:</p>
                         <p className={`text-sm ${style.text}`}>
                           {analysis.why_no_cloudtrail}
                         </p>
@@ -1193,8 +1194,8 @@ export function IAMPermissionAnalysisModal({
 
                     {/* Recommendation */}
                     {analysis.recommendation && (
-                      <div className={`mt-3 p-3 rounded ${severity === 'critical' ? 'bg-red-100' : 'bg-white/50'}`}>
-                        <p className={`text-sm font-semibold ${severity === 'critical' ? 'text-red-800' : style.text}`}>
+                      <div className={`mt-3 p-3 rounded ${severity === 'critical' ? 'bg-[#ef444420]' : 'bg-white/50'}`}>
+                        <p className={`text-sm font-semibold ${severity === 'critical' ? 'text-[#ef4444]' : style.text}`}>
                           {severity === 'critical' ? '🛑 ' : '💡 '}
                           {analysis.recommendation}
                         </p>
@@ -1208,28 +1209,28 @@ export function IAMPermissionAnalysisModal({
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
           {totalPermissions === 0 && (
-            <div className="mx-6 mt-4 p-6 bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-300 rounded-xl">
+            <div className="mx-6 mt-4 p-6 bg-white border-2 border-[#10b98140] rounded-xl">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
-                  <CheckCircle className="w-10 h-10 text-emerald-600" />
+                <div className="w-16 h-16 bg-[#10b98120] rounded-full flex items-center justify-center">
+                  <CheckCircle className="w-10 h-10 text-[#10b981]" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-2xl font-bold text-emerald-700">Fully Remediated</h3>
-                  <p className="text-emerald-600 mt-1">
+                  <h3 className="text-2xl font-bold text-[#10b981]">Fully Remediated</h3>
+                  <p className="text-[#10b981] mt-1">
                     This role has been optimized - all unused permissions have been removed.
                   </p>
-                  <p className="text-gray-500 text-sm mt-2">
+                  <p className="text-[var(--muted-foreground,#6b7280)] text-sm mt-2">
                     AWS IAM policies have been detached. The role now follows least privilege principles.
                   </p>
                 </div>
-                <div className="text-center px-6 py-3 bg-emerald-100 rounded-xl">
-                  <div className="text-4xl font-bold text-emerald-600">100%</div>
-                  <div className="text-emerald-700 text-sm font-medium">LP Score</div>
+                <div className="text-center px-6 py-3 bg-[#10b98120] rounded-xl">
+                  <div className="text-4xl font-bold text-[#10b981]">100%</div>
+                  <div className="text-[#10b981] text-sm font-medium">LP Score</div>
                 </div>
               </div>
               {usedCount > 0 && (
-                <div className="mt-4 pt-4 border-t border-emerald-200">
-                  <p className="text-sm text-gray-600">
+                <div className="mt-4 pt-4 border-t border-[#10b98140]">
+                  <p className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>
                     <span className="font-medium">Historical Usage:</span> This role previously used {usedCount} S3 actions based on CloudTrail data from the past {observationDays} days.
                   </p>
                 </div>
@@ -1240,42 +1241,42 @@ export function IAMPermissionAnalysisModal({
           {/* Stats Grid - Only show if not remediated */}
           {totalPermissions > 0 && (
           <div className="grid grid-cols-3 gap-4 p-6">
-            <div className="border border-gray-200 rounded-xl p-4 text-center">
-              <div className="text-4xl font-bold text-gray-800">{totalPermissions}</div>
-              <div className="text-gray-500 mt-1">Total Permissions</div>
+            <div className="rounded-xl p-4 text-center border" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
+              <div className="text-4xl font-bold" style={{ color: "var(--foreground, #111827)" }}>{totalPermissions}</div>
+              <div className="mt-1" style={{ color: "var(--muted-foreground, #9ca3af)" }}>Total Permissions</div>
             </div>
-            <div className="border-2 border-green-200 bg-green-50 rounded-xl p-4 text-center">
-              <div className="text-4xl font-bold text-green-600">{usedCount}</div>
-              <div className="text-green-600 mt-1">Actually Used ({usedPercent}%)</div>
+            <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
+              <div className="text-4xl font-bold" style={{ color: "#22c55e" }}>{usedCount}</div>
+              <div className="mt-1" style={{ color: "#22c55e" }}>Actually Used ({usedPercent}%)</div>
             </div>
-            <div className="border-2 border-red-200 bg-red-50 rounded-xl p-4 text-center">
-              <div className="text-4xl font-bold text-red-600">{unusedCount}</div>
-              <div className="text-red-600 mt-1">Unused ({unusedPercent}%)</div>
+            <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
+              <div className="text-4xl font-bold" style={{ color: "#ef4444" }}>{unusedCount}</div>
+              <div className="mt-1" style={{ color: "#ef4444" }}>Unused ({unusedPercent}%)</div>
             </div>
           </div>
           )}
 
           {/* Least Privilege Violation Alert - Only show if not remediated */}
           {unusedCount > 0 && totalPermissions > 0 && (
-            <div className="mx-6 p-5 bg-red-50 border-2 border-red-200 rounded-xl">
+            <div className="mx-6 p-5 rounded-xl border-2" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
               <div className="flex items-start gap-3">
-                <AlertTriangle className="w-7 h-7 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="w-7 h-7 flex-shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
                 <div>
-                  <h3 className="text-xl font-bold text-red-600">Least Privilege Violation Detected</h3>
-                  <p className="mt-2 text-gray-700">
+                  <h3 className="text-xl font-bold" style={{ color: "#ef4444" }}>Least Privilege Violation Detected</h3>
+                  <p className="mt-2 " style={{ color: "var(--foreground, #111827)" }}>
                     This identity has <strong>{unusedPercent}% more permissions</strong> than required based on {observationDays} days of actual usage.
                     <strong> {unusedCount} permissions</strong> have never been used and should be removed.
                   </p>
                   <div className="flex items-center gap-3 mt-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                      overallRisk === 'CRITICAL' ? 'bg-red-100 text-red-700' :
-                      overallRisk === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                      overallRisk === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-gray-100 text-gray-700'
+                      overallRisk === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                      overallRisk === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                      overallRisk === 'MEDIUM' ? 'bg-[#eab30820] text-[#eab308]' :
+                      'bg-gray-100 text-[var(--foreground,#374151)]'
                     }`}>
                       {overallRisk} Risk
                     </span>
-                    <span className="text-gray-600">
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>
                       Attack surface reduced by {unusedPercent}% after remediation
                     </span>
                   </div>
@@ -1287,48 +1288,48 @@ export function IAMPermissionAnalysisModal({
           {/* Permission Usage Breakdown - Only show if not remediated */}
           {totalPermissions > 0 && (
           <div className="p-6 space-y-4">
-            <h3 className="text-lg font-bold text-gray-900">Permission Usage Breakdown</h3>
+            <h3 className="text-lg font-bold" style={{ color: "var(--foreground, #111827)" }}>Permission Usage Breakdown</h3>
 
             {/* Actually Used Permissions */}
-            <div className="border border-green-200 rounded-xl p-4">
+            <div className="border border-[#22c55e40] rounded-xl p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                  <span className="font-semibold text-gray-900">Actually Used Permissions ({usedCount})</span>
+                  <CheckCircle className="w-5 h-5 text-[#22c55e]" />
+                  <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>Actually Used Permissions ({usedCount})</span>
                 </div>
-                <span className="px-3 py-1 border border-green-300 text-green-600 rounded-lg text-sm font-medium bg-green-50">
+                <span className="px-3 py-1 border border-[#22c55e40] text-[#22c55e] rounded-lg text-sm font-medium bg-[#22c55e10]">
                   Keep these
                 </span>
               </div>
               <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
                 {usedPermissions.length > 0 ? usedPermissions.map((perm, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
-                    <span className="text-green-500">✓</span>
-                    <span className="font-mono text-gray-800">{perm.permission}</span>
-                    <span className="text-gray-400">- {perm.usage_count || 0} uses/day</span>
+                    <span className="text-[#22c55e]">✓</span>
+                    <span className="font-mono text-[var(--foreground,#1f2937)]">{perm.permission}</span>
+                    <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>- {perm.usage_count || 0} uses/day</span>
                   </div>
                 )) : (
-                  <p className="text-gray-400 text-sm italic">No permissions currently in use</p>
+                  <p className="text-[var(--muted-foreground,#9ca3af)] text-sm italic">No permissions currently in use</p>
                 )}
               </div>
             </div>
 
             {/* Never Used Permissions */}
-            <div className="border-2 border-red-200 bg-red-50 rounded-xl p-4">
+            <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-red-500" />
-                  <span className="font-semibold text-red-700">Never Used Permissions ({unusedCount})</span>
+                  <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+                  <span className="font-semibold text-[#ef4444]">Never Used Permissions ({unusedCount})</span>
                 </div>
-                <span className="px-3 py-1 bg-red-100 text-red-600 border border-red-300 rounded-lg text-sm font-medium">
+                <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
                   Remove these
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
                 {unusedPermissions.map((perm, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
-                    <X className="w-4 h-4 text-red-500 flex-shrink-0" />
-                    <span className="font-mono text-gray-700 truncate">{perm.permission}</span>
+                    <X className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                    <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
                   </div>
                 ))}
               </div>
@@ -1346,12 +1347,12 @@ export function IAMPermissionAnalysisModal({
             // Show success message for remediated roles
             if (isRemediated) {
               return (
-                <div className="mx-6 mb-6 p-4 border-2 border-emerald-300 bg-emerald-50 rounded-xl">
+                <div className="mx-6 mb-6 p-4 border-2 border-[#10b98140] bg-[#10b98110] rounded-xl">
                   <h3 className="font-bold text-emerald-800">No Action Required</h3>
-                  <p className="text-emerald-700 mt-1">
+                  <p className="text-[#10b981] mt-1">
                     This role has been fully remediated. All managed policies have been detached from AWS IAM.
                   </p>
-                  <div className="flex items-center gap-2 mt-3 text-emerald-600">
+                  <div className="flex items-center gap-2 mt-3 text-[#10b981]">
                     <CheckCircle className="w-5 h-5" />
                     <span className="font-medium">Least privilege achieved - Role is optimized</span>
                   </div>
@@ -1359,13 +1360,13 @@ export function IAMPermissionAnalysisModal({
               )
             } else if (isServiceRole) {
               return (
-                <div className="mx-6 mb-6 p-4 border-2 border-red-300 bg-red-50 rounded-xl">
-                  <h3 className="font-bold text-red-800">Do Not Remediate</h3>
-                  <p className="text-red-700 mt-1">
+                <div className="mx-6 mb-6 p-4 border-2 border-[#ef444440] bg-[#ef444410] rounded-xl">
+                  <h3 className="font-bold text-[#ef4444]">Do Not Remediate</h3>
+                  <p className="text-[#ef4444] mt-1">
                     This is an AWS service role used by {backendAnalysis?.analysis?.service_name}.
                     Removing permissions will break the service.
                   </p>
-                  <div className="flex items-center gap-2 mt-3 text-red-600">
+                  <div className="flex items-center gap-2 mt-3 text-[#ef4444]">
                     <XCircle className="w-5 h-5" />
                     <span className="font-medium">Remediation blocked - Service role detected</span>
                   </div>
@@ -1373,13 +1374,13 @@ export function IAMPermissionAnalysisModal({
               )
             } else if (noUsageData) {
               return (
-                <div className="mx-6 mb-6 p-4 border-2 border-amber-300 bg-amber-50 rounded-xl">
-                  <h3 className="font-bold text-amber-800">Investigation Required</h3>
-                  <p className="text-amber-700 mt-1">
+                <div className="mx-6 mb-6 p-4 border-2 border-[#f9731640] bg-[#f9731610] rounded-xl">
+                  <h3 className="font-bold text-[#f97316]">Investigation Required</h3>
+                  <p className="text-[#f97316] mt-1">
                     Cannot verify if permissions are truly unused. This role may be used by EC2 instances,
                     Lambda functions, or other services that don't fully log to our data sources.
                   </p>
-                  <div className="flex items-center gap-2 mt-3 text-amber-600">
+                  <div className="flex items-center gap-2 mt-3 text-[#f97316]">
                     <AlertTriangle className="w-5 h-5" />
                     <span className="font-medium">Low confidence - Investigate before removing permissions</span>
                   </div>
@@ -1387,13 +1388,13 @@ export function IAMPermissionAnalysisModal({
               )
             } else {
               return (
-                <div className="mx-6 mb-6 p-4 border border-gray-200 rounded-xl">
-                  <h3 className="font-bold text-gray-900">Recommended Action</h3>
-                  <p className="text-gray-600 mt-1">
+                <div className="mx-6 mb-6 p-4 border rounded-xl" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+                  <h3 className="font-bold" style={{ color: "var(--foreground, #111827)" }}>Recommended Action</h3>
+                  <p className="text-[var(--muted-foreground,#4b5563)] mt-1">
                     Remove {unusedCount} unused permissions to achieve least privilege compliance.
                     This will reduce the attack surface by {unusedPercent}% while maintaining all current functionality.
                   </p>
-                  <div className="flex items-center gap-2 mt-3 text-green-600">
+                  <div className="flex items-center gap-2 mt-3 text-[#22c55e]">
                     <Shield className="w-5 h-5" />
                     <span className="font-medium">High confidence remediation - No service disruption expected</span>
                   </div>
@@ -1404,10 +1405,11 @@ export function IAMPermissionAnalysisModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-          <button 
+        <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
+          <button
             onClick={handleClose}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-medium"
+            className="px-4 py-2 border rounded-lg font-medium"
+            style={{ borderColor: "var(--border, #e5e7eb)", color: "var(--muted-foreground, #6b7280)" }}
           >
             CLOSE
           </button>
@@ -1415,7 +1417,6 @@ export function IAMPermissionAnalysisModal({
             onClick={async () => {
               setSimulating(true)
               try {
-                // Call remediation API with dry_run first
                 const response = await fetch('/api/proxy/cyntro/remediate', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -1432,7 +1433,7 @@ export function IAMPermissionAnalysisModal({
                 const result = await response.json()
 
                 toast({
-                  title: '✅ Simulation Complete',
+                  title: 'Simulation Complete',
                   description: `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0} (${Math.round((result.summary?.reduction || 0) * 100)}% reduction)`
                 })
 
@@ -1440,7 +1441,7 @@ export function IAMPermissionAnalysisModal({
               } catch (error) {
                 console.error('Simulation error:', error)
                 toast({
-                  title: '❌ Simulation Failed',
+                  title: 'Simulation Failed',
                   description: error instanceof Error ? error.message : 'Check console for details',
                   variant: 'destructive'
                 })
@@ -1449,7 +1450,8 @@ export function IAMPermissionAnalysisModal({
               }
             }}
             disabled={simulating}
-            className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+            className="px-6 py-2.5 text-white rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+            style={{ background: "#8b5cf6" }}
           >
             {simulating ? (
               <>

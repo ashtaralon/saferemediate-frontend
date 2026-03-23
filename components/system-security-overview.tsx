@@ -799,7 +799,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
     return (
       <div className="flex items-center justify-center h-96">
         <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
-        <span className="ml-3 text-gray-500">Loading security posture...</span>
+        <span className="ml-3 text-[var(--muted-foreground,#6b7280)]">Loading security posture...</span>
       </div>
     )
   }
@@ -820,7 +820,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
             className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-6 py-4 text-white flex items-center justify-between">
+            <div className="bg-white px-6 py-4 text-white flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold">{selectedRole.role_name}</h2>
                 <p className="text-indigo-200 text-sm">IAM Role Permission Analysis</p>
@@ -833,21 +833,21 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
             <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
               {roleDetailLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-                  <span className="ml-2 text-gray-500">Loading role details...</span>
+                  <Loader2 className="w-6 h-6 animate-spin text-[#8b5cf6]" />
+                  <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">Loading role details...</span>
                 </div>
               ) : roleDetail ? (
                 <div className="space-y-6">
                   {/* Current State vs Actual State - Key Visual */}
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-blue-50 rounded-xl p-4 text-center border border-blue-200">
-                      <div className="text-3xl font-bold text-blue-600">{roleDetail.summary?.total_permissions || selectedRole.allowed_permissions || 0}</div>
-                      <div className="text-sm text-blue-600 font-medium">Allowed (Current)</div>
+                    <div className="bg-[#3b82f610] rounded-xl p-4 text-center border border-[#3b82f640]">
+                      <div className="text-3xl font-bold text-[#3b82f6]">{roleDetail.summary?.total_permissions || selectedRole.allowed_permissions || 0}</div>
+                      <div className="text-sm text-[#3b82f6] font-medium">Allowed (Current)</div>
                       <div className="text-xs text-blue-400 mt-1">Configured permissions</div>
                     </div>
-                    <div className="bg-green-50 rounded-xl p-4 text-center border border-green-200">
-                      <div className="text-3xl font-bold text-green-600">{roleDetail.summary?.used_count || selectedRole.used_permissions || 0}</div>
-                      <div className="text-sm text-green-600 font-medium">Used (Actual)</div>
+                    <div className="bg-[#22c55e10] rounded-xl p-4 text-center border border-[#22c55e40]">
+                      <div className="text-3xl font-bold text-[#22c55e]">{roleDetail.summary?.used_count || selectedRole.used_permissions || 0}</div>
+                      <div className="text-sm text-[#22c55e] font-medium">Used (Actual)</div>
                       <div className="text-xs text-green-400 mt-1">365-day observation</div>
                     </div>
                   </div>
@@ -855,19 +855,19 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   {/* Usage Bar */}
                   <div className="bg-gray-50 rounded-xl p-4">
                     <div className="flex justify-between text-sm mb-2">
-                      <span className="text-gray-600">Permission Usage</span>
+                      <span className="text-[var(--muted-foreground,#4b5563)]">Permission Usage</span>
                       <span className={`font-bold ${
-                        (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 80 ? 'text-green-600' :
+                        (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 80 ? 'text-[#22c55e]' :
                         (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 50 ? 'text-yellow-600' :
-                        'text-red-600'
+                        'text-[#ef4444]'
                       }`}>{roleDetail.summary?.lp_score || selectedRole.usage_percent || 0}%</span>
                     </div>
                     <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
                       <div 
                         className={`h-full rounded-full transition-all duration-500 ${
-                          (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 80 ? 'bg-gradient-to-r from-green-500 to-green-400' :
-                          (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 50 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' :
-                          'bg-gradient-to-r from-red-500 to-red-400'
+                          (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 80 ? 'bg-[#22c55e]' :
+                          (roleDetail.summary?.lp_score || selectedRole.usage_percent || 0) >= 50 ? 'bg-[#f97316]' :
+                          'bg-[#ef4444]'
                         }`}
                         style={{ width: `${roleDetail.summary?.lp_score || selectedRole.usage_percent || 0}%` }}
                       />
@@ -875,45 +875,45 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   </div>
 
                   {/* Permissions to Drop */}
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <div className="bg-[#f9731610] border border-[#f9731640] rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="w-5 h-5 text-amber-600" />
-                      <span className="font-semibold text-amber-800">Permissions to Drop</span>
+                      <AlertTriangle className="w-5 h-5 text-[#f97316]" />
+                      <span className="font-semibold text-[#f97316]">Permissions to Drop</span>
                     </div>
-                    <div className="text-3xl font-bold text-amber-600">{roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0}</div>
-                    <p className="text-sm text-amber-700 mt-1">
+                    <div className="text-3xl font-bold text-[#f97316]">{roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0}</div>
+                    <p className="text-sm text-[#f97316] mt-1">
                       {roleDetail.summary?.unused_count || selectedRole.unused_permissions || 0} permissions are allowed but never used in 365 days
                     </p>
                   </div>
 
                   {/* Summary Cards */}
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-purple-50 rounded-xl p-4 text-center">
-                      <div className="text-2xl font-bold text-purple-600">{roleDetail.summary?.lp_score || 0}%</div>
+                    <div className="bg-[#8b5cf610] rounded-xl p-4 text-center">
+                      <div className="text-2xl font-bold text-[#8b5cf6]">{roleDetail.summary?.lp_score || 0}%</div>
                       <div className="text-xs text-purple-500">LP Score</div>
                     </div>
-                    <div className="bg-red-50 rounded-xl p-4 text-center">
-                      <div className="text-2xl font-bold text-red-600">{roleDetail.summary?.high_risk_unused_count || 0}</div>
-                      <div className="text-xs text-red-500">High Risk Unused</div>
+                    <div className="bg-[#ef444410] rounded-xl p-4 text-center">
+                      <div className="text-2xl font-bold text-[#ef4444]">{roleDetail.summary?.high_risk_unused_count || 0}</div>
+                      <div className="text-xs text-[#ef4444]">High Risk Unused</div>
                     </div>
                   </div>
 
                   {/* Risk Badge */}
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      roleDetail.summary?.overall_risk === 'CRITICAL' ? 'bg-red-100 text-red-700' :
-                      roleDetail.summary?.overall_risk === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                      roleDetail.summary?.overall_risk === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-green-100 text-green-700'
+                      roleDetail.summary?.overall_risk === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                      roleDetail.summary?.overall_risk === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                      roleDetail.summary?.overall_risk === 'MEDIUM' ? 'bg-[#eab30820] text-[#eab308]' :
+                      'bg-[#22c55e20] text-[#22c55e]'
                     }`}>
                       {roleDetail.summary?.overall_risk || 'UNKNOWN'} Risk
                     </span>
                     {roleDetail.is_remediable ? (
-                      <span className="text-xs text-green-600 flex items-center gap-1">
+                      <span className="text-xs text-[#22c55e] flex items-center gap-1">
                         <CheckCircle className="w-3.5 h-3.5" /> {roleDetail.remediable_reason}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                      <span className="text-xs text-[var(--muted-foreground,#6b7280)] flex items-center gap-1">
                         <AlertTriangle className="w-3.5 h-3.5" /> {roleDetail.remediable_reason}
                       </span>
                     )}
@@ -922,20 +922,20 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   {/* Policies */}
                   {roleDetail.policies && (
                     <div>
-                      <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <h3 className="font-semibold text-[var(--foreground,#1f2937)] mb-3 flex items-center gap-2">
                         <Key className="w-4 h-4" /> Attached Policies
                       </h3>
                       <div className="space-y-2">
                         {(roleDetail.policies.inline || []).map((p, idx) => (
-                          <div key={idx} className="bg-blue-50 rounded-lg px-4 py-2 flex items-center justify-between">
-                            <span className="font-medium text-sm text-blue-700">{p.policy_name}</span>
+                          <div key={idx} className="bg-[#3b82f610] rounded-lg px-4 py-2 flex items-center justify-between">
+                            <span className="font-medium text-sm text-[#3b82f6]">{p.policy_name}</span>
                             <span className="text-xs text-blue-500">{p.permissions?.length || 0} permissions • Inline</span>
                           </div>
                         ))}
                         {(roleDetail.policies.managed || []).map((p, idx) => (
                           <div key={idx} className="bg-gray-50 rounded-lg px-4 py-2 flex items-center justify-between">
-                            <span className="font-medium text-sm text-gray-700">{p.policy_name}</span>
-                            <span className="text-xs text-gray-500">{p.permissions_count || 0} permissions • Managed</span>
+                            <span className="font-medium text-sm text-[var(--foreground,#374151)]">{p.policy_name}</span>
+                            <span className="text-xs text-[var(--muted-foreground,#6b7280)]">{p.permissions_count || 0} permissions • Managed</span>
                           </div>
                         ))}
                       </div>
@@ -945,7 +945,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   {/* Permissions */}
                   {roleDetail.permissions_analysis && roleDetail.permissions_analysis.length > 0 && (
                     <div>
-                      <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <h3 className="font-semibold text-[var(--foreground,#1f2937)] mb-3 flex items-center gap-2">
                         <FileWarning className="w-4 h-4" /> Unused Permissions ({roleDetail.summary?.unused_count || 0})
                       </h3>
                       <div className="space-y-1 max-h-64 overflow-y-auto">
@@ -954,25 +954,25 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                           .slice(0, 20)
                           .map((perm, idx) => (
                           <div key={idx} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm ${
-                            perm.is_high_risk ? 'bg-red-50' : 'bg-gray-50'
+                            perm.is_high_risk ? 'bg-[#ef444410]' : 'bg-gray-50'
                           }`}>
                             <div className="flex items-center gap-2">
-                              {perm.is_high_risk && <Zap className="w-3.5 h-3.5 text-red-500" />}
-                              <span className={perm.is_high_risk ? 'text-red-700' : 'text-gray-700'}>
+                              {perm.is_high_risk && <Zap className="w-3.5 h-3.5 text-[#ef4444]" />}
+                              <span className={perm.is_high_risk ? 'text-[#ef4444]' : 'text-[var(--foreground,#374151)]'}>
                                 {perm.permission}
                               </span>
                             </div>
                             <span className={`text-xs px-2 py-0.5 rounded ${
-                              perm.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-700' :
-                              perm.risk_level === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                              'bg-gray-100 text-gray-600'
+                              perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                              perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                              'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                             }`}>
                               {perm.risk_level}
                             </span>
                           </div>
                         ))}
                         {(roleDetail.permissions_analysis.filter(p => p.status === 'UNUSED').length > 20) && (
-                          <div className="text-center text-xs text-gray-400 py-2">
+                          <div className="text-center text-xs text-[var(--muted-foreground,#9ca3af)] py-2">
                             +{roleDetail.permissions_analysis.filter(p => p.status === 'UNUSED').length - 20} more unused permissions
                           </div>
                         )}
@@ -981,16 +981,16 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   )}
                 </div>
               ) : (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-[var(--muted-foreground,#6b7280)]">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
                   <p>Could not load role details</p>
-                  <p className="text-sm text-gray-400 mt-1">The detailed gap analysis may not be available for this role</p>
+                  <p className="text-sm text-[var(--muted-foreground,#9ca3af)] mt-1">The detailed gap analysis may not be available for this role</p>
                 </div>
               )}
             </div>
             
             {/* Footer with data source */}
-            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-gray-500">
+            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-[var(--muted-foreground,#6b7280)]">
               Data source: Neo4j + CloudTrail • 365 days observation
             </div>
           </div>
@@ -1004,7 +1004,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
             className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-6 py-4 text-white flex items-center justify-between">
+            <div className="bg-white px-6 py-4 text-white flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold">{selectedSG.sg_name}</h2>
                 <p className="text-orange-100 text-sm">{selectedSG.sg_id} • {selectedSG.eni_count} ENIs attached</p>
@@ -1021,15 +1021,15 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
               {/* ============================================= */}
               {selectedSG.critical_findings && selectedSG.critical_findings.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
+                  <h3 className="font-semibold text-[#ef4444] mb-3 flex items-center gap-2">
                     🚨 Critical Findings ({selectedSG.critical_findings.length})
                   </h3>
                   <div className="space-y-3">
                     {selectedSG.critical_findings.map((finding, idx) => (
                       <div key={idx} className={`rounded-xl p-4 border-2 ${
-                        finding.severity === 'critical' ? 'bg-red-50 border-red-400' :
-                        finding.severity === 'high' ? 'bg-orange-50 border-orange-300' :
-                        'bg-amber-50 border-amber-200'
+                        finding.severity === 'critical' ? 'bg-[#ef444410] border-red-400' :
+                        finding.severity === 'high' ? 'bg-[#f9731610] border-orange-300' :
+                        'bg-[#f9731610] border-[#f9731640]'
                       }`}>
                         <div className="flex items-start gap-3">
                           <div className={`text-2xl ${finding.severity === 'critical' ? 'animate-pulse' : ''}`}>
@@ -1037,20 +1037,20 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                           </div>
                           <div className="flex-1">
                             <div className={`font-bold text-lg ${
-                              finding.severity === 'critical' ? 'text-red-800' : 'text-orange-800'
+                              finding.severity === 'critical' ? 'text-[#ef4444]' : 'text-[#f97316]'
                             }`}>
                               {finding.title}
                             </div>
-                            <div className="text-sm text-gray-700 mt-1">{finding.description}</div>
+                            <div className="text-sm text-[var(--foreground,#374151)] mt-1">{finding.description}</div>
                             
                             {/* Top Sources (validates attribution) */}
                             {finding.top_sources && finding.top_sources.length > 0 && (
                               <div className="mt-3 bg-white/50 rounded-lg p-3">
-                                <div className="text-xs font-medium text-gray-600 mb-2">Top Sources Observed:</div>
+                                <div className="text-xs font-medium text-[var(--muted-foreground,#4b5563)] mb-2">Top Sources Observed:</div>
                                 <div className="flex flex-wrap gap-2">
                                   {finding.top_sources.map((src, i) => (
                                     <span key={i} className="font-mono text-xs bg-white px-2 py-1 rounded border">
-                                      {src.ip} <span className="text-gray-400">({src.hits.toLocaleString()} hits)</span>
+                                      {src.ip} <span className="text-[var(--muted-foreground,#9ca3af)]">({src.hits.toLocaleString()} hits)</span>
                                     </span>
                                   ))}
                                 </div>
@@ -1058,11 +1058,11 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                             )}
                             
                             {/* Recommendations */}
-                            <div className="mt-3 bg-blue-50 rounded-lg p-3 border border-blue-200">
-                              <div className="text-xs font-bold text-blue-800 mb-1">
+                            <div className="mt-3 bg-[#3b82f610] rounded-lg p-3 border border-[#3b82f640]">
+                              <div className="text-xs font-bold text-[#3b82f6] mb-1">
                                 Recommended Fix: {finding.recommendation.action}
                               </div>
-                              <ul className="text-xs text-blue-700 space-y-1">
+                              <ul className="text-xs text-[#3b82f6] space-y-1">
                                 {finding.recommendation.details.map((detail, i) => (
                                   <li key={i}>• {detail}</li>
                                 ))}
@@ -1070,9 +1070,9 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                             </div>
                           </div>
                           <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                            finding.severity === 'critical' ? 'bg-red-200 text-red-800' :
-                            finding.severity === 'high' ? 'bg-orange-200 text-orange-800' :
-                            'bg-amber-200 text-amber-800'
+                            finding.severity === 'critical' ? 'bg-red-200 text-[#ef4444]' :
+                            finding.severity === 'high' ? 'bg-orange-200 text-[#f97316]' :
+                            'bg-amber-200 text-[#f97316]'
                           }`}>
                             {finding.severity}
                           </span>
@@ -1093,7 +1093,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-slate-500">Attachment Status:</span>
-                    <span className={`ml-2 font-medium ${selectedSG.eni_count > 0 ? 'text-green-600' : 'text-amber-600'}`}>
+                    <span className={`ml-2 font-medium ${selectedSG.eni_count > 0 ? 'text-[#22c55e]' : 'text-[#f97316]'}`}>
                       {selectedSG.eni_count > 0 
                         ? `${selectedSG.eni_count} ENI(s) attached` 
                         : 'Not attached to any ENI'}
@@ -1101,7 +1101,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   </div>
                   <div>
                     <span className="text-slate-500">Traffic Evidence:</span>
-                    <span className={`ml-2 font-medium ${selectedSG.eni_count > 0 ? 'text-green-600' : 'text-slate-400'}`}>
+                    <span className={`ml-2 font-medium ${selectedSG.eni_count > 0 ? 'text-[#22c55e]' : 'text-slate-400'}`}>
                       {selectedSG.eni_count > 0 
                         ? 'Available (VPC Flow Logs)' 
                         : 'Not available (no ENIs)'}
@@ -1109,12 +1109,12 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   </div>
                 </div>
                 {selectedSG.eni_count === 0 && (
-                  <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-700">
+                  <div className="mt-3 bg-[#3b82f610] border border-[#3b82f640] rounded-lg px-3 py-2 text-sm text-[#3b82f6]">
                     <div className="flex items-start gap-2">
-                      <span className="text-blue-600">ℹ️</span>
+                      <span className="text-[#3b82f6]">ℹ️</span>
                       <div>
                         <strong>Traffic Analysis Unavailable</strong> - This security group is not attached to any network interface (ENI). 
-                        <span className="block mt-1 text-blue-600">
+                        <span className="block mt-1 text-[#3b82f6]">
                           ✓ Configuration risk assessment is still available below
                         </span>
                       </div>
@@ -1142,7 +1142,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 
                 return (
                   <div className="mb-6">
-                    <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    <h3 className="font-semibold text-[var(--foreground,#1f2937)] mb-3 flex items-center gap-2">
                       🛡️ Configuration Risks <span className="text-xs font-normal text-slate-500">(CSPM-style, always valid)</span>
                     </h3>
                     <div className="space-y-2">
@@ -1150,18 +1150,18 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                         .filter(r => r.source === '0.0.0.0/0' || r.config_risk?.severity === 'critical' || r.config_risk?.severity === 'high')
                         .map((rule, idx) => (
                           <div key={idx} className={`rounded-lg px-4 py-3 border-2 ${
-                            rule.config_risk?.severity === 'critical' ? 'bg-red-50 border-red-300' :
-                            rule.config_risk?.severity === 'high' ? 'bg-orange-50 border-orange-300' :
-                            rule.config_risk?.severity === 'info' ? 'bg-blue-50 border-blue-200' :
-                            'bg-amber-50 border-amber-200'
+                            rule.config_risk?.severity === 'critical' ? 'bg-[#ef444410] border-[#ef444440]' :
+                            rule.config_risk?.severity === 'high' ? 'bg-[#f9731610] border-orange-300' :
+                            rule.config_risk?.severity === 'info' ? 'bg-[#3b82f610] border-[#3b82f640]' :
+                            'bg-[#f9731610] border-[#f9731640]'
                           }`}>
                             <div className="flex items-center justify-between mb-1">
                               <div className="flex items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                                  rule.config_risk?.severity === 'critical' ? 'bg-red-200 text-red-800' :
-                                  rule.config_risk?.severity === 'high' ? 'bg-orange-200 text-orange-800' :
-                                  rule.config_risk?.severity === 'info' ? 'bg-blue-200 text-blue-800' :
-                                  'bg-amber-200 text-amber-800'
+                                  rule.config_risk?.severity === 'critical' ? 'bg-red-200 text-[#ef4444]' :
+                                  rule.config_risk?.severity === 'high' ? 'bg-orange-200 text-[#f97316]' :
+                                  rule.config_risk?.severity === 'info' ? 'bg-blue-200 text-[#3b82f6]' :
+                                  'bg-amber-200 text-[#f97316]'
                                 }`}>
                                   {rule.config_risk?.severity || 'medium'}
                                 </span>
@@ -1171,10 +1171,10 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                               </div>
                               <span className="text-xs text-slate-500">Config Risk</span>
                             </div>
-                            <div className="text-sm text-gray-700 mt-1">
+                            <div className="text-sm text-[var(--foreground,#374151)] mt-1">
                               {rule.config_risk?.reason || 'Internet-exposed rule'}
                             </div>
-                            <div className="text-xs text-blue-700 mt-2 font-medium">
+                            <div className="text-xs text-[#3b82f6] mt-2 font-medium">
                               → {rule.config_risk?.recommendation || 'Review if public access is necessary'}
                             </div>
                             {rule.config_risk?.cis_benchmark && (
@@ -1195,48 +1195,48 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
               {/* ============================================= */}
               {selectedSG.eni_count > 0 ? (
                 <>
-                  <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <h3 className="font-semibold text-[var(--foreground,#1f2937)] mb-3 flex items-center gap-2">
                     📉 Least-Privilege Candidates <span className="text-xs font-normal text-slate-500">(evidence-based)</span>
                   </h3>
                   
                   {/* Summary - only show when we have evidence */}
                   <div className="grid grid-cols-4 gap-3 mb-4">
-                    <div className="bg-green-50 rounded-xl p-3 text-center border border-green-100">
-                      <div className="text-xl font-bold text-green-600">
+                    <div className="bg-[#22c55e10] rounded-xl p-3 text-center border border-green-100">
+                      <div className="text-xl font-bold text-[#22c55e]">
                         {selectedSG.rules_analysis.filter(r => (r.status === 'USED' || r.status === 'PUBLIC_USED') && !r.is_shadowed).length}
                       </div>
-                      <div className="text-xs text-green-600">Active</div>
+                      <div className="text-xs text-[#22c55e]">Active</div>
                     </div>
-                    <div className="bg-red-50 rounded-xl p-3 text-center border border-red-100">
-                      <div className="text-xl font-bold text-red-600">
+                    <div className="bg-[#ef444410] rounded-xl p-3 text-center border border-red-100">
+                      <div className="text-xl font-bold text-[#ef4444]">
                         {selectedSG.rules_analysis.filter(r => r.status === 'UNUSED' && !r.is_shadowed).length}
                       </div>
-                      <div className="text-xs text-red-600">Unused</div>
+                      <div className="text-xs text-[#ef4444]">Unused</div>
                     </div>
-                    <div className="bg-orange-50 rounded-xl p-3 text-center border border-orange-100">
+                    <div className="bg-[#f9731610] rounded-xl p-3 text-center border border-orange-100">
                       <div className="text-xl font-bold text-orange-600">
                         {selectedSG.rules_analysis.filter(r => r.status === 'OVERLY_BROAD').length}
                       </div>
                       <div className="text-xs text-orange-600">Overly Broad</div>
                     </div>
-                    <div className="bg-purple-50 rounded-xl p-3 text-center border border-purple-100">
-                      <div className="text-xl font-bold text-purple-600">
+                    <div className="bg-[#8b5cf610] rounded-xl p-3 text-center border border-purple-100">
+                      <div className="text-xl font-bold text-[#8b5cf6]">
                         {selectedSG.rules_analysis.filter(r => r.is_shadowed).length}
                       </div>
-                      <div className="text-xs text-purple-600">Shadowed</div>
+                      <div className="text-xs text-[#8b5cf6]">Shadowed</div>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="mb-4 bg-[#3b82f610] border border-[#3b82f640] rounded-xl p-4">
                   <div className="flex items-start gap-3">
-                    <div className="text-blue-600 text-2xl">ℹ️</div>
+                    <div className="text-[#3b82f6] text-2xl">ℹ️</div>
                     <div className="flex-1">
-                      <div className="font-semibold text-blue-800 mb-1">Traffic-Based Analysis Unavailable</div>
-                      <div className="text-sm text-blue-700">
+                      <div className="font-semibold text-[#3b82f6] mb-1">Traffic-Based Analysis Unavailable</div>
+                      <div className="text-sm text-[#3b82f6]">
                         This security group is not attached to any network interface (ENI), so we cannot analyze actual traffic patterns.
                       </div>
-                      <div className="text-sm text-blue-600 mt-2 font-medium">
+                      <div className="text-sm text-[#3b82f6] mt-2 font-medium">
                         ✓ Configuration risk assessment is available above to identify potential security issues
                       </div>
                     </div>
@@ -1255,26 +1255,26 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 
                 return (
                   <div className="mb-6">
-                    <h3 className="font-semibold text-orange-800 mb-3 flex items-center gap-2">
+                    <h3 className="font-semibold text-[#f97316] mb-3 flex items-center gap-2">
                       ⚡ Risky Rules ({riskyRules.length})
                       <span className="text-xs font-normal text-orange-600">Active public exposure - review priority</span>
                     </h3>
                     <div className="space-y-2">
                       {riskyRules.map((rule, idx) => (
-                        <div key={idx} className="bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-3">
+                        <div key={idx} className="bg-[#f9731610] border-2 border-[#f9731640] rounded-lg px-4 py-3">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="font-mono font-medium text-orange-800">
+                            <span className="font-mono font-medium text-[#f97316]">
                               {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
                             </span>
-                            <span className="text-green-600 font-bold">{rule.hits.toLocaleString()} hits</span>
+                            <span className="text-[#22c55e] font-bold">{rule.hits.toLocaleString()} hits</span>
                           </div>
                           {/* Top sources for this rule */}
                           {rule.top_sources && rule.top_sources.length > 0 && (
-                            <div className="text-xs text-gray-600 mb-2">
+                            <div className="text-xs text-[var(--muted-foreground,#4b5563)] mb-2">
                               Top sources: {rule.top_sources.slice(0, 3).map(s => `${s.ip} (${s.hits})`).join(', ')}
                             </div>
                           )}
-                          <div className="text-xs text-orange-700 font-medium">
+                          <div className="text-xs text-[#f97316] font-medium">
                             → Restrict to specific CIDRs, ALB SG, or WAF
                           </div>
                         </div>
@@ -1295,22 +1295,22 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 
                 return (
                   <div className="mb-6">
-                    <h3 className="font-semibold text-red-800 mb-3 flex items-center gap-2">
+                    <h3 className="font-semibold text-[#ef4444] mb-3 flex items-center gap-2">
                       🗑️ Least-Privilege Candidates ({unusedRules.length})
-                      <span className="text-xs font-normal text-red-600">No traffic observed - safe to remove</span>
+                      <span className="text-xs font-normal text-[#ef4444]">No traffic observed - safe to remove</span>
                     </h3>
                     <div className="space-y-2">
                       {unusedRules.map((rule, idx) => (
-                        <div key={idx} className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                        <div key={idx} className="bg-[#ef444410] border border-[#ef444440] rounded-lg px-4 py-3">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="font-mono font-medium text-red-800">
+                            <span className="font-mono font-medium text-[#ef4444]">
                               {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
                             </span>
-                            <span className="text-red-600 font-medium">0 hits</span>
+                            <span className="text-[#ef4444] font-medium">0 hits</span>
                           </div>
                           {rule.recommendation?.confidence !== null && rule.recommendation?.confidence !== undefined && (
                             <details className="mt-2">
-                              <summary className="text-xs text-blue-600 cursor-pointer hover:underline">
+                              <summary className="text-xs text-[#3b82f6] cursor-pointer hover:underline">
                                 Why {rule.recommendation.confidence}% confidence?
                               </summary>
                               <div className="mt-2 p-2 bg-white rounded border text-xs">
@@ -1331,16 +1331,16 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
               {/* ============================================= */}
               {selectedSG.eni_count > 0 && (
                 <details className="mb-4">
-                  <summary className="font-medium text-gray-700 mb-2 cursor-pointer hover:text-gray-900">
+                  <summary className="font-medium text-[var(--foreground,#374151)] mb-2 cursor-pointer hover:text-[var(--foreground,#111827)]">
                     📋 All Rules ({selectedSG.rules_analysis.length}) - click to expand
                   </summary>
                   <div className="space-y-2 mt-3">
                   {selectedSG.rules_analysis.map((rule, idx) => (
                     <div key={idx} className={`rounded-lg px-4 py-3 ${
-                      rule.is_shadowed ? 'bg-purple-50 border border-purple-100' :
-                      rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'bg-green-50 border border-green-100' : 
-                      rule.status === 'OVERLY_BROAD' ? 'bg-orange-50 border border-orange-100' :
-                      rule.status === 'UNUSED' ? 'bg-red-50 border border-red-100' :
+                      rule.is_shadowed ? 'bg-[#8b5cf610] border border-purple-100' :
+                      rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'bg-[#22c55e10] border border-green-100' : 
+                      rule.status === 'OVERLY_BROAD' ? 'bg-[#f9731610] border border-orange-100' :
+                      rule.status === 'UNUSED' ? 'bg-[#ef444410] border border-red-100' :
                       'bg-slate-50 border border-slate-100'
                     }`}>
                       <div className="flex items-center justify-between mb-1">
@@ -1348,11 +1348,11 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                           {rule.is_shadowed ? (
                             <span className="text-purple-500">◐</span>
                           ) : rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? (
-                            <CheckCircle className="w-4 h-4 text-green-500" />
+                            <CheckCircle className="w-4 h-4 text-[#22c55e]" />
                           ) : rule.status === 'OVERLY_BROAD' ? (
                             <AlertTriangle className="w-4 h-4 text-orange-500" />
                           ) : rule.status === 'UNUSED' ? (
-                            <XCircle className="w-4 h-4 text-red-500" />
+                            <XCircle className="w-4 h-4 text-[#ef4444]" />
                           ) : (
                             <span className="w-4 h-4 text-slate-400">?</span>
                           )}
@@ -1360,18 +1360,18 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                             {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
                           </span>
                           {rule.is_shadowed && (
-                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                            <span className="text-xs bg-[#8b5cf615] text-[#7c3aed] px-2 py-0.5 rounded">
                               Shadowed
                             </span>
                           )}
                           {rule.recommendation?.category && !rule.is_shadowed && (
                             <span className={`text-xs px-2 py-0.5 rounded ${
-                              rule.recommendation.category === 'unused' ? 'bg-red-100 text-red-700' :
-                              rule.recommendation.category === 'overly_broad' ? 'bg-orange-100 text-orange-700' :
-                              rule.recommendation.category === 'public_exposure' ? 'bg-amber-100 text-amber-700' :
+                              rule.recommendation.category === 'unused' ? 'bg-[#ef444420] text-[#ef4444]' :
+                              rule.recommendation.category === 'overly_broad' ? 'bg-[#f9731620] text-[#f97316]' :
+                              rule.recommendation.category === 'public_exposure' ? 'bg-[#f9731620] text-[#f97316]' :
                               rule.recommendation.category === 'config_risk' ? 'bg-slate-100 text-slate-700' :
                               rule.recommendation.category === 'no_evidence' ? 'bg-slate-100 text-slate-500' :
-                              'bg-green-100 text-green-700'
+                              'bg-[#22c55e20] text-[#22c55e]'
                             }`}>
                               {rule.recommendation.category === 'unused' && 'Unused'}
                               {rule.recommendation.category === 'overly_broad' && 'Overly Broad'}
@@ -1384,34 +1384,34 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                         </div>
                         <div className="text-right">
                           <span className={`text-sm font-medium ${
-                            rule.is_shadowed ? 'text-purple-600' :
-                            rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'text-green-600' : 
-                            rule.status === 'UNUSED' ? 'text-red-600' :
+                            rule.is_shadowed ? 'text-[#8b5cf6]' :
+                            rule.status === 'USED' || rule.status === 'PUBLIC_USED' ? 'text-[#22c55e]' : 
+                            rule.status === 'UNUSED' ? 'text-[#ef4444]' :
                             'text-slate-600'
                           }`}>
                             {rule.is_shadowed ? '0 hits (shadowed)' :
                              rule.hits > 0 ? `${rule.hits.toLocaleString()} hits` : '0 hits'}
                           </span>
                           {rule.unique_sources !== undefined && rule.unique_sources > 0 && !rule.is_shadowed && (
-                            <div className="text-xs text-gray-500">{rule.unique_sources} sources</div>
+                            <div className="text-xs text-[var(--muted-foreground,#6b7280)]">{rule.unique_sources} sources</div>
                           )}
                           {rule.recommendation?.confidence !== null && rule.recommendation?.confidence !== undefined && (
-                            <div className="text-xs text-gray-400">{rule.recommendation.confidence}% confidence</div>
+                            <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">{rule.recommendation.confidence}% confidence</div>
                           )}
                         </div>
                       </div>
                       {rule.is_shadowed && rule.shadowed_by && (
-                        <div className="text-xs text-purple-600 mb-2 italic">
+                        <div className="text-xs text-[#8b5cf6] mb-2 italic">
                           ↳ {rule.shadowed_by}
                         </div>
                       )}
                       {rule.recommendation && !rule.is_shadowed && rule.recommendation.category !== 'config_risk' && (
                         <div className={`text-xs px-2 py-1 rounded mt-2 ${
-                          rule.recommendation.action === 'DELETE' ? 'bg-red-100 text-red-700' :
-                          rule.recommendation.action === 'TIGHTEN' ? 'bg-orange-100 text-orange-700' :
-                          rule.recommendation.action === 'REVIEW' ? 'bg-blue-100 text-blue-700' :
+                          rule.recommendation.action === 'DELETE' ? 'bg-[#ef444420] text-[#ef4444]' :
+                          rule.recommendation.action === 'TIGHTEN' ? 'bg-[#f9731620] text-[#f97316]' :
+                          rule.recommendation.action === 'REVIEW' ? 'bg-[#3b82f620] text-[#3b82f6]' :
                           rule.recommendation.action === 'UNKNOWN' ? 'bg-slate-100 text-slate-600' :
-                          'bg-gray-100 text-gray-600'
+                          'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                         }`}>
                           <strong>{rule.recommendation.action}:</strong> {rule.recommendation.reason}
                         </div>
@@ -1424,13 +1424,13 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
             </div>
             
             {/* Footer with data source */}
-            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-gray-500 flex justify-between">
+            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-[var(--muted-foreground,#6b7280)] flex justify-between">
               <span>
                 {selectedSG.eni_count > 0 
                   ? 'Data source: VPC Flow Logs • 365 days observation'
                   : 'No traffic data available (SG not attached to any ENI)'}
               </span>
-              <span className="text-gray-400">Hits attributed to most-specific matching rule</span>
+              <span className="text-[var(--muted-foreground,#9ca3af)]">Hits attributed to most-specific matching rule</span>
             </div>
           </div>
         </div>
@@ -1446,10 +1446,10 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
             {/* HEADER: Scope-aware */}
             <div className={`px-6 py-4 text-white flex items-center justify-between ${
               connectionDetail?.scope?.kind === 'CONNECTION'
-                ? 'bg-gradient-to-r from-blue-600 to-cyan-600'
-                : selectedConnection.type === 'internet' 
-                  ? 'bg-gradient-to-r from-red-600 to-orange-600' 
-                  : 'bg-gradient-to-r from-orange-500 to-amber-500'
+                ? 'bg-[#8b5cf6]'
+                : selectedConnection.type === 'internet'
+                  ? 'bg-[#ef4444]'
+                  : 'bg-[#3b82f6]'
             }`}>
               <div>
                 {connectionDetail?.scope?.kind === 'CONNECTION' ? (
@@ -1485,7 +1485,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
               {connectionDetailLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                  <span className="ml-2 text-gray-500">
+                  <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">
                     {connectionDetail?.scope?.kind === 'CONNECTION' 
                       ? `Analyzing TCP:${selectedConnection.port} connection...`
                       : 'Analyzing security group with Flow Logs...'}
@@ -1498,10 +1498,10 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   {connectionDetail.scope?.kind === 'CONNECTION' && (
                     <>
                       {/* Port-specific traffic summary */}
-                      <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
-                        <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                      <div className="bg-[#3b82f610] border-2 border-[#3b82f640] rounded-xl p-4">
+                        <h3 className="font-semibold text-[#3b82f6] mb-3 flex items-center gap-2">
                           📊 Traffic for TCP:{connectionDetail.scope.port}
-                          <span className="text-xs font-normal text-blue-600">
+                          <span className="text-xs font-normal text-[#3b82f6]">
                             ({connectionDetail.scope.sourceSgName} → {connectionDetail.scope.targetSgName})
                           </span>
                         </h3>
@@ -1509,22 +1509,22 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                         {connectionDetail.port_specific_traffic?.has_evidence ? (
                           <div className="grid grid-cols-2 gap-4">
                             <div className="bg-white rounded-lg p-3 text-center">
-                              <div className="text-sm text-gray-600">Observed Hits</div>
+                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Observed Hits</div>
                               <div className={`text-3xl font-bold ${
-                                connectionDetail.port_specific_traffic.hits > 0 ? 'text-green-600' : 'text-red-600'
+                                connectionDetail.port_specific_traffic.hits > 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'
                               }`}>
                                 {connectionDetail.port_specific_traffic.hits.toLocaleString()}
                               </div>
                             </div>
                             <div className="bg-white rounded-lg p-3 text-center">
-                              <div className="text-sm text-gray-600">Unique Sources</div>
-                              <div className="text-3xl font-bold text-blue-600">
+                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Unique Sources</div>
+                              <div className="text-3xl font-bold text-[#3b82f6]">
                                 {connectionDetail.port_specific_traffic.sources.length}
                               </div>
                             </div>
                           </div>
                         ) : (
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-amber-800">
+                          <div className="bg-[#f9731610] border border-[#f9731640] rounded-lg p-3 text-[#f97316]">
                             ⚠️ Traffic evidence unavailable: No ENIs attached to this Security Group
                           </div>
                         )}
@@ -1533,24 +1533,24 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                       {/* Rules enabling this connection */}
                       {connectionDetail.filtered_rules && connectionDetail.filtered_rules.length > 0 && (
                         <div>
-                          <h3 className="font-semibold text-gray-800 mb-3">
+                          <h3 className="font-semibold text-[var(--foreground,#1f2937)] mb-3">
                             Rules Enabling TCP:{connectionDetail.scope.port}
                           </h3>
                           <div className="space-y-2">
                             {connectionDetail.filtered_rules.map((rule, idx) => (
                               <div key={idx} className={`rounded-lg px-4 py-3 border-2 ${
-                                rule.hits > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                                rule.hits > 0 ? 'bg-[#22c55e10] border-[#22c55e40]' : 'bg-[#ef444410] border-[#ef444440]'
                               }`}>
                                 <div className="flex justify-between items-center">
                                   <span className="font-mono font-medium">
                                     {rule.protocol?.toUpperCase() || 'TCP'}:{rule.port_range} from {rule.source}
                                   </span>
-                                  <span className={`font-bold ${rule.hits > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  <span className={`font-bold ${rule.hits > 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
                                     {rule.hits > 0 ? `${rule.hits.toLocaleString()} hits` : '0 hits'}
                                   </span>
                                 </div>
                                 {rule.top_sources && rule.top_sources.length > 0 && (
-                                  <div className="text-xs text-gray-500 mt-1">
+                                  <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                                     Top sources: {rule.top_sources.slice(0, 3).map((s: any) => s.ip).join(', ')}
                                   </div>
                                 )}
@@ -1563,15 +1563,15 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                       {/* Connection-specific recommendation */}
                       <div className={`rounded-xl p-4 border-2 ${
                         connectionDetail.port_specific_traffic?.hits === 0 
-                          ? 'bg-amber-50 border-amber-300'
-                          : 'bg-green-50 border-green-300'
+                          ? 'bg-[#f9731610] border-[#f9731640]'
+                          : 'bg-[#22c55e10] border-[#22c55e40]'
                       }`}>
                         <h3 className="font-semibold mb-2 flex items-center gap-2">
                           {connectionDetail.port_specific_traffic?.hits === 0 
                             ? '⚠️ Recommendation: REVIEW'
                             : '✅ Connection Active'}
                         </h3>
-                        <p className="text-sm text-gray-700">
+                        <p className="text-sm text-[var(--foreground,#374151)]">
                           {connectionDetail.port_specific_traffic?.hits === 0 
                             ? `No traffic observed on TCP:${connectionDetail.scope.port} between these security groups. Consider removing this rule if no longer needed.`
                             : `${connectionDetail.port_specific_traffic?.hits.toLocaleString()} connections observed. Rule is in active use.`}
@@ -1589,10 +1589,10 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                               setSelectedConnection(null)
                             }
                           }}
-                          className="text-blue-600 hover:underline text-sm flex items-center gap-1"
+                          className="text-[#3b82f6] hover:underline text-sm flex items-center gap-1"
                         >
                           📋 View full analysis for {connectionDetail.sg_name}
-                          <span className="text-gray-400">({connectionDetail.all_rules_count} total rules)</span>
+                          <span className="text-[var(--muted-foreground,#9ca3af)]">({connectionDetail.all_rules_count} total rules)</span>
                         </button>
                       </div>
                     </>
@@ -1605,63 +1605,63 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                       <div className="grid grid-cols-2 gap-4">
                         <div className={`rounded-xl p-4 border-2 ${
                           connectionDetail.current_rule.source === '0.0.0.0/0' 
-                            ? 'bg-red-50 border-red-200' 
-                            : 'bg-blue-50 border-blue-200'
+                            ? 'bg-[#ef444410] border-[#ef444440]' 
+                            : 'bg-[#3b82f610] border-[#3b82f640]'
                         }`}>
-                          <div className="text-sm font-semibold text-gray-600 mb-2">CURRENT RULE (Configured)</div>
+                          <div className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)] mb-2">CURRENT RULE (Configured)</div>
                           <div className="space-y-2">
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Source:</span>
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Source:</span>
                               <span className={`font-mono font-bold ${
-                                connectionDetail.current_rule.source === '0.0.0.0/0' ? 'text-red-600' : 'text-blue-600'
+                                connectionDetail.current_rule.source === '0.0.0.0/0' ? 'text-[#ef4444]' : 'text-[#3b82f6]'
                               }`}>
                                 {connectionDetail.current_rule.source}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Port:</span>
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Port:</span>
                               <span className="font-mono font-bold">{connectionDetail.current_rule.port}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Protocol:</span>
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Protocol:</span>
                               <span className="font-mono">{connectionDetail.current_rule.protocol}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Direction:</span>
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Direction:</span>
                               <span className="font-mono">{connectionDetail.current_rule.direction}</span>
                             </div>
                           </div>
                           {connectionDetail.current_rule.source === '0.0.0.0/0' && (
-                            <div className="mt-3 flex items-center gap-1 text-red-600 text-xs">
+                            <div className="mt-3 flex items-center gap-1 text-[#ef4444] text-xs">
                               <AlertTriangle className="w-3.5 h-3.5" />
                               Open to entire internet!
                             </div>
                           )}
                         </div>
                         
-                        <div className="bg-green-50 rounded-xl p-4 border-2 border-green-200">
-                          <div className="text-sm font-semibold text-gray-600 mb-2">ACTUAL USAGE (VPC Flow Logs)</div>
+                        <div className="bg-[#22c55e10] rounded-xl p-4 border-2 border-[#22c55e40]">
+                          <div className="text-sm font-semibold text-[var(--muted-foreground,#4b5563)] mb-2">ACTUAL USAGE (VPC Flow Logs)</div>
                           <div className="space-y-2">
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Total Packets:</span>
-                              <span className="font-bold text-green-600">
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Total Packets:</span>
+                              <span className="font-bold text-[#22c55e]">
                                 {connectionDetail.actual_usage.total_packets.toLocaleString()}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Total Bytes:</span>
-                              <span className="font-bold text-green-600">
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Total Bytes:</span>
+                              <span className="font-bold text-[#22c55e]">
                                 {(connectionDetail.actual_usage.total_bytes / 1024 / 1024).toFixed(2)} MB
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Unique Sources:</span>
-                              <span className="font-bold text-green-600">
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Unique Sources:</span>
+                              <span className="font-bold text-[#22c55e]">
                                 {connectionDetail.actual_usage.unique_sources.length}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-500">Last Seen:</span>
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Last Seen:</span>
                               <span className="text-sm">{connectionDetail.actual_usage.last_seen}</span>
                             </div>
                           </div>
@@ -1697,9 +1697,9 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                         <div 
                           key={idx}
                           className={`rounded-xl p-4 border-2 ${
-                            callout.severity === 'critical' ? 'bg-red-50 border-red-400' :
-                            callout.severity === 'high' ? 'bg-orange-50 border-orange-300' :
-                            callout.severity === 'medium' ? 'bg-amber-50 border-amber-300' :
+                            callout.severity === 'critical' ? 'bg-[#ef444410] border-red-400' :
+                            callout.severity === 'high' ? 'bg-[#f9731610] border-orange-300' :
+                            callout.severity === 'medium' ? 'bg-[#f9731610] border-[#f9731640]' :
                             'bg-slate-50 border-slate-200'
                           }`}
                         >
@@ -1713,23 +1713,23 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                             </div>
                             <div className="flex-1">
                               <div className={`font-bold ${
-                                callout.severity === 'critical' ? 'text-red-800' :
-                                callout.severity === 'high' ? 'text-orange-800' :
-                                'text-amber-800'
+                                callout.severity === 'critical' ? 'text-[#ef4444]' :
+                                callout.severity === 'high' ? 'text-[#f97316]' :
+                                'text-[#f97316]'
                               }`}>
                                 {callout.title}
                               </div>
-                              <div className="text-sm text-gray-700 mt-1">{callout.description}</div>
+                              <div className="text-sm text-[var(--foreground,#374151)] mt-1">{callout.description}</div>
                               {callout.suggested_action && (
-                                <div className="mt-2 text-sm font-medium text-blue-700">
+                                <div className="mt-2 text-sm font-medium text-[#3b82f6]">
                                   → {callout.suggested_action}
                                 </div>
                               )}
                             </div>
                             <div className={`px-2 py-1 rounded text-xs font-bold uppercase ${
-                              callout.severity === 'critical' ? 'bg-red-200 text-red-800' :
-                              callout.severity === 'high' ? 'bg-orange-200 text-orange-800' :
-                              callout.severity === 'medium' ? 'bg-amber-200 text-amber-800' :
+                              callout.severity === 'critical' ? 'bg-red-200 text-[#ef4444]' :
+                              callout.severity === 'high' ? 'bg-orange-200 text-[#f97316]' :
+                              callout.severity === 'medium' ? 'bg-amber-200 text-[#f97316]' :
                               'bg-slate-200 text-slate-800'
                             }`}>
                               {callout.severity}
@@ -1743,16 +1743,16 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   {/* Recommendation - with category badge */}
                   <div className={`rounded-xl p-4 border-2 ${
                     connectionDetail.recommendation.action === 'DELETE' 
-                      ? 'bg-red-50 border-red-300' 
+                      ? 'bg-[#ef444410] border-[#ef444440]' 
                       : connectionDetail.recommendation.action === 'TIGHTEN' 
-                        ? 'bg-amber-50 border-amber-300' 
+                        ? 'bg-[#f9731610] border-[#f9731640]' 
                         : connectionDetail.recommendation.action === 'REVIEW'
-                          ? 'bg-blue-50 border-blue-300'
-                          : 'bg-green-50 border-green-300'
+                          ? 'bg-[#3b82f610] border-blue-300'
+                          : 'bg-[#22c55e10] border-[#22c55e40]'
                   }`}>
                     <div className="flex items-center gap-3 mb-3">
                       {connectionDetail.recommendation.action === 'DELETE' && (
-                        <XCircle className="w-8 h-8 text-red-500" />
+                        <XCircle className="w-8 h-8 text-[#ef4444]" />
                       )}
                       {connectionDetail.recommendation.action === 'TIGHTEN' && (
                         <AlertTriangle className="w-8 h-8 text-amber-500" />
@@ -1761,25 +1761,25 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                         <FileWarning className="w-8 h-8 text-blue-500" />
                       )}
                       {connectionDetail.recommendation.action === 'KEEP' && (
-                        <CheckCircle className="w-8 h-8 text-green-500" />
+                        <CheckCircle className="w-8 h-8 text-[#22c55e]" />
                       )}
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className={`text-lg font-bold ${
-                            connectionDetail.recommendation.action === 'DELETE' ? 'text-red-700' :
-                            connectionDetail.recommendation.action === 'TIGHTEN' ? 'text-amber-700' :
-                            connectionDetail.recommendation.action === 'REVIEW' ? 'text-blue-700' :
-                            'text-green-700'
+                            connectionDetail.recommendation.action === 'DELETE' ? 'text-[#ef4444]' :
+                            connectionDetail.recommendation.action === 'TIGHTEN' ? 'text-[#f97316]' :
+                            connectionDetail.recommendation.action === 'REVIEW' ? 'text-[#3b82f6]' :
+                            'text-[#22c55e]'
                           }`}>
                             Recommendation: {connectionDetail.recommendation.action}
                           </span>
                           {connectionDetail.recommendation.category && (
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              connectionDetail.recommendation.category === 'unused' ? 'bg-red-100 text-red-700' :
-                              connectionDetail.recommendation.category === 'overly_broad' ? 'bg-amber-100 text-amber-700' :
-                              connectionDetail.recommendation.category === 'public_exposure' ? 'bg-orange-100 text-orange-700' :
-                              connectionDetail.recommendation.category === 'shadowed' ? 'bg-purple-100 text-purple-700' :
-                              'bg-green-100 text-green-700'
+                              connectionDetail.recommendation.category === 'unused' ? 'bg-[#ef444420] text-[#ef4444]' :
+                              connectionDetail.recommendation.category === 'overly_broad' ? 'bg-[#f9731620] text-[#f97316]' :
+                              connectionDetail.recommendation.category === 'public_exposure' ? 'bg-[#f9731620] text-[#f97316]' :
+                              connectionDetail.recommendation.category === 'shadowed' ? 'bg-[#8b5cf615] text-[#7c3aed]' :
+                              'bg-[#22c55e20] text-[#22c55e]'
                             }`}>
                               {connectionDetail.recommendation.category === 'unused' && 'Unused Rule'}
                               {connectionDetail.recommendation.category === 'overly_broad' && 'Overly Broad'}
@@ -1789,26 +1789,26 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                             </span>
                           )}
                         </div>
-                        <div className="text-sm text-gray-600 mt-1">{connectionDetail.recommendation.reason}</div>
+                        <div className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">{connectionDetail.recommendation.reason}</div>
                       </div>
                       <div className="text-right">
                         <div className="text-2xl font-bold">{connectionDetail.recommendation.confidence}%</div>
-                        <div className="text-xs text-gray-500">Confidence</div>
+                        <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Confidence</div>
                         {/* Expandable confidence breakdown */}
                         {connectionDetail.evidence?.confidence_breakdown && (
                           <details className="mt-1 text-left">
-                            <summary className="text-xs text-blue-600 cursor-pointer hover:underline">Why {connectionDetail.recommendation.confidence}%?</summary>
+                            <summary className="text-xs text-[#3b82f6] cursor-pointer hover:underline">Why {connectionDetail.recommendation.confidence}%?</summary>
                             <div className="mt-2 p-2 bg-white rounded border text-xs space-y-1">
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Evidence coverage:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Evidence coverage:</span>
                                 <span className="font-mono">{(connectionDetail.evidence.confidence_breakdown.evidence_coverage * 100).toFixed(0)}%</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Recency/frequency:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Recency/frequency:</span>
                                 <span className="font-mono">{(connectionDetail.evidence.confidence_breakdown.recency_frequency * 100).toFixed(0)}%</span>
                               </div>
                               <div className="flex justify-between">
-                                <span className="text-gray-500">Dependency risk:</span>
+                                <span className="text-[var(--muted-foreground,#6b7280)]">Dependency risk:</span>
                                 <span className="font-mono">{(connectionDetail.evidence.confidence_breakdown.dependency_risk * 100).toFixed(0)}%</span>
                               </div>
                               <div className="flex justify-between border-t pt-1 font-bold">
@@ -1824,20 +1824,20 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
                   {/* Suggested Rule (if TIGHTEN) */}
                   {connectionDetail.recommendation.action === 'TIGHTEN' && connectionDetail.recommendation.suggested_rule && (
-                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                      <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                    <div className="bg-[#3b82f610] rounded-xl p-4 border border-[#3b82f640]">
+                      <h3 className="font-semibold text-[#3b82f6] mb-3 flex items-center gap-2">
                         <Zap className="w-4 h-4" /> Suggested Tighter Rule
                       </h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="text-xs text-gray-500 mb-1">Instead of:</div>
-                          <div className="font-mono text-red-600 line-through">
+                          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Instead of:</div>
+                          <div className="font-mono text-[#ef4444] line-through">
                             {connectionDetail.current_rule.source}:{connectionDetail.current_rule.port}
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-gray-500 mb-1">Use:</div>
-                          <div className="font-mono text-green-600 font-bold">
+                          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Use:</div>
+                          <div className="font-mono text-[#22c55e] font-bold">
                             {connectionDetail.recommendation.suggested_rule.source}:{connectionDetail.recommendation.suggested_rule.port}
                           </div>
                         </div>
@@ -1848,13 +1848,13 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   {/* Actual Traffic Table */}
                   {(connectionDetail.actual_usage.unique_sources.length > 0 || connectionDetail.actual_usage.unique_ports.length > 0) && (
                     <div className="bg-gray-50 rounded-xl p-4">
-                      <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <h3 className="font-semibold text-[var(--foreground,#1f2937)] mb-3 flex items-center gap-2">
                         📊 Actual Traffic (VPC Flow Logs - {connectionDetail.actual_usage.total_packets.toLocaleString()} hits)
                       </h3>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
-                            <tr className="text-left text-gray-500 border-b">
+                            <tr className="text-left text-[var(--muted-foreground,#6b7280)] border-b">
                               <th className="pb-2 pr-4">Source IP</th>
                               <th className="pb-2 pr-4">Port</th>
                               <th className="pb-2 pr-4 text-right">Traffic</th>
@@ -1862,12 +1862,12 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                           </thead>
                           <tbody>
                             {connectionDetail.actual_usage.unique_sources.slice(0, 10).map((src, idx) => (
-                              <tr key={idx} className="border-b border-gray-100">
-                                <td className="py-2 pr-4 font-mono text-green-700">{src}</td>
+                              <tr key={idx} className="border-b border-[var(--border,#f3f4f6)]">
+                                <td className="py-2 pr-4 font-mono text-[#22c55e]">{src}</td>
                                 <td className="py-2 pr-4 font-mono">
                                   {connectionDetail.actual_usage.unique_ports[idx] || connectionDetail.actual_usage.unique_ports[0] || '443'}
                                 </td>
-                                <td className="py-2 pr-4 text-right text-gray-600">
+                                <td className="py-2 pr-4 text-right text-[var(--muted-foreground,#4b5563)]">
                                   {Math.floor(connectionDetail.actual_usage.total_packets / (connectionDetail.actual_usage.unique_sources.length || 1)).toLocaleString()} hits
                                 </td>
                               </tr>
@@ -1875,7 +1875,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                           </tbody>
                         </table>
                         {connectionDetail.actual_usage.unique_sources.length > 10 && (
-                          <div className="text-center text-xs text-gray-400 mt-2">
+                          <div className="text-center text-xs text-[var(--muted-foreground,#9ca3af)] mt-2">
                             +{connectionDetail.actual_usage.unique_sources.length - 10} more sources
                           </div>
                         )}
@@ -1885,31 +1885,31 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
                   {/* Recommended Rule (Least Privilege) */}
                   {connectionDetail.recommendation.suggested_rule && (
-                    <div className="bg-green-50 rounded-xl p-4 border-2 border-green-300">
-                      <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                    <div className="bg-[#22c55e10] rounded-xl p-4 border-2 border-[#22c55e40]">
+                      <h3 className="font-semibold text-[#22c55e] mb-3 flex items-center gap-2">
                         ✅ RECOMMENDED RULE (Least Privilege)
                       </h3>
                       <div className="space-y-2 mb-4">
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Source:</span>
-                          <span className="font-mono text-green-700 font-bold">
+                          <span className="text-[var(--muted-foreground,#4b5563)]">Source:</span>
+                          <span className="font-mono text-[#22c55e] font-bold">
                             {connectionDetail.recommendation.suggested_rule.source}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Port:</span>
-                          <span className="font-mono text-green-700 font-bold">
+                          <span className="text-[var(--muted-foreground,#4b5563)]">Port:</span>
+                          <span className="font-mono text-[#22c55e] font-bold">
                             {connectionDetail.recommendation.suggested_rule.port}
                           </span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Protocol:</span>
+                          <span className="text-[var(--muted-foreground,#4b5563)]">Protocol:</span>
                           <span className="font-mono">TCP</span>
                         </div>
                       </div>
                       
                       {connectionDetail.current_rule.source === '0.0.0.0/0' && (
-                        <div className="bg-red-100 rounded-lg px-3 py-2 text-red-700 text-sm flex items-center gap-2">
+                        <div className="bg-[#ef444420] rounded-lg px-3 py-2 text-[#ef4444] text-sm flex items-center gap-2">
                           🔴 REMOVE: {connectionDetail.current_rule.source} on {connectionDetail.current_rule.port === '0-65535' ? 'all ports' : `port ${connectionDetail.current_rule.port}`}
                         </div>
                       )}
@@ -1934,11 +1934,11 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
                   {/* No Traffic Warning */}
                   {connectionDetail.actual_usage.total_packets === 0 && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="bg-[#f9731610] border border-[#f9731640] rounded-xl p-4 flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-[#f97316] flex-shrink-0 mt-0.5" />
                       <div>
-                        <div className="font-semibold text-amber-800">No Traffic Observed</div>
-                        <div className="text-sm text-amber-700">
+                        <div className="font-semibold text-[#f97316]">No Traffic Observed</div>
+                        <div className="text-sm text-[#f97316]">
                           This rule has no recorded traffic in the last 365 days. 
                           Consider removing it to improve your security posture.
                         </div>
@@ -1948,7 +1948,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
                   {/* SG Info */}
                   {connectionDetail.sg_name && (
-                    <div className="text-sm text-gray-500 flex items-center gap-2">
+                    <div className="text-sm text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
                       <Shield className="w-4 h-4" />
                       Security Group: <span className="font-medium">{connectionDetail.sg_name}</span> ({connectionDetail.sg_id})
                     </div>
@@ -1957,25 +1957,25 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   )}
                 </div>
               ) : (
-                <div className="text-center py-12 text-gray-500">
+                <div className="text-center py-12 text-[var(--muted-foreground,#6b7280)]">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
                   <p>Could not load connection details</p>
-                  <p className="text-sm text-gray-400 mt-1">VPC Flow Logs may not be available for this connection</p>
+                  <p className="text-sm text-[var(--muted-foreground,#9ca3af)] mt-1">VPC Flow Logs may not be available for this connection</p>
                 </div>
               )}
             </div>
             
             {/* Footer with data source */}
-            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-gray-500 flex justify-between">
+            <div className="px-6 py-3 bg-gray-50 border-t text-xs text-[var(--muted-foreground,#6b7280)] flex justify-between">
               <span>Data source: VPC Flow Logs • 365 days observation</span>
-              <span className="text-green-600 font-medium">✓ Real data only - no mocks</span>
+              <span className="text-[#22c55e] font-medium">✓ Real data only - no mocks</span>
             </div>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-6 text-white">
+      <div className="bg-white rounded-xl p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Least Privilege Security Posture</h1>
@@ -1999,32 +1999,32 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <div className="bg-white rounded-xl shadow border p-4 text-center">
-          <div className="text-3xl font-bold text-gray-800">{summary.totalResources.toLocaleString()}</div>
-          <div className="text-xs text-gray-500">Resources</div>
+          <div className="text-3xl font-bold text-[var(--foreground,#1f2937)]">{summary.totalResources.toLocaleString()}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Resources</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
-          <div className="text-3xl font-bold text-red-500">{summary.internetExposed}</div>
-          <div className="text-xs text-gray-500">Internet Exposed</div>
+          <div className="text-3xl font-bold text-[#ef4444]">{summary.internetExposed}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Internet Exposed</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
-          <div className="text-3xl font-bold text-green-500">{summary.usedRules}</div>
-          <div className="text-xs text-gray-500">Used SG Rules</div>
+          <div className="text-3xl font-bold text-[#22c55e]">{summary.usedRules}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Used SG Rules</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
           <div className="text-3xl font-bold text-amber-500">{summary.unusedRules}</div>
-          <div className="text-xs text-gray-500">Unused SG Rules</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Unused SG Rules</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
           <div className="text-3xl font-bold text-blue-500">{summary.totalHits.toLocaleString()}</div>
-          <div className="text-xs text-gray-500">Traffic Hits</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Traffic Hits</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
           <div className="text-3xl font-bold text-purple-500">{connections.length}</div>
-          <div className="text-xs text-gray-500">Connections</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Connections</div>
         </div>
         <div className="bg-white rounded-xl shadow border p-4 text-center">
-          <div className="text-3xl font-bold text-indigo-500">{summary.iamUnused.toLocaleString()}</div>
-          <div className="text-xs text-gray-500">Unused IAM Perms</div>
+          <div className="text-3xl font-bold text-[#8b5cf6]">{summary.iamUnused.toLocaleString()}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Unused IAM Perms</div>
         </div>
       </div>
 
@@ -2032,14 +2032,14 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
         {/* Network Connections */}
         <div className="bg-white rounded-xl shadow border overflow-hidden">
-          <div className="bg-gradient-to-r from-red-500 to-orange-500 px-4 py-3 text-white flex items-center gap-2">
+          <div className="bg-white px-4 py-3 text-white flex items-center gap-2">
             <Globe className="w-5 h-5" />
             <span className="font-semibold">Network Connections</span>
             <span className="ml-auto bg-white/20 px-2 py-0.5 rounded-full text-xs">{connections.length}</span>
           </div>
           <div className="divide-y max-h-96 overflow-y-auto">
             {connections.length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-400 text-sm">
+              <div className="px-4 py-8 text-center text-[var(--muted-foreground,#9ca3af)] text-sm">
                 No connections data
               </div>
             ) : connections.map((conn, idx) => (
@@ -2048,7 +2048,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 className="px-4 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 transition-colors group"
               >
                 <div 
-                  className="flex items-center gap-2 flex-1 cursor-pointer active:bg-blue-100"
+                  className="flex items-center gap-2 flex-1 cursor-pointer active:bg-[#3b82f620]"
                   onClick={(e) => {
                     e.stopPropagation()
                     console.log("[Click] Network Connection clicked:", conn)
@@ -2057,13 +2057,13 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   role="button"
                   tabIndex={0}
                 >
-                  <span className={`w-2 h-2 rounded-full ${conn.type === 'internet' ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`} />
+                  <span className={`w-2 h-2 rounded-full ${conn.type === 'internet' ? 'bg-[#ef444410]0 animate-pulse' : 'bg-[#3b82f610]0'}`} />
                   <span className="font-medium truncate max-w-[70px]">{conn.source}</span>
-                  <ArrowRight className="w-3 h-3 text-gray-400" />
+                  <ArrowRight className="w-3 h-3 text-[var(--muted-foreground,#9ca3af)]" />
                   <span className="truncate max-w-[70px]">{conn.target}</span>
-                  {conn.port && <span className="text-xs text-gray-400">:{conn.port}</span>}
+                  {conn.port && <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">:{conn.port}</span>}
                   <span className={`ml-auto text-xs px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                    conn.type === 'internet' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                    conn.type === 'internet' ? 'bg-[#ef444420] text-[#ef4444]' : 'bg-[#3b82f620] text-[#3b82f6]'
                   }`}>
                     {conn.type}
                     <ChevronRight className="w-3 h-3" />
@@ -2093,13 +2093,13 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
         {/* Security Groups - Clickable */}
         <div className="bg-white rounded-xl shadow border overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-3 text-white flex items-center gap-2">
+          <div className="bg-white px-4 py-3 text-white flex items-center gap-2">
             <Shield className="w-5 h-5" />
             <span className="font-semibold">Security Group Rules</span>
           </div>
           <div className="max-h-96 overflow-y-auto">
             {sgData.length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-400 text-sm">
+              <div className="px-4 py-8 text-center text-[var(--muted-foreground,#9ca3af)] text-sm">
                 No security group data
               </div>
             ) : sgData.map((sg, idx) => (
@@ -2111,26 +2111,26 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 <div className="px-4 py-2 bg-gray-50 flex items-center justify-between">
                   <span className="font-medium text-sm flex items-center gap-1">
                     {sg.sg_name}
-                    <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+                    <ChevronRight className="w-3.5 h-3.5 text-[var(--muted-foreground,#9ca3af)]" />
                   </span>
-                  {sg.eni_count === 0 && <span className="text-xs text-amber-600">No ENIs</span>}
+                  {sg.eni_count === 0 && <span className="text-xs text-[#f97316]">No ENIs</span>}
                 </div>
                 {sg.rules_analysis.slice(0, 3).map((rule, rIdx) => (
                   <div key={rIdx} className="px-4 py-1.5 flex items-center gap-2 text-xs">
                     {rule.status === 'USED' ? (
-                      <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                      <CheckCircle className="w-3.5 h-3.5 text-[#22c55e]" />
                     ) : (
                       <XCircle className="w-3.5 h-3.5 text-amber-500" />
                     )}
                     <span className="font-mono">:{rule.port_range}</span>
-                    <span className="text-gray-400 truncate flex-1">{rule.source}</span>
-                    <span className={rule.status === 'USED' ? 'text-green-600' : 'text-amber-600'}>
+                    <span className="text-[var(--muted-foreground,#9ca3af)] truncate flex-1">{rule.source}</span>
+                    <span className={rule.status === 'USED' ? 'text-[#22c55e]' : 'text-[#f97316]'}>
                       {sg.eni_count === 0 ? 'N/A' : rule.hits > 0 ? rule.hits.toLocaleString() : '0'}
                     </span>
                   </div>
                 ))}
                 {sg.rules_analysis.length > 3 && (
-                  <div className="px-4 py-1 text-xs text-gray-400">+{sg.rules_analysis.length - 3} more rules</div>
+                  <div className="px-4 py-1 text-xs text-[var(--muted-foreground,#9ca3af)]">+{sg.rules_analysis.length - 3} more rules</div>
                 )}
               </div>
             ))}
@@ -2139,25 +2139,25 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
         {/* Resources by Type */}
         <div className="bg-white rounded-xl shadow border overflow-hidden">
-          <div className="bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-3 text-white flex items-center gap-2">
+          <div className="bg-white px-4 py-3 text-white flex items-center gap-2">
             <Lock className="w-5 h-5" />
             <span className="font-semibold">Resources by Type</span>
           </div>
           <div className="max-h-96 overflow-y-auto divide-y">
             {Object.keys(resourcesByType).length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-400 text-sm">
+              <div className="px-4 py-8 text-center text-[var(--muted-foreground,#9ca3af)] text-sm">
                 No resources data
               </div>
             ) : Object.entries(resourcesByType).sort((a, b) => b[1].length - a[1].length).map(([type, items]) => (
               <div key={type} className="px-4 py-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-medium text-sm">{type}</span>
-                  <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-xs">{items.length}</span>
+                  <span className="bg-[#8b5cf615] text-[#7c3aed] px-2 py-0.5 rounded-full text-xs">{items.length}</span>
                 </div>
                 {items.slice(0, 2).map((r, idx) => (
-                  <div key={idx} className="text-xs text-gray-500 truncate">{r.name}</div>
+                  <div key={idx} className="text-xs text-[var(--muted-foreground,#6b7280)] truncate">{r.name}</div>
                 ))}
-                {items.length > 2 && <div className="text-xs text-gray-400">+{items.length - 2} more</div>}
+                {items.length > 2 && <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">+{items.length - 2} more</div>}
               </div>
             ))}
           </div>
@@ -2165,7 +2165,7 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
 
         {/* IAM Least-Privilege Candidates - Clickable */}
         <div className="bg-white rounded-xl shadow border overflow-hidden">
-          <div className="bg-gradient-to-r from-indigo-500 to-blue-500 px-4 py-3 text-white flex items-center gap-2">
+          <div className="bg-white px-4 py-3 text-white flex items-center gap-2">
             <Shield className="w-5 h-5" />
             <span className="font-semibold">Least-Privilege Candidates</span>
             <span className="ml-auto bg-white/20 px-2 py-0.5 rounded-full text-xs">
@@ -2174,9 +2174,9 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
           </div>
           <div className="p-3 border-b bg-gray-50">
             <div className="flex justify-between text-xs">
-              <span className="text-gray-600">Allowed: {iamGaps?.total_allowed_permissions?.toLocaleString() || 0}</span>
-              <span className="text-green-600">Used: {iamGaps?.total_used_permissions?.toLocaleString() || 0}</span>
-              <span className="text-amber-600">Unused: {iamGaps?.total_unused_permissions?.toLocaleString() || 0}</span>
+              <span className="text-[var(--muted-foreground,#4b5563)]">Allowed: {iamGaps?.total_allowed_permissions?.toLocaleString() || 0}</span>
+              <span className="text-[#22c55e]">Used: {iamGaps?.total_used_permissions?.toLocaleString() || 0}</span>
+              <span className="text-[#f97316]">Unused: {iamGaps?.total_unused_permissions?.toLocaleString() || 0}</span>
             </div>
           </div>
           <div className="max-h-80 overflow-y-auto divide-y">
@@ -2189,12 +2189,12 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium text-sm truncate max-w-[120px] flex items-center gap-1" title={role.role_name}>
                     {role.role_name}
-                    <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+                    <ChevronRight className="w-3.5 h-3.5 text-[var(--muted-foreground,#9ca3af)]" />
                   </span>
                   <span className={`text-xs px-2 py-0.5 rounded ${
-                    role.status === 'OPTIMAL' ? 'bg-green-100 text-green-700' :
-                    role.status === 'REVIEW' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-100 text-red-700'
+                    role.status === 'OPTIMAL' ? 'bg-[#22c55e20] text-[#22c55e]' :
+                    role.status === 'REVIEW' ? 'bg-[#eab30820] text-[#eab308]' :
+                    'bg-[#ef444420] text-[#ef4444]'
                   }`}>
                     {role.status}
                   </span>
@@ -2203,25 +2203,25 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
                   <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div 
                       className={`h-full rounded-full ${
-                        role.usage_percent >= 80 ? 'bg-green-500' :
-                        role.usage_percent >= 50 ? 'bg-yellow-500' :
-                        'bg-red-500'
+                        role.usage_percent >= 80 ? 'bg-[#22c55e10]0' :
+                        role.usage_percent >= 50 ? 'bg-[#eab30810]0' :
+                        'bg-[#ef444410]0'
                       }`}
                       style={{ width: `${role.usage_percent}%` }}
                     />
                   </div>
-                  <span className="text-xs text-gray-500 w-10 text-right">
+                  <span className="text-xs text-[var(--muted-foreground,#6b7280)] w-10 text-right">
                     {role.usage_percent}%
                   </span>
                 </div>
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <div className="flex justify-between text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
                   <span>{role.used_permissions} used</span>
                   <span>{role.unused_permissions} unused</span>
                 </div>
               </div>
             ))}
             {(!iamGaps?.gaps || iamGaps.gaps.length === 0) && (
-              <div className="px-4 py-8 text-center text-gray-400 text-sm">
+              <div className="px-4 py-8 text-center text-[var(--muted-foreground,#9ca3af)] text-sm">
                 No IAM data available
               </div>
             )}
@@ -2230,12 +2230,12 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
       </div>
 
       {/* Legend */}
-      <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-between text-xs text-gray-500">
+      <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-between text-xs text-[var(--muted-foreground,#6b7280)]">
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> Used</span>
+          <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-[#22c55e]" /> Used</span>
           <span className="flex items-center gap-1"><XCircle className="w-3 h-3 text-amber-500" /> Unused</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Internet</span>
-          <span className="flex items-center gap-1"><ChevronRight className="w-3 h-3 text-gray-400" /> Click for details</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef444410]0" /> Internet</span>
+          <span className="flex items-center gap-1"><ChevronRight className="w-3 h-3 text-[var(--muted-foreground,#9ca3af)]" /> Click for details</span>
         </div>
         <div>Data: Neo4j • VPC Flow Logs • CloudTrail | {new Date().toLocaleString()}</div>
       </div>

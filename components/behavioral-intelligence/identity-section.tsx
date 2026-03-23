@@ -65,10 +65,10 @@ const getActionColor = (action: string): string => {
     return 'text-rose-400 bg-rose-500/10 border-rose-500/30'
   }
   if (actionLower.includes('create') || actionLower.includes('put') || actionLower.includes('attach')) {
-    return 'text-amber-400 bg-amber-500/10 border-amber-500/30'
+    return 'text-amber-400 bg-[#f9731610]0/10 border-amber-500/30'
   }
   if (actionLower.includes('authorize') || actionLower.includes('grant') || actionLower.includes('update')) {
-    return 'text-blue-400 bg-blue-500/10 border-blue-500/30'
+    return 'text-blue-400 bg-[#3b82f610]0/10 border-[#3b82f6]/30'
   }
   return 'text-slate-400 bg-slate-700/30 border-slate-600/30'
 }

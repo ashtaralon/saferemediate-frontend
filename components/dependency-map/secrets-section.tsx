@@ -143,8 +143,8 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#10b98120] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#10b981]" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">🔑 Secrets & Encryption Keys</h3>
@@ -163,8 +163,8 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#10b98120] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#10b981]" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">🔑 Secrets & Encryption Keys</h3>
@@ -181,8 +181,8 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#10b98120] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#10b981]" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">🔑 Secrets & Encryption Keys</h3>
@@ -209,8 +209,8 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
           ) : (
             <ChevronRight className="w-5 h-5 text-slate-400" />
           )}
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-emerald-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#10b98120] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#10b981]" />
           </div>
           <div className="text-left">
             <h3 className="font-semibold text-lg">🔑 Secrets & Encryption Keys</h3>
@@ -227,7 +227,7 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
           {data?.kms_keys && data.kms_keys.length > 0 && (
             <div>
               <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                <Key className="w-4 h-4 text-emerald-600" />
+                <Key className="w-4 h-4 text-[#10b981]" />
                 KMS Keys (from IAM policy)
               </h4>
               <div className="space-y-2">
@@ -253,8 +253,8 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
                           <div className="text-xs mt-1 flex items-center gap-1">
                             <span className="text-slate-500">└── Last used:</span>
                             <span className={`flex items-center gap-1 ${
-                              lastUsed.isRecent ? 'text-green-600' : 
-                              lastUsed.isOld ? 'text-amber-600' : 'text-slate-600'
+                              lastUsed.isRecent ? 'text-[#22c55e]' : 
+                              lastUsed.isOld ? 'text-[#f97316]' : 'text-slate-600'
                             }`}>
                               {lastUsed.text}
                               {lastUsed.isRecent && <CheckCircle className="w-3 h-3" />}
@@ -264,7 +264,7 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
                         </div>
                         <span className={`px-2 py-0.5 rounded text-xs ${
                           key.key_state === 'Enabled' 
-                            ? 'bg-green-100 text-green-700' 
+                            ? 'bg-[#22c55e20] text-[#22c55e]' 
                             : 'bg-slate-100 text-slate-600'
                         }`}>
                           {key.key_state}
@@ -276,7 +276,7 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
                 {(data.kms_keys.length > 3) && (
                   <button
                     onClick={() => setShowAllKMS(!showAllKMS)}
-                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    className="text-sm text-[#3b82f6] hover:text-[#3b82f6] font-medium"
                   >
                     {showAllKMS ? 'Show less' : `+${data.kms_keys.length - 3} more keys`}
                   </button>
@@ -289,7 +289,7 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
           {data?.secrets && data.secrets.length > 0 && (
             <div>
               <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-purple-600" />
+                <Lock className="w-4 h-4 text-[#8b5cf6]" />
                 Secrets Manager
               </h4>
               <div className="space-y-2">
@@ -309,8 +309,8 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
                           <div className="text-xs mt-1 flex items-center gap-1">
                             <span className="text-slate-500">└── Last accessed:</span>
                             <span className={`flex items-center gap-1 ${
-                              lastAccessed.isRecent ? 'text-green-600' : 
-                              lastAccessed.isOld ? 'text-amber-600' : 'text-slate-600'
+                              lastAccessed.isRecent ? 'text-[#22c55e]' : 
+                              lastAccessed.isOld ? 'text-[#f97316]' : 'text-slate-600'
                             }`}>
                               {lastAccessed.text}
                               {lastAccessed.isRecent && <CheckCircle className="w-3 h-3" />}
@@ -320,12 +320,12 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
                         </div>
                         <div className="flex items-center gap-2">
                           {secret.rotation_enabled ? (
-                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs flex items-center gap-1">
+                            <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs flex items-center gap-1">
                               <RefreshCw className="w-3 h-3" />
                               Rotation
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs flex items-center gap-1">
+                            <span className="px-2 py-0.5 bg-[#f9731620] text-[#f97316] rounded text-xs flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />
                               No rotation
                             </span>
@@ -338,7 +338,7 @@ export default function SecretsSection({ resourceId, resourceType, resourceName 
                 {(data.secrets.length > 3) && (
                   <button
                     onClick={() => setShowAllSecrets(!showAllSecrets)}
-                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    className="text-sm text-[#3b82f6] hover:text-[#3b82f6] font-medium"
                   >
                     {showAllSecrets ? 'Show less' : `+${data.secrets.length - 3} more secrets`}
                   </button>

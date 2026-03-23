@@ -58,30 +58,30 @@ const ModeCard: React.FC<{
       className={`relative border-2 rounded-xl p-4 cursor-pointer transition-all ${
         isSelected
           ? isConservative
-            ? 'border-blue-500 bg-blue-50 shadow-lg'
-            : 'border-orange-500 bg-orange-50 shadow-lg'
+            ? 'border-[#3b82f6] bg-[#3b82f610] shadow-lg'
+            : 'border-orange-500 bg-[#f9731610] shadow-lg'
           : 'border-slate-200 hover:border-slate-300 bg-white'
       }`}
     >
       {isLoading && (
         <div className="absolute inset-0 bg-white/50 rounded-xl flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+          <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
         </div>
       )}
 
       <div className="flex items-start justify-between mb-3">
         <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-          isConservative ? 'bg-blue-100' : 'bg-orange-100'
+          isConservative ? 'bg-[#3b82f620]' : 'bg-[#f9731620]'
         }`}>
           {isConservative ? (
-            <Shield className={`w-6 h-6 ${isConservative ? 'text-blue-600' : 'text-orange-600'}`} />
+            <Shield className={`w-6 h-6 ${isConservative ? 'text-[#3b82f6]' : 'text-orange-600'}`} />
           ) : (
             <Zap className="w-6 h-6 text-orange-600" />
           )}
         </div>
         {isSelected && (
           <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-            isConservative ? 'bg-blue-500' : 'bg-orange-500'
+            isConservative ? 'bg-[#3b82f610]0' : 'bg-[#f9731610]0'
           }`}>
             <Check className="w-4 h-4 text-white" />
           </div>
@@ -105,13 +105,13 @@ const ModeCard: React.FC<{
         </div>
         <div className="flex justify-between items-center py-1 border-b border-slate-100">
           <span className="text-slate-500">Require zero traffic</span>
-          <span className={`font-bold ${mode.thresholds.REQUIRE_ZERO_TRAFFIC ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`font-bold ${mode.thresholds.REQUIRE_ZERO_TRAFFIC ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
             {mode.thresholds.REQUIRE_ZERO_TRAFFIC ? 'Yes' : 'No'}
           </span>
         </div>
         <div className="flex justify-between items-center py-1 border-b border-slate-100">
           <span className="text-slate-500">Exclude public rules</span>
-          <span className={`font-bold ${mode.thresholds.EXCLUDE_PUBLIC_AUTO ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`font-bold ${mode.thresholds.EXCLUDE_PUBLIC_AUTO ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
             {mode.thresholds.EXCLUDE_PUBLIC_AUTO ? 'Yes' : 'No'}
           </span>
         </div>
@@ -122,12 +122,12 @@ const ModeCard: React.FC<{
       </div>
 
       {isConservative ? (
-        <div className="mt-4 p-2 bg-blue-100 rounded text-xs text-blue-700 flex items-start gap-2">
+        <div className="mt-4 p-2 bg-[#3b82f620] rounded text-xs text-[#3b82f6] flex items-start gap-2">
           <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>Recommended for production. Minimizes false positives.</span>
         </div>
       ) : (
-        <div className="mt-4 p-2 bg-orange-100 rounded text-xs text-orange-700 flex items-start gap-2">
+        <div className="mt-4 p-2 bg-[#f9731620] rounded text-xs text-[#f97316] flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>Use with caution. Higher remediation rate but may cause disruptions.</span>
         </div>
@@ -255,7 +255,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-[#3b82f6]" />
         <span className="ml-3 text-slate-600">Loading enforcement configuration...</span>
       </div>
     );
@@ -264,7 +264,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+        <div className="p-3 bg-[#f9731610] border border-[#f9731640] rounded-lg text-[#f97316] text-sm">
           <AlertTriangle className="w-4 h-4 inline mr-2" />
           {error}
         </div>
@@ -281,8 +281,8 @@ export const EnforcementModeSelector: React.FC<Props> = ({
         </div>
         <div className={`px-3 py-1 rounded-full text-sm font-medium ${
           currentMode === 'conservative'
-            ? 'bg-blue-100 text-blue-700'
-            : 'bg-orange-100 text-orange-700'
+            ? 'bg-[#3b82f620] text-[#3b82f6]'
+            : 'bg-[#f9731620] text-[#f97316]'
         }`}>
           Current: {currentMode}
         </div>
@@ -310,7 +310,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
             onClick={() => handleModeSelect('conservative')}
             className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
               currentMode === 'conservative'
-                ? 'bg-blue-500 text-white shadow-lg'
+                ? 'bg-[#3b82f610]0 text-white shadow-lg'
                 : 'bg-white text-slate-700 border border-slate-200 hover:border-blue-300'
             }`}
           >
@@ -321,7 +321,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
             onClick={() => handleModeSelect('strict')}
             className={`flex-1 py-3 px-4 rounded-lg font-medium transition-all ${
               currentMode === 'strict'
-                ? 'bg-orange-500 text-white shadow-lg'
+                ? 'bg-[#f9731610]0 text-white shadow-lg'
                 : 'bg-white text-slate-700 border border-slate-200 hover:border-orange-300'
             }`}
           >
@@ -336,7 +336,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-[#f9731620] flex items-center justify-center">
                 <AlertTriangle className="w-6 h-6 text-orange-600" />
               </div>
               <div>
@@ -355,7 +355,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
                 <li>Can remediate rules with active traffic</li>
                 <li>Shorter observation requirements (30 days)</li>
               </ul>
-              <p className="text-orange-700 font-medium">
+              <p className="text-[#f97316] font-medium">
                 This may cause service disruptions. Use only in non-production or when aggressive cleanup is needed.
               </p>
             </div>
@@ -373,7 +373,7 @@ export const EnforcementModeSelector: React.FC<Props> = ({
               <button
                 onClick={() => applyModeChange('strict')}
                 disabled={updating}
-                className="flex-1 py-2 px-4 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 py-2 px-4 bg-[#f9731610]0 text-white rounded-lg font-medium hover:bg-orange-600 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {updating ? (
                   <>

@@ -99,13 +99,13 @@ const formatNumber = (n: number): string => {
 const getKeyStateColor = (state: string): string => {
   switch (state) {
     case 'Enabled':
-      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+      return 'bg-[#10b98110]0/20 text-emerald-400 border-emerald-500/30'
     case 'Disabled':
       return 'bg-slate-500/20 text-slate-400 border-slate-500/30'
     case 'PendingDeletion':
       return 'bg-rose-500/20 text-rose-400 border-rose-500/30'
     default:
-      return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+      return 'bg-[#f9731610]0/20 text-amber-400 border-amber-500/30'
   }
 }
 
@@ -115,10 +115,10 @@ const getActionColor = (action: string): string => {
     return 'bg-rose-500/20 text-rose-400 border-rose-500/30'
   }
   if (actionLower.includes('create') || actionLower.includes('enable')) {
-    return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+    return 'bg-[#10b98110]0/20 text-emerald-400 border-emerald-500/30'
   }
   if (actionLower.includes('put') || actionLower.includes('update') || actionLower.includes('grant')) {
-    return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+    return 'bg-[#f9731610]0/20 text-amber-400 border-amber-500/30'
   }
   return 'bg-slate-500/20 text-slate-400 border-slate-500/30'
 }
@@ -288,7 +288,7 @@ const PrincipalsTable: React.FC<{ principals: CryptoPrincipal[] }> = ({ principa
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
                   {principal.top_keys.slice(0, 2).map((key, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-xs truncate max-w-[100px]">
+                    <span key={i} className="px-2 py-0.5 bg-[#f9731610]0/20 text-amber-400 border border-amber-500/30 rounded text-xs truncate max-w-[100px]">
                       {key}
                     </span>
                   ))}

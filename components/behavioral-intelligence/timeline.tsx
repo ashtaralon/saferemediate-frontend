@@ -40,17 +40,17 @@ const getPlaneColor = (plane: string) => {
   switch (plane.toLowerCase()) {
     case 'observed':
       return {
-        bg: 'bg-emerald-500',
-        bgLight: 'bg-emerald-500/20',
+        bg: 'bg-[#10b98110]0',
+        bgLight: 'bg-[#10b98110]0/20',
         text: 'text-emerald-400',
         border: 'border-emerald-500/30',
       }
     case 'changed':
       return {
-        bg: 'bg-blue-500',
-        bgLight: 'bg-blue-500/20',
+        bg: 'bg-[#3b82f610]0',
+        bgLight: 'bg-[#3b82f610]0/20',
         text: 'text-blue-400',
-        border: 'border-blue-500/30',
+        border: 'border-[#3b82f6]/30',
       }
     case 'configured':
       return {
@@ -61,8 +61,8 @@ const getPlaneColor = (plane: string) => {
       }
     case 'authorized':
       return {
-        bg: 'bg-amber-500',
-        bgLight: 'bg-amber-500/20',
+        bg: 'bg-[#f9731610]0',
+        bgLight: 'bg-[#f9731610]0/20',
         text: 'text-amber-400',
         border: 'border-amber-500/30',
       }
@@ -103,9 +103,9 @@ const getSeverityColor = (severity: string) => {
       return 'bg-rose-500/20 text-rose-400'
     case 'MEDIUM':
     case 'MED':
-      return 'bg-amber-500/20 text-amber-400'
+      return 'bg-[#f9731610]0/20 text-amber-400'
     case 'LOW':
-      return 'bg-emerald-500/20 text-emerald-400'
+      return 'bg-[#10b98110]0/20 text-emerald-400'
     default:
       return 'bg-slate-600/50 text-slate-400'
   }

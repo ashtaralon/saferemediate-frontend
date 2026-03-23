@@ -271,18 +271,18 @@ export default function LeastPrivilegeTabEnterprise({
 
   const getConfidenceColor = (confidence: string) => {
     switch (confidence) {
-      case 'HIGH': return 'bg-green-100 text-green-700 border-green-300'
-      case 'MEDIUM': return 'bg-yellow-100 text-yellow-700 border-yellow-300'
-      case 'LOW': return 'bg-red-100 text-red-700 border-red-300'
-      default: return 'bg-gray-100 text-gray-700 border-gray-300'
+      case 'HIGH': return 'bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]'
+      case 'MEDIUM': return 'bg-[#eab30820] text-[#eab308] border-yellow-300'
+      case 'LOW': return 'bg-[#ef444420] text-[#ef4444] border-[#ef444440]'
+      default: return 'bg-gray-100 text-[var(--foreground,#374151)] border-[var(--border,#d1d5db)]'
     }
   }
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
       case 'CRITICAL': return 'bg-red-600 text-white'
-      case 'HIGH': return 'bg-orange-500 text-white'
-      case 'MEDIUM': return 'bg-yellow-500 text-white'
+      case 'HIGH': return 'bg-[#f9731610]0 text-white'
+      case 'MEDIUM': return 'bg-[#eab30810]0 text-white'
       default: return 'bg-gray-500 text-white'
     }
   }
@@ -358,7 +358,7 @@ export default function LeastPrivilegeTabEnterprise({
     return (
       <div className="flex items-center justify-center h-96">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-        <span className="ml-3 text-gray-600">Loading least privilege data...</span>
+        <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading least privilege data...</span>
       </div>
     )
   }
@@ -366,9 +366,9 @@ export default function LeastPrivilegeTabEnterprise({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+        <AlertTriangle className="w-12 h-12 text-[#ef4444] mb-4" />
         <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
-        <p className="text-sm text-gray-600 mb-4">{error}</p>
+        <p className="text-sm text-[var(--muted-foreground,#4b5563)] mb-4">{error}</p>
         <button
           onClick={fetchData}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -460,17 +460,17 @@ function TopBar({
 }) {
   const evidenceCount = Object.values(evidenceCoverage).filter(Boolean).length
   const evidenceStrength = evidenceCount >= 3 ? 'Strong' : evidenceCount >= 2 ? 'Medium' : 'Weak'
-  const evidenceColor = evidenceCount >= 3 ? 'bg-green-100 text-green-700' : 
-                       evidenceCount >= 2 ? 'bg-yellow-100 text-yellow-700' : 
-                       'bg-red-100 text-red-700'
+  const evidenceColor = evidenceCount >= 3 ? 'bg-[#22c55e20] text-[#22c55e]' : 
+                       evidenceCount >= 2 ? 'bg-[#eab30820] text-[#eab308]' : 
+                       'bg-[#ef444420] text-[#ef4444]'
 
   return (
     <div className="bg-white border-b px-6 py-4 flex items-center justify-between">
       <div className="flex items-center gap-6">
         {/* Time Window */}
         <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-600">Time Window:</span>
+          <Clock className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+          <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Time Window:</span>
           <select
             value={timeWindow}
             onChange={(e) => setTimeWindow(Number(e.target.value) as 7 | 30 | 90 | 365)}
@@ -485,12 +485,12 @@ function TopBar({
 
         {/* Evidence Coverage */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Evidence:</span>
+          <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Evidence:</span>
           <div className={`px-2 py-1 rounded text-xs font-medium border ${evidenceColor}`}>
             {evidenceStrength}
           </div>
           <button
-            className="text-xs text-blue-600 hover:underline"
+            className="text-xs text-[#3b82f6] hover:underline"
             onClick={() => {
               // Toggle evidence details (expandable)
             }}
@@ -501,8 +501,8 @@ function TopBar({
 
         {/* Confidence Threshold */}
         <div className="flex items-center gap-2">
-          <SlidersHorizontal className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-600">Confidence:</span>
+          <SlidersHorizontal className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
+          <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Confidence:</span>
           <select
             value={confidenceThreshold}
             onChange={(e) => setConfidenceThreshold(e.target.value as 'HIGH' | 'MEDIUM' | 'LOW')}
@@ -539,28 +539,28 @@ function TopRemovalsQueue({
   onSelect: (removal: TopRemoval) => void
 }) {
   return (
-    <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3">
+    <div className="bg-[#eab30810] border-b border-[#eab30840] px-6 py-3">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-yellow-900 flex items-center gap-2">
           <Zap className="w-4 h-4" />
           Top Removals to Do Now
         </h3>
-        <span className="text-xs text-yellow-700">{removals.length} high-value fixes</span>
+        <span className="text-xs text-[#eab308]">{removals.length} high-value fixes</span>
       </div>
       <div className="flex gap-2 overflow-x-auto">
         {removals.slice(0, 10).map((removal) => (
           <button
             key={removal.id}
             onClick={() => onSelect(removal)}
-            className="flex-shrink-0 px-3 py-1.5 bg-white border border-yellow-300 rounded text-xs hover:bg-yellow-100 transition-colors"
+            className="flex-shrink-0 px-3 py-1.5 bg-white border border-yellow-300 rounded text-xs hover:bg-[#eab30820] transition-colors"
           >
             <div className="flex items-center gap-2">
               <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${getRiskColor(removal.riskLevel)}`}>
                 {removal.riskLevel}
               </span>
               <span className="font-medium">{removal.componentName}</span>
-              <span className="text-gray-500">•</span>
-              <span className="text-gray-600 font-mono text-xs">{removal.item}</span>
+              <span className="text-[var(--muted-foreground,#6b7280)]">•</span>
+              <span className="text-[var(--muted-foreground,#4b5563)] font-mono text-xs">{removal.item}</span>
             </div>
           </button>
         ))}
@@ -604,23 +604,23 @@ function ComponentList({
       <div className="p-4 border-b space-y-3">
         {/* Grouping Toggle */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Group by:</span>
+          <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Group by:</span>
           <div className="flex bg-gray-100 rounded p-1">
             <button
               onClick={() => setGrouping('identity')}
-              className={`px-3 py-1 text-xs rounded ${grouping === 'identity' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+              className={`px-3 py-1 text-xs rounded ${grouping === 'identity' ? 'bg-blue-600 text-white' : 'text-[var(--muted-foreground,#4b5563)]'}`}
             >
               Identity
             </button>
             <button
               onClick={() => setGrouping('workload')}
-              className={`px-3 py-1 text-xs rounded ${grouping === 'workload' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+              className={`px-3 py-1 text-xs rounded ${grouping === 'workload' ? 'bg-blue-600 text-white' : 'text-[var(--muted-foreground,#4b5563)]'}`}
             >
               Workload
             </button>
             <button
               onClick={() => setGrouping('service')}
-              className={`px-3 py-1 text-xs rounded ${grouping === 'service' ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+              className={`px-3 py-1 text-xs rounded ${grouping === 'service' ? 'bg-blue-600 text-white' : 'text-[var(--muted-foreground,#4b5563)]'}`}
             >
               Service
             </button>
@@ -629,7 +629,7 @@ function ComponentList({
 
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
           <input
             type="text"
             placeholder="Search components..."
@@ -645,8 +645,8 @@ function ComponentList({
         <table className="w-full text-sm">
           <thead className="bg-gray-50 sticky top-0">
             <tr>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">Component</th>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">Component</th>
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">
                 <button
                   onClick={() => {
                     if (sortBy === 'lpScore') {
@@ -656,14 +656,14 @@ function ComponentList({
                       setSortOrder('desc')
                     }
                   }}
-                  className="hover:text-blue-600"
+                  className="hover:text-[#3b82f6]"
                 >
                   LP Score {sortBy === 'lpScore' && (sortOrder === 'desc' ? '↓' : '↑')}
                 </button>
               </th>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">Allowed</th>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">Observed</th>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">Allowed</th>
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">Observed</th>
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">
                 <button
                   onClick={() => {
                     if (sortBy === 'unusedCount') {
@@ -673,13 +673,13 @@ function ComponentList({
                       setSortOrder('desc')
                     }
                   }}
-                  className="hover:text-blue-600 font-bold"
+                  className="hover:text-[#3b82f6] font-bold"
                 >
                   Unused {sortBy === 'unusedCount' && (sortOrder === 'desc' ? '↓' : '↑')}
                 </button>
               </th>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">Risk</th>
-              <th className="px-4 py-2 text-left font-semibold text-gray-700">Confidence</th>
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">Risk</th>
+              <th className="px-4 py-2 text-left font-semibold text-[var(--foreground,#374151)]">Confidence</th>
             </tr>
           </thead>
           <tbody>
@@ -687,43 +687,43 @@ function ComponentList({
               <tr
                 key={item.id}
                 onClick={() => onSelect(item)}
-                className={`border-b hover:bg-blue-50 cursor-pointer ${
-                  selectedComponent?.id === item.id ? 'bg-blue-100' : ''
+                className={`border-b hover:bg-[#3b82f610] cursor-pointer ${
+                  selectedComponent?.id === item.id ? 'bg-[#3b82f620]' : ''
                 }`}
               >
                 <td className="px-4 py-3">
                   <div className="font-medium">{item.componentName}</div>
-                  <div className="text-xs text-gray-500">{item.componentType}</div>
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)]">{item.componentType}</div>
                 </td>
                 <td className="px-4 py-3">
                   {item.lpScore !== null ? (
                     <span className={`font-bold ${
-                      item.lpScore >= 80 ? 'text-green-600' :
+                      item.lpScore >= 80 ? 'text-[#22c55e]' :
                       item.lpScore >= 50 ? 'text-yellow-600' :
-                      'text-red-600'
+                      'text-[#ef4444]'
                     }`}>
                       {item.lpScore.toFixed(0)}
                     </span>
                   ) : (
-                    <span className="text-gray-400">—</span>
+                    <span className="text-[var(--muted-foreground,#9ca3af)]">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3">{item.allowedCount}</td>
-                <td className="px-4 py-3 text-green-600">{item.observedCount}</td>
+                <td className="px-4 py-3 text-[#22c55e]">{item.observedCount}</td>
                 <td className="px-4 py-3">
-                  <span className="font-bold text-red-600">{item.unusedCount}</span>
+                  <span className="font-bold text-[#ef4444]">{item.unusedCount}</span>
                 </td>
                 <td className="px-4 py-3">
                   {item.riskTags.length > 0 ? (
                     <div className="flex gap-1 flex-wrap">
                       {item.riskTags.slice(0, 2).map((tag, i) => (
-                        <span key={i} className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded">
+                        <span key={i} className="px-1.5 py-0.5 bg-[#ef444420] text-[#ef4444] text-xs rounded">
                           {tag}
                         </span>
                       ))}
                     </div>
                   ) : (
-                    <span className="text-gray-400">—</span>
+                    <span className="text-[var(--muted-foreground,#9ca3af)]">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3">
@@ -738,7 +738,7 @@ function ComponentList({
       </div>
 
       {/* Footer Stats */}
-      <div className="px-4 py-2 bg-gray-50 border-t text-xs text-gray-600">
+      <div className="px-4 py-2 bg-gray-50 border-t text-xs text-[var(--muted-foreground,#4b5563)]">
         {items.length} components • {items.reduce((sum, i) => sum + i.unusedCount, 0)} total unused permissions
       </div>
     </div>
@@ -975,7 +975,7 @@ function ComponentDetail({
   if (!component) {
     return (
       <div className="w-1/2 bg-gray-50 flex items-center justify-center">
-        <div className="text-center text-gray-500">
+        <div className="text-center text-[var(--muted-foreground,#6b7280)]">
           <Eye className="w-12 h-12 mx-auto mb-2 opacity-50" />
           <p>Select a component to view details</p>
         </div>
@@ -989,7 +989,7 @@ function ComponentDetail({
       <div className="px-6 py-4 border-b flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">{component.componentName}</h2>
-          <p className="text-sm text-gray-500">{component.componentType} • {component.componentArn}</p>
+          <p className="text-sm text-[var(--muted-foreground,#6b7280)]">{component.componentType} • {component.componentArn}</p>
         </div>
         <button
           onClick={onClose}
@@ -1004,23 +1004,23 @@ function ComponentDetail({
         <h3 className="text-sm font-semibold mb-3">Summary</h3>
         <div className="grid grid-cols-4 gap-4">
           <div>
-            <div className="text-xs text-gray-500 mb-1">Allowed</div>
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Allowed</div>
             <div className="text-2xl font-bold">{component.allowedCount}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 mb-1">Observed Used</div>
-            <div className="text-2xl font-bold text-green-600">{component.observedCount}</div>
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Observed Used</div>
+            <div className="text-2xl font-bold text-[#22c55e]">{component.observedCount}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 mb-1">Unused Candidates</div>
-            <div className="text-2xl font-bold text-red-600">{component.unusedCount}</div>
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Unused Candidates</div>
+            <div className="text-2xl font-bold text-[#ef4444]">{component.unusedCount}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-500 mb-1">Confidence</div>
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Confidence</div>
             <div className={`text-sm font-medium px-2 py-1 rounded border inline-block ${getConfidenceColor(component.confidence)}`}>
               {component.confidence}
             </div>
-            <div className="text-xs text-gray-500 mt-1">
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
               {component.observationDays}d coverage
             </div>
           </div>
@@ -1033,7 +1033,7 @@ function ComponentDetail({
           <button
             onClick={() => setActiveTab('iam')}
             className={`px-4 py-2 border-b-2 font-medium text-sm ${
-              activeTab === 'iam' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              activeTab === 'iam' ? 'border-blue-600 text-[#3b82f6]' : 'border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]'
             }`}
           >
             IAM Actions
@@ -1041,7 +1041,7 @@ function ComponentDetail({
           <button
             onClick={() => setActiveTab('network')}
             className={`px-4 py-2 border-b-2 font-medium text-sm ${
-              activeTab === 'network' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              activeTab === 'network' ? 'border-blue-600 text-[#3b82f6]' : 'border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]'
             }`}
           >
             Network Rules
@@ -1049,7 +1049,7 @@ function ComponentDetail({
           <button
             onClick={() => setActiveTab('resource')}
             className={`px-4 py-2 border-b-2 font-medium text-sm ${
-              activeTab === 'resource' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              activeTab === 'resource' ? 'border-blue-600 text-[#3b82f6]' : 'border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]'
             }`}
           >
             Resource Policies
@@ -1057,7 +1057,7 @@ function ComponentDetail({
         </div>
 
         {/* Evidence Info */}
-        <div className="text-sm text-gray-600 mb-4 p-3 bg-blue-50 rounded-lg">
+        <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-4 p-3 bg-[#3b82f610] rounded-lg">
           <Info className="w-4 h-4 inline mr-1" />
           Showing unused permissions from {timeWindow} days of observation. 
           Evidence: {Object.values(component.evidenceCoverage).filter(Boolean).length}/4 sources.
@@ -1069,8 +1069,8 @@ function ComponentDetail({
         {/* Diff Table Content */}
         {loadingDetail ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-            <span className="ml-2 text-gray-500">Loading details...</span>
+            <Loader2 className="w-6 h-6 animate-spin text-[var(--muted-foreground,#9ca3af)]" />
+            <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">Loading details...</span>
           </div>
         ) : (
           <>
@@ -1094,17 +1094,17 @@ function ComponentDetail({
               />
             )}
             {activeTab === 'iam' && component.componentType !== 'IAMRole' && (
-              <div className="text-center text-gray-500 py-12">
+              <div className="text-center text-[var(--muted-foreground,#6b7280)] py-12">
                 IAM Actions tab only available for IAM Roles
               </div>
             )}
             {activeTab === 'network' && component.componentType !== 'SecurityGroup' && component.componentType !== 'NetworkACL' && (
-              <div className="text-center text-gray-500 py-12">
+              <div className="text-center text-[var(--muted-foreground,#6b7280)] py-12">
                 Network Rules tab only available for Security Groups and Network ACLs
               </div>
             )}
             {activeTab === 'resource' && component.componentType !== 'S3Bucket' && (
-              <div className="text-center text-gray-500 py-12">
+              <div className="text-center text-[var(--muted-foreground,#6b7280)] py-12">
                 Resource Policies tab only available for S3 Buckets
               </div>
             )}
@@ -1127,7 +1127,7 @@ function ComponentDetail({
           )}
           <button
             onClick={simulateImpact}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded text-sm hover:bg-gray-100"
+            className="flex items-center gap-2 px-4 py-2 border border-[var(--border,#d1d5db)] rounded text-sm hover:bg-gray-100"
           >
             <Play className="w-4 h-4" />
             Simulate Impact
@@ -1142,7 +1142,7 @@ function ComponentDetail({
               a.download = `${component.componentName}-gap-analysis.json`
               a.click()
             }}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded text-sm hover:bg-gray-100"
+            className="flex items-center gap-2 px-4 py-2 border border-[var(--border,#d1d5db)] rounded text-sm hover:bg-gray-100"
           >
             <Download className="w-4 h-4" />
             Export
@@ -1186,7 +1186,7 @@ function IAMActionsTable({
 }) {
   if (!detailData?.unusedItems?.length && !detailData?.observedItems?.length) {
     return (
-      <div className="text-center text-gray-500 py-12">
+      <div className="text-center text-[var(--muted-foreground,#6b7280)] py-12">
         <p>No IAM action data available</p>
         <p className="text-xs mt-2">
           {!evidenceCoverage.cloudtrail && 'CloudTrail data not available'}
@@ -1216,14 +1216,14 @@ function IAMActionsTable({
         </thead>
         <tbody>
           {allItems.map((item: any, idx: number) => (
-            <tr key={idx} className={`border-b ${item.isUsed ? 'bg-green-50' : 'bg-red-50'}`}>
+            <tr key={idx} className={`border-b ${item.isUsed ? 'bg-[#22c55e10]' : 'bg-[#ef444410]'}`}>
               <td className="px-4 py-3 font-mono text-xs">{item.item}</td>
               <td className="px-4 py-3 text-xs">{item.allowedBy || 'IAM Policy'}</td>
               <td className="px-4 py-3">
                 {item.isUsed ? (
-                  <span className="text-green-600 font-medium">{item.observedCount || 1}</span>
+                  <span className="text-[#22c55e] font-medium">{item.observedCount || 1}</span>
                 ) : (
-                  <span className="text-red-600 font-medium">0</span>
+                  <span className="text-[#ef4444] font-medium">0</span>
                 )}
               </td>
               <td className="px-4 py-3 text-xs">
@@ -1232,9 +1232,9 @@ function IAMActionsTable({
               <td className="px-4 py-3">
                 {item.riskTag && (
                   <span className={`px-2 py-0.5 rounded text-xs ${
-                    item.riskTag === 'Wildcard' || item.riskTag === 'Admin' ? 'bg-red-100 text-red-700' :
-                    item.riskTag === 'Write' || item.riskTag === 'Delete' ? 'bg-orange-100 text-orange-700' :
-                    'bg-gray-100 text-gray-700'
+                    item.riskTag === 'Wildcard' || item.riskTag === 'Admin' ? 'bg-[#ef444420] text-[#ef4444]' :
+                    item.riskTag === 'Write' || item.riskTag === 'Delete' ? 'bg-[#f9731620] text-[#f97316]' :
+                    'bg-gray-100 text-[var(--foreground,#374151)]'
                   }`}>
                     {item.riskTag}
                   </span>
@@ -1242,14 +1242,14 @@ function IAMActionsTable({
               </td>
               <td className="px-4 py-3">
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  item.recommendation === 'Remove' ? 'bg-red-100 text-red-700' :
-                  item.recommendation === 'Scope' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-green-100 text-green-700'
+                  item.recommendation === 'Remove' ? 'bg-[#ef444420] text-[#ef4444]' :
+                  item.recommendation === 'Scope' ? 'bg-[#eab30820] text-[#eab308]' :
+                  'bg-[#22c55e20] text-[#22c55e]'
                 }`}>
                   {item.recommendation || (item.isUsed ? 'Keep' : 'Remove')}
                 </span>
               </td>
-              <td className="px-4 py-3 text-xs text-gray-600">
+              <td className="px-4 py-3 text-xs text-[var(--muted-foreground,#4b5563)]">
                 {item.why || (item.isUsed ? 'Active usage observed' : `Not observed in ${timeWindow} days`)}
               </td>
             </tr>
@@ -1269,7 +1269,7 @@ function NetworkRulesTable({
 }) {
   if (!detailData?.networkRules?.length) {
     return (
-      <div className="text-center text-gray-500 py-12">
+      <div className="text-center text-[var(--muted-foreground,#6b7280)] py-12">
         <p>No network rule data available</p>
       </div>
     )
@@ -1290,39 +1290,39 @@ function NetworkRulesTable({
         </thead>
         <tbody>
           {detailData.networkRules.map((rule: any, idx: number) => (
-            <tr key={idx} className={`border-b ${rule.unused ? 'bg-red-50' : 'bg-green-50'}`}>
+            <tr key={idx} className={`border-b ${rule.unused ? 'bg-[#ef444410]' : 'bg-[#22c55e10]'}`}>
               <td className="px-4 py-3">
                 <div className="font-mono text-xs">
                   {rule.direction} {rule.protocol} {rule.portRange}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                   {rule.source} → {rule.destination}
                 </div>
               </td>
               <td className="px-4 py-3">
-                <span className={rule.observedHits > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                <span className={rule.observedHits > 0 ? 'text-[#22c55e] font-medium' : 'text-[var(--muted-foreground,#9ca3af)]'}>
                   {rule.observedHits}
                 </span>
               </td>
               <td className="px-4 py-3">
                 {rule.unused ? (
-                  <span className="text-red-600 font-medium">Yes (0 hits)</span>
+                  <span className="text-[#ef4444] font-medium">Yes (0 hits)</span>
                 ) : (
-                  <span className="text-green-600">No</span>
+                  <span className="text-[#22c55e]">No</span>
                 )}
               </td>
               <td className="px-4 py-3">
                 {rule.exposureTag && (
-                  <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">
+                  <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] rounded text-xs">
                     {rule.exposureTag}
                   </span>
                 )}
               </td>
               <td className="px-4 py-3">
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  rule.recommendation === 'Remove' ? 'bg-red-100 text-red-700' :
-                  rule.recommendation === 'Restrict' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-green-100 text-green-700'
+                  rule.recommendation === 'Remove' ? 'bg-[#ef444420] text-[#ef4444]' :
+                  rule.recommendation === 'Restrict' ? 'bg-[#eab30820] text-[#eab308]' :
+                  'bg-[#22c55e20] text-[#22c55e]'
                 }`}>
                   {rule.recommendation}
                 </span>
@@ -1347,7 +1347,7 @@ function ResourcePoliciesTable({
 }) {
   if (!detailData?.resourcePolicies?.length) {
     return (
-      <div className="text-center text-gray-500 py-12">
+      <div className="text-center text-[var(--muted-foreground,#6b7280)] py-12">
         <p>No resource policy data available</p>
       </div>
     )
@@ -1368,20 +1368,20 @@ function ResourcePoliciesTable({
         </thead>
         <tbody>
           {detailData.resourcePolicies.map((policy: any, idx: number) => (
-            <tr key={idx} className="border-b bg-red-50">
+            <tr key={idx} className="border-b bg-[#ef444410]">
               <td className="px-4 py-3 font-mono text-xs">{policy.action}</td>
               <td className="px-4 py-3 text-xs">{policy.allowedBy}</td>
-              <td className="px-4 py-3 text-red-600 font-medium">{policy.observedCount}</td>
+              <td className="px-4 py-3 text-[#ef4444] font-medium">{policy.observedCount}</td>
               <td className="px-4 py-3 text-xs">{policy.lastSeen || 'Never'}</td>
               <td className="px-4 py-3">
                 {policy.riskTag && (
-                  <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">
+                  <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] rounded text-xs">
                     {policy.riskTag}
                   </span>
                 )}
               </td>
               <td className="px-4 py-3">
-                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] rounded text-xs font-medium">
                   {policy.recommendation}
                 </span>
               </td>
@@ -1418,8 +1418,8 @@ function PolicyPreviewModal({
         <div className="p-6 space-y-4">
           <div>
             <h4 className="font-semibold mb-2">Removed Actions ({preview.removed.length})</h4>
-            <div className="bg-red-50 border border-red-200 rounded p-3 max-h-40 overflow-auto">
-              <pre className="text-xs text-red-700">
+            <div className="bg-[#ef444410] border border-[#ef444440] rounded p-3 max-h-40 overflow-auto">
+              <pre className="text-xs text-[#ef4444]">
                 {preview.removed.join('\n')}
               </pre>
             </div>
@@ -1477,7 +1477,7 @@ function SimulationModal({
         <div className="p-6 space-y-4">
           <div>
             <h4 className="font-semibold mb-2">Estimated Impact</h4>
-            <p className="text-sm text-gray-600">{result.estimatedImpact}</p>
+            <p className="text-sm text-[var(--muted-foreground,#4b5563)]">{result.estimatedImpact}</p>
           </div>
           <div>
             <h4 className="font-semibold mb-2">Blast Radius</h4>
@@ -1528,18 +1528,18 @@ function getRecommendationForAction(action: string): 'Remove' | 'Scope' | 'Keep'
 function getRiskColor(risk: string) {
   switch (risk) {
     case 'CRITICAL': return 'bg-red-600 text-white'
-    case 'HIGH': return 'bg-orange-500 text-white'
-    case 'MEDIUM': return 'bg-yellow-500 text-white'
+    case 'HIGH': return 'bg-[#f9731610]0 text-white'
+    case 'MEDIUM': return 'bg-[#eab30810]0 text-white'
     default: return 'bg-gray-500 text-white'
   }
 }
 
 function getConfidenceColor(confidence: string) {
   switch (confidence) {
-    case 'HIGH': return 'bg-green-100 text-green-700 border-green-300'
-    case 'MEDIUM': return 'bg-yellow-100 text-yellow-700 border-yellow-300'
-    case 'LOW': return 'bg-red-100 text-red-700 border-red-300'
-    default: return 'bg-gray-100 text-gray-700 border-gray-300'
+    case 'HIGH': return 'bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]'
+    case 'MEDIUM': return 'bg-[#eab30820] text-[#eab308] border-yellow-300'
+    case 'LOW': return 'bg-[#ef444420] text-[#ef4444] border-[#ef444440]'
+    default: return 'bg-gray-100 text-[var(--foreground,#374151)] border-[var(--border,#d1d5db)]'
   }
 }
 

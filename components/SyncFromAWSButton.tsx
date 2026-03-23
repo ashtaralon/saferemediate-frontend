@@ -200,7 +200,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
       <button
         onClick={handleSync}
         disabled={loading}
-        className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+        className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
       >
         {loading ? (
           <>
@@ -217,12 +217,12 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
 
       {/* Progress indicator while syncing */}
       {loading && status && (
-        <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+        <div className="p-3 rounded-lg bg-[#3b82f610] border border-[#3b82f640]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-blue-800">
+            <span className="text-sm font-medium text-[#3b82f6]">
               Step {status.current_step}/{status.total_steps}: {currentStepLabel}
             </span>
-            <span className="text-sm text-blue-600">{progressPercent}%</span>
+            <span className="text-sm text-[#3b82f6]">{progressPercent}%</span>
           </div>
           <div className="w-full bg-blue-200 rounded-full h-2">
             <div
@@ -230,7 +230,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <p className="text-xs text-blue-600 mt-2">
+          <p className="text-xs text-[#3b82f6] mt-2">
             This may take several minutes. You can leave this page and come back.
           </p>
         </div>
@@ -240,8 +240,8 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
         <div
           className={`p-3 rounded-lg text-sm ${
             result.success
-              ? "bg-green-50 text-green-800 border border-green-200"
-              : "bg-red-50 text-red-800 border border-red-200"
+              ? "bg-[#22c55e10] text-[#22c55e] border border-[#22c55e40]"
+              : "bg-[#ef444410] text-[#ef4444] border border-[#ef444440]"
           }`}
         >
           <div className="flex items-center gap-2">

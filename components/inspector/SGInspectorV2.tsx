@@ -211,8 +211,8 @@ export function SGInspectorV2({
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center">
-        <RefreshCw className="w-6 h-6 animate-spin text-gray-400 mr-2" />
-        <span className="text-gray-600">Loading Security Group data...</span>
+        <RefreshCw className="w-6 h-6 animate-spin text-[var(--muted-foreground,#9ca3af)] mr-2" />
+        <span className="text-[var(--muted-foreground,#4b5563)]">Loading Security Group data...</span>
       </div>
     )
   }
@@ -221,13 +221,13 @@ export function SGInspectorV2({
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-          <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-          <p className="text-red-700 font-medium">Error Loading Inspector</p>
-          <p className="text-red-600 text-sm mt-1">{error}</p>
+        <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4 text-center">
+          <AlertTriangle className="w-8 h-8 text-[#ef4444] mx-auto mb-2" />
+          <p className="text-[#ef4444] font-medium">Error Loading Inspector</p>
+          <p className="text-[#ef4444] text-sm mt-1">{error}</p>
           <button
             onClick={fetchData}
-            className="mt-3 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm"
+            className="mt-3 px-4 py-2 bg-[#ef444420] hover:bg-red-200 text-[#ef4444] rounded-lg text-sm"
           >
             Retry
           </button>
@@ -242,15 +242,15 @@ export function SGInspectorV2({
   const hasRecommendations = data.recommendations && data.recommendations.length > 0
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-xl shadow-sm border border-[var(--border,#e5e7eb)] overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <Shield className="w-6 h-6 text-blue-600" />
+            <Shield className="w-6 h-6 text-[#3b82f6]" />
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{data.sg_name}</h2>
-              <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+              <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.sg_name}</h2>
+              <div className="flex items-center gap-2 mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
                 <span>Security Group</span>
                 {data.system_name && (
                   <>
@@ -269,24 +269,24 @@ export function SGInspectorV2({
           </div>
           <div className="flex items-center gap-2">
             {isHealthy ? (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#22c55e20] text-[#22c55e] rounded-full text-sm font-medium">
                 <CheckCircle className="w-4 h-4" />
                 Healthy
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#f9731620] text-[#f97316] rounded-full text-sm font-medium">
                 <AlertTriangle className="w-4 h-4" />
                 {data.gap_count} Gap{data.gap_count > 1 ? 's' : ''}
               </span>
             )}
             {onClose && (
               <button onClick={onClose} className="p-1 hover:bg-gray-200 rounded">
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />
               </button>
             )}
           </div>
         </div>
-        <div className="mt-2 text-xs text-gray-400">
+        <div className="mt-2 text-xs text-[var(--muted-foreground,#9ca3af)]">
           Last updated: {formatRelativeTime(data.last_updated)}
         </div>
       </div>
@@ -296,20 +296,20 @@ export function SGInspectorV2({
         <div
           className={`mx-6 mt-4 p-4 rounded-lg border-2 flex items-start gap-3 ${
             orphanStatus.severity === 'CRITICAL'
-              ? 'bg-red-50 border-red-500'
-              : 'bg-amber-50 border-amber-500'
+              ? 'bg-[#ef444410] border-red-500'
+              : 'bg-[#f9731610] border-amber-500'
           }`}
         >
           <AlertTriangle
             className={`w-6 h-6 flex-shrink-0 ${
-              orphanStatus.severity === 'CRITICAL' ? 'text-red-600' : 'text-amber-600'
+              orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
             }`}
           />
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span
                 className={`px-2 py-0.5 rounded text-xs font-bold text-white ${
-                  orphanStatus.severity === 'CRITICAL' ? 'bg-red-600' : 'bg-amber-500'
+                  orphanStatus.severity === 'CRITICAL' ? 'bg-red-600' : 'bg-[#f9731610]0'
                 }`}
               >
                 {orphanStatus.severity} - ORPHAN SG
@@ -317,14 +317,14 @@ export function SGInspectorV2({
             </div>
             <p
               className={`font-medium ${
-                orphanStatus.severity === 'CRITICAL' ? 'text-red-800' : 'text-amber-800'
+                orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
               }`}
             >
               {orphanStatus.message}
             </p>
             <p
               className={`text-sm mt-1 ${
-                orphanStatus.severity === 'CRITICAL' ? 'text-red-700' : 'text-amber-700'
+                orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
               }`}
             >
               This Security Group has {orphanStatus.attachment_count} attachments.
@@ -337,14 +337,14 @@ export function SGInspectorV2({
       )}
 
       {/* Configured Rules */}
-      <div className="px-6 py-4 border-b border-gray-100">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+        <h3 className="text-sm font-semibold text-[var(--foreground,#374151)] mb-3 uppercase tracking-wide">
           Configured Inbound Rules ({data.summary.total_rules})
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-500 border-b border-gray-100">
+              <tr className="text-left text-[var(--muted-foreground,#6b7280)] border-b border-[var(--border,#f3f4f6)]">
                 <th className="pb-2 font-medium">Port</th>
                 <th className="pb-2 font-medium">Source</th>
                 <th className="pb-2 font-medium">Status</th>
@@ -355,9 +355,9 @@ export function SGInspectorV2({
               {data.configured_rules.map((rule, idx) => (
                 <tr key={idx} className="border-b border-gray-50 last:border-0">
                   <td className="py-3">
-                    <div className="font-mono text-gray-900">{rule.port_display}</div>
+                    <div className="font-mono text-[var(--foreground,#111827)]">{rule.port_display}</div>
                     {rule.port_name && (
-                      <div className="text-xs text-gray-400">({rule.port_name})</div>
+                      <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">({rule.port_name})</div>
                     )}
                   </td>
                   <td className="py-3">
@@ -365,40 +365,40 @@ export function SGInspectorV2({
                       {rule.is_public ? (
                         <Globe className="w-4 h-4 text-orange-500" />
                       ) : (
-                        <Server className="w-4 h-4 text-gray-400" />
+                        <Server className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                       )}
                       <div>
-                        <div className="font-mono text-gray-900">{formatSource(rule)}</div>
-                        <div className="text-xs text-gray-400">{formatSourceLabel(rule)}</div>
+                        <div className="font-mono text-[var(--foreground,#111827)]">{formatSource(rule)}</div>
+                        <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">{formatSourceLabel(rule)}</div>
                       </div>
                     </div>
                   </td>
                   <td className="py-3">
                     {rule.status === 'used' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-medium">
                         <CheckCircle className="w-3 h-3" />
                         Used
                       </span>
                     )}
                     {rule.status === 'unused' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-medium">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f9731620] text-[#f97316] rounded text-xs font-medium">
                         <AlertTriangle className="w-3 h-3" />
                         Unused
                       </span>
                     )}
                     {rule.status === 'unknown' && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-medium">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-[var(--muted-foreground,#4b5563)] rounded text-xs font-medium">
                         <HelpCircle className="w-3 h-3" />
                         Unknown
                       </span>
                     )}
                   </td>
                   <td className="py-3 text-right">
-                    <div className="font-medium text-gray-900">
+                    <div className="font-medium text-[var(--foreground,#111827)]">
                       {rule.flow_count.toLocaleString()}
                     </div>
                     {rule.last_seen && (
-                      <div className="text-xs text-gray-400">
+                      <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">
                         {formatRelativeTime(rule.last_seen)}
                       </div>
                     )}
@@ -412,14 +412,14 @@ export function SGInspectorV2({
 
       {/* Top Source IPs - only show if there's data */}
       {data.top_source_ips && data.top_source_ips.length > 0 && (
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
+        <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+          <h3 className="text-sm font-semibold text-[var(--foreground,#374151)] mb-3 uppercase tracking-wide">
             Top Source IPs (VPC Flow Logs, {data.evidence?.flow_logs?.window_days ?? 0}d)
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-500 border-b border-gray-100">
+                <tr className="text-left text-[var(--muted-foreground,#6b7280)] border-b border-[var(--border,#f3f4f6)]">
                   <th className="pb-2 font-medium">Source IP</th>
                   <th className="pb-2 font-medium text-right">Flows</th>
                   <th className="pb-2 font-medium text-right">Last Seen</th>
@@ -428,11 +428,11 @@ export function SGInspectorV2({
               <tbody>
                 {data.top_source_ips.slice(0, 10).map((src, idx) => (
                   <tr key={idx} className="border-b border-gray-50 last:border-0">
-                    <td className="py-2 font-mono text-gray-900">{src.ip}</td>
-                    <td className="py-2 text-right text-gray-900">
+                    <td className="py-2 font-mono text-[var(--foreground,#111827)]">{src.ip}</td>
+                    <td className="py-2 text-right text-[var(--foreground,#111827)]">
                       {src.flow_count.toLocaleString()}
                     </td>
-                    <td className="py-2 text-right text-gray-500">
+                    <td className="py-2 text-right text-[var(--muted-foreground,#6b7280)]">
                       {formatRelativeTime(src.last_seen)}
                     </td>
                   </tr>
@@ -441,7 +441,7 @@ export function SGInspectorV2({
             </table>
           </div>
           {data.unique_source_count > 10 && (
-            <div className="mt-2 text-xs text-gray-400">
+            <div className="mt-2 text-xs text-[var(--muted-foreground,#9ca3af)]">
               +{data.unique_source_count - 10} more unique sources
             </div>
           )}
@@ -450,14 +450,14 @@ export function SGInspectorV2({
 
       {/* Recommendations - only show if there are actual gaps */}
       {hasRecommendations && (
-        <div className="px-6 py-4 border-b border-gray-100 bg-orange-50">
-          <h3 className="text-sm font-semibold text-orange-700 mb-3 uppercase tracking-wide flex items-center gap-2">
+        <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)] bg-[#f9731610]">
+          <h3 className="text-sm font-semibold text-[#f97316] mb-3 uppercase tracking-wide flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             Recommended Tightening
           </h3>
           <ul className="space-y-2">
             {data.recommendations?.map((rec, idx) => (
-              <li key={idx} className="text-sm text-orange-800">
+              <li key={idx} className="text-sm text-[#f97316]">
                 • {rec.rule_summary} — <span className="text-orange-600">{rec.reason}</span>
               </li>
             ))}
@@ -466,20 +466,20 @@ export function SGInspectorV2({
       )}
 
       {/* Evidence */}
-      <div className="px-6 py-3 bg-gray-50 text-xs text-gray-500">
+      <div className="px-6 py-3 bg-gray-50 text-xs text-[var(--muted-foreground,#6b7280)]">
         <div className="flex items-center gap-2">
           <Clock className="w-3 h-3" />
           Evidence: {data.evidence?.flow_logs?.available ? (
-            <span className="text-green-600">✓ Flow Logs ({data.evidence.flow_logs.window_days} day window)</span>
+            <span className="text-[#22c55e]">✓ Flow Logs ({data.evidence.flow_logs.window_days} day window)</span>
           ) : (
-            <span className="text-gray-400">No Flow Logs available</span>
+            <span className="text-[var(--muted-foreground,#9ca3af)]">No Flow Logs available</span>
           )}
         </div>
       </div>
 
       {/* Footer Actions */}
-      <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-        <div className="text-xs text-gray-400">
+      <div className="px-6 py-4 border-t border-[var(--border,#e5e7eb)] bg-gray-50 flex items-center justify-between">
+        <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">
           {data.sg_id} • {data.vpc_id}
         </div>
         <div className="flex items-center gap-2">
@@ -494,7 +494,7 @@ export function SGInspectorV2({
           )}
           <button
             onClick={handleExport}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium flex items-center gap-2"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-[var(--foreground,#374151)] rounded-lg text-sm font-medium flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
             Export
@@ -502,7 +502,7 @@ export function SGInspectorV2({
           {onClose && (
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-[var(--foreground,#374151)] rounded-lg text-sm font-medium"
             >
               Close
             </button>

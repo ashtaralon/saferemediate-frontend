@@ -335,16 +335,16 @@ export default function SimulationResultsModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Simulation Results</h2>
-            <p className="text-sm text-gray-600 mt-1">
+            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
+            <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
               Analyzing: <strong>{resourceName}</strong> ({resourceType})
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)] transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
@@ -355,9 +355,9 @@ export default function SimulationResultsModal({
           {loading && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-indigo-600" />
-                <p className="text-lg font-medium text-gray-900 mb-2">Running Simulation...</p>
-                <p className="text-sm text-gray-500">
+                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-[#8b5cf6]" />
+                <p className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">Running Simulation...</p>
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
                   Building virtual infrastructure replica and computing blast radius...
                 </p>
               </div>
@@ -365,12 +365,12 @@ export default function SimulationResultsModal({
           )}
 
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <div className="rounded-lg border border-[#ef444440] bg-[#ef444410] p-4">
               <div className="flex items-start gap-3">
-                <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
                 <div>
                   <h3 className="font-semibold text-red-900 mb-1">Simulation Error</h3>
-                  <p className="text-sm text-red-700">{error}</p>
+                  <p className="text-sm text-[#ef4444]">{error}</p>
                   <button
                     onClick={runSimulation}
                     className="mt-3 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
@@ -386,17 +386,17 @@ export default function SimulationResultsModal({
             <>
               {/* Timeout Warning */}
               {result.timeout && result.timeout_status && (
-                <div className="rounded-lg border-2 border-orange-300 bg-orange-50 p-4">
+                <div className="rounded-lg border-2 border-orange-300 bg-[#f9731610] p-4">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <h3 className="font-semibold text-orange-900 mb-1">⚠️ REVIEW REQUIRED</h3>
-                      <p className="text-sm text-orange-800 mb-2">{result.timeout_status.message}</p>
-                      <p className="text-xs text-orange-700">
+                      <p className="text-sm text-[#f97316] mb-2">{result.timeout_status.message}</p>
+                      <p className="text-xs text-[#f97316]">
                         Reason: {result.timeout_status.reason}
                       </p>
                       {result.timeout_status.action_policy && (
-                        <p className="text-xs text-orange-700 mt-1">
+                        <p className="text-xs text-[#f97316] mt-1">
                           Action Policy: <strong>{result.timeout_status.action_policy}</strong>
                         </p>
                       )}
@@ -406,7 +406,7 @@ export default function SimulationResultsModal({
               )}
 
               {/* Tabs */}
-              <div className="border-b border-gray-200">
+              <div className="border-b border-[var(--border,#e5e7eb)]">
                 <div className="flex gap-4">
                   {[
                     { id: 'summary', label: 'Summary' },
@@ -419,8 +419,8 @@ export default function SimulationResultsModal({
                       onClick={() => setActiveTab(tab.id as any)}
                       className={`px-4 py-2 border-b-2 font-medium text-sm ${
                         activeTab === tab.id
-                          ? 'border-indigo-600 text-indigo-600'
-                          : 'border-transparent text-gray-600 hover:text-gray-900'
+                          ? 'border-indigo-600 text-[#8b5cf6]'
+                          : 'border-transparent text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)]'
                       }`}
                     >
                       {tab.label}
@@ -483,29 +483,29 @@ export default function SimulationResultsModal({
                     </div>
 
                     {/* Blast Radius */}
-                    <div className="rounded-lg p-4 border border-gray-200 bg-white">
+                    <div className="rounded-lg p-4 border border-[var(--border,#e5e7eb)] bg-white">
                       <div className="flex items-center gap-2 mb-2">
                         <AlertTriangle className="w-5 h-5 text-orange-600" />
-                        <div className="text-sm text-gray-600">Blast Radius</div>
+                        <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Blast Radius</div>
                       </div>
-                      <div className="text-3xl font-bold text-gray-900">{blastRadius.level}</div>
-                      <div className="text-xs text-gray-500 mt-1">
+                      <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{blastRadius.level}</div>
+                      <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                         {blastRadius.affected_resources_count} resources affected
                       </div>
                     </div>
                   </div>
 
                   {/* Confidence Criteria */}
-                  <div className="rounded-lg border border-gray-200 bg-white p-4">
-                    <h3 className="font-semibold text-gray-900 mb-3">Confidence Criteria</h3>
+                  <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                    <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Confidence Criteria</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {confidence.criteria_met.length > 0 && (
                         <div>
-                          <div className="text-sm font-medium text-green-700 mb-2">✓ Criteria Met</div>
+                          <div className="text-sm font-medium text-[#22c55e] mb-2">✓ Criteria Met</div>
                           <ul className="space-y-1">
                             {confidence.criteria_met.map((criterion, idx) => (
-                              <li key={idx} className="text-xs text-gray-700 flex items-center gap-2">
-                                <CheckCircle2 className="w-3 h-3 text-green-600" />
+                              <li key={idx} className="text-xs text-[var(--foreground,#374151)] flex items-center gap-2">
+                                <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />
                                 {criterion}
                               </li>
                             ))}
@@ -514,11 +514,11 @@ export default function SimulationResultsModal({
                       )}
                       {confidence.criteria_failed.length > 0 && (
                         <div>
-                          <div className="text-sm font-medium text-red-700 mb-2">✗ Criteria Failed</div>
+                          <div className="text-sm font-medium text-[#ef4444] mb-2">✗ Criteria Failed</div>
                           <ul className="space-y-1">
                             {confidence.criteria_failed.map((criterion, idx) => (
-                              <li key={idx} className="text-xs text-gray-700 flex items-center gap-2">
-                                <XCircle className="w-3 h-3 text-red-600" />
+                              <li key={idx} className="text-xs text-[var(--foreground,#374151)] flex items-center gap-2">
+                                <XCircle className="w-3 h-3 text-[#ef4444]" />
                                 {criterion}
                               </li>
                             ))}
@@ -527,11 +527,11 @@ export default function SimulationResultsModal({
                       )}
                     </div>
                     {confidence.disqualifiers_triggered.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <div className="text-sm font-medium text-orange-700 mb-2">⚠️ Disqualifiers Triggered</div>
+                      <div className="mt-4 pt-4 border-t border-[var(--border,#e5e7eb)]">
+                        <div className="text-sm font-medium text-[#f97316] mb-2">⚠️ Disqualifiers Triggered</div>
                         <ul className="space-y-1">
                           {confidence.disqualifiers_triggered.map((dq, idx) => (
-                            <li key={idx} className="text-xs text-gray-700 flex items-center gap-2">
+                            <li key={idx} className="text-xs text-[var(--foreground,#374151)] flex items-center gap-2">
                               <AlertTriangle className="w-3 h-3 text-orange-600" />
                               {dq}
                             </li>
@@ -543,30 +543,30 @@ export default function SimulationResultsModal({
 
                   {/* Action Policy */}
                   {result.action_policy && (
-                    <div className="rounded-lg border border-gray-200 bg-white p-4">
-                      <h3 className="font-semibold text-gray-900 mb-3">Action Policy</h3>
+                    <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                      <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Action Policy</h3>
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-700">Auto-Apply Allowed:</span>
-                          <span className={`text-sm font-medium ${result.action_policy.auto_apply ? 'text-green-600' : 'text-red-600'}`}>
+                          <span className="text-sm text-[var(--foreground,#374151)]">Auto-Apply Allowed:</span>
+                          <span className={`text-sm font-medium ${result.action_policy.auto_apply ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
                             {result.action_policy.auto_apply ? 'Yes' : 'No'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-700">Allowed Actions:</span>
+                          <span className="text-sm text-[var(--foreground,#374151)]">Allowed Actions:</span>
                           <div className="flex gap-2">
                             {result.action_policy.allowed_actions.map((action, idx) => (
-                              <span key={idx} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                              <span key={idx} className="px-2 py-1 bg-gray-100 text-[var(--foreground,#374151)] rounded text-xs">
                                 {action}
                               </span>
                             ))}
                           </div>
                         </div>
-                        <div className="text-sm text-gray-600 mt-2">
+                        <div className="text-sm text-[var(--muted-foreground,#4b5563)] mt-2">
                           <strong>Reason:</strong> {result.action_policy.reason}
                         </div>
                         {result.action_policy.issue_type && (
-                          <div className="text-xs text-gray-500 mt-1">
+                          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                             Issue Type: {result.action_policy.issue_type}
                           </div>
                         )}
@@ -576,19 +576,19 @@ export default function SimulationResultsModal({
 
                   {/* Recommendation */}
                   <div className={`rounded-lg p-4 border-2 ${
-                    result.status === 'EXECUTE' ? 'bg-green-50 border-green-200' :
-                    result.status === 'CANARY' ? 'bg-yellow-50 border-yellow-200' :
-                    result.status === 'REVIEW' ? 'bg-orange-50 border-orange-200' :
-                    'bg-red-50 border-red-200'
+                    result.status === 'EXECUTE' ? 'bg-[#22c55e10] border-[#22c55e40]' :
+                    result.status === 'CANARY' ? 'bg-[#eab30810] border-[#eab30840]' :
+                    result.status === 'REVIEW' ? 'bg-[#f9731610] border-[#f9731640]' :
+                    'bg-[#ef444410] border-[#ef444440]'
                   }`}>
                     <div className="flex items-start gap-3">
-                      {result.status === 'EXECUTE' && <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />}
+                      {result.status === 'EXECUTE' && <CheckCircle2 className="w-6 h-6 text-[#22c55e] flex-shrink-0 mt-0.5" />}
                       {result.status === 'CANARY' && <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />}
                       {result.status === 'REVIEW' && <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />}
-                      {result.status === 'BLOCKED' && <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />}
+                      {result.status === 'BLOCKED' && <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />}
                       <div>
-                        <div className="font-semibold text-gray-900 mb-1">Recommendation</div>
-                        <p className="text-sm text-gray-700">{result.recommendation}</p>
+                        <div className="font-semibold text-[var(--foreground,#111827)] mb-1">Recommendation</div>
+                        <p className="text-sm text-[var(--foreground,#374151)]">{result.recommendation}</p>
                       </div>
                     </div>
                   </div>
@@ -600,48 +600,48 @@ export default function SimulationResultsModal({
                 <div className="space-y-4">
                   {result.simulation_steps && result.simulation_steps.length > 0 ? (
                     result.simulation_steps.map((step, idx) => (
-                    <div key={idx} className="border border-gray-200 rounded-lg p-4">
+                    <div key={idx} className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                            step.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
-                            step.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
-                            step.status === 'FAILED' ? 'bg-red-100 text-red-700' :
-                            step.status === 'SKIPPED' ? 'bg-gray-100 text-gray-700' :
-                            'bg-gray-100 text-gray-500'
+                            step.status === 'COMPLETED' ? 'bg-[#22c55e20] text-[#22c55e]' :
+                            step.status === 'IN_PROGRESS' ? 'bg-[#3b82f620] text-[#3b82f6]' :
+                            step.status === 'FAILED' ? 'bg-[#ef444420] text-[#ef4444]' :
+                            step.status === 'SKIPPED' ? 'bg-gray-100 text-[var(--foreground,#374151)]' :
+                            'bg-gray-100 text-[var(--muted-foreground,#6b7280)]'
                           }`}>
                             {step.step_number}
                           </div>
                           <div>
-                            <div className="font-semibold text-gray-900">{step.name}</div>
-                            <div className="text-sm text-gray-600">{step.description}</div>
+                            <div className="font-semibold text-[var(--foreground,#111827)]">{step.name}</div>
+                            <div className="text-sm text-[var(--muted-foreground,#4b5563)]">{step.description}</div>
                           </div>
                         </div>
                         <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          step.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
-                          step.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
-                          step.status === 'FAILED' ? 'bg-red-100 text-red-700' :
-                          step.status === 'SKIPPED' ? 'bg-gray-100 text-gray-700' :
-                          'bg-gray-100 text-gray-500'
+                          step.status === 'COMPLETED' ? 'bg-[#22c55e20] text-[#22c55e]' :
+                          step.status === 'IN_PROGRESS' ? 'bg-[#3b82f620] text-[#3b82f6]' :
+                          step.status === 'FAILED' ? 'bg-[#ef444420] text-[#ef4444]' :
+                          step.status === 'SKIPPED' ? 'bg-gray-100 text-[var(--foreground,#374151)]' :
+                          'bg-gray-100 text-[var(--muted-foreground,#6b7280)]'
                         }`}>
                           {step.status}
                         </div>
                       </div>
                       {step.duration_ms && (
-                        <div className="text-xs text-gray-500 mt-2">
+                        <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">
                           Duration: {step.duration_ms}ms
                         </div>
                       )}
                       {step.error && (
-                        <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded">
+                        <div className="mt-2 text-xs text-[#ef4444] bg-[#ef444410] p-2 rounded">
                           Error: {step.error}
                         </div>
                       )}
                     </div>
                   ))
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
+                      <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-[var(--muted-foreground,#9ca3af)]" />
                       <p>No simulation steps available</p>
                       <p className="text-xs mt-1">Simulation steps will appear here once the analysis is complete</p>
                     </div>
@@ -655,42 +655,42 @@ export default function SimulationResultsModal({
                   {result.evidence && (
                     <>
                       {result.evidence.cloudtrail && (
-                        <div className="border border-gray-200 rounded-lg p-4">
-                          <h3 className="font-semibold text-gray-900 mb-3">CloudTrail Evidence</h3>
+                        <div className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
+                          <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">CloudTrail Evidence</h3>
                           <div className="grid grid-cols-2 gap-4">
                             <div>
-                              <div className="text-sm text-gray-600">Total Events</div>
-                              <div className="text-lg font-bold text-gray-900">{result.evidence.cloudtrail.total_events}</div>
+                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Events</div>
+                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.cloudtrail.total_events}</div>
                             </div>
                             <div>
-                              <div className="text-sm text-gray-600">Matched Events</div>
-                              <div className="text-lg font-bold text-gray-900">{result.evidence.cloudtrail.matched_events}</div>
+                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Matched Events</div>
+                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.cloudtrail.matched_events}</div>
                             </div>
                             {result.evidence.cloudtrail.days_since_last_use !== undefined && (
                               <div>
-                                <div className="text-sm text-gray-600">Days Since Last Use</div>
-                                <div className="text-lg font-bold text-gray-900">{result.evidence.cloudtrail.days_since_last_use}</div>
+                                <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Days Since Last Use</div>
+                                <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.cloudtrail.days_since_last_use}</div>
                               </div>
                             )}
                           </div>
                           {result.evidence.cloudtrail.matched_events === 0 && (
-                            <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                            <div className="mt-3 p-2 bg-[#22c55e10] border border-[#22c55e40] rounded text-xs text-[#22c55e]">
                               ✅ No usage detected - HIGH confidence this is safe to remove
                             </div>
                           )}
                         </div>
                       )}
                       {result.evidence.flowlogs && (
-                        <div className="border border-gray-200 rounded-lg p-4">
-                          <h3 className="font-semibold text-gray-900 mb-3">VPC Flow Logs Evidence</h3>
+                        <div className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
+                          <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">VPC Flow Logs Evidence</h3>
                           <div className="grid grid-cols-2 gap-4">
                             <div>
-                              <div className="text-sm text-gray-600">Total Flows</div>
-                              <div className="text-lg font-bold text-gray-900">{result.evidence.flowlogs.total_flows}</div>
+                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Flows</div>
+                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.flowlogs.total_flows}</div>
                             </div>
                             <div>
-                              <div className="text-sm text-gray-600">Matched Flows</div>
-                              <div className="text-lg font-bold text-gray-900">{result.evidence.flowlogs.matched_flows}</div>
+                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Matched Flows</div>
+                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.flowlogs.matched_flows}</div>
                             </div>
                           </div>
                         </div>
@@ -698,14 +698,14 @@ export default function SimulationResultsModal({
                     </>
                   )}
                   {!result.evidence && (
-                    <div className="text-sm text-gray-500 text-center py-4">No evidence data available</div>
+                    <div className="text-sm text-[var(--muted-foreground,#6b7280)] text-center py-4">No evidence data available</div>
                   )}
                   {result.human_readable_evidence && result.human_readable_evidence.length > 0 && (
-                    <div className="border border-gray-200 rounded-lg p-4">
-                      <h3 className="font-semibold text-gray-900 mb-3">Human-Readable Evidence</h3>
+                    <div className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
+                      <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Human-Readable Evidence</h3>
                       <ul className="space-y-2">
                         {result.human_readable_evidence.map((evidence, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                          <li key={idx} className="text-sm text-[var(--foreground,#374151)] flex items-start gap-2">
                             <span className="mt-0.5">•</span>
                             <span>{evidence}</span>
                           </li>
@@ -721,11 +721,11 @@ export default function SimulationResultsModal({
                 <div className="space-y-4">
                   {result.edge_cases && result.edge_cases.length > 0 ? (
                     result.edge_cases.map((edgeCase, idx) => (
-                      <div key={idx} className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+                      <div key={idx} className="border border-[#f9731640] rounded-lg p-4 bg-[#f9731610]">
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <div className="font-semibold text-orange-900">{edgeCase.description}</div>
-                            <div className="text-sm text-orange-700 mt-1">Case ID: {edgeCase.case_id}</div>
+                            <div className="text-sm text-[#f97316] mt-1">Case ID: {edgeCase.case_id}</div>
                           </div>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             edgeCase.severity === 'CRITICAL' ? 'bg-red-600 text-white' :
@@ -736,15 +736,15 @@ export default function SimulationResultsModal({
                           </span>
                         </div>
                         {edgeCase.action && (
-                          <div className="text-sm text-orange-800 mt-2">
+                          <div className="text-sm text-[#f97316] mt-2">
                             <strong>Action:</strong> {edgeCase.action}
                           </div>
                         )}
                       </div>
                     ))
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <CheckCircle2 className="w-12 h-12 mx-auto mb-2 text-green-500" />
+                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
+                      <CheckCircle2 className="w-12 h-12 mx-auto mb-2 text-[#22c55e]" />
                       <p>No edge cases detected</p>
                     </div>
                   )}
@@ -752,11 +752,11 @@ export default function SimulationResultsModal({
               )}
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--border,#e5e7eb)]">
                 <button
                   onClick={onClose}
                   disabled={isExecuting}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
+                  className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-md text-[var(--foreground,#374151)] hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
                 >
                   Close
                 </button>
@@ -801,7 +801,7 @@ export default function SimulationResultsModal({
                       onClick={() => {
                         alert('Request Approval - Coming soon')
                       }}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm font-medium flex items-center gap-2"
+                      className="px-4 py-2 bg-[#8b5cf6] text-white rounded-md hover:bg-[#7c3aed] text-sm font-medium flex items-center gap-2"
                     >
                       <Send className="w-4 h-4" />
                       Request Approval

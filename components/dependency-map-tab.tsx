@@ -504,7 +504,7 @@ export default function DependencyMapTab({
               onClick={() => setActiveView('flows')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeView === 'flows'
-                  ? 'bg-indigo-600 text-white shadow-sm'
+                  ? 'bg-[#8b5cf6] text-white shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -568,7 +568,7 @@ export default function DependencyMapTab({
                 onClick={() => handleGraphEngineChange('neo4j')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   graphEngine === 'neo4j'
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow-sm'
+                    ? 'bg-white text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="Neo4j Map - Real-time animated data flows from Neo4j database"
@@ -596,7 +596,7 @@ export default function DependencyMapTab({
                     setSearchQuery(searchInput)
                   }
                 }}
-                className="pl-9 pr-4 py-2 w-48 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="pl-9 pr-4 py-2 w-48 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] focus:border-transparent"
               />
             </div>
             <button
@@ -643,7 +643,7 @@ export default function DependencyMapTab({
             <button
               onClick={handleSyncFromAWS}
               disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
             >
               {syncing ? (
                 <>
@@ -660,21 +660,21 @@ export default function DependencyMapTab({
 
             {/* Progress indicator */}
             {syncing && syncProgress && (
-              <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-2 bg-[#3b82f610] px-3 py-1.5 rounded-lg border border-[#3b82f640]">
                 <div className="w-24 bg-blue-200 rounded-full h-2">
                   <div
                     className="bg-blue-600 h-2 rounded-full transition-all duration-500"
                     style={{ width: `${syncProgress.percent}%` }}
                   />
                 </div>
-                <span className="text-xs text-blue-700 font-medium whitespace-nowrap">
+                <span className="text-xs text-[#3b82f6] font-medium whitespace-nowrap">
                   {syncProgress.step}/{syncProgress.total}
                 </span>
               </div>
             )}
 
             {syncMessage && (
-              <div className={`flex items-center gap-1.5 text-sm ${syncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`flex items-center gap-1.5 text-sm ${syncMessage.type === 'success' ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
                 {syncMessage.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
                 <span>{syncMessage.text}</span>
               </div>

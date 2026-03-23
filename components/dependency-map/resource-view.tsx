@@ -327,9 +327,9 @@ function createBehavioralBuckets(connections: Connection[]): BehavioralBucket[] 
       label: 'External API Services',
       description: 'Verified HTTPS to AWS/APIs',
       icon: Lock,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-      borderColor: 'border-emerald-300',
+      color: 'text-[#10b981]',
+      bgColor: 'bg-[#10b98110]',
+      borderColor: 'border-[#10b98140]',
       riskLevel: 'low',
     },
     {
@@ -337,9 +337,9 @@ function createBehavioralBuckets(connections: Connection[]): BehavioralBucket[] 
       label: 'Anomalous / Unverified',
       description: 'Unusual ports or unverified traffic',
       icon: AlertTriangle,
-      color: 'text-amber-600',
-      bgColor: 'bg-amber-50',
-      borderColor: 'border-amber-300',
+      color: 'text-[#f97316]',
+      bgColor: 'bg-[#f9731610]',
+      borderColor: 'border-[#f9731640]',
       riskLevel: 'medium',
     },
     {
@@ -392,9 +392,9 @@ function createBehavioralBuckets(connections: Connection[]): BehavioralBucket[] 
 function getHeatColor(hits: number, maxHits: number): string {
   if (maxHits === 0) return 'bg-slate-100'
   const ratio = hits / maxHits
-  if (ratio > 0.75) return 'bg-red-100'
-  if (ratio > 0.5) return 'bg-orange-100'
-  if (ratio > 0.25) return 'bg-yellow-100'
+  if (ratio > 0.75) return 'bg-[#ef444420]'
+  if (ratio > 0.5) return 'bg-[#f9731620]'
+  if (ratio > 0.25) return 'bg-[#eab30820]'
   return 'bg-slate-50'
 }
 
@@ -402,20 +402,20 @@ function getHeatColor(hits: number, maxHits: number): string {
 function InsightBadge({ type, message }: { type: 'healthy' | 'anomaly' | 'critical' | 'info'; message?: string }) {
   const configs = {
     healthy: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
+      bg: 'bg-[#22c55e20]',
+      text: 'text-[#22c55e]',
       icon: CheckCircle,
       label: 'Healthy'
     },
     anomaly: {
-      bg: 'bg-amber-100',
-      text: 'text-amber-700',
+      bg: 'bg-[#f9731620]',
+      text: 'text-[#f97316]',
       icon: AlertTriangle,
       label: 'Anomaly'
     },
     critical: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
+      bg: 'bg-[#ef444420]',
+      text: 'text-[#ef4444]',
       icon: AlertTriangle,
       label: 'Critical'
     },
@@ -458,11 +458,11 @@ function CredentialSourceBadge({ source }: { source?: CredentialSourceType }) {
   if (!source || source === 'Unknown') return null
 
   const configs: Record<CredentialSourceType, { bg: string; text: string; icon: any; label: string }> = {
-    'AssumedRole': { bg: 'bg-purple-100', text: 'text-purple-700', icon: Shield, label: 'Assumed Role' },
-    'IAMUser': { bg: 'bg-blue-100', text: 'text-blue-700', icon: Key, label: 'IAM User' },
+    'AssumedRole': { bg: 'bg-[#8b5cf615]', text: 'text-[#7c3aed]', icon: Shield, label: 'Assumed Role' },
+    'IAMUser': { bg: 'bg-[#3b82f620]', text: 'text-[#3b82f6]', icon: Key, label: 'IAM User' },
     'AWSService': { bg: 'bg-slate-100', text: 'text-slate-600', icon: Cloud, label: 'AWS Service' },
-    'Root': { bg: 'bg-red-100', text: 'text-red-700', icon: AlertTriangle, label: 'Root Account' },
-    'FederatedUser': { bg: 'bg-orange-100', text: 'text-orange-700', icon: Globe, label: 'Federated' },
+    'Root': { bg: 'bg-[#ef444420]', text: 'text-[#ef4444]', icon: AlertTriangle, label: 'Root Account' },
+    'FederatedUser': { bg: 'bg-[#f9731620]', text: 'text-[#f97316]', icon: Globe, label: 'Federated' },
     'Unknown': { bg: 'bg-slate-100', text: 'text-slate-500', icon: Eye, label: 'Unknown' }
   }
 
@@ -483,9 +483,9 @@ function RiskScoreBadge({ score, factors }: { score?: number; factors?: RiskFact
 
   const color = score >= 60 ? 'red' : score >= 30 ? 'amber' : 'green'
   const colors = {
-    red: 'bg-red-100 text-red-700 border-red-200',
-    amber: 'bg-amber-100 text-amber-700 border-amber-200',
-    green: 'bg-green-100 text-green-700 border-green-200'
+    red: 'bg-[#ef444420] text-[#ef4444] border-[#ef444440]',
+    amber: 'bg-[#f9731620] text-[#f97316] border-[#f9731640]',
+    green: 'bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]'
   }
 
   // Build tooltip with risk factors
@@ -508,7 +508,7 @@ function RiskScoreBadge({ score, factors }: { score?: number; factors?: RiskFact
 function ConnectionCard({ conn, direction }: { conn: Connection; direction: 'inbound' | 'outbound' }) {
   const Icon = RESOURCE_ICONS[conn.type] || RESOURCE_ICONS.default
   const color = RESOURCE_COLORS[conn.type] || RESOURCE_COLORS.default
-  const borderColor = direction === 'inbound' ? 'border-green-200' : 'border-blue-200'
+  const borderColor = direction === 'inbound' ? 'border-[#22c55e40]' : 'border-[#3b82f640]'
   const hoverBorder = direction === 'inbound' ? 'hover:border-green-400' : 'hover:border-blue-400'
   const relColor = getRelationshipColor(conn.relationshipType)
 
@@ -527,7 +527,7 @@ function ConnectionCard({ conn, direction }: { conn: Connection; direction: 'inb
               {conn.name}
             </span>
             {conn.verified && (
-              <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+              <CheckCircle className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
             )}
           </div>
 
@@ -574,16 +574,16 @@ function InsightCard({ icon: IconComp, label, value, subtext, color }: {
   icon: any; label: string; value: string | number; subtext?: string; color: string
 }) {
   const bgColors: Record<string, string> = {
-    emerald: 'bg-emerald-50 border-emerald-200',
-    blue: 'bg-blue-50 border-blue-200',
+    emerald: 'bg-[#10b98110] border-[#10b98140]',
+    blue: 'bg-[#3b82f610] border-[#3b82f640]',
     violet: 'bg-violet-50 border-violet-200',
-    amber: 'bg-amber-50 border-amber-200',
+    amber: 'bg-[#f9731610] border-[#f9731640]',
   }
   const textColors: Record<string, string> = {
-    emerald: 'text-emerald-600',
-    blue: 'text-blue-600',
+    emerald: 'text-[#10b981]',
+    blue: 'text-[#3b82f6]',
     violet: 'text-violet-600',
-    amber: 'text-amber-600',
+    amber: 'text-[#f97316]',
   }
 
   return (
@@ -614,9 +614,9 @@ function BucketCard({
   const aggregated = aggregateConnections(bucket.connections)
 
   const riskColors = {
-    low: 'bg-green-500',
-    medium: 'bg-amber-500',
-    high: 'bg-red-500',
+    low: 'bg-[#22c55e10]0',
+    medium: 'bg-[#f9731610]0',
+    high: 'bg-[#ef444410]0',
   }
 
   return (
@@ -720,16 +720,16 @@ function BucketCard({
 // Stats Badge Component
 function StatBadge({ count, label, color }: { count: number; label: string; color: 'green' | 'blue' | 'purple' | 'amber' }) {
   const colors = {
-    green: 'bg-green-100 text-green-700',
-    blue: 'bg-blue-100 text-blue-700',
-    purple: 'bg-purple-100 text-purple-700',
-    amber: 'bg-amber-100 text-amber-700',
+    green: 'bg-[#22c55e20] text-[#22c55e]',
+    blue: 'bg-[#3b82f620] text-[#3b82f6]',
+    purple: 'bg-[#8b5cf615] text-[#7c3aed]',
+    amber: 'bg-[#f9731620] text-[#f97316]',
   }
   const dotColors = {
-    green: 'bg-green-500',
-    blue: 'bg-blue-500',
-    purple: 'bg-purple-500',
-    amber: 'bg-amber-500',
+    green: 'bg-[#22c55e10]0',
+    blue: 'bg-[#3b82f610]0',
+    purple: 'bg-[#8b5cf6]',
+    amber: 'bg-[#f9731610]0',
   }
 
   return (
@@ -1042,7 +1042,7 @@ export default function ResourceView({
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Resource Info Bar with Stats */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-100 to-white border-b">
+          <div className="flex items-center justify-between px-4 py-3 bg-white border-b">
             <div className="flex items-center gap-3">
               <div
                 className="w-12 h-12 rounded-xl flex items-center justify-center shadow-sm"
@@ -1147,7 +1147,7 @@ export default function ResourceView({
                 <Key className="w-3.5 h-3.5" />
                 Identity Evidence
                 {showIdentityOverlay && identityEvidence.summary.critical > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                  <span className="ml-1 px-1.5 py-0.5 bg-[#ef444410]0 text-white text-xs rounded-full">
                     {identityEvidence.summary.critical}
                   </span>
                 )}
@@ -1187,15 +1187,15 @@ export default function ResourceView({
                 <span>{behavioralBuckets.length} behavioral categories</span>
                 <span>•</span>
                 <span>{behavioralBuckets.filter(b => b.riskLevel === 'high').length > 0 ? (
-                  <span className="text-red-600 font-medium">
+                  <span className="text-[#ef4444] font-medium">
                     {behavioralBuckets.filter(b => b.riskLevel === 'high').length} high risk
                   </span>
                 ) : behavioralBuckets.filter(b => b.riskLevel === 'medium').length > 0 ? (
-                  <span className="text-amber-600 font-medium">
+                  <span className="text-[#f97316] font-medium">
                     {behavioralBuckets.filter(b => b.riskLevel === 'medium').length} needs attention
                   </span>
                 ) : (
-                  <span className="text-green-600 font-medium">All normal</span>
+                  <span className="text-[#22c55e] font-medium">All normal</span>
                 )}</span>
               </div>
             )}
@@ -1207,21 +1207,21 @@ export default function ResourceView({
                   <span className="text-slate-500">Loading identity evidence...</span>
                 ) : (
                   <>
-                    <span className="text-green-600 font-medium">
+                    <span className="text-[#22c55e] font-medium">
                       {identityEvidence.summary.healthy} Healthy
                     </span>
                     {identityEvidence.summary.anomaly > 0 && (
-                      <span className="text-amber-600 font-medium">
+                      <span className="text-[#f97316] font-medium">
                         {identityEvidence.summary.anomaly} Anomaly
                       </span>
                     )}
                     {identityEvidence.summary.critical > 0 && (
-                      <span className="text-red-600 font-medium">
+                      <span className="text-[#ef4444] font-medium">
                         {identityEvidence.summary.critical} Critical
                       </span>
                     )}
                     {identityEvidence.summary.has_root_access && (
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">
+                      <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] rounded-full font-medium">
                         Root Access Detected
                       </span>
                     )}
@@ -1245,11 +1245,11 @@ export default function ResourceView({
                     key={idx}
                     className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${
                       event.insight.type === 'critical'
-                        ? 'bg-red-50 border-red-200'
+                        ? 'bg-[#ef444410] border-[#ef444440]'
                         : event.insight.type === 'anomaly'
-                        ? 'bg-amber-50 border-amber-200'
+                        ? 'bg-[#f9731610] border-[#f9731640]'
                         : event.insight.type === 'healthy'
-                        ? 'bg-green-50 border-green-200'
+                        ? 'bg-[#22c55e10] border-[#22c55e40]'
                         : 'bg-white border-slate-200'
                     }`}
                   >
@@ -1311,12 +1311,12 @@ export default function ResourceView({
             <div className="flex-1 flex gap-4 p-4 min-h-0 overflow-hidden">
             {/* Inbound Column */}
             <div className="flex-1 flex flex-col border-2 border-green-400 rounded-xl overflow-hidden bg-white shadow-sm">
-              <div className="bg-green-50 px-4 py-2.5 border-b border-green-200 flex items-center justify-between">
+              <div className="bg-[#22c55e10] px-4 py-2.5 border-b border-[#22c55e40] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ArrowRight className="w-4 h-4 text-green-600 rotate-180" />
-                  <span className="font-semibold text-green-700">INBOUND</span>
+                  <ArrowRight className="w-4 h-4 text-[#22c55e] rotate-180" />
+                  <span className="font-semibold text-[#22c55e]">INBOUND</span>
                 </div>
-                <span className="text-sm text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                <span className="text-sm text-[#22c55e] bg-[#22c55e20] px-2 py-0.5 rounded-full">
                   {filteredInbound.length}
                 </span>
               </div>
@@ -1338,7 +1338,7 @@ export default function ResourceView({
             <div className="flex flex-col items-center justify-center px-4">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-6 border-t-2 border-dashed border-green-400" />
-                <ArrowRight className="w-5 h-5 text-green-500" />
+                <ArrowRight className="w-5 h-5 text-[#22c55e]" />
               </div>
 
               <div
@@ -1363,12 +1363,12 @@ export default function ResourceView({
 
             {/* Outbound Column */}
             <div className="flex-1 flex flex-col border-2 border-blue-400 rounded-xl overflow-hidden bg-white shadow-sm">
-              <div className="bg-blue-50 px-4 py-2.5 border-b border-blue-200 flex items-center justify-between">
+              <div className="bg-[#3b82f610] px-4 py-2.5 border-b border-[#3b82f640] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ArrowRight className="w-4 h-4 text-blue-600" />
-                  <span className="font-semibold text-blue-700">OUTBOUND</span>
+                  <ArrowRight className="w-4 h-4 text-[#3b82f6]" />
+                  <span className="font-semibold text-[#3b82f6]">OUTBOUND</span>
                 </div>
-                <span className="text-sm text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                <span className="text-sm text-[#3b82f6] bg-[#3b82f620] px-2 py-0.5 rounded-full">
                   {filteredOutbound.length}
                 </span>
               </div>
@@ -1400,7 +1400,7 @@ export default function ResourceView({
                   placeholder="Search connections..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="pl-8 pr-3 py-1.5 border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                 />
               </div>
             </div>
@@ -1430,8 +1430,8 @@ export default function ResourceView({
                         <td className="px-3 py-2">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                             conn.direction === 'inbound'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-blue-100 text-blue-700'
+                              ? 'bg-[#22c55e20] text-[#22c55e]'
+                              : 'bg-[#3b82f620] text-[#3b82f6]'
                           }`}>
                             <ArrowRight className={`w-3 h-3 ${conn.direction === 'inbound' ? 'rotate-180' : ''}`} />
                             {conn.direction}
@@ -1449,7 +1449,7 @@ export default function ResourceView({
                         <td className="px-3 py-2">
                           <span className={`px-2 py-0.5 rounded text-xs ${
                             conn.relationshipType === 'ACTUAL_TRAFFIC'
-                              ? 'bg-emerald-100 text-emerald-700'
+                              ? 'bg-[#10b98120] text-[#10b981]'
                               : conn.relationshipType === 'ACCESSES_RESOURCE'
                               ? 'bg-violet-100 text-violet-700'
                               : 'bg-slate-100 text-slate-600'

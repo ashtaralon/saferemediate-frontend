@@ -41,17 +41,17 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="flex flex-col items-center justify-center p-6 bg-red-50 border border-red-200 rounded-lg">
-          <AlertTriangle className="w-8 h-8 text-red-500 mb-3" />
-          <h3 className="text-sm font-semibold text-red-800 mb-1">
+        <div className="flex flex-col items-center justify-center p-6 bg-[#ef444410] border border-[#ef444440] rounded-lg">
+          <AlertTriangle className="w-8 h-8 text-[#ef4444] mb-3" />
+          <h3 className="text-sm font-semibold text-[#ef4444] mb-1">
             {this.props.componentName ? `${this.props.componentName} failed to load` : 'Something went wrong'}
           </h3>
-          <p className="text-xs text-red-600 mb-3 text-center max-w-xs">
+          <p className="text-xs text-[#ef4444] mb-3 text-center max-w-xs">
             {this.state.error?.message || 'An unexpected error occurred'}
           </p>
           <button
             onClick={this.handleReset}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-[#ef4444] bg-[#ef444420] hover:bg-red-200 rounded transition-colors"
           >
             <RefreshCw className="w-3 h-3" />
             Try again
@@ -73,13 +73,13 @@ export function CompactErrorFallback({
   onRetry?: () => void
 }) {
   return (
-    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+    <div className="flex items-center gap-2 p-3 bg-[#ef444410] border border-[#ef444440] rounded text-xs text-[#ef4444]">
       <AlertTriangle className="w-4 h-4 flex-shrink-0" />
       <span>{message}</span>
       {onRetry && (
         <button
           onClick={onRetry}
-          className="ml-auto flex items-center gap-1 px-2 py-1 bg-red-100 hover:bg-red-200 rounded transition-colors"
+          className="ml-auto flex items-center gap-1 px-2 py-1 bg-[#ef444420] hover:bg-red-200 rounded transition-colors"
         >
           <RefreshCw className="w-3 h-3" />
           Retry

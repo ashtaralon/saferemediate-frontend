@@ -24,12 +24,12 @@ export function SystemAtRiskCard({ system }: SystemAtRiskCardProps) {
     >
       <div className="space-y-3">
         {/* System name */}
-        <h3 className="text-base font-bold text-gray-900">{system.name}</h3>
+        <h3 className="text-base font-bold text-[var(--foreground,#111827)]">{system.name}</h3>
 
         {/* Health score with orange circle */}
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ background: healthColor }} />
-          <span className="text-sm text-gray-700">Health: {system.health}/100</span>
+          <span className="text-sm text-[var(--foreground,#374151)]">Health: {system.health}/100</span>
         </div>
 
         {/* Badge row */}
@@ -47,7 +47,7 @@ export function SystemAtRiskCard({ system }: SystemAtRiskCardProps) {
         </div>
 
         {/* View System link */}
-        <div className="text-sm font-medium text-red-600 hover:text-red-700 transition-colors">View System →</div>
+        <div className="text-sm font-medium text-[#ef4444] hover:text-[#ef4444] transition-colors">View System →</div>
       </div>
     </div>
   )

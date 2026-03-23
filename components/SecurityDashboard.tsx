@@ -135,11 +135,11 @@ export function SecurityDashboard() {
       case "CRITICAL":
         return "bg-red-600 text-white"
       case "HIGH":
-        return "bg-orange-500 text-white"
+        return "bg-[#f9731610]0 text-white"
       case "MEDIUM":
-        return "bg-yellow-500 text-black"
+        return "bg-[#eab30810]0 text-black"
       case "LOW":
-        return "bg-blue-500 text-white"
+        return "bg-[#3b82f610]0 text-white"
       default:
         return "bg-gray-500 text-white"
     }
@@ -155,8 +155,8 @@ export function SecurityDashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <span className="ml-3 text-gray-600">Loading security findings...</span>
+        <Loader2 className="w-8 h-8 animate-spin text-[#3b82f6]" />
+        <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading security findings...</span>
       </div>
     )
   }
@@ -166,12 +166,12 @@ export function SecurityDashboard() {
       {/* Header with Scan Button */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Security Dashboard</h1>
-          <p className="text-gray-600 mt-1">Least Privilege Analysis & Remediation</p>
+          <h1 className="text-3xl font-bold text-[var(--foreground,#111827)]">Security Dashboard</h1>
+          <p className="text-[var(--muted-foreground,#4b5563)] mt-1">Least Privilege Analysis & Remediation</p>
         </div>
         <div className="flex items-center gap-3">
           {scanStatus && (
-            <div className="text-sm text-gray-600 bg-gray-100 px-3 py-2 rounded-lg">
+            <div className="text-sm text-[var(--muted-foreground,#4b5563)] bg-gray-100 px-3 py-2 rounded-lg">
               {scanStatus}
             </div>
           )}
@@ -207,15 +207,15 @@ export function SecurityDashboard() {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Critical</CardTitle>
+            <CardTitle className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">Critical</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{counts.critical}</div>
+            <div className="text-2xl font-bold text-[#ef4444]">{counts.critical}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">High</CardTitle>
+            <CardTitle className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">High</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-600">{counts.high}</div>
@@ -223,7 +223,7 @@ export function SecurityDashboard() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Medium</CardTitle>
+            <CardTitle className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">Medium</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">{counts.medium}</div>
@@ -231,10 +231,10 @@ export function SecurityDashboard() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Low</CardTitle>
+            <CardTitle className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">Low</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{counts.low}</div>
+            <div className="text-2xl font-bold text-[#3b82f6]">{counts.low}</div>
           </CardContent>
         </Card>
       </div>
@@ -243,9 +243,9 @@ export function SecurityDashboard() {
       {findings.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Shield className="w-16 h-16 text-gray-400 mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Security Findings</h3>
-            <p className="text-gray-500 text-center max-w-md mb-6">
+            <Shield className="w-16 h-16 text-[var(--muted-foreground,#9ca3af)] mb-4" />
+            <h3 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-2">No Security Findings</h3>
+            <p className="text-[var(--muted-foreground,#6b7280)] text-center max-w-md mb-6">
               Run a scan to analyze your AWS infrastructure for least privilege violations.
             </p>
             <Button onClick={handleScan} disabled={scanning} className="bg-blue-600 hover:bg-blue-700">
@@ -284,8 +284,8 @@ export function SecurityDashboard() {
                         )}
                       </div>
                       <CardTitle className="text-lg">{finding.title}</CardTitle>
-                      <p className="text-sm text-gray-600 mt-1">{finding.description}</p>
-                      <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                      <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">{finding.description}</p>
+                      <div className="flex items-center gap-4 mt-3 text-xs text-[var(--muted-foreground,#6b7280)]">
                         <span>Resource: {finding.resource || finding.resourceId || "N/A"}</span>
                         {finding.role_name && <span>Role: {finding.role_name}</span>}
                         {finding.unused_actions_count && (

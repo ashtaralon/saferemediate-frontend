@@ -65,7 +65,7 @@ const getStatusStyles = (status: boolean | null, color: string) => {
   // "Not" states (false) and unknown (null) use neutral gray
   const colorMap: Record<string, { confirmed: string; notConfirmed: string; unknown: string }> = {
     emerald: {
-      confirmed: 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400',
+      confirmed: 'bg-[#10b98110]0/20 border-emerald-500/40 text-emerald-400',
       notConfirmed: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
       unknown: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
     },
@@ -75,12 +75,12 @@ const getStatusStyles = (status: boolean | null, color: string) => {
       unknown: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
     },
     amber: {
-      confirmed: 'bg-amber-500/20 border-amber-500/40 text-amber-400',
+      confirmed: 'bg-[#f9731610]0/20 border-amber-500/40 text-amber-400',
       notConfirmed: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
       unknown: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
     },
     blue: {
-      confirmed: 'bg-blue-500/20 border-blue-500/40 text-blue-400',
+      confirmed: 'bg-[#3b82f610]0/20 border-[#3b82f6]/40 text-blue-400',
       notConfirmed: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
       unknown: 'bg-slate-700/30 border-slate-600/30 text-slate-500',
     },

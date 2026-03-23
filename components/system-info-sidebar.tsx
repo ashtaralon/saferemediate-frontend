@@ -68,7 +68,7 @@ export function SystemInfoSidebar({
               Environment
             </span>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <div className="w-2 h-2 rounded-full bg-[#22c55e10]0"></div>
               <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                 Production
               </span>

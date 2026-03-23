@@ -63,7 +63,7 @@ interface Props {
 // Custom node components
 const InternetNode = ({ data }: NodeProps) => (
   <div className="relative">
-    <Handle type="source" position={Position.Bottom} className="!bg-red-500" />
+    <Handle type="source" position={Position.Bottom} className="!bg-[#ef444410]0" />
     <div className="bg-gradient-to-br from-red-600 to-red-800 text-white px-6 py-4 rounded-xl shadow-xl border-2 border-red-400 min-w-[120px]">
       <div className="flex items-center gap-2 justify-center">
         <Globe className="w-6 h-6" />
@@ -133,7 +133,7 @@ const SecurityGroupNode = ({ data }: NodeProps) => {
 
 const StorageNode = ({ data }: NodeProps) => (
   <div className="relative">
-    <Handle type="target" position={Position.Left} className="!bg-green-500" />
+    <Handle type="target" position={Position.Left} className="!bg-[#22c55e10]0" />
     <div className="bg-gradient-to-br from-emerald-600 to-teal-700 text-white px-5 py-4 rounded-xl shadow-xl border-2 border-emerald-400 min-w-[140px]">
       <div className="flex items-center gap-2">
         <HardDrive className="w-5 h-5" />
@@ -159,7 +159,7 @@ const StorageNode = ({ data }: NodeProps) => (
 
 const DatabaseNode = ({ data }: NodeProps) => (
   <div className="relative">
-    <Handle type="target" position={Position.Top} className="!bg-blue-500" />
+    <Handle type="target" position={Position.Top} className="!bg-[#3b82f610]0" />
     <div className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white px-5 py-4 rounded-xl shadow-xl border-2 border-blue-400 min-w-[160px]">
       <div className="flex items-center gap-2">
         <Database className="w-5 h-5" />
@@ -499,7 +499,7 @@ export default function SystemDependencyMap({ systemName }: Props) {
           <button
             onClick={() => setShowPaths(!showPaths)}
             className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-              showPaths ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              showPaths ? 'bg-[#8b5cf6] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
             <Eye className="w-4 h-4" />
@@ -519,27 +519,27 @@ export default function SystemDependencyMap({ systemName }: Props) {
       {/* Legend */}
       <div className="flex items-center gap-6 text-sm bg-slate-50 rounded-lg p-3">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-red-500" />
+          <div className="w-3 h-3 rounded-full bg-[#ef444410]0" />
           <span>Critical (Public)</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-orange-500" />
+          <div className="w-3 h-3 rounded-full bg-[#f9731610]0" />
           <span>High Risk</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-yellow-500" />
+          <div className="w-3 h-3 rounded-full bg-[#eab30810]0" />
           <span>Medium</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-green-500" />
+          <div className="w-3 h-3 rounded-full bg-[#22c55e10]0" />
           <span>Secured</span>
         </div>
         <div className="flex items-center gap-2 ml-4">
-          <div className="w-6 h-0.5 bg-green-500" style={{ animation: 'pulse 1s infinite' }} />
+          <div className="w-6 h-0.5 bg-[#22c55e10]0" style={{ animation: 'pulse 1s infinite' }} />
           <span>Active Traffic</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-0.5 bg-orange-500" />
+          <div className="w-6 h-0.5 bg-[#f9731610]0" />
           <span>Unused Rule</span>
         </div>
       </div>
@@ -594,7 +594,7 @@ export default function SystemDependencyMap({ systemName }: Props) {
                     key={path.id}
                     className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
                       selectedPath?.id === path.id 
-                        ? 'border-purple-500 bg-purple-50' 
+                        ? 'border-purple-500 bg-[#8b5cf610]' 
                         : 'border-slate-200 hover:border-purple-300'
                     }`}
                     onClick={() => setSelectedPath(selectedPath?.id === path.id ? null : path)}
@@ -602,10 +602,10 @@ export default function SystemDependencyMap({ systemName }: Props) {
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-sm">{path.name}</span>
                       <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                        path.overallRisk === 'critical' ? 'bg-red-100 text-red-700' :
-                        path.overallRisk === 'high' ? 'bg-orange-100 text-orange-700' :
-                        path.overallRisk === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-green-100 text-green-700'
+                        path.overallRisk === 'critical' ? 'bg-[#ef444420] text-[#ef4444]' :
+                        path.overallRisk === 'high' ? 'bg-[#f9731620] text-[#f97316]' :
+                        path.overallRisk === 'medium' ? 'bg-[#eab30820] text-[#eab308]' :
+                        'bg-[#22c55e20] text-[#22c55e]'
                       }`}>
                         {path.overallRisk.toUpperCase()}
                       </span>
@@ -633,7 +633,7 @@ export default function SystemDependencyMap({ systemName }: Props) {
       {/* Summary Stats */}
       <div className="grid grid-cols-5 gap-4">
         <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-red-600">
+          <div className="text-3xl font-bold text-[#ef4444]">
             {edges.filter(e => e.animated).length}
           </div>
           <div className="text-slate-500 text-sm">Active Flows</div>
@@ -645,19 +645,19 @@ export default function SystemDependencyMap({ systemName }: Props) {
           <div className="text-slate-500 text-sm">Critical Paths</div>
         </div>
         <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-blue-600">
+          <div className="text-3xl font-bold text-[#3b82f6]">
             {nodes.filter(n => n.type === 'securityGroup').length}
           </div>
           <div className="text-slate-500 text-sm">Security Groups</div>
         </div>
         <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-purple-600">
+          <div className="text-3xl font-bold text-[#8b5cf6]">
             {rawData?.summary?.byType?.IAMRole || 0}
           </div>
           <div className="text-slate-500 text-sm">IAM Roles</div>
         </div>
         <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-green-600">
+          <div className="text-3xl font-bold text-[#22c55e]">
             {rawData?.summary?.byType?.S3Bucket || 0}
           </div>
           <div className="text-slate-500 text-sm">S3 Buckets</div>

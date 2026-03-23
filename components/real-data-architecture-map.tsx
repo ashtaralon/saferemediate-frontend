@@ -346,7 +346,7 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
           <button
             onClick={() => setShowLabels(!showLabels)}
             className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-              showLabels ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-700'
+              showLabels ? 'bg-[#3b82f610]0 text-white' : 'bg-slate-100 text-slate-700'
             }`}
           >
             {showLabels ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
@@ -365,8 +365,8 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white border rounded-xl p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
-            <Key className="w-6 h-6 text-purple-600" />
+          <div className="w-12 h-12 rounded-xl bg-[#8b5cf615] flex items-center justify-center">
+            <Key className="w-6 h-6 text-[#8b5cf6]" />
           </div>
           <div>
             <div className="text-2xl font-bold">{summary.iam}</div>
@@ -374,7 +374,7 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
           </div>
         </div>
         <div className="bg-white border rounded-xl p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-xl bg-[#f9731620] flex items-center justify-center">
             <Shield className="w-6 h-6 text-orange-600" />
           </div>
           <div>
@@ -383,8 +383,8 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
           </div>
         </div>
         <div className="bg-white border rounded-xl p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
-            <HardDrive className="w-6 h-6 text-green-600" />
+          <div className="w-12 h-12 rounded-xl bg-[#22c55e20] flex items-center justify-center">
+            <HardDrive className="w-6 h-6 text-[#22c55e]" />
           </div>
           <div>
             <div className="text-2xl font-bold">{summary.s3}</div>
@@ -392,8 +392,8 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
           </div>
         </div>
         <div className="bg-white border rounded-xl p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
-            <Activity className="w-6 h-6 text-red-600" />
+          <div className="w-12 h-12 rounded-xl bg-[#ef444420] flex items-center justify-center">
+            <Activity className="w-6 h-6 text-[#ef4444]" />
           </div>
           <div>
             <div className="text-2xl font-bold">{edges.filter(e => e.type === 'internet').length}</div>
@@ -410,23 +410,23 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
             <div className="text-white text-sm font-semibold mb-2">Legend</div>
             <div className="space-y-2 text-xs">
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-red-500" />
+                <div className="w-4 h-4 rounded bg-[#ef444410]0" />
                 <span className="text-slate-300">Internet</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-orange-500" />
+                <div className="w-4 h-4 rounded bg-[#f9731610]0" />
                 <span className="text-slate-300">Public SG</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-green-500" />
+                <div className="w-4 h-4 rounded bg-[#22c55e10]0" />
                 <span className="text-slate-300">Private SG</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-purple-500" />
+                <div className="w-4 h-4 rounded bg-[#8b5cf6]" />
                 <span className="text-slate-300">IAM Role</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded bg-emerald-500" />
+                <div className="w-4 h-4 rounded bg-[#10b98110]0" />
                 <span className="text-slate-300">S3 Bucket</span>
               </div>
             </div>
@@ -585,10 +585,10 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
               <div>
                 <div className="text-sm text-slate-500">Type</div>
                 <div className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                  selectedNode.type === 'iam' ? 'bg-purple-100 text-purple-700' :
-                  selectedNode.type === 'sg' ? 'bg-orange-100 text-orange-700' :
-                  selectedNode.type === 's3' ? 'bg-green-100 text-green-700' :
-                  'bg-red-100 text-red-700'
+                  selectedNode.type === 'iam' ? 'bg-[#8b5cf615] text-[#7c3aed]' :
+                  selectedNode.type === 'sg' ? 'bg-[#f9731620] text-[#f97316]' :
+                  selectedNode.type === 's3' ? 'bg-[#22c55e20] text-[#22c55e]' :
+                  'bg-[#ef444420] text-[#ef4444]'
                 }`}>
                   {selectedNode.type === 'iam' ? 'IAM Role' : 
                    selectedNode.type === 'sg' ? 'Security Group' :
@@ -603,8 +603,8 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
                     <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
                         className={`h-full ${
-                          selectedNode.lpScore >= 90 ? 'bg-green-500' :
-                          selectedNode.lpScore >= 70 ? 'bg-yellow-500' : 'bg-red-500'
+                          selectedNode.lpScore >= 90 ? 'bg-[#22c55e10]0' :
+                          selectedNode.lpScore >= 70 ? 'bg-[#eab30810]0' : 'bg-[#ef444410]0'
                         }`}
                         style={{ width: `${selectedNode.lpScore}%` }}
                       />
@@ -616,20 +616,20 @@ export default function RealDataArchitectureMap({ systemName }: Props) {
               
               {selectedNode.gapCount !== undefined && (
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-green-50 rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-green-600">{selectedNode.usedCount || 0}</div>
-                    <div className="text-xs text-green-700">Used</div>
+                  <div className="bg-[#22c55e10] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-[#22c55e]">{selectedNode.usedCount || 0}</div>
+                    <div className="text-xs text-[#22c55e]">Used</div>
                   </div>
-                  <div className="bg-red-50 rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-red-600">{selectedNode.gapCount}</div>
-                    <div className="text-xs text-red-700">Unused</div>
+                  <div className="bg-[#ef444410] rounded-lg p-3 text-center">
+                    <div className="text-lg font-bold text-[#ef4444]">{selectedNode.gapCount}</div>
+                    <div className="text-xs text-[#ef4444]">Unused</div>
                   </div>
                 </div>
               )}
               
               {selectedNode.isPublic && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 text-red-700">
+                <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-[#ef4444]">
                     <AlertTriangle className="w-4 h-4" />
                     <span className="font-medium text-sm">Public Internet Exposure</span>
                   </div>

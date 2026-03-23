@@ -69,7 +69,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
           <div className="p-6 border-b flex-shrink-0 flex justify-between items-center">
             <div>
               <h2 className="text-2xl font-bold">New Systems Discovered</h2>
-              <p className="text-gray-600">Found {newSystems.length} system(s)</p>
+              <p className="text-[var(--muted-foreground,#4b5563)]">Found {newSystems.length} system(s)</p>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-6 h-6" /></button>
           </div>
@@ -78,7 +78,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
               <div key={system.systemName} className="border rounded-xl p-4 mb-4 flex justify-between items-center">
                 <div>
                   <div className="font-semibold">{system.systemName}</div>
-                  <div className="text-sm text-gray-600">{system.resourceCount} resources</div>
+                  <div className="text-sm text-[var(--muted-foreground,#4b5563)]">{system.resourceCount} resources</div>
                 </div>
                 <button onClick={() => handleAutoTagClick(system)} disabled={taggingStates[system.systemName]}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
@@ -99,13 +99,13 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col">
             <div className="p-6 border-b flex-shrink-0">
               <h3 className="text-xl font-bold">{confirmDialog.system.systemName}</h3>
-              <p className="text-blue-600 font-semibold">{confirmDialog.fullResources?.length || 0} Total Resources</p>
+              <p className="text-[#3b82f6] font-semibold">{confirmDialog.fullResources?.length || 0} Total Resources</p>
               {!confirmDialog.loading && (
-                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="font-semibold text-blue-800 mb-2">🎯 A7 Patent Discovery Value</div>
+                <div className="mt-4 p-4 bg-[#3b82f610] border border-[#3b82f640] rounded-lg">
+                  <div className="font-semibold text-[#3b82f6] mb-2">🎯 A7 Patent Discovery Value</div>
                   <div className="flex gap-8">
-                    <div><span className="inline-block w-3 h-3 bg-green-500 rounded-full mr-2"></span><strong>{seedCount}</strong> Seeds</div>
-                    <div><span className="inline-block w-3 h-3 bg-orange-500 rounded-full mr-2"></span><strong>{derivedCount}</strong> Discovered</div>
+                    <div><span className="inline-block w-3 h-3 bg-[#22c55e10]0 rounded-full mr-2"></span><strong>{seedCount}</strong> Seeds</div>
+                    <div><span className="inline-block w-3 h-3 bg-[#f9731610]0 rounded-full mr-2"></span><strong>{derivedCount}</strong> Discovered</div>
                   </div>
                 </div>
               )}
@@ -115,8 +115,8 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
                 <div className="space-y-4">
                   {seedCount > 0 && (
                     <div>
-                      <div className="font-semibold text-green-800 mb-2">● Seeds ({seedCount})</div>
-                      <div className="bg-green-50 rounded-lg p-3 max-h-32 overflow-y-auto space-y-1">
+                      <div className="font-semibold text-[#22c55e] mb-2">● Seeds ({seedCount})</div>
+                      <div className="bg-[#22c55e10] rounded-lg p-3 max-h-32 overflow-y-auto space-y-1">
                         {confirmDialog.fullResources?.filter(r => r.source === "seed").map((r, i) => (
                           <div key={i} className="text-sm p-2 bg-white rounded flex gap-2">
                             <span className="px-2 py-0.5 bg-gray-200 rounded text-xs">{r.type}</span>
@@ -128,8 +128,8 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
                   )}
                   {derivedCount > 0 && (
                     <div>
-                      <div className="font-semibold text-orange-800 mb-2">● Discovered ({derivedCount})</div>
-                      <div className="bg-orange-50 rounded-lg p-3 max-h-32 overflow-y-auto space-y-1">
+                      <div className="font-semibold text-[#f97316] mb-2">● Discovered ({derivedCount})</div>
+                      <div className="bg-[#f9731610] rounded-lg p-3 max-h-32 overflow-y-auto space-y-1">
                         {confirmDialog.fullResources?.filter(r => r.source === "derived").map((r, i) => (
                           <div key={i} className="text-sm p-2 bg-white rounded flex gap-2">
                             <span className="px-2 py-0.5 bg-gray-200 rounded text-xs">{r.type}</span>
@@ -139,7 +139,7 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
                       </div>
                     </div>
                   )}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="bg-[#3b82f610] border border-[#3b82f640] rounded-lg p-4">
                     <p className="text-sm">Apply tag: <span className="font-mono font-bold text-blue-900">SystemName = {confirmDialog.system.systemName}</span></p>
                   </div>
                 </div>
@@ -163,10 +163,10 @@ export function NewSystemsModal({ newSystems, onClose, onSuccess }: NewSystemsMo
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
             <h3 className="text-xl font-bold mb-2">Tagging Results</h3>
-            <p className="text-gray-600 mb-4">Tagged {taggingResults.successCount} of {taggingResults.totalCount}</p>
+            <p className="text-[var(--muted-foreground,#4b5563)] mb-4">Tagged {taggingResults.successCount} of {taggingResults.totalCount}</p>
             <div className="space-y-1 max-h-48 overflow-y-auto mb-4">
               {taggingResults.results.map((r, i) => (
-                <div key={i} className={`text-sm p-2 rounded ${r.success ? "bg-green-50" : "bg-red-50"}`}>
+                <div key={i} className={`text-sm p-2 rounded ${r.success ? "bg-[#22c55e10]" : "bg-[#ef444410]"}`}>
                   {r.success ? "✓" : "✗"} {r.resourceId}
                 </div>
               ))}

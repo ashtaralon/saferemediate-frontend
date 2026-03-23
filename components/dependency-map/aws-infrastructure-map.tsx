@@ -463,7 +463,7 @@ export default function Neo4jAWSMap() {
           <div className="text-2xl mb-2">⚠️</div>
           <p className="text-red-400 font-medium text-sm mb-2">Connection Error</p>
           <p className="text-slate-400 text-xs mb-3">{error}</p>
-          <button onClick={loadData} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-medium">
+          <button onClick={loadData} className="px-3 py-1.5 bg-[#ef444410]0 hover:bg-red-600 text-white rounded text-xs font-medium">
             Retry
           </button>
         </div>
@@ -478,14 +478,14 @@ export default function Neo4jAWSMap() {
         <div className="flex items-center gap-3">
           {/* Stats badges */}
           <div className="flex gap-1.5">
-            <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-[10px] font-semibold">
+            <span className="px-2 py-0.5 bg-[#f9731610]0/20 text-orange-400 rounded text-[10px] font-semibold">
               {stats.nodes.toLocaleString()} Nodes
             </span>
             <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-[10px] font-semibold">
               {stats.rels.toLocaleString()} Rels
             </span>
             {playing && (
-              <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-[10px] font-semibold animate-pulse">
+              <span className="px-2 py-0.5 bg-[#22c55e10]0/20 text-green-400 rounded text-[10px] font-semibold animate-pulse">
                 {animCount} Flows
               </span>
             )}
@@ -504,7 +504,7 @@ export default function Neo4jAWSMap() {
                 onClick={() => setViewMode(m.id)}
                 className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
                   viewMode === m.id
-                    ? 'bg-gradient-to-r from-orange-500 to-pink-500 text-white shadow'
+                    ? 'bg-white text-white shadow'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -518,7 +518,7 @@ export default function Neo4jAWSMap() {
             onClick={() => setShowAttackPaths(!showAttackPaths)}
             className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all ${
               showAttackPaths
-                ? 'bg-red-500 text-white shadow animate-pulse'
+                ? 'bg-[#ef444410]0 text-white shadow animate-pulse'
                 : 'bg-slate-700/50 text-slate-400 hover:text-red-400'
             }`}
           >
@@ -556,7 +556,7 @@ export default function Neo4jAWSMap() {
           </div>
 
           {/* Refresh */}
-          <button onClick={loadData} className="px-2 py-1 bg-gradient-to-r from-orange-500 to-pink-500 text-white rounded text-[10px] font-medium">
+          <button onClick={loadData} className="px-2 py-1 bg-white text-white rounded text-[10px] font-medium">
             🔄
           </button>
         </div>
@@ -820,7 +820,7 @@ export default function Neo4jAWSMap() {
         {/* Blast Radius Panel - shows when attack paths enabled and node selected */}
         {showAttackPaths && blastRadius && selected?.itemType === 'node' && (
           <div className="absolute top-60 right-2 w-56 bg-slate-800/95 rounded-lg border border-red-500/50 overflow-hidden shadow-xl">
-            <div className="px-2.5 py-1.5 border-b border-red-500/30 flex justify-between items-center bg-red-500/10">
+            <div className="px-2.5 py-1.5 border-b border-red-500/30 flex justify-between items-center bg-[#ef444410]0/10">
               <span className="text-red-400 text-xs font-medium flex items-center gap-1">
                 <span>💥</span> Blast Radius
               </span>
@@ -829,10 +829,10 @@ export default function Neo4jAWSMap() {
             <div className="p-2.5 max-h-60 overflow-auto">
               {/* Risk Level Badge */}
               <div className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mb-2 ${
-                blastRadius.risk_level === 'critical' ? 'bg-red-500/30 text-red-400' :
-                blastRadius.risk_level === 'high' ? 'bg-orange-500/30 text-orange-400' :
-                blastRadius.risk_level === 'medium' ? 'bg-yellow-500/30 text-yellow-400' :
-                'bg-green-500/30 text-green-400'
+                blastRadius.risk_level === 'critical' ? 'bg-[#ef444410]0/30 text-red-400' :
+                blastRadius.risk_level === 'high' ? 'bg-[#f9731610]0/30 text-orange-400' :
+                blastRadius.risk_level === 'medium' ? 'bg-[#eab30810]0/30 text-yellow-400' :
+                'bg-[#22c55e10]0/30 text-green-400'
               }`}>
                 {blastRadius.risk_level?.toUpperCase()} RISK
               </div>
@@ -842,11 +842,11 @@ export default function Neo4jAWSMap() {
                 <div className="mb-2">
                   <div className="text-[9px] text-slate-500 uppercase mb-1">Vulnerabilities</div>
                   <div className="grid grid-cols-3 gap-1">
-                    <div className="bg-red-500/20 rounded p-1 text-center">
+                    <div className="bg-[#ef444410]0/20 rounded p-1 text-center">
                       <div className="text-red-400 text-sm font-bold">{blastRadius.vulnerability_summary.critical_cves || 0}</div>
                       <div className="text-[8px] text-slate-400">Critical</div>
                     </div>
-                    <div className="bg-orange-500/20 rounded p-1 text-center">
+                    <div className="bg-[#f9731610]0/20 rounded p-1 text-center">
                       <div className="text-orange-400 text-sm font-bold">{blastRadius.vulnerability_summary.high_cves || 0}</div>
                       <div className="text-[8px] text-slate-400">High</div>
                     </div>
@@ -886,18 +886,18 @@ export default function Neo4jAWSMap() {
         {/* Attack Path Summary Panel */}
         {showAttackPaths && attackPaths.length > 0 && !selected && (
           <div className="absolute top-2 right-2 w-56 bg-slate-800/95 rounded-lg border border-red-500/50 overflow-hidden shadow-xl">
-            <div className="px-2.5 py-1.5 border-b border-red-500/30 flex justify-between items-center bg-red-500/10">
+            <div className="px-2.5 py-1.5 border-b border-red-500/30 flex justify-between items-center bg-[#ef444410]0/10">
               <span className="text-red-400 text-xs font-medium flex items-center gap-1">
                 <span>⚠️</span> Attack Paths Summary
               </span>
             </div>
             <div className="p-2.5 max-h-60 overflow-auto">
               <div className="grid grid-cols-2 gap-2 mb-2">
-                <div className="bg-red-500/20 rounded p-1.5 text-center">
+                <div className="bg-[#ef444410]0/20 rounded p-1.5 text-center">
                   <div className="text-red-400 text-lg font-bold">{attackPaths.length}</div>
                   <div className="text-[8px] text-slate-400">Total Paths</div>
                 </div>
-                <div className="bg-orange-500/20 rounded p-1.5 text-center">
+                <div className="bg-[#f9731610]0/20 rounded p-1.5 text-center">
                   <div className="text-orange-400 text-lg font-bold">
                     {attackPaths.filter(p => p.risk_score >= 15).length}
                   </div>

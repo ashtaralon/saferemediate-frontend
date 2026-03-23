@@ -428,10 +428,10 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
   return (
     <div className="flex flex-col h-[700px] bg-white rounded-xl border overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-50 to-slate-100 border-b">
+      <div className="flex items-center justify-between px-4 py-3 bg-white border-b">
         <div className="flex items-center gap-3">
-          <button onClick={() => setIsLive(!isLive)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${isLive ? 'bg-green-100 text-green-700 shadow-sm' : 'bg-slate-200 text-slate-600'}`}>
-            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />{isLive ? 'LIVE' : 'PAUSED'}
+          <button onClick={() => setIsLive(!isLive)} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${isLive ? 'bg-[#22c55e20] text-[#22c55e] shadow-sm' : 'bg-slate-200 text-slate-600'}`}>
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-[#22c55e10]0 animate-pulse' : 'bg-slate-400'}`} />{isLive ? 'LIVE' : 'PAUSED'}
           </button>
           <button onClick={fetchData} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm">
             <RefreshCw className="w-4 h-4" /> Refresh
@@ -439,7 +439,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
           {/* Data Flow Toggle */}
           <button 
             onClick={() => setShowDataFlow(!showDataFlow)} 
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${showDataFlow ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-600'}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${showDataFlow ? 'bg-[#8b5cf615] text-[#7c3aed]' : 'bg-slate-200 text-slate-600'}`}
           >
             {showDataFlow ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
             Data Flow
@@ -453,7 +453,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input type="text" placeholder="Search nodes..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} 
-              className="pl-9 pr-3 py-1.5 border border-slate-300 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              className="pl-9 pr-3 py-1.5 border border-slate-300 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] focus:border-transparent" />
           </div>
           <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
             <button onClick={() => zoom(-1)} className="p-1.5 hover:bg-white rounded transition-colors"><ZoomOut className="w-4 h-4 text-slate-600" /></button>
@@ -489,7 +489,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
           </div>
           {showDataFlow && (
             <div className="border-t border-slate-200 mt-3 pt-3 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-sm shadow-blue-500/50"/>
+              <div className="w-2 h-2 rounded-full bg-[#3b82f610]0 animate-pulse shadow-sm shadow-blue-500/50"/>
               <span className="text-slate-500">Data flowing</span>
             </div>
           )}
@@ -522,12 +522,12 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                   <div className="p-4 bg-slate-50 rounded-xl mb-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-slate-500">Least Privilege Score</span>
-                      <span className={`text-lg font-bold ${selectedNode.lpScore>=80?'text-green-600':selectedNode.lpScore>=50?'text-amber-600':'text-red-600'}`}>
+                      <span className={`text-lg font-bold ${selectedNode.lpScore>=80?'text-[#22c55e]':selectedNode.lpScore>=50?'text-[#f97316]':'text-[#ef4444]'}`}>
                         {selectedNode.lpScore}%
                       </span>
                     </div>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${selectedNode.lpScore>=80?'bg-green-500':selectedNode.lpScore>=50?'bg-amber-500':'bg-red-500'}`} 
+                      <div className={`h-full rounded-full ${selectedNode.lpScore>=80?'bg-[#22c55e10]0':selectedNode.lpScore>=50?'bg-[#f9731610]0':'bg-[#ef444410]0'}`} 
                         style={{width:`${selectedNode.lpScore}%`}}/>
                     </div>
                   </div>
@@ -545,8 +545,8 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
             {selectedEdge && (
               <div>
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
-                    <ArrowRight className="w-6 h-6 text-blue-600"/>
+                  <div className="w-12 h-12 rounded-xl bg-[#3b82f620] flex items-center justify-center">
+                    <ArrowRight className="w-6 h-6 text-[#3b82f6]"/>
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-900">Connection</h3>
@@ -570,9 +570,9 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                   </div>
                 )}
                 
-                <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                  <p className="text-sm text-blue-700">
-                    <button className="w-full text-left text-blue-600 hover:text-blue-800 hover:underline" onClick={() => { setShowSecurityPath(true); fetchSecurityPath(); }}>💡 Click to see full security path including IAM permissions, SG rules, and gap analysis</button>
+                <div className="p-4 bg-[#3b82f610] rounded-xl border border-blue-100">
+                  <p className="text-sm text-[#3b82f6]">
+                    <button className="w-full text-left text-[#3b82f6] hover:text-[#3b82f6] hover:underline" onClick={() => { setShowSecurityPath(true); fetchSecurityPath(); }}>💡 Click to see full security path including IAM permissions, SG rules, and gap analysis</button>
                   </p>
                 </div>
               </div>
@@ -582,13 +582,13 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
       </div>
       
       {/* Footer */}
-      <div className="px-4 py-2.5 border-t bg-gradient-to-r from-slate-50 to-slate-100 text-xs text-slate-500 flex justify-between items-center">
+      <div className="px-4 py-2.5 border-t bg-white text-xs text-slate-500 flex justify-between items-center">
         <span className="flex items-center gap-2">
-          <Database className="w-3.5 h-3.5 text-green-500"/>
+          <Database className="w-3.5 h-3.5 text-[#22c55e]"/>
           <span>Neo4j: <strong className="text-slate-700">{data?.summary?.totalNodes||0}</strong> nodes, <strong className="text-slate-700">{data?.summary?.totalEdges||0}</strong> edges</span>
         </span>
         <span className="flex items-center gap-2">
-          <Globe className="w-3.5 h-3.5 text-red-500"/>
+          <Globe className="w-3.5 h-3.5 text-[#ef4444]"/>
           <span><strong className="text-slate-700">{data?.summary?.internetExposedNodes||0}</strong> internet exposed</span>
         </span>
       </div>
@@ -597,7 +597,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
       {showSecurityPath && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSecurityPath(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Shield className="w-5 h-5" /> Security Path Analysis
               </h2>
@@ -620,12 +620,12 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                   </div>
                   {/* Warning when no ENIs attached */}
                   {securityPathData.eniCount === 0 && (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                      <div className="flex items-center gap-2 text-amber-700">
+                    <div className="p-4 bg-[#f9731610] border border-[#f9731640] rounded-xl">
+                      <div className="flex items-center gap-2 text-[#f97316]">
                         <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                         <div>
                           <div className="font-semibold">No Instances Attached</div>
-                          <div className="text-sm text-amber-600">This Security Group has no ENIs (network interfaces) attached. Traffic data is unavailable because no EC2/Lambda/RDS instances are using this SG.</div>
+                          <div className="text-sm text-[#f97316]">This Security Group has no ENIs (network interfaces) attached. Traffic data is unavailable because no EC2/Lambda/RDS instances are using this SG.</div>
                         </div>
                       </div>
                     </div>
@@ -637,17 +637,17 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                       {securityPathData.eniCount === 0 ? (
                         <span className="text-xl font-bold text-slate-400">No Data</span>
                       ) : (
-                        <span className={`text-xl font-bold ${securityPathData.confidence >= 80 ? 'text-green-600' : securityPathData.confidence >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{securityPathData.confidence}%</span>
+                        <span className={`text-xl font-bold ${securityPathData.confidence >= 80 ? 'text-[#22c55e]' : securityPathData.confidence >= 60 ? 'text-[#f97316]' : 'text-[#ef4444]'}`}>{securityPathData.confidence}%</span>
                       )}
                     </div>
                     <div className="w-full h-2 bg-slate-200 rounded-full">
-                      <div className={`h-full rounded-full ${securityPathData.eniCount === 0 ? 'bg-slate-300' : securityPathData.confidence >= 80 ? 'bg-green-500' : securityPathData.confidence >= 60 ? 'bg-amber-500' : 'bg-red-500'}`} style={{width: securityPathData.eniCount === 0 ? '0%' : `${securityPathData.confidence}%`}} />
+                      <div className={`h-full rounded-full ${securityPathData.eniCount === 0 ? 'bg-slate-300' : securityPathData.confidence >= 80 ? 'bg-[#22c55e10]0' : securityPathData.confidence >= 60 ? 'bg-[#f9731610]0' : 'bg-[#ef444410]0'}`} style={{width: securityPathData.eniCount === 0 ? '0%' : `${securityPathData.confidence}%`}} />
                     </div>
                   </div>
                   {securityPathData.securityLayers?.map((layer: any, idx: number) => (
                     <div key={idx} className="border border-slate-200 rounded-xl overflow-hidden">
-                      <div className={`px-4 py-2 flex items-center gap-2 ${layer.type === 'sg' ? 'bg-orange-50' : 'bg-purple-50'}`}>
-                        {layer.type === 'sg' ? <Shield className="w-4 h-4 text-orange-600" /> : <Key className="w-4 h-4 text-purple-600" />}
+                      <div className={`px-4 py-2 flex items-center gap-2 ${layer.type === 'sg' ? 'bg-[#f9731610]' : 'bg-[#8b5cf610]'}`}>
+                        {layer.type === 'sg' ? <Shield className="w-4 h-4 text-orange-600" /> : <Key className="w-4 h-4 text-[#8b5cf6]" />}
                         <span className="font-medium text-sm">{layer.type === 'sg' ? 'Security Group' : 'IAM Role'}: {layer.name}</span>
                       </div>
                       <div className="p-4 bg-white text-sm">
@@ -657,7 +657,7 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                             {layer.eniCount === 0 ? (
                               <span className="text-slate-400">No data</span>
                             ) : r.hits > 0 ? (
-                              <span className="text-green-600">{r.hits.toLocaleString()} hits</span>
+                              <span className="text-[#22c55e]">{r.hits.toLocaleString()} hits</span>
                             ) : (
                               <span className="text-amber-500">0 hits (unused)</span>
                             )}
@@ -670,25 +670,25 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                   
                   {/* Observed Ports */}
                   {securityPathData.observedPorts && (
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                      <h3 className="font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                    <div className="p-4 bg-[#3b82f610] border border-[#3b82f640] rounded-xl">
+                      <h3 className="font-semibold text-[#3b82f6] mb-3 flex items-center gap-2">
                         <Globe className="w-4 h-4" /> Observed Ports (Actual Traffic)
                       </h3>
                       <div className="flex flex-wrap gap-2 mb-3">
                         {securityPathData.observedPorts.ports?.map((p: any, i: number) => (
-                          <span key={i} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-mono">
+                          <span key={i} className="px-3 py-1 bg-[#3b82f620] text-[#3b82f6] rounded-full text-sm font-mono">
                             {p.port}
                           </span>
                         ))}
                       </div>
-                      <p className="text-xs text-blue-600">{securityPathData.observedPorts.summary}</p>
+                      <p className="text-xs text-[#3b82f6]">{securityPathData.observedPorts.summary}</p>
                     </div>
                   )}
                   
                   {/* Traffic Timeline */}
                   {securityPathData.trafficTimeline && (
-                    <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
-                      <h3 className="font-semibold text-indigo-700 mb-3 flex items-center gap-2">
+                    <div className="p-4 bg-[#8b5cf610] border border-[#8b5cf640] rounded-xl">
+                      <h3 className="font-semibold text-[#7c3aed] mb-3 flex items-center gap-2">
                         <Activity className="w-4 h-4" /> Traffic Timeline (Last 7 Days)
                       </h3>
                       <div className="flex items-end justify-between h-16 mb-2">
@@ -697,13 +697,13 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                           const height = Math.max((d.requests / maxReq) * 100, 10)
                           return (
                             <div key={i} className="flex flex-col items-center flex-1">
-                              <div className="w-4 bg-indigo-400 rounded-t" style={{height: `${height}%`}} title={`${d.requests.toLocaleString()} requests`}/>
-                              <span className="text-xs text-indigo-600 mt-1">{d.dayName}</span>
+                              <div className="w-4 bg-[#a78bfa] rounded-t" style={{height: `${height}%`}} title={`${d.requests.toLocaleString()} requests`}/>
+                              <span className="text-xs text-[#8b5cf6] mt-1">{d.dayName}</span>
                             </div>
                           )
                         })}
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs text-indigo-600 mt-3">
+                      <div className="grid grid-cols-3 gap-2 text-xs text-[#8b5cf6] mt-3">
                         <div>📅 First: {securityPathData.trafficTimeline.firstSeen}</div>
                         <div>⏰ Peak: {securityPathData.trafficTimeline.peakHour}</div>
                         <div>🕐 Last: {securityPathData.trafficTimeline.lastActivity?.split(' ').slice(0,3).join(' ')}</div>
@@ -712,14 +712,14 @@ export default function AWSTopologyMapLive({ systemName }: Props) {
                   )}
                   
                   {securityPathData.gaps?.length > 0 ? (
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                      <h3 className="font-semibold text-amber-700 mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Gaps ({securityPathData.gaps.length})</h3>
+                    <div className="p-4 bg-[#f9731610] border border-[#f9731640] rounded-xl">
+                      <h3 className="font-semibold text-[#f97316] mb-2 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Gaps ({securityPathData.gaps.length})</h3>
                       {securityPathData.gaps.map((g: any, i: number) => (
-                        <div key={i} className="mb-2"><span className={`px-2 py-0.5 rounded text-xs ${g.severity === 'critical' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{g.severity}</span> <span className="font-mono">{g.rule}</span><p className="text-sm text-amber-700 mt-1">💡 {g.recommendation}</p></div>
+                        <div key={i} className="mb-2"><span className={`px-2 py-0.5 rounded text-xs ${g.severity === 'critical' ? 'bg-[#ef444420] text-[#ef4444]' : 'bg-[#f9731620] text-[#f97316]'}`}>{g.severity}</span> <span className="font-mono">{g.rule}</span><p className="text-sm text-[#f97316] mt-1">💡 {g.recommendation}</p></div>
                       ))}
                     </div>
                   ) : (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl"><CheckCircle className="w-4 h-4 text-green-600 inline mr-2" /><span className="text-green-700 font-medium">No security gaps detected</span></div>
+                    <div className="p-4 bg-[#22c55e10] border border-[#22c55e40] rounded-xl"><CheckCircle className="w-4 h-4 text-[#22c55e] inline mr-2" /><span className="text-[#22c55e] font-medium">No security gaps detected</span></div>
                   )}
                 </div>
               ) : <div className="text-center py-12 text-slate-500">No data</div>}

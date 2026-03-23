@@ -14,16 +14,16 @@ export function GapAnalysisCard({ gapAnalysis, loading, error, onRetry }: GapAna
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
 
   return (
-    <div className="bg-white rounded-xl p-6 border border-gray-200">
+    <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-purple-600" />
-          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">GAP Analysis</h3>
+          <Zap className="w-4 h-4 text-[#8b5cf6]" />
+          <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">GAP Analysis</h3>
         </div>
         {error ? (
-          <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full">Error</span>
+          <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded-full">Error</span>
         ) : (
-          <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+          <span className="px-2 py-1 bg-[#8b5cf615] text-[#7c3aed] text-xs font-medium rounded-full">
             {loading ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
           </span>
         )}
@@ -35,14 +35,14 @@ export function GapAnalysisCard({ gapAnalysis, loading, error, onRetry }: GapAna
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-            <AlertTriangle className="w-6 h-6 text-red-500" />
+          <div className="w-12 h-12 bg-[#ef444420] rounded-full flex items-center justify-center mb-3">
+            <AlertTriangle className="w-6 h-6 text-[#ef4444]" />
           </div>
-          <p className="text-sm font-medium text-gray-900 mb-1">Unable to load GAP Analysis</p>
-          <p className="text-xs text-gray-500 mb-3">{error}</p>
+          <p className="text-sm font-medium text-[var(--foreground,#111827)] mb-1">Unable to load GAP Analysis</p>
+          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-3">{error}</p>
           <button
             onClick={onRetry}
-            className="flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="flex items-center gap-1 px-3 py-1 border border-[var(--border,#d1d5db)] rounded-lg text-sm font-medium text-[var(--foreground,#374151)] hover:bg-gray-50"
           >
             <RefreshCw className="w-3 h-3 mr-1" />
             Retry
@@ -53,8 +53,8 @@ export function GapAnalysisCard({ gapAnalysis, loading, error, onRetry }: GapAna
           {/* ALLOWED Bar */}
           <div className="mb-4">
             <div className="flex justify-between mb-1">
-              <span className="text-sm text-gray-500">ALLOWED (IAM Policies)</span>
-              <span className="text-sm font-medium text-gray-600">{gapAnalysis.allowed} permissions</span>
+              <span className="text-sm text-[var(--muted-foreground,#6b7280)]">ALLOWED (IAM Policies)</span>
+              <span className="text-sm font-medium text-[var(--muted-foreground,#4b5563)]">{gapAnalysis.allowed} permissions</span>
             </div>
             <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
               <div className="h-full bg-gray-400 rounded-full" style={{ width: "100%" }}></div>
@@ -80,12 +80,12 @@ export function GapAnalysisCard({ gapAnalysis, loading, error, onRetry }: GapAna
           </div>
 
           {/* GAP Highlight */}
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-red-700">GAP (Attack Surface)</span>
-              <span className="text-sm font-bold text-red-700">{gapAnalysis.gap} unused permissions</span>
+              <span className="text-sm font-medium text-[#ef4444]">GAP (Attack Surface)</span>
+              <span className="text-sm font-bold text-[#ef4444]">{gapAnalysis.gap} unused permissions</span>
             </div>
-            <p className="text-xs text-red-600 mt-1">
+            <p className="text-xs text-[#ef4444] mt-1">
               {gapAnalysis.gapPercent}% reduction possible by removing unused permissions
             </p>
           </div>

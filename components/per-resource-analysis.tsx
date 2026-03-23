@@ -334,36 +334,59 @@ export function PerResourceAnalysis() {
   const getResourceTypeInfo = (type: string) => {
     const typeUpper = type?.toUpperCase() || ""
     if (typeUpper.includes("LAMBDA") || typeUpper.includes("FUNCTION")) {
-      return { icon: <Zap className="w-4 h-4" />, label: "Lambda", color: "bg-purple-100 text-purple-700 border-purple-300" }
+      return { icon: <Zap className="w-4 h-4" />, label: "Lambda", color: "bg-[#8b5cf615] text-[#7c3aed] border-purple-300" }
     }
     if (typeUpper.includes("EC2") || typeUpper === "INSTANCE") {
-      return { icon: <Server className="w-4 h-4" />, label: "EC2", color: "bg-orange-100 text-orange-700 border-orange-300" }
+      return { icon: <Server className="w-4 h-4" />, label: "EC2", color: "bg-[#f9731620] text-[#f97316] border-orange-300" }
     }
     if (typeUpper.includes("INSTANCEPROFILE") || typeUpper.includes("INSTANCE-PROFILE") || typeUpper.includes("INSTANCE_PROFILE")) {
-      return { icon: <Shield className="w-4 h-4" />, label: "Instance Profile", color: "bg-indigo-100 text-indigo-700 border-indigo-300" }
+      return { icon: <Shield className="w-4 h-4" />, label: "Instance Profile", color: "bg-[#8b5cf615] text-[#7c3aed] border-[#8b5cf640]" }
     }
     if (typeUpper.includes("SECURITY") || typeUpper.includes("SG")) {
-      return { icon: <Shield className="w-4 h-4" />, label: "Security Group", color: "bg-red-100 text-red-700 border-red-300" }
+      return { icon: <Shield className="w-4 h-4" />, label: "Security Group", color: "bg-[#ef444420] text-[#ef4444] border-[#ef444440]" }
     }
     if (typeUpper.includes("IAM") || typeUpper.includes("ROLE")) {
-      return { icon: <Shield className="w-4 h-4" />, label: "IAM Role", color: "bg-blue-100 text-blue-700 border-blue-300" }
+      return { icon: <Shield className="w-4 h-4" />, label: "IAM Role", color: "bg-[#3b82f620] text-[#3b82f6] border-blue-300" }
     }
     if (typeUpper.includes("ECS") || typeUpper.includes("CONTAINER")) {
       return { icon: <Server className="w-4 h-4" />, label: "ECS", color: "bg-teal-100 text-teal-700 border-teal-300" }
     }
     if (typeUpper.includes("RDS") || typeUpper.includes("DATABASE")) {
-      return { icon: <Database className="w-4 h-4" />, label: "RDS", color: "bg-blue-100 text-blue-700 border-blue-300" }
+      return { icon: <Database className="w-4 h-4" />, label: "RDS", color: "bg-[#3b82f620] text-[#3b82f6] border-blue-300" }
     }
     if (typeUpper.includes("S3") || typeUpper.includes("BUCKET")) {
-      return { icon: <Database className="w-4 h-4" />, label: "S3", color: "bg-green-100 text-green-700 border-green-300" }
+      return { icon: <Database className="w-4 h-4" />, label: "S3", color: "bg-[#22c55e20] text-[#22c55e] border-[#22c55e40]" }
     }
     if (typeUpper.includes("DYNAMO")) {
-      return { icon: <Database className="w-4 h-4" />, label: "DynamoDB", color: "bg-yellow-100 text-yellow-700 border-yellow-300" }
+      return { icon: <Database className="w-4 h-4" />, label: "DynamoDB", color: "bg-[#eab30820] text-[#eab308] border-yellow-300" }
     }
-    return { icon: <Server className="w-4 h-4" />, label: type || "Resource", color: "bg-gray-100 text-gray-700 border-gray-300" }
+    return { icon: <Server className="w-4 h-4" />, label: type || "Resource", color: "bg-gray-100 text-[var(--foreground,#374151)] border-[var(--border,#d1d5db)]" }
   }
 
   const resourceIcon = (type: string) => getResourceTypeInfo(type).icon
+
+  // ── Resource type colors for themed rendering ──
+  const getTypeColor = (type: string) => {
+    const t = (type || "").toUpperCase()
+    if (t.includes("LAMBDA")) return "#f59e0b"
+    if (t.includes("EC2")) return "#3b82f6"
+    if (t.includes("ECS") || t.includes("CONTAINER")) return "#06b6d4"
+    if (t.includes("RDS") || t.includes("DATABASE")) return "#8b5cf6"
+    if (t.includes("S3") || t.includes("BUCKET")) return "#22c55e"
+    if (t.includes("DYNAMO")) return "#f97316"
+    return "#6b7280"
+  }
+  const getTypeLabel = (type: string) => {
+    const t = (type || "").toUpperCase()
+    if (t.includes("LAMBDA")) return "Lambda"
+    if (t.includes("EC2")) return "EC2"
+    if (t.includes("ECS")) return "ECS"
+    if (t.includes("RDS")) return "RDS"
+    if (t.includes("S3")) return "S3"
+    if (t.includes("DYNAMO")) return "DynamoDB"
+    if (t.includes("INSTANCE") && t.includes("PROFILE")) return "Profile"
+    return type || "Resource"
+  }
 
   // ── RENDER ──
 
@@ -371,14 +394,11 @@ export function PerResourceAnalysis() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Split className="w-6 h-6 text-indigo-600" />
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Per-Resource Analysis</h2>
-            <p className="text-sm text-gray-500">
-              Discover shared IAM roles and split into per-resource least-privilege policies
-            </p>
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Per-Resource Analysis</h2>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Discover shared IAM roles and split into per-resource least-privilege policies
+          </p>
         </div>
         {selectedRole && (
           <button
@@ -390,7 +410,8 @@ export function PerResourceAnalysis() {
               setRemediateData(null)
               setStage("scan")
             }}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            className="flex items-center gap-2 text-sm transition-colors"
+            style={{ color: "var(--text-muted)" }}
           >
             <ArrowLeft className="w-4 h-4" />
             Back to scan results
@@ -400,31 +421,32 @@ export function PerResourceAnalysis() {
 
       {/* Error banner */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-          <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+        <div className="rounded-lg border p-4 flex items-start gap-3" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
+          <XCircle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
           <div>
-            <p className="text-sm font-medium text-red-800">Error</p>
-            <p className="text-sm text-red-700 mt-1">{error}</p>
+            <p className="text-sm font-medium" style={{ color: "#ef4444" }}>Error</p>
+            <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{error}</p>
           </div>
         </div>
       )}
 
       {/* Loading overlay */}
       {loading && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 flex items-center gap-4">
-          <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
-          <span className="text-sm text-gray-600">{loadingMsg}</span>
+        <div className="rounded-lg border p-6 flex items-center gap-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#8b5cf6" }} />
+          <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{loadingMsg}</span>
         </div>
       )}
 
       {/* ──────────── SCAN SECTION ──────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Shared Role Scanner</h3>
+          <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Shared Role Scanner</h3>
           <button
             onClick={runScan}
             disabled={loading}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors shadow-sm"
+            className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
+            style={{ background: "#8b5cf6" }}
           >
             <Search className="w-4 h-4" />
             Scan AWS Account
@@ -432,46 +454,48 @@ export function PerResourceAnalysis() {
         </div>
 
         {roles.length === 0 && !loading && !error && (
-          <p className="text-sm text-gray-400">Click &quot;Scan AWS Account&quot; to discover shared roles.</p>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Click &quot;Scan AWS Account&quot; to discover shared roles.</p>
         )}
 
         {roles.length > 0 && !selectedRole && (
           <div className="space-y-3">
-            <p className="text-sm text-gray-500">
-              Found <span className="font-semibold text-gray-900">{roles.length}</span> shared role(s)
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Found <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{roles.length}</span> shared role(s)
             </p>
             {roles.map((role) => (
               <button
                 key={role.role_name}
                 onClick={() => analyzeRole(role.role_name)}
-                className="w-full text-left bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-lg p-4 transition-all group"
+                className="w-full text-left rounded-lg border p-4 transition-all hover:bg-white/5"
+                style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-mono text-sm font-semibold text-gray-900 group-hover:text-indigo-700">
+                    <div className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                       {role.role_name}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
                       {role.total_permissions} permissions &middot; {role.resources.length} resources
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700 font-medium">
+                    <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>
                       {role.resources.length} resources share this role
                     </span>
-                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-500" />
+                    <ChevronRight className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {role.resources.map((r) => {
-                    const typeInfo = getResourceTypeInfo(r.resource_type)
+                    const color = getTypeColor(r.resource_type)
+                    const label = getTypeLabel(r.resource_type)
                     return (
                       <span
                         key={r.resource_id}
-                        className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border font-medium ${typeInfo.color}`}
+                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium"
+                        style={{ background: `${color}15`, color, borderColor: `${color}40` }}
                       >
-                        {typeInfo.icon}
-                        <span className="text-[10px] uppercase opacity-75 font-semibold">{typeInfo.label}</span>
+                        <span className="text-[10px] uppercase opacity-75 font-semibold">{label}</span>
                         <span className="font-bold">{r.resource_name}</span>
                       </span>
                     )
@@ -485,36 +509,36 @@ export function PerResourceAnalysis() {
 
       {/* ──────────── ANALYSIS SECTION ──────────── */}
       {analysisData && stage !== "scan" && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Permission Usage Analysis</h3>
+            <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Permission Usage Analysis</h3>
             <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-indigo-600" />
-              <span className="text-xl font-bold text-indigo-700 font-mono bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200">
+              <Shield className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+              <span className="text-sm font-bold font-mono px-3 py-1 rounded-lg border" style={{ color: "#8b5cf6", background: "#8b5cf610", borderColor: "#8b5cf640" }}>
                 {selectedRole}
               </span>
             </div>
           </div>
 
           {/* Tab Toggle */}
-          <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
+          <div className="flex gap-1 mb-6 rounded-lg p-1 w-fit" style={{ background: "var(--bg-primary)" }}>
             <button
               onClick={() => setActiveTab("aggregated")}
-              className={`text-sm font-medium px-4 py-2 rounded-md transition-all ${
-                activeTab === "aggregated"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-gray-600 hover:bg-gray-200"
-              }`}
+              className="text-sm font-medium px-4 py-2 rounded-md transition-all"
+              style={activeTab === "aggregated"
+                ? { background: "#8b5cf6", color: "#fff" }
+                : { color: "var(--text-secondary)" }
+              }
             >
               Aggregated View
             </button>
             <button
               onClick={() => setActiveTab("per-resource")}
-              className={`text-sm font-medium px-4 py-2 rounded-md transition-all ${
-                activeTab === "per-resource"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-gray-600 hover:bg-gray-200"
-              }`}
+              className="text-sm font-medium px-4 py-2 rounded-md transition-all"
+              style={activeTab === "per-resource"
+                ? { background: "#8b5cf6", color: "#fff" }
+                : { color: "var(--text-secondary)" }
+              }
             >
               Per-Resource View
             </button>
@@ -523,121 +547,70 @@ export function PerResourceAnalysis() {
           {/* ── Aggregated View ── */}
           {activeTab === "aggregated" && (
             <div className="max-w-lg">
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-                <p className="text-xs text-gray-400 uppercase tracking-wider mb-4 font-semibold">
+              <div className="rounded-lg border p-6" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <p className="text-xs uppercase tracking-wider mb-4 font-semibold" style={{ color: "var(--text-muted)" }}>
                   CloudKnox / Entra View (Aggregated)
                 </p>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Total Permissions</span>
-                    <span className="font-mono font-bold text-gray-900">
+                    <span style={{ color: "var(--text-secondary)" }}>Total Permissions</span>
+                    <span className="font-mono font-bold" style={{ color: "var(--text-primary)" }}>
                       {analysisData.aggregated.total_permissions}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Actually Used</span>
-                    <span className="font-mono font-bold text-green-600">
+                    <span style={{ color: "var(--text-secondary)" }}>Actually Used</span>
+                    <span className="font-mono font-bold" style={{ color: "#22c55e" }}>
                       {analysisData.aggregated.used_permissions}{" "}
-                      <span className="text-gray-400">
-                        ({Math.round(
-                          (analysisData.aggregated.used_permissions /
-                            analysisData.aggregated.total_permissions) *
-                            100
-                        )}
-                        %)
+                      <span style={{ color: "var(--text-muted)" }}>
+                        ({analysisData.aggregated.total_permissions > 0 ? Math.round((analysisData.aggregated.used_permissions / analysisData.aggregated.total_permissions) * 100) : 0}%)
                       </span>
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Unused</span>
-                    <span className="font-mono font-bold text-red-600">
-                      {analysisData.aggregated.total_permissions -
-                        analysisData.aggregated.used_permissions}{" "}
-                      <span className="text-gray-400">
-                        ({Math.round(
-                          ((analysisData.aggregated.total_permissions -
-                            analysisData.aggregated.used_permissions) /
-                            analysisData.aggregated.total_permissions) *
-                            100
-                        )}
-                        %)
+                    <span style={{ color: "var(--text-secondary)" }}>Unused</span>
+                    <span className="font-mono font-bold" style={{ color: "#ef4444" }}>
+                      {analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions}{" "}
+                      <span style={{ color: "var(--text-muted)" }}>
+                        ({analysisData.aggregated.total_permissions > 0 ? Math.round(((analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions) / analysisData.aggregated.total_permissions) * 100) : 0}%)
                       </span>
                     </span>
                   </div>
                   {/* Progress bar */}
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
-                    <div
-                      className="bg-green-500 h-2.5 rounded-full transition-all"
-                      style={{
-                        width: `${Math.round(
-                          (analysisData.aggregated.used_permissions /
-                            analysisData.aggregated.total_permissions) *
-                            100
-                        )}%`,
-                      }}
-                    />
+                  <div className="w-full rounded-full h-2 mt-2" style={{ background: "var(--bg-secondary)" }}>
+                    <div className="h-2 rounded-full transition-all" style={{ background: "#22c55e", width: `${analysisData.aggregated.total_permissions > 0 ? Math.round((analysisData.aggregated.used_permissions / analysisData.aggregated.total_permissions) * 100) : 0}%` }} />
                   </div>
                   {/* Warning */}
-                  <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="mt-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <span className="text-sm font-semibold text-amber-800">OVER-PERMISSIONED</span>
+                      <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
+                      <span className="text-sm font-semibold" style={{ color: "#f97316" }}>OVER-PERMISSIONED</span>
                     </div>
-                    <p className="text-xs text-amber-700 mt-1">
-                      Remove{" "}
-                      {analysisData.aggregated.total_permissions -
-                        analysisData.aggregated.used_permissions}{" "}
-                      unused permissions
+                    <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                      Remove {analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions} unused permissions
                     </p>
                   </div>
-                  {/* Buttons */}
                   <div className="flex gap-2 mt-4">
-                    <button
-                      onClick={() => setAggApplied(true)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                    >
+                    <button onClick={() => setAggApplied(true)} className="text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors hover:opacity-90" style={{ background: "#8b5cf6" }}>
                       Apply Aggregated Fix
                     </button>
                   </div>
                 </div>
 
-                {/* Applied result */}
                 {aggApplied && (
-                  <div className="mt-4 space-y-2 p-4 rounded-lg bg-green-50 border border-green-200 animate-in fade-in">
-                    <div className="flex items-center gap-2 text-sm text-green-700">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Policy updated
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-green-700">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Role reduced: {analysisData.aggregated.total_permissions} →{" "}
-                      {analysisData.aggregated.used_permissions} permissions
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-green-700">
-                      <CheckCircle2 className="w-4 h-4" />
-                      All {analysisData.analyses.length} resources now have{" "}
-                      {analysisData.aggregated.used_permissions} permissions
-                    </div>
-                    <p className="text-sm font-semibold text-green-800 mt-2">
-                      Risk reduced by{" "}
-                      {Math.round(
-                        ((analysisData.aggregated.total_permissions -
-                          analysisData.aggregated.used_permissions) /
-                          analysisData.aggregated.total_permissions) *
-                          100
-                      )}
-                      %
+                  <div className="mt-4 space-y-2 p-4 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
+                    <div className="flex items-center gap-2 text-sm" style={{ color: "#22c55e" }}><CheckCircle2 className="w-4 h-4" /> Policy updated</div>
+                    <div className="flex items-center gap-2 text-sm" style={{ color: "#22c55e" }}><CheckCircle2 className="w-4 h-4" /> Role reduced: {analysisData.aggregated.total_permissions} → {analysisData.aggregated.used_permissions} permissions</div>
+                    <div className="flex items-center gap-2 text-sm" style={{ color: "#22c55e" }}><CheckCircle2 className="w-4 h-4" /> All {analysisData.analyses.length} resources now have {analysisData.aggregated.used_permissions} permissions</div>
+                    <p className="text-sm font-semibold mt-2" style={{ color: "#22c55e" }}>
+                      Risk reduced by {analysisData.aggregated.total_permissions > 0 ? Math.round(((analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions) / analysisData.aggregated.total_permissions) * 100) : 0}%
                     </p>
-                    <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
-                      <p className="text-xs text-amber-700">
-                        But do all {analysisData.analyses.length} resources need the same{" "}
-                        {analysisData.aggregated.used_permissions} permissions?
+                    <div className="mt-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
+                      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                        But do all {analysisData.analyses.length} resources need the same {analysisData.aggregated.used_permissions} permissions?
                       </p>
-                      <button
-                        onClick={() => setActiveTab("per-resource")}
-                        className="text-xs text-indigo-600 underline mt-1"
-                      >
-                        Switch to Per-Resource View to find out →
+                      <button onClick={() => setActiveTab("per-resource")} className="text-xs underline mt-1" style={{ color: "#8b5cf6" }}>
+                        Switch to Per-Resource View to find out
                       </button>
                     </div>
                   </div>
@@ -650,173 +623,121 @@ export function PerResourceAnalysis() {
           {activeTab === "per-resource" && (
             <div className="space-y-4">
               {/* Warning banner */}
-              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
+              <div className="p-4 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  <span className="text-sm font-semibold text-amber-800">
-                    SHARED ROLE PROBLEM DETECTED
-                  </span>
+                  <AlertTriangle className="w-5 h-5" style={{ color: "#f97316" }} />
+                  <span className="text-sm font-semibold" style={{ color: "#f97316" }}>SHARED ROLE PROBLEM DETECTED</span>
                 </div>
-                <p className="text-sm text-amber-700 mt-1">
-                  This role is shared by {analysisData.analyses.length} resources, but each resource
-                  uses <strong>DIFFERENT</strong> permissions. Recommendation: Split roles.
+                <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+                  This role is shared by {analysisData.analyses.length} resources, but each resource uses <strong>DIFFERENT</strong> permissions. Recommendation: Split roles.
                 </p>
               </div>
 
-              {/* Resource cards */}
-              {analysisData.analyses.map((a) => {
-                const unusedShown = a.unused_permissions.slice(0, 4)
-                const unusedMore = a.unused_permissions.length > 4 ? a.unused_permissions.length - 4 : 0
-                const typeInfo = getResourceTypeInfo(a.resource_type)
-                return (
-                  <div
-                    key={a.resource_id}
-                    className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:border-indigo-300 transition-colors"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        {/* Resource type badge - prominent */}
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold text-sm ${typeInfo.color}`}>
-                          {typeInfo.icon}
-                          {typeInfo.label}
-                        </span>
-                        {/* Resource name - bold */}
-                        <span className="text-lg font-bold text-gray-900">
-                          {a.resource_name}
-                        </span>
-                        <span className="text-xs text-gray-400 font-mono">({a.resource_id})</span>
-                      </div>
-                      <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                          a.utilization_rate < 0.1
-                            ? "bg-red-100 text-red-700"
-                            : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
-                        {a.utilization_rate < 0.005
-                          ? "<1"
-                          : Math.round(a.utilization_rate * 100)}
-                        % utilization
-                      </span>
-                    </div>
-
-                    {/* Stats grid */}
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="bg-white rounded-lg p-3 text-center border border-gray-100">
-                        <div className="text-2xl font-bold text-gray-900">{a.permissions_granted}</div>
-                        <div className="text-xs text-gray-500">Granted</div>
-                      </div>
-                      <div className="bg-white rounded-lg p-3 text-center border border-gray-100">
-                        <div className="text-2xl font-bold text-green-600">{a.used_count}</div>
-                        <div className="text-xs text-gray-500">Used</div>
-                      </div>
-                      <div className="bg-white rounded-lg p-3 text-center border border-gray-100">
-                        <div className="text-2xl font-bold text-red-600">
-                          {a.unused_permissions.length}
-                        </div>
-                        <div className="text-xs text-gray-500">Unused</div>
-                      </div>
-                    </div>
-
-                    {/* Used permissions */}
-                    <div className="mb-3">
-                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-2 font-semibold">
-                        Used permissions:
-                      </p>
-                      {a.permissions_used.length === 0 ? (
-                        <p className="text-xs text-gray-400 italic">
-                          No API calls observed in analysis window
-                        </p>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {a.permissions_used.map((p) => (
-                            <div key={p.action} className="flex items-start gap-2 text-sm">
-                              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                              <div>
-                                <span className="font-mono text-gray-900">{p.action}</span>
-                                <span className="text-gray-400 ml-2">
-                                  ({p.call_count.toLocaleString()} calls)
-                                </span>
-                                {p.targets.length > 0 && (
-                                  <div className="text-xs text-gray-400 mt-0.5 ml-1">
-                                    └ {p.targets[0].replace(/arn:aws:s3:::/g, "")}
-                                  </div>
-                                )}
-                              </div>
+              {/* Resource cards as table rows */}
+              <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <div className="grid grid-cols-[2fr_80px_80px_80px_100px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+                  style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-secondary)" }}>
+                  <span>Resource</span>
+                  <span className="text-center">Granted</span>
+                  <span className="text-center">Used</span>
+                  <span className="text-center">Unused</span>
+                  <span className="text-center">Utilization</span>
+                </div>
+                <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+                  {analysisData.analyses.map((a) => {
+                    const unusedShown = a.unused_permissions.slice(0, 4)
+                    const unusedMore = a.unused_permissions.length > 4 ? a.unused_permissions.length - 4 : 0
+                    const color = getTypeColor(a.resource_type)
+                    const label = getTypeLabel(a.resource_type)
+                    const utilPct = a.utilization_rate < 0.005 ? "<1" : String(Math.round(a.utilization_rate * 100))
+                    const utilColor = a.utilization_rate < 0.1 ? "#ef4444" : a.utilization_rate < 0.5 ? "#f97316" : "#22c55e"
+                    return (
+                      <div key={a.resource_id} className="px-4 py-3">
+                        <div className="grid grid-cols-[2fr_80px_80px_80px_100px] gap-2 items-center">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}20` }}>
+                              {resourceIcon(a.resource_type)}
                             </div>
-                          ))}
+                            <div className="min-w-0">
+                              <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{a.resource_name}</div>
+                              <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{label} &middot; {a.resource_id}</div>
+                            </div>
+                          </div>
+                          <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{a.permissions_granted}</div>
+                          <div className="text-center text-sm font-medium" style={{ color: "#22c55e" }}>{a.used_count}</div>
+                          <div className="text-center text-sm font-medium" style={{ color: "#ef4444" }}>{a.unused_permissions.length}</div>
+                          <div className="text-center">
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${utilColor}20`, color: utilColor }}>{utilPct}%</span>
+                          </div>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Unused permissions */}
-                    <div className="mb-3">
-                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1 font-semibold">
-                        Never used ({a.unused_permissions.length}):
-                      </p>
-                      <p className="text-xs text-red-500 font-mono">
-                        {unusedShown.join(", ")}
-                        {unusedMore > 0 && ` +${unusedMore} more`}
-                      </p>
-                    </div>
-
-                    {/* Risk factors */}
-                    {a.risk_factors.length > 0 && (
-                      <div className="p-2.5 rounded-lg bg-red-50 border border-red-200">
-                        <div className="flex items-center gap-1.5">
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
-                          <span className="text-xs text-red-700">
-                            Risk: {a.risk_factors.slice(0, 2).join("; ")}
-                          </span>
+                        {/* Inline detail */}
+                        <div className="mt-3 grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>Used permissions:</p>
+                            {a.permissions_used.length === 0 ? (
+                              <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>No API calls observed</p>
+                            ) : (
+                              <div className="space-y-1">
+                                {a.permissions_used.map((p) => (
+                                  <div key={p.action} className="flex items-start gap-1.5 text-xs">
+                                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "#22c55e" }} />
+                                    <span className="font-mono" style={{ color: "var(--text-primary)" }}>{p.action}</span>
+                                    <span style={{ color: "var(--text-muted)" }}>({p.call_count.toLocaleString()})</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs uppercase tracking-wider mb-1.5 font-semibold" style={{ color: "var(--text-muted)" }}>Never used ({a.unused_permissions.length}):</p>
+                            <div className="flex flex-wrap gap-1">
+                              {unusedShown.map((u, i) => (
+                                <span key={i} className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>{u}</span>
+                              ))}
+                              {unusedMore > 0 && <span className="text-xs" style={{ color: "var(--text-muted)" }}>+{unusedMore} more</span>}
+                            </div>
+                            {a.risk_factors.length > 0 && (
+                              <div className="mt-2 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3 h-3" style={{ color: "#ef4444" }} />
+                                <span className="text-xs" style={{ color: "#ef4444" }}>{a.risk_factors.slice(0, 2).join("; ")}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
+                    )
+                  })}
+                </div>
+              </div>
 
               {/* Recommendation panel */}
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-5">
+              <div className="rounded-lg border p-5" style={{ background: "#8b5cf610", borderColor: "#8b5cf640" }}>
                 <div className="flex items-center gap-2 mb-3">
-                  <Shield className="w-5 h-5 text-indigo-600" />
-                  <span className="text-lg font-semibold text-indigo-900">CYNTRO RECOMMENDATION</span>
+                  <Shield className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+                  <span className="text-base font-semibold" style={{ color: "#8b5cf6" }}>CYNTRO RECOMMENDATION</span>
                 </div>
-                <p className="text-sm text-indigo-700 mb-3">
+                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
                   Split into {analysisData.analyses.length} least-privilege roles:
                 </p>
                 <div className="space-y-1 mb-4">
                   {analysisData.analyses.map((a) => (
                     <div key={a.resource_id} className="text-sm">
-                      <span className="text-gray-500">&bull; </span>
-                      <span className="font-mono text-indigo-700">role-{a.resource_name}</span>:{" "}
-                      <span className="font-bold text-gray-900">{a.used_count}</span>{" "}
-                      <span className="text-gray-500">
-                        permission{a.used_count !== 1 ? "s" : ""}
-                      </span>
+                      <span style={{ color: "var(--text-muted)" }}>&bull; </span>
+                      <span className="font-mono" style={{ color: "#8b5cf6" }}>role-{a.resource_name}</span>:{" "}
+                      <span className="font-bold" style={{ color: "var(--text-primary)" }}>{a.used_count}</span>{" "}
+                      <span style={{ color: "var(--text-muted)" }}>permission{a.used_count !== 1 ? "s" : ""}</span>
                     </div>
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={showComparison}
-                    disabled={loading}
-                    className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                  >
+                  <button onClick={showComparison} disabled={loading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                     Compare Approaches
                   </button>
-                  <button
-                    onClick={runSimulation}
-                    disabled={loading}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <Play className="w-4 h-4" />
-                    Simulate Split
+                  <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
+                    <Play className="w-4 h-4" /> Simulate Split
                   </button>
-                  <button
-                    onClick={() => runRemediation(true)}
-                    disabled={loading}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-                  >
+                  <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
                     Remediate Now
                   </button>
                 </div>
@@ -828,153 +749,129 @@ export function PerResourceAnalysis() {
 
       {/* ──────────── COMPARISON SECTION ──────────── */}
       {recommendData && analysisData?.analyses && analysisData.analyses.length > 0 && (stage === "comparison" || stage === "simulation" || stage === "remediation") && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Why Per-Resource Matters</h3>
+        <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <h3 className="text-base font-semibold mb-6" style={{ color: "var(--text-primary)" }}>Why Per-Resource Matters</h3>
 
-          {/* Current State - shared by both */}
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          {/* Current State */}
+          <div className="rounded-lg border p-4 mb-6" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
-              <span className="font-semibold text-red-700">Current State: Shared Role</span>
+              <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
+              <span className="font-semibold" style={{ color: "#ef4444" }}>Current State: Shared Role</span>
             </div>
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <div className="text-3xl font-bold text-red-600">{recommendData.original_permissions}</div>
-                <div className="text-xs text-gray-600">permissions granted</div>
+                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.original_permissions}</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>permissions granted</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-red-600">{recommendData.resources_attached}</div>
-                <div className="text-xs text-gray-600">resources sharing</div>
+                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.resources_attached}</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>resources sharing</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-red-600">{recommendData.original_permissions * recommendData.resources_attached}</div>
-                <div className="text-xs text-gray-600">total exposure</div>
+                <div className="text-3xl font-bold" style={{ color: "#ef4444" }}>{recommendData.original_permissions * recommendData.resources_attached}</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>total exposure</div>
               </div>
             </div>
           </div>
 
           {/* Side by side comparison */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* CloudKnox approach */}
-            <div className="border-2 border-gray-200 rounded-xl overflow-hidden">
-              <div className="bg-gray-100 px-4 py-3 border-b border-gray-200">
+            {/* Traditional approach */}
+            <div className="rounded-lg border-2 overflow-hidden" style={{ borderColor: "var(--border-subtle)" }}>
+              <div className="px-4 py-3 border-b" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-gray-700">Traditional Approach</span>
-                  <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">CloudKnox-style</span>
+                  <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Traditional Approach</span>
+                  <span className="text-xs px-2 py-1 rounded" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>CloudKnox-style</span>
                 </div>
               </div>
-              <div className="p-4 space-y-4">
-                <div className="text-sm text-gray-600">
+              <div className="p-4 space-y-4" style={{ background: "var(--bg-primary)" }}>
+                <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Reduces role to <strong>{recommendData.aggregated_used} permissions</strong> (union of all used)
                 </div>
-
-                {/* Visual representation */}
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <div className="text-xs text-amber-700 font-medium mb-2">After remediation:</div>
+                <div className="rounded-lg p-3 border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
+                  <div className="text-xs font-medium mb-2" style={{ color: "#f97316" }}>After remediation:</div>
                   <div className="space-y-1">
                     {Array.from({ length: Math.min(recommendData.resources_attached, 4) }).map((_, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <Server className="w-4 h-4 text-gray-400" />
-                        <span className="text-xs text-gray-600">Resource {i + 1}</span>
-                        <ArrowRight className="w-3 h-3 text-gray-400" />
-                        <span className="text-xs font-mono bg-amber-100 px-2 py-0.5 rounded text-amber-700">
-                          {recommendData.aggregated_used} perms
-                        </span>
+                        <Server className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Resource {i + 1}</span>
+                        <ArrowRight className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
+                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: "#f9731620", color: "#f97316" }}>{recommendData.aggregated_used} perms</span>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <div className="pt-3 border-t border-gray-200">
+                <div className="pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
                   <div className="flex justify-between items-end">
                     <div>
-                      <div className="text-xs text-gray-500">Total exposure after fix</div>
-                      <div className="text-2xl font-bold text-gray-600">
-                        {recommendData.aggregated_used * recommendData.resources_attached}
-                      </div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total exposure after fix</div>
+                      <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }}>{recommendData.aggregated_used * recommendData.resources_attached}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-gray-500">Risk reduction</div>
-                      <div className="text-2xl font-bold text-gray-500">
-                        {Math.round(recommendData.aggregated_risk_reduction)}%
-                      </div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
+                      <div className="text-2xl font-bold" style={{ color: "var(--text-secondary)" }}>{Math.round(recommendData.aggregated_risk_reduction)}%</div>
                     </div>
                   </div>
-                  <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gray-400 rounded-full"
-                      style={{ width: `${recommendData.aggregated_risk_reduction}%` }}
-                    />
+                  <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-secondary)" }}>
+                    <div className="h-full rounded-full" style={{ background: "var(--text-muted)", width: `${recommendData.aggregated_risk_reduction}%` }} />
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Cyntro approach */}
-            <div className="border-2 border-green-300 rounded-xl overflow-hidden bg-green-50/30">
-              <div className="bg-green-100 px-4 py-3 border-b border-green-200">
+            <div className="rounded-lg border-2 overflow-hidden" style={{ borderColor: "#22c55e80" }}>
+              <div className="px-4 py-3 border-b" style={{ background: "#22c55e15", borderColor: "#22c55e40" }}>
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-green-800">Cyntro Per-Resource</span>
-                  <span className="text-xs bg-green-200 text-green-700 px-2 py-1 rounded font-medium">Recommended</span>
+                  <span className="font-semibold" style={{ color: "#22c55e" }}>Cyntro Per-Resource</span>
+                  <span className="text-xs px-2 py-1 rounded font-medium" style={{ background: "#22c55e20", color: "#22c55e" }}>Recommended</span>
                 </div>
               </div>
-              <div className="p-4 space-y-4">
-                <div className="text-sm text-gray-600">
+              <div className="p-4 space-y-4" style={{ background: "var(--bg-primary)" }}>
+                <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Each resource gets <strong>only what it uses</strong>
                 </div>
-
-                {/* Visual representation */}
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <div className="text-xs text-green-700 font-medium mb-2">After remediation:</div>
+                <div className="rounded-lg p-3 border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
+                  <div className="text-xs font-medium mb-2" style={{ color: "#22c55e" }}>After remediation:</div>
                   <div className="space-y-1">
                     {(analysisData?.analyses || []).slice(0, 4).map((a, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <Server className="w-4 h-4 text-green-500" />
-                        <span className="text-xs text-gray-600 truncate max-w-[100px]">{a.resource_name}</span>
-                        <ArrowRight className="w-3 h-3 text-green-400" />
-                        <span className="text-xs font-mono bg-green-100 px-2 py-0.5 rounded text-green-700">
-                          {a.used_count || 0} perm{(a.used_count || 0) !== 1 ? 's' : ''}
-                        </span>
+                        <Server className="w-4 h-4" style={{ color: "#22c55e" }} />
+                        <span className="text-xs truncate max-w-[100px]" style={{ color: "var(--text-secondary)" }}>{a.resource_name}</span>
+                        <ArrowRight className="w-3 h-3" style={{ color: "#22c55e" }} />
+                        <span className="text-xs font-mono px-2 py-0.5 rounded" style={{ background: "#22c55e20", color: "#22c55e" }}>{a.used_count || 0} perm{(a.used_count || 0) !== 1 ? "s" : ""}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-
-                <div className="pt-3 border-t border-green-200">
+                <div className="pt-3 border-t" style={{ borderColor: "#22c55e40" }}>
                   <div className="flex justify-between items-end">
                     <div>
-                      <div className="text-xs text-gray-500">Total exposure after fix</div>
-                      <div className="text-2xl font-bold text-green-600">
-                        {(analysisData?.analyses || []).reduce((sum, a) => sum + (a.used_count || 0), 0)}
-                      </div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total exposure after fix</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{(analysisData?.analyses || []).reduce((sum, a) => sum + (a.used_count || 0), 0)}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-gray-500">Risk reduction</div>
-                      <div className="text-2xl font-bold text-green-600">
-                        {Math.round(recommendData.cyntro_risk_reduction)}%
-                      </div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Risk reduction</div>
+                      <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{Math.round(recommendData.cyntro_risk_reduction)}%</div>
                     </div>
                   </div>
-                  <div className="mt-2 h-2 bg-green-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 rounded-full"
-                      style={{ width: `${recommendData.cyntro_risk_reduction}%` }}
-                    />
+                  <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: "#22c55e20" }}>
+                    <div className="h-full rounded-full" style={{ background: "#22c55e", width: `${recommendData.cyntro_risk_reduction}%` }} />
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Key insight callout */}
-          <div className="mt-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+          {/* Key insight */}
+          <div className="mt-6 rounded-lg border p-4" style={{ background: "#8b5cf610", borderColor: "#8b5cf640" }}>
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-full text-white flex items-center justify-center shrink-0" style={{ background: "#8b5cf6" }}>
                 <Zap className="w-4 h-4" />
               </div>
               <div>
-                <div className="font-semibold text-indigo-900 mb-1">The Cyntro Difference</div>
-                <div className="text-sm text-indigo-700">
+                <div className="font-semibold mb-1" style={{ color: "#8b5cf6" }}>The Cyntro Difference</div>
+                <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   Traditional tools give every resource the <strong>same reduced permissions</strong>.
                   Cyntro tracks which resource uses which permission, so each gets <strong>only what it actually needs</strong>.
                   This eliminates <strong>{recommendData.aggregated_used * recommendData.resources_attached > 0 ? Math.round((1 - ((analysisData?.analyses || []).reduce((sum, a) => sum + (a.used_count || 0), 0) || 0) / (recommendData.aggregated_used * recommendData.resources_attached)) * 100) : 0}% more risk</strong> than aggregated approaches.
@@ -983,11 +880,9 @@ export function PerResourceAnalysis() {
             </div>
           </div>
 
-          {/* Architecture explanation - collapsed by default */}
+          {/* Architecture steps */}
           <details className="mt-6">
-            <summary className="cursor-pointer text-sm font-semibold text-gray-700 hover:text-gray-900">
-              How Cyntro Analyzes Per-Resource
-            </summary>
+            <summary className="cursor-pointer text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>How Cyntro Analyzes Per-Resource</summary>
             <div className="mt-3 grid grid-cols-1 gap-2">
               {[
                 { step: "1", title: "Collect CloudTrail logs", detail: "90 days of API events" },
@@ -996,13 +891,11 @@ export function PerResourceAnalysis() {
                 { step: "4", title: "Build permission graph", detail: "Resource → Permission → Target mapping" },
                 { step: "5", title: "Generate per-resource recommendations", detail: "Scoped to exact buckets and actions observed" },
               ].map((s) => (
-                <div key={s.step} className="flex items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                  <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    {s.step}
-                  </div>
+                <div key={s.step} className="flex items-start gap-3 rounded-lg border p-3" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                  <div className="w-6 h-6 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0" style={{ background: "#8b5cf6" }}>{s.step}</div>
                   <div>
-                    <div className="text-sm font-medium text-gray-900">{s.title}</div>
-                    <div className="text-xs text-gray-500">{s.detail}</div>
+                    <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{s.title}</div>
+                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>{s.detail}</div>
                   </div>
                 </div>
               ))}
@@ -1012,50 +905,29 @@ export function PerResourceAnalysis() {
           {/* Action buttons */}
           <div className="mt-6 space-y-4">
             <div className="flex gap-3">
-              <button
-                onClick={runSimulation}
-                disabled={loading}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-              >
-                <Play className="w-4 h-4" />
-                Simulate Split
+              <button onClick={runSimulation} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#8b5cf6" }}>
+                <Play className="w-4 h-4" /> Simulate Split
               </button>
-              <button
-                onClick={() => runRemediation(true)}
-                disabled={loading}
-                className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-              >
+              <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg border transition-colors disabled:opacity-50" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                 Aggregated Remediation
               </button>
             </div>
-
-            {/* Per-Resource Remediation - Highlighted */}
-            <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4">
+            <div className="rounded-lg border-2 p-4" style={{ background: "#22c55e10", borderColor: "#22c55e80" }}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <Split className="w-5 h-5 text-green-600" />
-                    <span className="font-semibold text-green-800">Per-Resource Remediation</span>
-                    <span className="text-xs bg-green-200 text-green-700 px-2 py-0.5 rounded">Recommended</span>
+                    <Split className="w-5 h-5" style={{ color: "#22c55e" }} />
+                    <span className="font-semibold" style={{ color: "#22c55e" }}>Per-Resource Remediation</span>
+                    <span className="text-xs px-2 py-0.5 rounded" style={{ background: "#22c55e20", color: "#22c55e" }}>Recommended</span>
                   </div>
-                  <p className="text-sm text-green-700">Creates separate least-privilege roles for each resource</p>
+                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Creates separate least-privilege roles for each resource</p>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => runPerResourceRemediation(true)}
-                    disabled={loading}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <Eye className="w-4 h-4" />
-                    Preview
+                  <button onClick={() => runPerResourceRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
+                    <Eye className="w-4 h-4" /> Preview
                   </button>
-                  <button
-                    onClick={() => runPerResourceRemediation(false)}
-                    disabled={loading}
-                    className="flex items-center gap-2 bg-green-700 hover:bg-green-800 disabled:bg-green-400 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <Zap className="w-4 h-4" />
-                    Execute Live
+                  <button onClick={() => runPerResourceRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#16a34a" }}>
+                    <Zap className="w-4 h-4" /> Execute Live
                   </button>
                 </div>
               </div>
@@ -1066,84 +938,60 @@ export function PerResourceAnalysis() {
 
       {/* ──────────── SIMULATION SECTION ──────────── */}
       {simData && (stage === "simulation" || stage === "remediation") && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Simulation Results</h3>
-
+        <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <h3 className="text-base font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Simulation Results</h3>
           <div className="space-y-3">
             {simData.results.map((r) => (
-              <div
-                key={r.resource_id}
-                className="bg-gray-50 border border-gray-200 rounded-lg p-4"
-              >
+              <div key={r.resource_id} className="rounded-lg border p-4" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {r.passed ? (
-                      <CheckCircle2 className="w-5 h-5 text-green-500" />
-                    ) : (
-                      <XCircle className="w-5 h-5 text-red-500" />
-                    )}
-                    <span className="font-semibold text-sm text-gray-900">{r.resource_name}</span>
-                    <span className="text-xs text-gray-400 font-mono">{r.proposed_role}</span>
+                    {r.passed ? <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} /> : <XCircle className="w-5 h-5" style={{ color: "#ef4444" }} />}
+                    <span className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>{r.resource_name}</span>
+                    <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{r.proposed_role}</span>
                   </div>
-                  <span
-                    className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                      r.passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                    }`}
-                  >
+                  <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: r.passed ? "#22c55e20" : "#ef444420", color: r.passed ? "#22c55e" : "#ef4444" }}>
                     {r.confidence.toFixed(1)}% confidence
                   </span>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="bg-white border border-gray-100 rounded p-2">
-                    <div className="font-bold text-gray-900">{r.total_events.toLocaleString()}</div>
-                    <div className="text-gray-500">Events replayed</div>
+                  <div className="rounded p-2 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                    <div className="font-bold" style={{ color: "var(--text-primary)" }}>{r.total_events.toLocaleString()}</div>
+                    <div style={{ color: "var(--text-muted)" }}>Events replayed</div>
                   </div>
-                  <div className="bg-white border border-gray-100 rounded p-2">
-                    <div className="font-bold text-green-600">{r.successful.toLocaleString()}</div>
-                    <div className="text-gray-500">Successful</div>
+                  <div className="rounded p-2 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                    <div className="font-bold" style={{ color: "#22c55e" }}>{r.successful.toLocaleString()}</div>
+                    <div style={{ color: "var(--text-muted)" }}>Successful</div>
                   </div>
-                  <div className="bg-white border border-gray-100 rounded p-2">
-                    <div className="font-bold text-red-600">{r.denied}</div>
-                    <div className="text-gray-500">Denied</div>
+                  <div className="rounded p-2 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                    <div className="font-bold" style={{ color: "#ef4444" }}>{r.denied}</div>
+                    <div style={{ color: "var(--text-muted)" }}>Denied</div>
                   </div>
                 </div>
               </div>
             ))}
 
             {simData.all_passed ? (
-              <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+              <div className="p-4 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  <span className="text-sm font-semibold text-green-800">
-                    All simulations passed. Safe to proceed.
-                  </span>
+                  <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} />
+                  <span className="text-sm font-semibold" style={{ color: "#22c55e" }}>All simulations passed. Safe to proceed.</span>
                 </div>
               </div>
             ) : (
-              <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+              <div className="p-4 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
                 <div className="flex items-center gap-2">
-                  <XCircle className="w-5 h-5 text-red-600" />
-                  <span className="text-sm font-semibold text-red-800">
-                    Some simulations failed. Review before proceeding.
-                  </span>
+                  <XCircle className="w-5 h-5" style={{ color: "#ef4444" }} />
+                  <span className="text-sm font-semibold" style={{ color: "#ef4444" }}>Some simulations failed. Review before proceeding.</span>
                 </div>
               </div>
             )}
 
             <div className="flex gap-3 mt-2">
-              <button
-                onClick={() => runRemediation(true)}
-                disabled={loading}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-              >
+              <button onClick={() => runRemediation(true)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
                 Execute Remediation (Dry Run)
               </button>
               {simData.all_passed && (
-                <button
-                  onClick={() => runRemediation(false)}
-                  disabled={loading}
-                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-                >
+                <button onClick={() => runRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
                   Execute Live
                 </button>
               )}
@@ -1154,65 +1002,43 @@ export function PerResourceAnalysis() {
 
       {/* ──────────── REMEDIATION SECTION ──────────── */}
       {remediateData && stage === "remediation" && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <h3 className="text-base font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
             Remediation {remediateData.dry_run ? "(Dry Run)" : "(Live)"}
           </h3>
-
           <div className="space-y-2 mb-6">
             {remediateData.steps.map((s, i) => (
               <div key={i} className="flex items-center gap-3 text-sm">
-                {s.status === "completed" ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                ) : s.status === "failed" ? (
-                  <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-                ) : (
-                  <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
-                )}
-                <span className="text-gray-500">[{s.action}]</span>
-                <span className="text-gray-900">{s.target}</span>
-                {s.details && <span className="text-xs text-gray-400">{s.details}</span>}
+                {s.status === "completed" ? <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: "#22c55e" }} /> : s.status === "failed" ? <XCircle className="w-4 h-4 shrink-0" style={{ color: "#ef4444" }} /> : <ArrowRight className="w-4 h-4 shrink-0" style={{ color: "var(--text-muted)" }} />}
+                <span style={{ color: "var(--text-muted)" }}>[{s.action}]</span>
+                <span style={{ color: "var(--text-primary)" }}>{s.target}</span>
+                {s.details && <span className="text-xs" style={{ color: "var(--text-muted)" }}>{s.details}</span>}
               </div>
             ))}
           </div>
-
-          {/* Summary */}
-          <div className="p-5 rounded-lg bg-green-50 border border-green-200">
+          <div className="p-5 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
             <div className="flex items-center gap-2 mb-3">
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
-              <span className="font-semibold text-green-800">
-                REMEDIATION COMPLETE {remediateData.dry_run ? "(DRY RUN)" : ""}
-              </span>
+              <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} />
+              <span className="font-semibold" style={{ color: "#22c55e" }}>REMEDIATION COMPLETE {remediateData.dry_run ? "(DRY RUN)" : ""}</span>
             </div>
             <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="bg-white rounded-lg p-3 border border-green-100">
-                <div className="text-2xl font-bold text-gray-400">
-                  {remediateData.summary.before_total}
-                </div>
-                <div className="text-xs text-gray-500">Before (total perms)</div>
+              <div className="rounded-lg p-3 border" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <div className="text-2xl font-bold" style={{ color: "var(--text-muted)" }}>{remediateData.summary.before_total}</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Before (total perms)</div>
               </div>
-              <div className="bg-white rounded-lg p-3 border border-green-100">
-                <div className="text-2xl font-bold text-green-600">
-                  {remediateData.summary.after_total}
-                </div>
-                <div className="text-xs text-gray-500">After (total perms)</div>
+              <div className="rounded-lg p-3 border" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{remediateData.summary.after_total}</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>After (total perms)</div>
               </div>
-              <div className="bg-white rounded-lg p-3 border border-green-100">
-                <div className="text-2xl font-bold text-indigo-600">
-                  {Math.round(remediateData.summary.reduction * 100)}%
-                </div>
-                <div className="text-xs text-gray-500">Reduction</div>
+              <div className="rounded-lg p-3 border" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <div className="text-2xl font-bold" style={{ color: "#8b5cf6" }}>{Math.round(remediateData.summary.reduction * 100)}%</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Reduction</div>
               </div>
             </div>
           </div>
-
           {remediateData.dry_run && (
             <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => runRemediation(false)}
-                disabled={loading}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-              >
+              <button onClick={() => runRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#ef4444" }}>
                 Execute Live Remediation
               </button>
             </div>
@@ -1222,126 +1048,91 @@ export function PerResourceAnalysis() {
 
       {/* ──────────── PER-RESOURCE REMEDIATION RESULTS ──────────── */}
       {perResourceRemediateData && stage === "remediation" && (
-        <div className="bg-white rounded-xl border-2 border-green-300 p-6 shadow-sm">
+        <div className="rounded-lg border-2 p-6" style={{ background: "var(--bg-secondary)", borderColor: "#22c55e80" }}>
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-              <Split className="w-5 h-5 text-green-600" />
+            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "#22c55e20" }}>
+              <Split className="w-5 h-5" style={{ color: "#22c55e" }} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">
+              <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
                 Per-Resource Remediation {perResourceRemediateData.dry_run ? "(Preview)" : "Complete"}
               </h3>
-              <p className="text-sm text-gray-500">{perResourceRemediateData.message}</p>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>{perResourceRemediateData.message}</p>
             </div>
           </div>
 
           {/* Summary stats */}
           <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="bg-gray-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-gray-900">{perResourceRemediateData.total_resources}</div>
-              <div className="text-xs text-gray-500">Resources</div>
-            </div>
-            <div className="bg-red-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-red-600">{perResourceRemediateData.summary.before_total_exposure}</div>
-              <div className="text-xs text-gray-500">Before (exposure)</div>
-            </div>
-            <div className="bg-green-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">{perResourceRemediateData.summary.after_total_exposure}</div>
-              <div className="text-xs text-gray-500">After (exposure)</div>
-            </div>
-            <div className="bg-indigo-50 rounded-lg p-4 text-center">
-              <div className="text-2xl font-bold text-indigo-600">{perResourceRemediateData.summary.reduction_percentage}%</div>
-              <div className="text-xs text-gray-500">Risk Reduction</div>
-            </div>
-          </div>
-
-          {/* Per-resource results */}
-          <div className="space-y-4">
-            <div className="text-sm font-semibold text-gray-700">Individual Resource Roles:</div>
-            {perResourceRemediateData.resources.map((resource, idx) => (
-              <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <Server className="w-5 h-5 text-gray-400" />
-                    <div>
-                      <div className="font-semibold text-gray-900">{resource.resource_name}</div>
-                      <div className="text-xs text-gray-500 font-mono">{resource.resource_id}</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-green-600">{resource.permissions_count} permissions</div>
-                    {resource.new_role_name && (
-                      <div className="text-xs text-gray-500 font-mono">{resource.new_role_name}</div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Steps */}
-                <div className="space-y-1">
-                  {resource.steps.map((step, stepIdx) => (
-                    <div key={stepIdx} className="flex items-center gap-2 text-xs">
-                      {step.status === "completed" ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      ) : step.status === "skipped" ? (
-                        <div className="w-4 h-4 rounded-full bg-gray-300" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-red-500" />
-                      )}
-                      <span className="text-gray-600">{step.details}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Permissions list */}
-                {resource.permissions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-200">
-                    <div className="text-xs text-gray-500 mb-2">Permissions:</div>
-                    <div className="flex flex-wrap gap-1">
-                      {resource.permissions.map((perm, permIdx) => (
-                        <span key={permIdx} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-mono">
-                          {perm}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {resource.snapshot_id && (
-                  <div className="mt-2 text-xs text-gray-400">
-                    Snapshot: {resource.snapshot_id}
-                  </div>
-                )}
+            {[
+              { value: perResourceRemediateData.total_resources, label: "Resources", color: "var(--text-primary)" },
+              { value: perResourceRemediateData.summary.before_total_exposure, label: "Before (exposure)", color: "#ef4444" },
+              { value: perResourceRemediateData.summary.after_total_exposure, label: "After (exposure)", color: "#22c55e" },
+              { value: `${perResourceRemediateData.summary.reduction_percentage}%`, label: "Risk Reduction", color: "#8b5cf6" },
+            ].map((stat, i) => (
+              <div key={i} className="rounded-lg p-4 text-center border" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <div className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{stat.label}</div>
               </div>
             ))}
           </div>
 
-          {/* Execute live button for dry run */}
+          {/* Per-resource results */}
+          <div className="space-y-3">
+            <div className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>Individual Resource Roles:</div>
+            {perResourceRemediateData.resources.map((resource, idx) => (
+              <div key={idx} className="rounded-lg border p-4" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <Server className="w-5 h-5" style={{ color: "var(--text-muted)" }} />
+                    <div>
+                      <div className="font-semibold" style={{ color: "var(--text-primary)" }}>{resource.resource_name}</div>
+                      <div className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{resource.resource_id}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-semibold" style={{ color: "#22c55e" }}>{resource.permissions_count} permissions</div>
+                    {resource.new_role_name && <div className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{resource.new_role_name}</div>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {resource.steps.map((step, stepIdx) => (
+                    <div key={stepIdx} className="flex items-center gap-2 text-xs">
+                      {step.status === "completed" ? <CheckCircle2 className="w-4 h-4" style={{ color: "#22c55e" }} /> : step.status === "skipped" || step.status === "preview" ? <div className="w-4 h-4 rounded-full" style={{ background: "var(--text-muted)" }} /> : <XCircle className="w-4 h-4" style={{ color: "#ef4444" }} />}
+                      <span style={{ color: "var(--text-secondary)" }}>{step.details}</span>
+                    </div>
+                  ))}
+                </div>
+                {resource.permissions.length > 0 && (
+                  <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                    <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>Permissions:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {resource.permissions.map((perm, permIdx) => (
+                        <span key={permIdx} className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: "#22c55e15", color: "#22c55e" }}>{perm}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {resource.snapshot_id && <div className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>Snapshot: {resource.snapshot_id}</div>}
+              </div>
+            ))}
+          </div>
+
           {perResourceRemediateData.dry_run && (
             <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => runPerResourceRemediation(false)}
-                disabled={loading}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors"
-              >
-                <Zap className="w-4 h-4" />
-                Execute Per-Resource Remediation (Live)
+              <button onClick={() => runPerResourceRemediation(false)} disabled={loading} className="flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors hover:opacity-90 disabled:opacity-50" style={{ background: "#22c55e" }}>
+                <Zap className="w-4 h-4" /> Execute Per-Resource Remediation (Live)
               </button>
             </div>
           )}
 
-          {/* Success message for live execution */}
           {!perResourceRemediateData.dry_run && perResourceRemediateData.success && (
-            <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="mt-6 rounded-lg border p-4" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
-                <span className="font-semibold text-green-800">
-                  Per-resource remediation complete! Each resource now has its own least-privilege role.
-                </span>
+                <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} />
+                <span className="font-semibold" style={{ color: "#22c55e" }}>Per-resource remediation complete! Each resource now has its own least-privilege role.</span>
               </div>
               {perResourceRemediateData.snapshots.length > 0 && (
-                <div className="mt-2 text-sm text-green-700">
-                  {perResourceRemediateData.snapshots.length} snapshot(s) created for rollback.
-                </div>
+                <div className="mt-2 text-sm" style={{ color: "#22c55e" }}>{perResourceRemediateData.snapshots.length} snapshot(s) created for rollback.</div>
               )}
             </div>
           )}

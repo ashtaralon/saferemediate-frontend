@@ -47,14 +47,14 @@ const SERVICE_ICONS: Record<string, React.ReactNode> = {
 
 // Category configuration
 const CATEGORIES = {
-  Compute: { color: 'amber', bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30' },
-  Database: { color: 'blue', bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/30' },
-  Storage: { color: 'emerald', bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+  Compute: { color: 'amber', bg: 'bg-[#f9731610]0/10', text: 'text-amber-400', border: 'border-amber-500/30' },
+  Database: { color: 'blue', bg: 'bg-[#3b82f610]0/10', text: 'text-blue-400', border: 'border-[#3b82f6]/30' },
+  Storage: { color: 'emerald', bg: 'bg-[#10b98110]0/10', text: 'text-emerald-400', border: 'border-emerald-500/30' },
   Networking: { color: 'violet', bg: 'bg-violet-500/10', text: 'text-violet-400', border: 'border-violet-500/30' },
-  Security: { color: 'red', bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30' },
+  Security: { color: 'red', bg: 'bg-[#ef444410]0/10', text: 'text-red-400', border: 'border-red-500/30' },
   Integration: { color: 'pink', bg: 'bg-pink-500/10', text: 'text-pink-400', border: 'border-pink-500/30' },
   Edge: { color: 'cyan', bg: 'bg-cyan-500/10', text: 'text-cyan-400', border: 'border-cyan-500/30' },
-  Management: { color: 'gray', bg: 'bg-gray-500/10', text: 'text-gray-400', border: 'border-gray-500/30' },
+  Management: { color: 'gray', bg: 'bg-gray-500/10', text: 'text-[var(--muted-foreground,#9ca3af)]', border: 'border-gray-500/30' },
 }
 
 interface ServiceItem {
@@ -448,7 +448,7 @@ export default function AllServicesInventory({ systemName }: Props) {
         <div className="flex items-center gap-3">
           {/* Auto-sync indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-lg">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <div className="w-2 h-2 bg-[#22c55e10]0 rounded-full animate-pulse" />
             <span className="text-slate-500 text-sm">Auto-sync: 1h</span>
           </div>
           
@@ -547,12 +547,12 @@ export default function AllServicesInventory({ systemName }: Props) {
 
       {/* Content */}
       {error ? (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+        <div className="bg-[#ef444410] border border-[#ef444440] rounded-xl p-6 text-center">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <p className="text-red-600 mb-4">{error}</p>
+          <p className="text-[#ef4444] mb-4">{error}</p>
           <button
             onClick={fetchServices}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+            className="px-4 py-2 bg-[#ef444410]0 text-white rounded-lg hover:bg-red-600"
           >
             Retry
           </button>
@@ -592,7 +592,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                   </div>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
                     service.status === 'active' || service.status === 'running' || service.status === 'available' || service.status === 'Enabled'
-                      ? 'bg-green-100 text-green-700'
+                      ? 'bg-[#22c55e20] text-[#22c55e]'
                       : 'bg-slate-100 text-slate-600'
                   }`}>
                     {service.status || 'active'}
@@ -626,7 +626,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                     </span>
                   )}
                   {service.isEncrypted && (
-                    <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs flex items-center gap-1">
+                    <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs flex items-center gap-1">
                       <Lock className="w-3 h-3" /> Encrypted
                     </span>
                   )}
@@ -675,7 +675,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs ${
                         service.status === 'active' || service.status === 'running' || service.status === 'available'
-                          ? 'bg-green-100 text-green-700'
+                          ? 'bg-[#22c55e20] text-[#22c55e]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {service.status || 'active'}
@@ -765,7 +765,7 @@ export default function AllServicesInventory({ systemName }: Props) {
                         </div>
                         <div className="flex justify-between">
                           <dt className="text-slate-500">Status</dt>
-                          <dd className="text-green-600">{selectedService.status || 'active'}</dd>
+                          <dd className="text-[#22c55e]">{selectedService.status || 'active'}</dd>
                         </div>
                       </dl>
                     </div>
@@ -782,13 +782,13 @@ export default function AllServicesInventory({ systemName }: Props) {
                         {selectedService.usedCount !== undefined && (
                           <div className="flex justify-between">
                             <dt className="text-slate-500">Used Permissions</dt>
-                            <dd className="text-green-600">{selectedService.usedCount}</dd>
+                            <dd className="text-[#22c55e]">{selectedService.usedCount}</dd>
                           </div>
                         )}
                         {selectedService.gapCount !== undefined && (
                           <div className="flex justify-between">
                             <dt className="text-slate-500">Unused Permissions</dt>
-                            <dd className="text-red-600">{selectedService.gapCount}</dd>
+                            <dd className="text-[#ef4444]">{selectedService.gapCount}</dd>
                           </div>
                         )}
                         <div className="flex justify-between">
@@ -818,15 +818,15 @@ export default function AllServicesInventory({ systemName }: Props) {
                       <span className="ml-3 text-slate-600">Loading IAM data...</span>
                     </div>
                   ) : iamError ? (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+                    <div className="bg-[#ef444410] border border-[#ef444440] rounded-xl p-6 text-center">
                       <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                      <p className="text-red-600">{iamError}</p>
-                      <p className="text-sm text-red-500 mt-2">Role: {getIAMRoleName(selectedService)}</p>
+                      <p className="text-[#ef4444]">{iamError}</p>
+                      <p className="text-sm text-[#ef4444] mt-2">Role: {getIAMRoleName(selectedService)}</p>
                     </div>
                   ) : iamData ? (
                     <>
                       {/* Role Header */}
-                      <div className="bg-gradient-to-r from-violet-50 to-purple-50 rounded-xl p-6 border border-violet-200">
+                      <div className="bg-white rounded-xl p-6 border border-violet-200">
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-lg bg-violet-100 flex items-center justify-center">
@@ -841,9 +841,9 @@ export default function AllServicesInventory({ systemName }: Props) {
                           </div>
                           {iamData.summary?.lp_score !== undefined && (
                             <div className={`px-4 py-2 rounded-lg font-bold text-lg ${
-                              iamData.summary.lp_score >= 80 ? 'bg-green-100 text-green-700' :
-                              iamData.summary.lp_score >= 50 ? 'bg-amber-100 text-amber-700' :
-                              'bg-red-100 text-red-700'
+                              iamData.summary.lp_score >= 80 ? 'bg-[#22c55e20] text-[#22c55e]' :
+                              iamData.summary.lp_score >= 50 ? 'bg-[#f9731620] text-[#f97316]' :
+                              'bg-[#ef444420] text-[#ef4444]'
                             }`}>
                               {iamData.summary.lp_score}% LP Score
                             </div>
@@ -860,13 +860,13 @@ export default function AllServicesInventory({ systemName }: Props) {
                           </div>
                           <div className="bg-white rounded-lg p-3">
                             <div className="text-xs text-slate-500 mb-1">Used</div>
-                            <div className="text-2xl font-bold text-green-600">
+                            <div className="text-2xl font-bold text-[#22c55e]">
                               {iamData.summary?.used_count || iamData.used_count || 0}
                             </div>
                           </div>
                           <div className="bg-white rounded-lg p-3">
                             <div className="text-xs text-slate-500 mb-1">Unused</div>
-                            <div className="text-2xl font-bold text-red-600">
+                            <div className="text-2xl font-bold text-[#ef4444]">
                               {iamData.summary?.unused_count || iamData.unused_count || 0}
                             </div>
                           </div>
@@ -905,8 +905,8 @@ export default function AllServicesInventory({ systemName }: Props) {
                                 <button
                                   onClick={() => togglePolicy(policyName)}
                                   className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left ${
-                                    policy.has_admin_access ? 'bg-red-50' : 
-                                    unusedPerms.length > 0 ? 'bg-amber-50' : ''
+                                    policy.has_admin_access ? 'bg-[#ef444410]' : 
+                                    unusedPerms.length > 0 ? 'bg-[#f9731610]' : ''
                                   }`}
                                 >
                                   {isExpanded ? (
@@ -919,14 +919,14 @@ export default function AllServicesInventory({ systemName }: Props) {
                                     <span className="font-medium">{policyName}</span>
                                     <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
                                       policy.policy_type?.toLowerCase().includes('inline') 
-                                        ? 'bg-blue-100 text-blue-700' 
+                                        ? 'bg-[#3b82f620] text-[#3b82f6]' 
                                         : 'bg-slate-100 text-slate-600'
                                     }`}>
                                       {policy.policy_type || 'managed'}
                                     </span>
                                   </div>
                                   {policy.has_admin_access && (
-                                    <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                                    <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded">
                                       ADMIN
                                     </span>
                                   )}
@@ -976,22 +976,22 @@ export default function AllServicesInventory({ systemName }: Props) {
                         <div>
                           <button
                             onClick={() => setShowUsedPerms(!showUsedPerms)}
-                            className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2 hover:text-green-800"
+                            className="flex items-center gap-2 text-sm font-medium text-[#22c55e] mb-2 hover:text-[#22c55e]"
                           >
                             {showUsedPerms ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             <CheckCircle className="w-4 h-4" />
                             {iamData.used_permissions.length} Used Permissions
                           </button>
                           {showUsedPerms && (
-                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <div className="p-3 bg-[#22c55e10] border border-[#22c55e40] rounded-lg">
                               <div className="flex flex-wrap gap-1.5">
                                 {iamData.used_permissions.slice(0, 20).map((perm: string, i: number) => (
-                                  <span key={i} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-mono">
+                                  <span key={i} className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-mono">
                                     {perm}
                                   </span>
                                 ))}
                                 {iamData.used_permissions.length > 20 && (
-                                  <span className="px-2 py-1 text-green-600 text-xs">
+                                  <span className="px-2 py-1 text-[#22c55e] text-xs">
                                     +{iamData.used_permissions.length - 20} more
                                   </span>
                                 )}
@@ -1006,23 +1006,23 @@ export default function AllServicesInventory({ systemName }: Props) {
                         <div>
                           <button
                             onClick={() => setShowUnusedPerms(!showUnusedPerms)}
-                            className="flex items-center gap-2 text-sm font-medium text-amber-700 mb-2 hover:text-amber-800"
+                            className="flex items-center gap-2 text-sm font-medium text-[#f97316] mb-2 hover:text-[#f97316]"
                           >
                             {showUnusedPerms ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             <AlertTriangle className="w-4 h-4" />
                             {iamData.unused_permissions.length} Unused Permissions
                           </button>
                           {showUnusedPerms && (
-                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="p-3 bg-[#f9731610] border border-[#f9731640] rounded-lg">
                               <div className="flex flex-wrap gap-1.5">
                                 {iamData.unused_permissions.slice(0, 15).map((perm: string, i: number) => (
-                                  <span key={i} className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-mono flex items-center gap-1">
+                                  <span key={i} className="px-2 py-1 bg-[#f9731620] text-[#f97316] rounded text-xs font-mono flex items-center gap-1">
                                     {perm}
                                     <X className="w-3 h-3 text-amber-500" />
                                   </span>
                                 ))}
                                 {iamData.unused_permissions.length > 15 && (
-                                  <span className="px-2 py-1 text-amber-600 text-xs">
+                                  <span className="px-2 py-1 text-[#f97316] text-xs">
                                     +{iamData.unused_permissions.length - 15} more
                                   </span>
                                 )}

@@ -702,7 +702,7 @@ export function SystemComplianceDashboard() {
                       ].map((doc, idx) => (
                         <button
                           key={idx}
-                          className="w-full p-4 rounded-lg border text-left hover:border-blue-500 transition-colors flex items-center justify-between"
+                          className="w-full p-4 rounded-lg border text-left hover:border-[#3b82f6] transition-colors flex items-center justify-between"
                           style={{ borderColor: "#e5e7eb" }}
                         >
                           <span className="font-medium" style={{ color: "#111827" }}>
@@ -750,7 +750,7 @@ export function SystemComplianceDashboard() {
                             {simulationStep > idx ? (
                               <CheckCircle2 className="w-5 h-5" style={{ color: "#10b981" }} />
                             ) : simulationStep === idx ? (
-                              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                              <div className="w-5 h-5 border-2 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
                             ) : (
                               <div className="w-5 h-5 rounded-full border-2" style={{ borderColor: "#e5e7eb" }} />
                             )}
@@ -840,7 +840,7 @@ export function SystemComplianceDashboard() {
                             {applyStep > idx ? (
                               <CheckCircle2 className="w-5 h-5" style={{ color: "#10b981" }} />
                             ) : applyStep === idx ? (
-                              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                              <div className="w-5 h-5 border-2 border-[#3b82f6] border-t-transparent rounded-full animate-spin" />
                             ) : (
                               <div className="w-5 h-5 rounded-full border-2" style={{ borderColor: "#e5e7eb" }} />
                             )}

@@ -41,9 +41,9 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
   if (findings.length === 0) {
     return (
       <Card className="p-8 text-center">
-        <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-3" />
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">No Security Issues Found</h3>
-        <p className="text-gray-600">Your infrastructure is secure with no open security findings.</p>
+        <CheckCircle2 className="w-12 h-12 text-[#22c55e] mx-auto mb-3" />
+        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)] mb-2">No Security Issues Found</h3>
+        <p className="text-[var(--muted-foreground,#4b5563)]">Your infrastructure is secure with no open security findings.</p>
       </Card>
     )
   }
@@ -52,9 +52,9 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
     switch (severity) {
       case "CRITICAL": return "bg-red-600 text-white"
       case "HIGH": return "bg-orange-600 text-white"
-      case "MEDIUM": return "bg-purple-600 text-white"
+      case "MEDIUM": return "bg-[#8b5cf6] text-white"
       case "LOW": return "bg-gray-400 text-white"
-      default: return "bg-gray-200 text-gray-800"
+      default: return "bg-gray-200 text-[var(--foreground,#1f2937)]"
     }
   }
 
@@ -152,10 +152,10 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
 
       {/* Summary bar */}
       {remediatedIds.size > 0 && (
-        <div className="mt-4 p-3 bg-green-100 border border-green-300 rounded-lg flex items-center justify-between">
+        <div className="mt-4 p-3 bg-[#22c55e20] border border-[#22c55e40] rounded-lg flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-green-700" />
-            <span className="text-green-800 font-medium">
+            <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
+            <span className="text-[#22c55e] font-medium">
               {remediatedIds.size} finding{remediatedIds.size !== 1 ? 's' : ''} remediated this session
             </span>
           </div>
@@ -163,7 +163,7 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
             variant="outline"
             size="sm"
             onClick={handleRefreshFindings}
-            className="text-green-700 border-green-400 hover:bg-green-200"
+            className="text-[#22c55e] border-green-400 hover:bg-green-200"
           >
             Refresh List
           </Button>

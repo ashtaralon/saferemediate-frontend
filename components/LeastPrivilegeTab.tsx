@@ -1855,7 +1855,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       {showTrafficSimulator && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowTrafficSimulator(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-[650px] max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Zap className="h-5 w-5" />
                 Dynamic Traffic Simulator
@@ -1906,8 +1906,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                       onClick={() => applyScenario(scenario)}
                       className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                         scenario.connectionType === 'network'
-                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
+                          ? 'bg-[#10b98110] hover:bg-[#10b98120] text-[#10b981] border border-[#10b98140]'
+                          : 'bg-[#3b82f610] hover:bg-[#3b82f620] text-[#3b82f6] border border-[#3b82f640]'
                       }`}
                     >
                       {scenario.name}
@@ -1930,7 +1930,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     <select
                       value={simSource}
                       onChange={(e) => setSimSource(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] bg-white"
                     >
                       <option value="">Select source...</option>
                       {['EC2', 'Lambda', 'ECS', 'S3'].map(type => {
@@ -1958,7 +1958,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                       type="text"
                       value={simSource}
                       onChange={(e) => setSimSource(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                       placeholder="e.g., SafeRemediate-Test-App-1"
                     />
                   )}
@@ -1966,7 +1966,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     type="text"
                     value={simSource}
                     onChange={(e) => setSimSource(e.target.value)}
-                    className="w-full mt-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full mt-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     placeholder="Or type custom name..."
                   />
                 </div>
@@ -1983,7 +1983,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     <select
                       value={simTarget}
                       onChange={(e) => setSimTarget(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] bg-white"
                     >
                       <option value="">Select destination...</option>
                       {['S3', 'RDS', 'DynamoDB', 'ElastiCache', 'Lambda'].map(type => {
@@ -2011,7 +2011,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                       type="text"
                       value={simTarget}
                       onChange={(e) => setSimTarget(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                       placeholder="e.g., my-bucket-name"
                     />
                   )}
@@ -2019,7 +2019,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     type="text"
                     value={simTarget}
                     onChange={(e) => setSimTarget(e.target.value)}
-                    className="w-full mt-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full mt-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     placeholder="Or type custom name..."
                   />
                 </div>
@@ -2027,8 +2027,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
               {/* Network Traffic Options */}
               {simConnectionType === 'network' && (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-4">
-                  <div className="text-sm font-medium text-emerald-700 flex items-center gap-2">
+                <div className="p-4 bg-[#10b98110] border border-[#10b98140] rounded-xl space-y-4">
+                  <div className="text-sm font-medium text-[#10b981] flex items-center gap-2">
                     <Globe className="w-4 h-4" />
                     Network Traffic Settings
                   </div>
@@ -2078,8 +2078,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
 
               {/* API Call Options */}
               {simConnectionType === 'api' && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-4">
-                  <div className="text-sm font-medium text-blue-700 flex items-center gap-2">
+                <div className="p-4 bg-[#3b82f610] border border-[#3b82f640] rounded-xl space-y-4">
+                  <div className="text-sm font-medium text-[#3b82f6] flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
@@ -2120,7 +2120,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                       type="text"
                       value={simIamRole}
                       onChange={(e) => setSimIamRole(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6] bg-white"
                       placeholder="e.g., cyntro-demo-ec2-s3-role"
                     />
                     <p className="text-xs text-slate-500 mt-1">If specified, marks permissions as used for this role</p>
@@ -2136,7 +2136,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     type="number"
                     value={simDays}
                     onChange={(e) => setSimDays(parseInt(e.target.value) || 30)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     min="1"
                     max="730"
                   />
@@ -2148,7 +2148,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                     type="number"
                     value={simEventsPerDay}
                     onChange={(e) => setSimEventsPerDay(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
                     min="1"
                     max="1000"
                   />
@@ -2170,7 +2170,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Type:</span>
-                    <span className={`font-medium ${simConnectionType === 'network' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                    <span className={`font-medium ${simConnectionType === 'network' ? 'text-[#10b981]' : 'text-[#3b82f6]'}`}>
                       {simConnectionType === 'network' ? `Network (${simPort}/${simProtocol})` : `API (${simApiOperations.length} ops)`}
                     </span>
                   </div>
@@ -2184,7 +2184,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 {simIamRole && simConnectionType === 'api' && (
                   <div className="mt-2 pt-2 border-t border-slate-200 text-sm">
                     <span className="text-slate-500">IAM Role:</span>{' '}
-                    <span className="font-medium text-purple-600">{simIamRole}</span>
+                    <span className="font-medium text-[#8b5cf6]">{simIamRole}</span>
                   </div>
                 )}
               </div>
@@ -2194,7 +2194,7 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
                 <button
                   onClick={resetDemo}
                   disabled={isSimulatingTraffic}
-                  className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                  className="px-4 py-2.5 bg-[#ef444410] hover:bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                   title="Reset to 0% usage for fresh demo"
                 >
                   🔄 Reset Demo
@@ -2264,28 +2264,28 @@ function RemediationDrawer({
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-end sm:items-center sm:justify-center">
       <div className="bg-white rounded-t-lg sm:rounded-lg w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-2xl font-bold text-gray-900">{resource.resourceName}</h2>
+              <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">{resource.resourceName}</h2>
               {resource.region && (
-                <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium flex items-center gap-1">
+                <span className="px-2 py-1 bg-[#3b82f620] text-[#3b82f6] rounded text-xs font-medium flex items-center gap-1">
                   🌍 {resource.region}
                 </span>
               )}
             </div>
-            <p className="text-sm text-gray-600">{resource.resourceType} • {resource.systemName}</p>
+            <p className="text-sm text-[var(--muted-foreground,#4b5563)]">{resource.resourceType} • {resource.systemName}</p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]"
           >
             <XCircle className="w-6 h-6" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 px-6">
+        <div className="border-b border-[var(--border,#e5e7eb)] px-6">
           <div className="flex gap-4">
             {[
               { id: 'summary', label: 'Summary', icon: '📊' },
@@ -2298,8 +2298,8 @@ function RemediationDrawer({
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`px-4 py-2 border-b-2 font-medium text-sm flex items-center gap-1.5 ${
                   activeTab === tab.id
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                    ? 'border-indigo-600 text-[#8b5cf6]'
+                    : 'border-transparent text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)]'
                 }`}
               >
                 <span>{tab.icon}</span>
@@ -2318,17 +2318,17 @@ function RemediationDrawer({
         </div>
 
         {/* Actions */}
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex items-center justify-end gap-3">
+        <div className="sticky bottom-0 bg-white border-t border-[var(--border,#e5e7eb)] px-6 py-4 flex items-center justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50 text-sm font-medium"
           >
             Cancel
           </button>
           <button 
             onClick={onSimulate}
             disabled={simulating}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+            className="px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 text-sm font-medium flex items-center gap-2"
           >
             {simulating ? (
               <>
@@ -2346,7 +2346,7 @@ function RemediationDrawer({
             <FileDown className="w-4 h-4" />
             Export Terraform
           </button>
-          <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center gap-2">
+          <button className="px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] text-sm font-medium flex items-center gap-2">
             <Send className="w-4 h-4" />
             Request Approval
           </button>
@@ -2372,17 +2372,17 @@ function SummaryTab({ resource }: { resource: GapResource }) {
       <div className="grid grid-cols-2 gap-4">
         {isSecurityGroup && resource.networkExposure ? (
           <>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <div className="text-sm text-gray-600 mb-1">Network Exposure Score</div>
-              <div className="text-3xl font-bold text-gray-900">{resource.networkExposure.score}/100</div>
-              <div className="text-xs text-gray-500 mt-1">
+            <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Network Exposure Score</div>
+              <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{resource.networkExposure.score}/100</div>
+              <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.networkExposure.internetExposedRules} internet-exposed rules
               </div>
             </div>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <div className="text-sm text-gray-600 mb-1">Total Rules</div>
-              <div className="text-3xl font-bold text-blue-600">{resource.networkExposure.totalRules}</div>
-              <div className="text-xs text-gray-500 mt-1">
+            <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Total Rules</div>
+              <div className="text-3xl font-bold text-[#3b82f6]">{resource.networkExposure.totalRules}</div>
+              <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.networkExposure.highRiskPorts.length > 0 
                   ? `${resource.networkExposure.highRiskPorts.length} high-risk ports`
                   : 'No high-risk ports'}
@@ -2391,11 +2391,11 @@ function SummaryTab({ resource }: { resource: GapResource }) {
           </>
         ) : (
           <>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <div className="text-sm text-gray-600 mb-1">LP Score</div>
-              <div className="text-3xl font-bold text-gray-900">
+            <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">LP Score</div>
+              <div className="text-3xl font-bold text-[var(--foreground,#111827)]">
                 {resource.resourceType === 'SecurityGroup' || resource.resourceType === 'S3Bucket' ? (
-                  <span className="text-gray-400" title="Requires traffic/access analysis">
+                  <span className="text-[var(--muted-foreground,#9ca3af)]" title="Requires traffic/access analysis">
                     —
                   </span>
                 ) : resource.lpScore !== null && !isNaN(resource.lpScore) ? (
@@ -2404,7 +2404,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
                   'N/A'
                 )}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.resourceType === 'SecurityGroup' || resource.resourceType === 'S3Bucket' ? (
                   'Requires traffic/access analysis'
                 ) : resource.lpScore !== null && !isNaN(resource.lpScore) ? (
@@ -2414,12 +2414,12 @@ function SummaryTab({ resource }: { resource: GapResource }) {
                 )}
               </div>
             </div>
-            <div className="rounded-lg border border-gray-200 p-4">
-              <div className="text-sm text-gray-600 mb-1">Attack Surface Reduction</div>
-              <div className="text-3xl font-bold text-red-600">
+            <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Attack Surface Reduction</div>
+              <div className="text-3xl font-bold text-[#ef4444]">
                 {resource.gapPercent !== null ? `${resource.gapPercent.toFixed(0)}%` : 'N/A'}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.gapCount ?? 0} permissions
               </div>
             </div>
@@ -2427,20 +2427,20 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         )}
       </div>
 
-      <div className="rounded-lg border-2 border-gray-300 bg-white p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">
+      <div className="rounded-lg border-2 border-[var(--border,#d1d5db)] bg-white p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">
           {isSecurityGroup ? 'Network Exposure Visualization' : 'Gap Visualization'}
         </h3>
         {isSecurityGroup && resource.networkExposure ? (
           <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
             <div
-              className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              className="bg-[#ef444410]0 h-full flex items-center justify-center text-white text-xs font-medium"
               style={{ width: `${(resource.networkExposure.internetExposedRules / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
             >
               Internet Exposed ({resource.networkExposure.internetExposedRules})
             </div>
             <div
-              className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              className="bg-[#22c55e10]0 h-full flex items-center justify-center text-white text-xs font-medium"
               style={{ width: `${((resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules) / Math.max(1, resource.networkExposure.totalRules)) * 100}%` }}
             >
               Secure ({resource.networkExposure.totalRules - resource.networkExposure.internetExposedRules})
@@ -2449,20 +2449,20 @@ function SummaryTab({ resource }: { resource: GapResource }) {
         ) : (
           <div className="w-full h-12 bg-gray-200 rounded-lg overflow-hidden flex mb-4">
             <div
-              className="bg-green-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              className="bg-[#22c55e10]0 h-full flex items-center justify-center text-white text-xs font-medium"
               style={{ width: `${((resource.usedCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
             >
               Used ({(resource.usedCount ?? 0)})
             </div>
             <div
-              className="bg-red-500 h-full flex items-center justify-center text-white text-xs font-medium"
+              className="bg-[#ef444410]0 h-full flex items-center justify-center text-white text-xs font-medium"
               style={{ width: `${((resource.gapCount ?? 0) / Math.max(1, resource.allowedCount)) * 100}%` }}
             >
               Unused ({(resource.gapCount ?? 0)})
             </div>
           </div>
         )}
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-[var(--foreground,#374151)]">
           <strong>{resource.resourceName}</strong> has <strong>{resource.allowedCount} allowed permissions</strong>.
           In <strong>{resource.evidence?.observationDays || 0} days</strong> of observation, only <strong>{resource.usedCount} were used</strong>.
           The other <strong>{resource.gapCount ?? 0} ({(resource.gapPercent ?? 0).toFixed(0)}%)</strong> are your attack surface.
@@ -2470,17 +2470,17 @@ function SummaryTab({ resource }: { resource: GapResource }) {
       </div>
 
       {(resource.highRiskUnused?.length || 0) > 0 && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+        <div className="rounded-lg border border-[#ef444440] bg-[#ef444410] p-4">
           <h3 className="text-lg font-bold text-red-900 mb-3">High-Risk Unused Permissions</h3>
           <div className="space-y-2">
             {(resource.highRiskUnused || []).map((perm, idx) => (
               <div key={idx} className="flex items-center justify-between bg-white rounded p-3">
                 <div>
-                  <div className="font-mono text-sm font-medium text-gray-900">{perm.permission}</div>
-                  <div className="text-xs text-gray-600">{perm.reason}</div>
+                  <div className="font-mono text-sm font-medium text-[var(--foreground,#111827)]">{perm.permission}</div>
+                  <div className="text-xs text-[var(--muted-foreground,#4b5563)]">{perm.reason}</div>
                 </div>
                 <span className={`px-2 py-1 rounded text-xs font-bold ${
-                  perm.riskLevel === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'
+                  perm.riskLevel === 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-[#f9731610]0 text-white'
                 }`}>
                   {perm.riskLevel}
                 </span>
@@ -2762,8 +2762,8 @@ function RulesTab({
     if (loading) {
   return (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-          <span className="ml-2 text-gray-500">Loading rules...</span>
+          <Loader2 className="w-6 h-6 animate-spin text-[var(--muted-foreground,#9ca3af)]" />
+          <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">Loading rules...</span>
         </div>
       )
     }
@@ -2771,31 +2771,31 @@ function RulesTab({
     return (
       <div className="space-y-4">
         {error && (
-          <div className="text-amber-600 text-sm bg-amber-50 p-3 rounded-lg">{error}</div>
+          <div className="text-[#f97316] text-sm bg-[#f9731610] p-3 rounded-lg">{error}</div>
         )}
 
         {/* Summary Stats */}
         <div className="grid grid-cols-4 gap-3">
-          <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
-            <div className="text-2xl font-bold text-gray-700">{counts.total}</div>
-            <div className="text-xs text-gray-500">Total Rules</div>
+          <div className="p-3 rounded-lg bg-gray-50 border border-[var(--border,#e5e7eb)] text-center">
+            <div className="text-2xl font-bold text-[var(--foreground,#374151)]">{counts.total}</div>
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Total Rules</div>
             </div>
-          <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
-            <div className="text-2xl font-bold text-green-700">{counts.used}</div>
-            <div className="text-xs text-green-600">Used (KEEP)</div>
+          <div className="p-3 rounded-lg bg-[#22c55e10] border border-[#22c55e40] text-center">
+            <div className="text-2xl font-bold text-[#22c55e]">{counts.used}</div>
+            <div className="text-xs text-[#22c55e]">Used (KEEP)</div>
           </div>
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-center">
-            <div className="text-2xl font-bold text-red-700">{counts.unused}</div>
-            <div className="text-xs text-red-600">Unused (DELETE)</div>
+          <div className="p-3 rounded-lg bg-[#ef444410] border border-[#ef444440] text-center">
+            <div className="text-2xl font-bold text-[#ef4444]">{counts.unused}</div>
+            <div className="text-xs text-[#ef4444]">Unused (DELETE)</div>
           </div>
-          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-center">
-            <div className="text-2xl font-bold text-amber-700">{counts.broad}</div>
-            <div className="text-xs text-amber-600">Overly Broad</div>
+          <div className="p-3 rounded-lg bg-[#f9731610] border border-[#f9731640] text-center">
+            <div className="text-2xl font-bold text-[#f97316]">{counts.broad}</div>
+            <div className="text-xs text-[#f97316]">Overly Broad</div>
           </div>
         </div>
 
         {/* Filters & Sort */}
-        <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+        <div className="flex items-center justify-between border-b border-[var(--border,#e5e7eb)] pb-3">
           <div className="flex gap-2">
             {(['all', 'used', 'unused', 'public'] as const).map(f => (
               <button
@@ -2803,8 +2803,8 @@ function RulesTab({
                 onClick={() => setFilter(f)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
                   filter === f 
-                    ? 'bg-indigo-600 text-white' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-[#8b5cf6] text-white' 
+                    : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)] hover:bg-gray-200'
                 }`}
               >
                 {f === 'all' ? 'All' : f === 'used' ? 'Used' : f === 'unused' ? 'Unused' : 'Public'}
@@ -2819,7 +2819,7 @@ function RulesTab({
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+            className="text-xs border border-[var(--border,#e5e7eb)] rounded-lg px-2 py-1.5 bg-white"
           >
             <option value="status">Sort by Status</option>
             <option value="port">Sort by Port</option>
@@ -2828,22 +2828,22 @@ function RulesTab({
       </div>
 
         {/* Rules Table */}
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-[var(--border,#e5e7eb)] rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-gray-50 border-b border-[var(--border,#e5e7eb)]">
               <tr>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Port</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Protocol</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Traffic</th>
-                <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Port</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Protocol</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Source</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Status</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Traffic</th>
+                <th className="px-4 py-2 text-center text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {sortedRules.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-[var(--muted-foreground,#6b7280)]">
                     {filter === 'all' ? 'No rules found' : `No ${filter} rules`}
                   </td>
                 </tr>
@@ -2852,40 +2852,40 @@ function RulesTab({
                   <tr 
                     key={rule.rule_id} 
                     className={`hover:bg-gray-50 ${
-                      rule.status === 'UNUSED' ? 'bg-red-50/30' :
-                      rule.status === 'OVERLY_BROAD' ? 'bg-amber-50/30' : ''
+                      rule.status === 'UNUSED' ? 'bg-[#ef444410]/30' :
+                      rule.status === 'OVERLY_BROAD' ? 'bg-[#f9731610]/30' : ''
                     }`}
                   >
-                    <td className="px-4 py-3 font-mono text-gray-900">{rule.port_range}</td>
-                    <td className="px-4 py-3 text-gray-600 uppercase">{rule.protocol}</td>
+                    <td className="px-4 py-3 font-mono text-[var(--foreground,#111827)]">{rule.port_range}</td>
+                    <td className="px-4 py-3 text-[var(--muted-foreground,#4b5563)] uppercase">{rule.protocol}</td>
                     <td className="px-4 py-3">
-                      <span className={`font-mono text-sm ${rule.is_public ? 'text-red-600 font-medium' : 'text-gray-700'}`}>
+                      <span className={`font-mono text-sm ${rule.is_public ? 'text-[#ef4444] font-medium' : 'text-[var(--foreground,#374151)]'}`}>
                         {rule.source}
                       </span>
                       {rule.is_public && (
-                        <span className="ml-2 px-1.5 py-0.5 text-xs bg-red-100 text-red-700 rounded">PUBLIC</span>
+                        <span className="ml-2 px-1.5 py-0.5 text-xs bg-[#ef444420] text-[#ef4444] rounded">PUBLIC</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                        rule.status === 'USED' ? 'bg-green-100 text-green-700' :
-                        rule.status === 'OVERLY_BROAD' ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
+                        rule.status === 'USED' ? 'bg-[#22c55e20] text-[#22c55e]' :
+                        rule.status === 'OVERLY_BROAD' ? 'bg-[#f9731620] text-[#f97316]' :
+                        'bg-[#ef444420] text-[#ef4444]'
                       }`}>
                         {rule.status === 'USED' ? '✓' : rule.status === 'OVERLY_BROAD' ? '⚠' : '✗'}
                         {rule.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">
+                    <td className="px-4 py-3 text-right text-[var(--muted-foreground,#4b5563)]">
                       {rule.traffic?.connection_count > 0 
                         ? rule.traffic.connection_count.toLocaleString()
-                        : <span className="text-gray-400">—</span>}
+                        : <span className="text-[var(--muted-foreground,#9ca3af)]">—</span>}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        rule.recommendation.action === 'KEEP' ? 'bg-green-100 text-green-700' :
-                        rule.recommendation.action === 'TIGHTEN' ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
+                        rule.recommendation.action === 'KEEP' ? 'bg-[#22c55e20] text-[#22c55e]' :
+                        rule.recommendation.action === 'TIGHTEN' ? 'bg-[#f9731620] text-[#f97316]' :
+                        'bg-[#ef444420] text-[#ef4444]'
                       }`}>
                         {rule.recommendation.action}
                       </span>
@@ -2899,13 +2899,13 @@ function RulesTab({
 
         {/* Tighten Suggestions */}
         {rulesAnalysis.some(r => r.recommendation.action === 'TIGHTEN' && r.recommendation.suggested_cidrs?.length) && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <h4 className="text-sm font-medium text-amber-800 mb-2">💡 Tighten Suggestions</h4>
+          <div className="p-4 bg-[#f9731610] border border-[#f9731640] rounded-lg">
+            <h4 className="text-sm font-medium text-[#f97316] mb-2">💡 Tighten Suggestions</h4>
             <div className="space-y-2">
               {rulesAnalysis
                 .filter(r => r.recommendation.action === 'TIGHTEN' && r.recommendation.suggested_cidrs?.length)
                 .map(rule => (
-                  <div key={rule.rule_id} className="text-sm text-amber-700">
+                  <div key={rule.rule_id} className="text-sm text-[#f97316]">
                     <span className="font-mono">{rule.port_range}</span>: Replace {rule.source} with{' '}
                     {rule.recommendation.suggested_cidrs?.map((cidr, i) => (
                       <span key={i} className="font-mono bg-white px-1 rounded mx-0.5">{cidr}</span>
@@ -2934,8 +2934,8 @@ function RulesTab({
   if (loading && resource.resourceType === 'IAMRole') {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-        <span className="ml-2 text-gray-500">Loading IAM permissions from CloudTrail...</span>
+        <Loader2 className="w-6 h-6 animate-spin text-[var(--muted-foreground,#9ca3af)]" />
+        <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">Loading IAM permissions from CloudTrail...</span>
       </div>
     )
   }
@@ -2943,25 +2943,25 @@ function RulesTab({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="text-amber-600 text-sm bg-amber-50 p-3 rounded-lg">{error}</div>
+        <div className="text-[#f97316] text-sm bg-[#f9731610] p-3 rounded-lg">{error}</div>
       )}
 
       {/* LP Score Badge - only show if we have real data */}
       {iamGapData && (
         <div className={`p-3 rounded-lg border ${
-          lpScore >= 80 ? 'bg-green-50 border-green-200' :
-          lpScore >= 50 ? 'bg-yellow-50 border-yellow-200' :
-          'bg-red-50 border-red-200'
+          lpScore >= 80 ? 'bg-[#22c55e10] border-[#22c55e40]' :
+          lpScore >= 50 ? 'bg-[#eab30810] border-[#eab30840]' :
+          'bg-[#ef444410] border-[#ef444440]'
         }`}>
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">
               LP Score: <span className={`text-lg font-bold ${
-                lpScore >= 80 ? 'text-green-700' :
-                lpScore >= 50 ? 'text-yellow-700' :
-                'text-red-700'
+                lpScore >= 80 ? 'text-[#22c55e]' :
+                lpScore >= 50 ? 'text-[#eab308]' :
+                'text-[#ef4444]'
               }`}>{lpScore}%</span>
             </span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-[var(--muted-foreground,#6b7280)]">
               Based on {iamGapData.summary?.cloudtrail_events || 0} CloudTrail events
             </span>
           </div>
@@ -2970,50 +2970,50 @@ function RulesTab({
 
       {/* Summary Stats */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-center">
-          <div className="text-2xl font-bold text-gray-700">{totalPermissions}</div>
-          <div className="text-xs text-gray-500">Total Allowed</div>
+        <div className="p-3 rounded-lg bg-gray-50 border border-[var(--border,#e5e7eb)] text-center">
+          <div className="text-2xl font-bold text-[var(--foreground,#374151)]">{totalPermissions}</div>
+          <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Total Allowed</div>
         </div>
-        <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-center">
-          <div className="text-2xl font-bold text-green-700">{usedCount}</div>
-          <div className="text-xs text-green-600">Used (KEEP)</div>
+        <div className="p-3 rounded-lg bg-[#22c55e10] border border-[#22c55e40] text-center">
+          <div className="text-2xl font-bold text-[#22c55e]">{usedCount}</div>
+          <div className="text-xs text-[#22c55e]">Used (KEEP)</div>
         </div>
-        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-center">
-          <div className="text-2xl font-bold text-red-700">{unusedCount}</div>
-          <div className="text-xs text-red-600">Unused (REMOVE)</div>
+        <div className="p-3 rounded-lg bg-[#ef444410] border border-[#ef444440] text-center">
+          <div className="text-2xl font-bold text-[#ef4444]">{unusedCount}</div>
+          <div className="text-xs text-[#ef4444]">Unused (REMOVE)</div>
         </div>
       </div>
 
       {/* Permissions Table - Use API data if available */}
-      <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="border border-[var(--border,#e5e7eb)] rounded-lg overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="bg-gray-50 border-b border-[var(--border,#e5e7eb)]">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Permission</th>
-              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Risk</th>
-              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Permission</th>
+              <th className="px-4 py-2 text-center text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Status</th>
+              <th className="px-4 py-2 text-center text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Risk</th>
+              <th className="px-4 py-2 text-center text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {permissionsAnalysis.length > 0 ? (
               // Use detailed API data
               permissionsAnalysis.slice(0, 30).map((perm: any, idx: number) => (
-                <tr key={idx} className={perm.status === 'UNUSED' ? 'bg-red-50/30' : ''}>
-                  <td className="px-4 py-2 font-mono text-gray-900 text-xs">{perm.permission}</td>
+                <tr key={idx} className={perm.status === 'UNUSED' ? 'bg-[#ef444410]/30' : ''}>
+                  <td className="px-4 py-2 font-mono text-[var(--foreground,#111827)] text-xs">{perm.permission}</td>
                   <td className="px-4 py-2 text-center">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      perm.status === 'USED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      perm.status === 'USED' ? 'bg-[#22c55e20] text-[#22c55e]' : 'bg-[#ef444420] text-[#ef4444]'
                     }`}>
                       {perm.status}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-center">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      perm.risk_level === 'CRITICAL' ? 'bg-red-100 text-red-700' :
-                      perm.risk_level === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                      perm.risk_level === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-gray-100 text-gray-700'
+                      perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                      perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                      perm.risk_level === 'MEDIUM' ? 'bg-[#eab30820] text-[#eab308]' :
+                      'bg-gray-100 text-[var(--foreground,#374151)]'
                     }`}>
                       {perm.risk_level}
                     </span>
@@ -3021,8 +3021,8 @@ function RulesTab({
                   <td className="px-4 py-2 text-center">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
                       perm.recommendation?.includes('REMOVE') || perm.recommendation?.includes('SAFE_TO_REMOVE') 
-                        ? 'bg-red-100 text-red-700' 
-                        : 'bg-green-100 text-green-700'
+                        ? 'bg-[#ef444420] text-[#ef4444]' 
+                        : 'bg-[#22c55e20] text-[#22c55e]'
                     }`}>
                       {perm.recommendation?.replace('_', ' ') || (perm.status === 'USED' ? 'KEEP' : 'REMOVE')}
                     </span>
@@ -3034,21 +3034,21 @@ function RulesTab({
               allPermissions.slice(0, 20).map((perm, idx) => {
                 const isUsed = safeArray(usedPermissions).includes(String(perm))
                 return (
-                  <tr key={idx} className={isUsed ? '' : 'bg-red-50/30'}>
-                    <td className="px-4 py-2 font-mono text-gray-900 text-xs">{String(perm)}</td>
+                  <tr key={idx} className={isUsed ? '' : 'bg-[#ef444410]/30'}>
+                    <td className="px-4 py-2 font-mono text-[var(--foreground,#111827)] text-xs">{String(perm)}</td>
                     <td className="px-4 py-2 text-center">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        isUsed ? 'bg-[#22c55e20] text-[#22c55e]' : 'bg-[#ef444420] text-[#ef4444]'
                       }`}>
                         {isUsed ? 'USED' : 'UNUSED'}
                       </span>
                     </td>
                     <td className="px-4 py-2 text-center">
-                      <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">-</span>
+                      <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-[var(--foreground,#374151)]">-</span>
                     </td>
                     <td className="px-4 py-2 text-center">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        isUsed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        isUsed ? 'bg-[#22c55e20] text-[#22c55e]' : 'bg-[#ef444420] text-[#ef4444]'
                       }`}>
                         {isUsed ? 'KEEP' : 'REMOVE'}
                       </span>
@@ -3060,7 +3060,7 @@ function RulesTab({
           </tbody>
         </table>
         {(permissionsAnalysis.length > 30 || allPermissions.length > 20) && (
-          <div className="px-4 py-2 bg-gray-50 text-center text-sm text-gray-500 border-t border-gray-200">
+          <div className="px-4 py-2 bg-gray-50 text-center text-sm text-[var(--muted-foreground,#6b7280)] border-t border-[var(--border,#e5e7eb)]">
             Showing {permissionsAnalysis.length > 0 ? Math.min(30, permissionsAnalysis.length) : Math.min(20, allPermissions.length)} of {totalPermissions} permissions
           </div>
         )}
@@ -3077,8 +3077,8 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
     <div className="space-y-6">
       {/* Rule States for Security Groups */}
       {hasRuleStates && (
-        <div className="rounded-lg border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Security Group Rules ({resource.evidence.rule_states?.length || 0})</h3>
+        <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
+          <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Security Group Rules ({resource.evidence.rule_states?.length || 0})</h3>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {resource.evidence.rule_states?.map((rule, idx) => {
               const port = typeof rule.port === 'number' ? rule.port : rule.port
@@ -3090,50 +3090,50 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
                 <div 
                   key={idx} 
                   className={`rounded-lg border p-4 ${
-                    isRisky ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'
+                    isRisky ? 'border-[#ef444440] bg-[#ef444410]' : 'border-[var(--border,#e5e7eb)] bg-white'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`px-3 py-1 rounded font-mono text-sm font-bold ${
                         isAllTraffic 
-                          ? 'bg-orange-100 text-orange-700' 
-                          : 'bg-blue-100 text-blue-700'
+                          ? 'bg-[#f9731620] text-[#f97316]' 
+                          : 'bg-[#3b82f620] text-[#3b82f6]'
                       }`}>
                         {isAllTraffic ? 'All Traffic' : `Port ${port}`}
                       </div>
                       {rule.protocol && rule.protocol !== '-1' && (
-                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                        <span className="px-2 py-1 bg-gray-100 text-[var(--foreground,#374151)] rounded text-xs">
                           {rule.protocol.toUpperCase()}
                         </span>
                       )}
                       {isIPv6 && (
-                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
+                        <span className="px-2 py-1 bg-[#8b5cf615] text-[#7c3aed] rounded text-xs">
                           IPv6
                         </span>
                       )}
                       {rule.cidr && rule.cidr !== 'N/A' && (
-                        <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-mono">
+                        <span className="px-2 py-1 bg-gray-100 text-[var(--foreground,#374151)] rounded text-xs font-mono">
                           {rule.cidr}
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       {rule.observed_usage ? (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium flex items-center gap-1">
+                        <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-medium flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3" />
                           Used
                         </span>
                       ) : (
-                        <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
+                        <span className="px-2 py-1 bg-gray-100 text-[var(--muted-foreground,#4b5563)] rounded text-xs">
                           Not Used
                         </span>
                       )}
                       {rule.recommendation && (
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                           rule.recommendation === 'REVIEW_OR_DELETE' || rule.recommendation === 'DELETE'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-yellow-100 text-yellow-700'
+                            ? 'bg-[#ef444420] text-[#ef4444]'
+                            : 'bg-[#eab30820] text-[#eab308]'
                         }`}>
                           {rule.recommendation === 'REVIEW_OR_DELETE' ? '⚠️ Delete' : rule.recommendation}
                         </span>
@@ -3141,10 +3141,10 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
                     </div>
                   </div>
                   {rule.note && (
-                    <p className="text-xs text-gray-600 mt-2">{rule.note}</p>
+                    <p className="text-xs text-[var(--muted-foreground,#4b5563)] mt-2">{rule.note}</p>
                   )}
                   {rule.last_seen && (
-                    <p className="text-xs text-gray-500 mt-1">Last seen: {new Date(rule.last_seen).toLocaleDateString()}</p>
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">Last seen: {new Date(rule.last_seen).toLocaleDateString()}</p>
                   )}
                 </div>
               )
@@ -3153,8 +3153,8 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
         </div>
       )}
       
-      <div className="rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Evidence Sources</h3>
+      <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Evidence Sources</h3>
         <div className="space-y-3">
           {(resource.evidence?.dataSources || []).map((source, idx) => {
             const getSourceDescription = (src: string) => {
@@ -3176,10 +3176,10 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
             
             return (
               <div key={idx} className="flex items-center gap-3">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
                 <div>
-                  <div className="font-medium text-gray-900">{source}</div>
-                  <div className="text-sm text-gray-600">
+                  <div className="font-medium text-[var(--foreground,#111827)]">{source}</div>
+                  <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
                     {getSourceDescription(source)}
                   </div>
                 </div>
@@ -3189,13 +3189,13 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
         </div>
       </div>
 
-      <div className="rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Observation Period</h3>
+      <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Observation Period</h3>
         <div className="flex items-center gap-4">
-          <Clock className="w-6 h-6 text-gray-600" />
+          <Clock className="w-6 h-6 text-[var(--muted-foreground,#4b5563)]" />
           <div>
-            <div className="font-medium text-gray-900">{resource.evidence?.observationDays || 0} days</div>
-            <div className="text-sm text-gray-600">
+            <div className="font-medium text-[var(--foreground,#111827)]">{resource.evidence?.observationDays || 0} days</div>
+            <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
               From {new Date(Date.now() - (resource.evidence?.observationDays || 0) * 24 * 60 * 60 * 1000).toLocaleDateString()} to {new Date().toLocaleDateString()}
             </div>
           </div>
@@ -3204,22 +3204,22 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
 
       {/* Confidence Scoring Breakdown */}
       {resource.evidence?.confidence_breakdown && (
-        <div className="rounded-lg border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence Score Breakdown</h3>
+        <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
+          <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Confidence Score Breakdown</h3>
           <div className="space-y-4">
             {Object.entries(resource.evidence?.confidence_breakdown || {}).map(([source, data]: [string, any]) => (
               <div key={source} className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900 capitalize">
+                    <span className="font-medium text-[var(--foreground,#111827)] capitalize">
                       {source.replace(/_/g, ' ')}
                     </span>
                     {data.available === false && (
-                      <span className="text-xs text-gray-500">(Not available)</span>
+                      <span className="text-xs text-[var(--muted-foreground,#6b7280)]">(Not available)</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900">
+                    <span className="text-sm font-semibold text-[var(--foreground,#111827)]">
                       {(data.contribution ?? 0).toFixed(1)} / {(data.max ?? 0).toFixed(1)}
                     </span>
                     <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -3230,7 +3230,7 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
                     </div>
                   </div>
                 </div>
-                <div className="text-xs text-gray-600 ml-7">
+                <div className="text-xs text-[var(--muted-foreground,#4b5563)] ml-7">
                   {data.description}
                   {data.events !== undefined && ` • ${data.events} events`}
                   {data.flows !== undefined && ` • ${data.flows} flows`}
@@ -3238,10 +3238,10 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
                 </div>
               </div>
             ))}
-            <div className="pt-4 border-t border-gray-200">
+            <div className="pt-4 border-t border-[var(--border,#e5e7eb)]">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-900">Total Confidence</span>
-                <span className="text-lg font-bold text-blue-600">
+                <span className="font-bold text-[var(--foreground,#111827)]">Total Confidence</span>
+                <span className="text-lg font-bold text-[#3b82f6]">
                   {(resource.confidence ?? 0).toFixed(1)}%
                 </span>
               </div>
@@ -3252,40 +3252,40 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
 
       {/* VPC Flow Logs Details */}
       {resource.evidence.flowlogs && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Network className="w-5 h-5 text-blue-600" />
+        <div className="rounded-lg border border-[#3b82f640] bg-[#3b82f610] p-6">
+          <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4 flex items-center gap-2">
+            <Network className="w-5 h-5 text-[#3b82f6]" />
             VPC Flow Logs Analysis
           </h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-sm text-gray-600">Total Flows Analyzed</div>
-              <div className="text-2xl font-bold text-gray-900">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Flows Analyzed</div>
+              <div className="text-2xl font-bold text-[var(--foreground,#111827)]">
                 {(resource.evidence.flowlogs?.total_flows ?? 0) || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Matched Flows</div>
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Matched Flows</div>
+              <div className="text-2xl font-bold text-[#3b82f6]">
                 {resource.evidence.flowlogs.matched_flows || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">ENIs Checked</div>
-              <div className="text-lg font-semibold text-gray-700">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">ENIs Checked</div>
+              <div className="text-lg font-semibold text-[var(--foreground,#374151)]">
                 {resource.evidence.flowlogs.enis_checked || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Log Groups Checked</div>
-              <div className="text-lg font-semibold text-gray-700">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Log Groups Checked</div>
+              <div className="text-lg font-semibold text-[var(--foreground,#374151)]">
                 {resource.evidence.flowlogs.log_groups_checked || 0}
               </div>
             </div>
           </div>
           {((resource.evidence.flowlogs?.total_flows ?? 0) > 0) && (
-            <div className="mt-4 pt-4 border-t border-blue-200">
-              <div className="text-sm text-gray-600">
+            <div className="mt-4 pt-4 border-t border-[#3b82f640]">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
                 Network traffic analysis validates that permissions are actively used at the network level.
               </div>
             </div>
@@ -3295,54 +3295,54 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
 
       {/* Resource Policies Details */}
       {resource.evidence.resourcePolicies && (
-        <div className="rounded-lg border border-purple-200 bg-purple-50 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-purple-600" />
+        <div className="rounded-lg border border-purple-200 bg-[#8b5cf610] p-6">
+          <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-[#8b5cf6]" />
             Resource Policies Analysis
           </h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-sm text-gray-600">Total Resources Checked</div>
-              <div className="text-2xl font-bold text-gray-900">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Resources Checked</div>
+              <div className="text-2xl font-bold text-[var(--foreground,#111827)]">
                 {resource.evidence.resourcePolicies.total_resources_checked || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Matching Policies</div>
-              <div className="text-2xl font-bold text-purple-600">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Matching Policies</div>
+              <div className="text-2xl font-bold text-[#8b5cf6]">
                 {resource.evidence.resourcePolicies.matching_policies?.length || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">S3 Buckets</div>
-              <div className="text-lg font-semibold text-gray-700">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">S3 Buckets</div>
+              <div className="text-lg font-semibold text-[var(--foreground,#374151)]">
                 {resource.evidence.resourcePolicies.s3_buckets_checked || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">KMS Keys</div>
-              <div className="text-lg font-semibold text-gray-700">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">KMS Keys</div>
+              <div className="text-lg font-semibold text-[var(--foreground,#374151)]">
                 {resource.evidence.resourcePolicies.kms_keys_checked || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Lambda Functions</div>
-              <div className="text-lg font-semibold text-gray-700">
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Lambda Functions</div>
+              <div className="text-lg font-semibold text-[var(--foreground,#374151)]">
                 {resource.evidence.resourcePolicies.lambda_functions_checked || 0}
               </div>
             </div>
           </div>
           {resource.evidence.resourcePolicies.matching_policies && resource.evidence.resourcePolicies.matching_policies.length > 0 && (
             <div className="mt-4 pt-4 border-t border-purple-200">
-              <div className="text-sm font-medium text-gray-700 mb-2">Resources with Access:</div>
+              <div className="text-sm font-medium text-[var(--foreground,#374151)] mb-2">Resources with Access:</div>
               <div className="space-y-1">
                 {resource.evidence.resourcePolicies.matching_policies.slice(0, 5).map((policy: any, idx: number) => (
-                  <div key={idx} className="text-xs text-gray-600 bg-white px-2 py-1 rounded">
+                  <div key={idx} className="text-xs text-[var(--muted-foreground,#4b5563)] bg-white px-2 py-1 rounded">
                     {policy.resource_type}: {policy.resource_name || policy.resource_arn}
                   </div>
                 ))}
                 {resource.evidence.resourcePolicies.matching_policies.length > 5 && (
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)]">
                     +{resource.evidence.resourcePolicies.matching_policies.length - 5} more resources
                   </div>
                 )}
@@ -3352,17 +3352,17 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Confidence</h3>
+      <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Confidence</h3>
         <div className="flex items-center gap-4">
           <div className={`px-4 py-2 rounded-lg font-bold ${
-            resource.evidence?.confidence === 'HIGH' ? 'bg-green-100 text-green-800' :
-            resource.evidence?.confidence === 'MEDIUM' ? 'bg-orange-100 text-orange-800' :
-            'bg-yellow-100 text-yellow-800'
+            resource.evidence?.confidence === 'HIGH' ? 'bg-[#22c55e20] text-[#22c55e]' :
+            resource.evidence?.confidence === 'MEDIUM' ? 'bg-[#f9731620] text-[#f97316]' :
+            'bg-[#eab30820] text-[#eab308]'
           }`}>
             {resource.evidence?.confidence || 'UNKNOWN'}
           </div>
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
             Based on {(resource.evidence?.dataSources || []).length} data source(s) and {resource.evidence?.observationDays || 0} days of observation
           </div>
         </div>
@@ -3374,8 +3374,8 @@ function EvidenceTab({ resource }: { resource: GapResource }) {
 function ImpactTab({ resource }: { resource: GapResource }) {
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-green-200 bg-green-50 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Impact Analysis</h3>
+      <div className="rounded-lg border border-[#22c55e40] bg-[#22c55e10] p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">Impact Analysis</h3>
         <div className="space-y-3">
           {[
             'No service disruption expected',
@@ -3384,39 +3384,39 @@ function ImpactTab({ resource }: { resource: GapResource }) {
             'Achieves least privilege compliance'
           ].map((impact, idx) => (
             <div key={idx} className="flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-              <span className="text-sm text-gray-700">{impact}</span>
+              <CheckCircle2 className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+              <span className="text-sm text-[var(--foreground,#374151)]">{impact}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">What Will Continue Working</h3>
+      <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">What Will Continue Working</h3>
         <div className="space-y-2">
           {(resource.usedList || []).slice(0, 5).map((perm, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
-              <CheckCircle2 className="w-4 h-4 text-green-600" />
-              <span className="font-mono text-gray-700">{perm}</span>
+              <CheckCircle2 className="w-4 h-4 text-[#22c55e]" />
+              <span className="font-mono text-[var(--foreground,#374151)]">{perm}</span>
             </div>
           ))}
           {(resource.usedList?.length || 0) > 5 && (
-            <div className="text-sm text-gray-500">...and {(resource.usedList?.length || 0) - 5} more used permissions</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">...and {(resource.usedList?.length || 0) - 5} more used permissions</div>
           )}
         </div>
       </div>
 
-      <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">What Will Be Removed</h3>
+      <div className="rounded-lg border border-[#ef444440] bg-[#ef444410] p-6">
+        <h3 className="text-lg font-bold text-[var(--foreground,#111827)] mb-4">What Will Be Removed</h3>
         <div className="space-y-2">
           {(resource.unusedList || []).slice(0, 5).map((perm, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
-              <XCircle className="w-4 h-4 text-red-600" />
-              <span className="font-mono text-gray-700">{perm}</span>
+              <XCircle className="w-4 h-4 text-[#ef4444]" />
+              <span className="font-mono text-[var(--foreground,#374151)]">{perm}</span>
             </div>
           ))}
           {(resource.unusedList?.length || 0) > 5 && (
-            <div className="text-sm text-gray-500">...and {(resource.unusedList?.length || 0) - 5} more unused permissions</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">...and {(resource.unusedList?.length || 0) - 5} more unused permissions</div>
           )}
         </div>
       </div>
@@ -3443,18 +3443,18 @@ function SGSimulationResultsModal({
   if (!isOpen || !result) return null
 
   const getRiskColor = (score: number) => {
-    if (score >= 80) return 'text-red-500'
+    if (score >= 80) return 'text-[#ef4444]'
     if (score >= 60) return 'text-orange-500'
     if (score >= 30) return 'text-yellow-500'
-    return 'text-green-500'
+    return 'text-[#22c55e]'
   }
 
   const getRiskBgColor = (level: string) => {
     switch (level) {
-      case 'CRITICAL': return 'bg-red-500/20 text-red-400 border-red-500/30'
-      case 'HIGH': return 'bg-orange-500/20 text-orange-400 border-orange-500/30'
-      case 'MEDIUM': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-      default: return 'bg-green-500/20 text-green-400 border-green-500/30'
+      case 'CRITICAL': return 'bg-[#ef444410]0/20 text-red-400 border-red-500/30'
+      case 'HIGH': return 'bg-[#f9731610]0/20 text-orange-400 border-orange-500/30'
+      case 'MEDIUM': return 'bg-[#eab30810]0/20 text-yellow-400 border-yellow-500/30'
+      default: return 'bg-[#22c55e10]0/20 text-green-400 border-green-500/30'
     }
   }
 
@@ -3462,13 +3462,13 @@ function SGSimulationResultsModal({
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+        <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Simulation Results</h2>
-              <p className="text-sm text-gray-500">{result?.sg_name || 'Unknown'} ({result?.sg_id || 'N/A'})</p>
+              <h2 className="text-xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
+              <p className="text-sm text-[var(--muted-foreground,#6b7280)]">{result?.sg_name || 'Unknown'} ({result?.sg_id || 'N/A'})</p>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={onClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
               <XCircle className="w-6 h-6" />
             </button>
           </div>
@@ -3482,7 +3482,7 @@ function SGSimulationResultsModal({
               <div className={`text-5xl font-bold ${getRiskColor(result?.risk_score ?? 0)}`}>
                 {result?.risk_score ?? 0}
               </div>
-              <div className="text-sm text-gray-500">Risk Score</div>
+              <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Risk Score</div>
             </div>
             <div className={`px-4 py-2 rounded-full text-sm font-semibold border ${getRiskBgColor(result?.risk_level ?? 'LOW')}`}>
               {result?.risk_level ?? 'UNKNOWN'} RISK
@@ -3490,9 +3490,9 @@ function SGSimulationResultsModal({
             <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
               <div 
                 className={`h-full transition-all ${
-                  (result?.risk_score ?? 0) >= 80 ? 'bg-red-500' :
-                  (result?.risk_score ?? 0) >= 60 ? 'bg-orange-500' :
-                  (result?.risk_score ?? 0) >= 30 ? 'bg-yellow-500' : 'bg-green-500'
+                  (result?.risk_score ?? 0) >= 80 ? 'bg-[#ef444410]0' :
+                  (result?.risk_score ?? 0) >= 60 ? 'bg-[#f9731610]0' :
+                  (result?.risk_score ?? 0) >= 30 ? 'bg-[#eab30810]0' : 'bg-[#22c55e10]0'
                 }`}
                 style={{ width: `${result?.risk_score ?? 0}%` }}
               />
@@ -3500,67 +3500,67 @@ function SGSimulationResultsModal({
           </div>
 
           {/* Impact Summary */}
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-3">Impact Summary</h3>
+          <div className="bg-gray-50 rounded-lg p-4 border border-[var(--border,#e5e7eb)]">
+            <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Impact Summary</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex items-center gap-2">
-                <span className="text-gray-600">Rules to remove:</span>
-                <span className="font-bold text-red-600">{result.impact_summary?.rules_removed || 0}</span>
+                <span className="text-[var(--muted-foreground,#4b5563)]">Rules to remove:</span>
+                <span className="font-bold text-[#ef4444]">{result.impact_summary?.rules_removed || 0}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-600">Rules to tighten:</span>
+                <span className="text-[var(--muted-foreground,#4b5563)]">Rules to tighten:</span>
                 <span className="font-bold text-orange-600">{result.impact_summary?.rules_tightened || 0}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-600">Attack surface reduction:</span>
-                <span className="font-bold text-green-600">{result.impact_summary?.attack_surface_reduction || '0%'}</span>
+                <span className="text-[var(--muted-foreground,#4b5563)]">Attack surface reduction:</span>
+                <span className="font-bold text-[#22c55e]">{result.impact_summary?.attack_surface_reduction || '0%'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-gray-600">ENIs affected:</span>
-                <span className="font-bold text-gray-900">{result.impact_summary?.enis_affected || 0}</span>
+                <span className="text-[var(--muted-foreground,#4b5563)]">ENIs affected:</span>
+                <span className="font-bold text-[var(--foreground,#111827)]">{result.impact_summary?.enis_affected || 0}</span>
               </div>
             </div>
           </div>
 
           {/* Changes Preview */}
           <div>
-            <h3 className="font-semibold text-gray-900 mb-3">Changes Preview</h3>
+            <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Changes Preview</h3>
             <div className="space-y-2 max-h-48 overflow-y-auto">
               {safeArray(result?.changes_preview).map((change: any, i: number) => (
                 <div 
                   key={i} 
                   className={`p-3 rounded-lg border ${
                     change?.action === 'DELETE' 
-                      ? 'bg-red-50 border-red-200' 
-                      : 'bg-orange-50 border-orange-200'
+                      ? 'bg-[#ef444410] border-[#ef444440]' 
+                      : 'bg-[#f9731610] border-[#f9731640]'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                      change?.action === 'DELETE' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                      change?.action === 'DELETE' ? 'bg-[#ef444420] text-[#ef4444]' : 'bg-[#f9731620] text-[#f97316]'
                     }`}>
                       {change?.action || 'UNKNOWN'}
                     </span>
-                    <span className="text-sm text-gray-700">{change?.description || 'No description'}</span>
+                    <span className="text-sm text-[var(--foreground,#374151)]">{change?.description || 'No description'}</span>
                   </div>
                 </div>
               ))}
               {safeArray(result?.changes_preview).length === 0 && (
-                <div className="text-gray-500 text-sm italic">No changes to preview</div>
+                <div className="text-[var(--muted-foreground,#6b7280)] text-sm italic">No changes to preview</div>
               )}
             </div>
           </div>
 
           {/* Warnings */}
           {safeArray(result?.warnings).length > 0 && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
+            <div className="bg-[#eab30810] border border-[#eab30840] rounded-lg p-4">
+              <h3 className="font-semibold text-[#eab308] mb-2 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" />
                 Warnings
               </h3>
               <ul className="space-y-1">
                 {safeArray(result?.warnings).map((warning: string, i: number) => (
-                  <li key={i} className="text-sm text-yellow-700">• {warning}</li>
+                  <li key={i} className="text-sm text-[#eab308]">• {warning}</li>
                 ))}
               </ul>
             </div>
@@ -3569,7 +3569,7 @@ function SGSimulationResultsModal({
           {/* CLI Commands */}
           {safeArray(result?.cli_commands).length > 0 && (
             <div>
-              <h3 className="font-semibold text-gray-900 mb-3">AWS CLI Commands</h3>
+              <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">AWS CLI Commands</h3>
               <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
                 <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
                   {safeArray(result?.cli_commands).join('\n\n')}
@@ -3579,7 +3579,7 @@ function SGSimulationResultsModal({
                 onClick={() => {
                   navigator.clipboard.writeText(safeArray(result?.cli_commands).join('\n\n'))
                 }}
-                className="mt-2 text-sm text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                className="mt-2 text-sm text-[#8b5cf6] hover:text-[#7c3aed] flex items-center gap-1"
               >
                 <FileDown className="w-4 h-4" />
                 Copy Commands
@@ -3589,15 +3589,15 @@ function SGSimulationResultsModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
+        <div className="px-6 py-4 border-t border-[var(--border,#e5e7eb)] bg-gray-50 flex items-center justify-between">
+          <div className="text-sm text-[var(--muted-foreground,#6b7280)]">
             Confidence: {result?.confidence ?? 75}%
           </div>
           <div className="flex gap-3">
             <button 
               onClick={onClose}
               disabled={isExecuting}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 text-sm font-medium disabled:opacity-50"
+              className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-100 text-sm font-medium disabled:opacity-50"
             >
               Cancel
             </button>

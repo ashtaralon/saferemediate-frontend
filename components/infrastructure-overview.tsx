@@ -40,13 +40,13 @@ export function InfrastructureOverview({ stats = {} }: InfrastructureOverviewPro
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4 text-gray-900">Infrastructure Overview</h2>
+      <h2 className="text-xl font-semibold mb-4 text-[var(--foreground,#111827)]">Infrastructure Overview</h2>
       <div className="grid grid-cols-4 gap-4">
         {infraItems.map((item) => (
-          <div key={item.label} className="bg-white rounded-lg p-4 border border-gray-200">
-            <div className="text-xs text-gray-500 mb-1">{item.category}</div>
-            <div className="text-3xl font-bold text-gray-900">{item.value}</div>
-            <div className="text-sm text-gray-600 mt-1">{item.label}</div>
+          <div key={item.label} className="bg-white rounded-lg p-4 border border-[var(--border,#e5e7eb)]">
+            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">{item.category}</div>
+            <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{item.value}</div>
+            <div className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">{item.label}</div>
           </div>
         ))}
       </div>

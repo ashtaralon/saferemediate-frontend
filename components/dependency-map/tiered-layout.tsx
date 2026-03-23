@@ -203,14 +203,14 @@ const ResourceCluster: React.FC<{
 
         {/* Flow badge */}
         {cluster.inboundFlows > 0 && (
-          <div className="absolute -top-2 -right-2 bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+          <div className="absolute -top-2 -right-2 bg-[#22c55e10]0 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
             {formatFlows(cluster.inboundFlows + cluster.outboundFlows)}
           </div>
         )}
 
         {/* Internet exposed badge */}
         {cluster.nodes.some(n => n.is_internet_exposed) && (
-          <div className="absolute -top-1 -left-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+          <div className="absolute -top-1 -left-1 w-5 h-5 bg-[#ef444410]0 rounded-full flex items-center justify-center animate-pulse">
             <Globe className="w-3 h-3 text-white" />
           </div>
         )}
@@ -531,7 +531,7 @@ export default function TieredLayout({
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search resources..."
-              className="pl-8 pr-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm w-40 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="pl-8 pr-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm w-40 focus:outline-none focus:ring-1 focus:ring-[#8b5cf6]"
             />
           </div>
 

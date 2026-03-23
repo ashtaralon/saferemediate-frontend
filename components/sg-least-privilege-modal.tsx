@@ -141,10 +141,10 @@ interface SGLeastPrivilegeModalProps {
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const styles: Record<string, { bg: string; text: string; label?: string }> = {
-    USED: { bg: 'bg-emerald-500/20', text: 'text-emerald-400' },
-    UNUSED: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'UNUSED (DELETE)' },
-    OVERLY_BROAD: { bg: 'bg-orange-500/20', text: 'text-orange-400', label: 'OVERLY BROAD' },
-    UNKNOWN: { bg: 'bg-gray-500/20', text: 'text-gray-400' },
+    USED: { bg: 'bg-[#10b98110]0/20', text: 'text-emerald-400' },
+    UNUSED: { bg: 'bg-[#ef444410]0/20', text: 'text-red-400', label: 'UNUSED (DELETE)' },
+    OVERLY_BROAD: { bg: 'bg-[#f9731610]0/20', text: 'text-orange-400', label: 'OVERLY BROAD' },
+    UNKNOWN: { bg: 'bg-gray-500/20', text: 'text-[var(--muted-foreground,#9ca3af)]' },
   };
 
   const style = styles[status] || styles.UNKNOWN;
@@ -159,10 +159,10 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 
 const ConfidenceBadge: React.FC<{ level: string; score: number }> = ({ level, score }) => {
   const styles: Record<string, string> = {
-    HIGH: 'bg-emerald-500/20 text-emerald-400',
-    MEDIUM: 'bg-amber-500/20 text-amber-400',
-    LOW: 'bg-red-500/20 text-red-400',
-    NONE: 'bg-gray-500/20 text-gray-400',
+    HIGH: 'bg-[#10b98110]0/20 text-emerald-400',
+    MEDIUM: 'bg-[#f9731610]0/20 text-amber-400',
+    LOW: 'bg-[#ef444410]0/20 text-red-400',
+    NONE: 'bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)]',
   };
 
   return (
@@ -248,12 +248,12 @@ const SummaryTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
         <div className="relative h-8 rounded-lg overflow-hidden bg-slate-700/50 mb-4">
           {/* Used (green) */}
           <div
-            className="absolute left-0 top-0 h-full bg-emerald-500/60"
+            className="absolute left-0 top-0 h-full bg-[#10b98110]0/60"
             style={{ width: `${(analysis.summary.used_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%` }}
           />
           {/* Unused (red) */}
           <div
-            className="absolute top-0 h-full bg-red-500/60"
+            className="absolute top-0 h-full bg-[#ef444410]0/60"
             style={{
               left: `${(analysis.summary.used_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
               width: `${(analysis.summary.unused_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
@@ -261,7 +261,7 @@ const SummaryTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
           />
           {/* Overly broad (orange) */}
           <div
-            className="absolute top-0 h-full bg-orange-500/60"
+            className="absolute top-0 h-full bg-[#f9731610]0/60"
             style={{
               left: `${((analysis.summary.used_rules + analysis.summary.unused_rules) / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
               width: `${(analysis.summary.overly_broad_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
@@ -279,15 +279,15 @@ const SummaryTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
         {/* Legend */}
         <div className="flex gap-6 text-xs">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-emerald-500/60" />
+            <div className="w-3 h-3 rounded bg-[#10b98110]0/60" />
             <span className="text-slate-400">Used ({analysis.summary.used_rules})</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-red-500/60" />
+            <div className="w-3 h-3 rounded bg-[#ef444410]0/60" />
             <span className="text-slate-400">Unused ({analysis.summary.unused_rules})</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-orange-500/60" />
+            <div className="w-3 h-3 rounded bg-[#f9731610]0/60" />
             <span className="text-slate-400">Overly Broad ({analysis.summary.overly_broad_rules})</span>
           </div>
         </div>
@@ -341,15 +341,15 @@ const RulesTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
           <div className="text-2xl font-bold text-slate-300">{analysis.summary.total_rules}</div>
           <div className="text-xs text-slate-500">Total Rules</div>
         </div>
-        <div className="bg-emerald-500/10 rounded-lg p-3 text-center border border-emerald-500/30">
+        <div className="bg-[#10b98110]0/10 rounded-lg p-3 text-center border border-emerald-500/30">
           <div className="text-2xl font-bold text-emerald-400">{analysis.summary.used_rules}</div>
           <div className="text-xs text-emerald-400/70">Used (KEEP)</div>
         </div>
-        <div className="bg-red-500/10 rounded-lg p-3 text-center border border-red-500/30">
+        <div className="bg-[#ef444410]0/10 rounded-lg p-3 text-center border border-red-500/30">
           <div className="text-2xl font-bold text-red-400">{analysis.summary.unused_rules}</div>
           <div className="text-xs text-red-400/70">Unused (DELETE)</div>
         </div>
-        <div className="bg-orange-500/10 rounded-lg p-3 text-center border border-orange-500/30">
+        <div className="bg-[#f9731610]0/10 rounded-lg p-3 text-center border border-orange-500/30">
           <div className="text-2xl font-bold text-orange-400">{analysis.summary.overly_broad_rules}</div>
           <div className="text-xs text-orange-400/70">Overly Broad</div>
         </div>
@@ -364,7 +364,7 @@ const RulesTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 filter === f
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-[#8b5cf6] text-white'
                   : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
               }`}
             >
@@ -439,7 +439,7 @@ const RulesTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
                         {rule.status === 'OVERLY_BROAD' && rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {rule.traffic.sample_sources.slice(0, 3).map((ip, idx) => (
-                              <code key={idx} className="px-1 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-xs font-mono">
+                              <code key={idx} className="px-1 py-0.5 bg-[#10b98110]0/20 text-emerald-400 rounded text-xs font-mono">
                                 {ip}
                               </code>
                             ))}
@@ -457,12 +457,12 @@ const RulesTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-medium ${
                         rule.recommendation.action === 'KEEP'
-                          ? 'bg-emerald-500/20 text-emerald-400'
+                          ? 'bg-[#10b98110]0/20 text-emerald-400'
                           : rule.recommendation.action === 'DELETE'
-                          ? 'bg-red-500/20 text-red-400'
+                          ? 'bg-[#ef444410]0/20 text-red-400'
                           : rule.recommendation.action === 'TIGHTEN'
-                          ? 'bg-orange-500/20 text-orange-400'
-                          : 'bg-gray-500/20 text-gray-400'
+                          ? 'bg-[#f9731610]0/20 text-orange-400'
+                          : 'bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)]'
                       }`}
                     >
                       {rule.recommendation.action}
@@ -600,7 +600,7 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
 
       {/* What Will Be Tightened (0.0.0.0/0 with real traffic) */}
       {analysis.recommendations.tighten.length > 0 && (
-        <div className="bg-orange-500/5 rounded-xl p-5 border border-orange-500/20">
+        <div className="bg-[#f9731610]0/5 rounded-xl p-5 border border-orange-500/20">
           <h3 className="text-sm font-medium text-orange-400 mb-4 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             What Will Be Tightened (Replace 0.0.0.0/0 with observed IPs)
@@ -610,7 +610,7 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
               <div key={rule.rule_id} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-1 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                    <span className="px-2 py-1 bg-[#f9731610]0/20 text-orange-400 rounded text-xs font-medium">
                       TIGHTEN
                     </span>
                     <span className="text-slate-300 font-medium">
@@ -623,7 +623,7 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
                 </div>
 
                 {/* Current Rule */}
-                <div className="mb-3 p-3 bg-red-500/10 rounded-lg border border-red-500/30">
+                <div className="mb-3 p-3 bg-[#ef444410]0/10 rounded-lg border border-red-500/30">
                   <div className="text-xs text-red-400 font-medium mb-1">CURRENT (Overly Broad)</div>
                   <div className="flex items-center gap-2">
                     <Globe className="w-4 h-4 text-red-400" />
@@ -634,11 +634,11 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
 
                 {/* Observed Traffic */}
                 {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
-                  <div className="mb-3 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+                  <div className="mb-3 p-3 bg-[#10b98110]0/10 rounded-lg border border-emerald-500/30">
                     <div className="text-xs text-emerald-400 font-medium mb-2">OBSERVED TRAFFIC FROM</div>
                     <div className="flex flex-wrap gap-2">
                       {rule.traffic.sample_sources.slice(0, 10).map((ip, idx) => (
-                        <code key={idx} className="px-2 py-1 bg-emerald-500/20 text-emerald-300 rounded text-xs font-mono">
+                        <code key={idx} className="px-2 py-1 bg-[#10b98110]0/20 text-emerald-300 rounded text-xs font-mono">
                           {ip}
                         </code>
                       ))}
@@ -652,7 +652,7 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
                 )}
 
                 {/* Recommendation */}
-                <div className="p-3 bg-indigo-500/10 rounded-lg border border-indigo-500/30">
+                <div className="p-3 bg-[#8b5cf6]/10 rounded-lg border border-indigo-500/30">
                   <div className="text-xs text-indigo-400 font-medium mb-1">💡 RECOMMENDATION</div>
                   <div className="text-sm text-slate-300">
                     Replace <code className="text-red-400 font-mono">{rule.source}</code> with specific IPs/CIDRs:
@@ -660,7 +660,7 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
                   {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {rule.traffic.sample_sources.slice(0, 5).map((ip, idx) => (
-                        <code key={idx} className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded text-xs font-mono">
+                        <code key={idx} className="px-2 py-0.5 bg-[#8b5cf6]/20 text-indigo-300 rounded text-xs font-mono">
                           {ip}/32
                         </code>
                       ))}
@@ -677,7 +677,7 @@ const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
       )}
 
       {/* What Will Be Removed */}
-      <div className="bg-red-500/5 rounded-xl p-5 border border-red-500/20">
+      <div className="bg-[#ef444410]0/5 rounded-xl p-5 border border-red-500/20">
         <h3 className="text-sm font-medium text-red-400 mb-4">What Will Be Removed (No Traffic Observed)</h3>
         {analysis.recommendations.delete.length > 0 ? (
           <div className="space-y-2">
@@ -891,7 +891,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-xl p-5 border border-indigo-500/20">
+      <div className="bg-white rounded-xl p-5 border border-indigo-500/20">
         <div className="flex items-center gap-3 mb-2">
           <Sparkles className="w-5 h-5 text-indigo-400" />
           <h3 className="text-lg font-semibold text-slate-100">CSPM vs Behavioral Analysis</h3>
@@ -913,7 +913,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
             <span className="text-xs text-slate-500">Static Configuration Analysis</span>
           </div>
           {/* SafeRemediate Header */}
-          <div className="px-4 py-3 bg-indigo-500/10">
+          <div className="px-4 py-3 bg-[#8b5cf6]/10">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-indigo-400" />
               <span className="text-sm font-medium text-indigo-300">Cyntro</span>
@@ -943,7 +943,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
                 </div>
               </div>
               {/* SafeRemediate Column */}
-              <div className={`px-4 py-3 ${row.isUniqueInsight ? 'bg-amber-500/5' : ''}`}>
+              <div className={`px-4 py-3 ${row.isUniqueInsight ? 'bg-[#f9731610]0/5' : ''}`}>
                 <div className="flex items-start gap-2">
                   {row.isUniqueInsight ? (
                     <Zap className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
@@ -960,8 +960,8 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
                     {row.isUniqueInsight && (
                       <div className="mt-1">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          row.action === 'DELETE' ? 'bg-red-500/20 text-red-400' :
-                          row.action === 'TIGHTEN' ? 'bg-orange-500/20 text-orange-400' :
+                          row.action === 'DELETE' ? 'bg-[#ef444410]0/20 text-red-400' :
+                          row.action === 'TIGHTEN' ? 'bg-[#f9731610]0/20 text-orange-400' :
                           'bg-slate-500/20 text-slate-400'
                         }`}>
                           → {row.action}
@@ -976,7 +976,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
 
           {/* Orphan SG Row (if applicable) */}
           {isOrphan && (
-            <div className="grid grid-cols-2 divide-x divide-slate-700/30 bg-purple-500/5">
+            <div className="grid grid-cols-2 divide-x divide-slate-700/30 bg-[#8b5cf6]/5">
               {/* CSPM Column */}
               <div className="px-4 py-3">
                 <div className="flex items-start gap-2">
@@ -995,7 +995,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
                     <div className="text-sm text-purple-300 flex items-center gap-2">
                       👻 ORPHAN SG Detected
                       <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
-                        orphanStatus?.severity === 'CRITICAL' ? 'bg-red-500/30 text-red-400' : 'bg-amber-500/30 text-amber-400'
+                        orphanStatus?.severity === 'CRITICAL' ? 'bg-[#ef444410]0/30 text-red-400' : 'bg-[#f9731610]0/30 text-amber-400'
                       }`}>
                         {orphanStatus?.severity}
                       </span>
@@ -1004,7 +1004,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
                       + {orphanStatus?.attachment_count} attachments found
                     </div>
                     <div className="mt-1">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[#ef444410]0/20 text-red-400">
                         → DELETE SG
                       </span>
                     </div>
@@ -1017,7 +1017,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
       </div>
 
       {/* Summary Box */}
-      <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 rounded-xl p-5 border border-emerald-500/20">
+      <div className="bg-white rounded-xl p-5 border border-emerald-500/20">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="w-5 h-5 text-emerald-400" />
           <h4 className="font-semibold text-emerald-300">
@@ -1086,7 +1086,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
               <div key={idx} className="bg-slate-700/30 rounded-lg p-3 border border-slate-600/30">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-400">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-[#3b82f610]0/20 text-blue-400">
                       {att.resource_id?.startsWith('i-') ? 'EC2' : att.resource_type}
                     </span>
                     <span className="text-sm text-slate-200 font-medium">
@@ -1106,7 +1106,7 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
                     <span className="text-xs text-slate-400">IAM Role:</span>
                     <span className="text-xs text-amber-300 font-medium">{att.iam_role}</span>
                     {att.iam_role_issues !== undefined && att.iam_role_issues > 0 && (
-                      <span className="px-1.5 py-0.5 rounded text-xs bg-red-500/20 text-red-400">
+                      <span className="px-1.5 py-0.5 rounded text-xs bg-[#ef444410]0/20 text-red-400">
                         {att.iam_role_issues} LP issues
                       </span>
                     )}
@@ -1439,7 +1439,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             <button
               onClick={handleSyncFlowLogs}
               disabled={syncing}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#8b5cf6] hover:bg-[#7c3aed] disabled:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
               title="Sync VPC Flow Logs to correlate traffic with Security Groups"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
@@ -1485,8 +1485,8 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
           <div
             className={`mx-6 mt-4 p-4 rounded-lg border-2 flex items-start gap-3 ${
               orphanStatus.severity === 'CRITICAL'
-                ? 'bg-red-500/20 border-red-500'
-                : 'bg-amber-500/20 border-amber-500'
+                ? 'bg-[#ef444410]0/20 border-red-500'
+                : 'bg-[#f9731610]0/20 border-amber-500'
             }`}
           >
             <AlertTriangle
@@ -1568,7 +1568,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             <button
               onClick={handleSimulate}
               disabled={!analysis || analysis.recommendations.delete.length === 0 || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] hover:bg-[#8b5cf6] disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Play className="w-4 h-4" />
               Simulate
@@ -1576,7 +1576,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             <button
               onClick={handleApplyFix}
               disabled={!analysis || analysis.recommendations.delete.length === 0 || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-[#10b98110]0 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <ShieldCheck className="w-4 h-4" />
               {loading ? 'Applying...' : 'Apply Fix Now'}

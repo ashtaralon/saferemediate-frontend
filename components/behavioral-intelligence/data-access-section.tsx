@@ -326,7 +326,7 @@ const FirstTimeAccessTable: React.FC<{ events: FirstTimeAccessEvent[] }> = ({ ev
                 <span className="text-white text-sm">{event.bucket}</span>
               </td>
               <td className="px-4 py-3">
-                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-xs">
+                <span className="px-2 py-0.5 bg-[#f9731610]0/20 text-amber-400 border border-amber-500/30 rounded text-xs">
                   {event.action}
                 </span>
               </td>

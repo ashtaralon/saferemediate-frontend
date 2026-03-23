@@ -42,20 +42,20 @@ const typeIcons: Record<string, any> = {
 }
 
 const typeColors: Record<string, string> = {
-  SecurityGroup: "bg-orange-100 border-orange-400 text-orange-700",
-  IAMRole: "bg-purple-100 border-purple-400 text-purple-700",
-  IAMPolicy: "bg-purple-100 border-purple-400 text-purple-700",
-  S3Bucket: "bg-green-100 border-green-400 text-green-700",
-  S3: "bg-green-100 border-green-400 text-green-700",
-  EC2: "bg-blue-100 border-blue-400 text-blue-700",
-  RDS: "bg-indigo-100 border-indigo-400 text-indigo-700",
-  DynamoDB: "bg-indigo-100 border-indigo-400 text-indigo-700",
-  DynamoDBTable: "bg-indigo-100 border-indigo-400 text-indigo-700",
-  Lambda: "bg-yellow-100 border-yellow-400 text-yellow-700",
+  SecurityGroup: "bg-[#f9731620] border-orange-400 text-[#f97316]",
+  IAMRole: "bg-[#8b5cf615] border-purple-400 text-[#7c3aed]",
+  IAMPolicy: "bg-[#8b5cf615] border-purple-400 text-[#7c3aed]",
+  S3Bucket: "bg-[#22c55e20] border-green-400 text-[#22c55e]",
+  S3: "bg-[#22c55e20] border-green-400 text-[#22c55e]",
+  EC2: "bg-[#3b82f620] border-blue-400 text-[#3b82f6]",
+  RDS: "bg-[#8b5cf615] border-indigo-400 text-[#7c3aed]",
+  DynamoDB: "bg-[#8b5cf615] border-indigo-400 text-[#7c3aed]",
+  DynamoDBTable: "bg-[#8b5cf615] border-indigo-400 text-[#7c3aed]",
+  Lambda: "bg-[#eab30820] border-yellow-400 text-[#eab308]",
   ApiGateway: "bg-pink-100 border-pink-400 text-pink-700",
-  Service: "bg-gray-100 border-gray-400 text-gray-700",
-  External: "bg-red-100 border-red-400 text-red-700",
-  default: "bg-gray-100 border-gray-400 text-gray-700",
+  Service: "bg-gray-100 border-gray-400 text-[var(--foreground,#374151)]",
+  External: "bg-[#ef444420] border-red-400 text-[#ef4444]",
+  default: "bg-gray-100 border-gray-400 text-[var(--foreground,#374151)]",
 }
 
 const edgeLabels: Record<string, string> = {
@@ -133,14 +133,14 @@ export function DependencyPathViewer({
     return (
       <div className="flex items-center justify-center p-8">
         <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
-        <span className="ml-2 text-gray-500">Loading dependency path...</span>
+        <span className="ml-2 text-[var(--muted-foreground,#6b7280)]">Loading dependency path...</span>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center p-8 text-gray-400">
+      <div className="flex items-center justify-center p-8 text-[var(--muted-foreground,#9ca3af)]">
         <AlertTriangle className="w-5 h-5 mr-2" />
         <span>{error}</span>
       </div>
@@ -149,7 +149,7 @@ export function DependencyPathViewer({
 
   if (!path || path.nodes.length === 0) {
     return (
-      <div className="flex items-center justify-center p-8 text-gray-400">
+      <div className="flex items-center justify-center p-8 text-[var(--muted-foreground,#9ca3af)]">
         <span>Select resources to view dependency path</span>
       </div>
     )
@@ -158,7 +158,7 @@ export function DependencyPathViewer({
   return (
     <div className="p-4">
       {title && (
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">{title}</h3>
+        <h3 className="text-sm font-semibold text-[var(--foreground,#374151)] mb-4">{title}</h3>
       )}
       
       <div className="flex items-center justify-start overflow-x-auto pb-4 gap-2">
@@ -177,7 +177,7 @@ export function DependencyPathViewer({
                 }`}
               >
                 {isBlockingPoint && (
-                  <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  <div className="absolute -top-2 -right-2 bg-[#ef444410]0 text-white text-xs px-1.5 py-0.5 rounded-full">
                     BLOCK
                   </div>
                 )}
@@ -190,9 +190,9 @@ export function DependencyPathViewer({
 
               {idx < path.nodes.length - 1 && (
                 <div className="flex flex-col items-center mx-2">
-                  <ArrowRight className="w-5 h-5 text-gray-400" />
+                  <ArrowRight className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
                   {edgeLabel && (
-                    <span className="text-[10px] text-gray-400 mt-0.5">{edgeLabel}</span>
+                    <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)] mt-0.5">{edgeLabel}</span>
                   )}
                 </div>
               )}
@@ -201,10 +201,10 @@ export function DependencyPathViewer({
         })}
       </div>
 
-      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+      <div className="mt-4 pt-3 border-t border-[var(--border,#f3f4f6)] flex items-center justify-between text-xs text-[var(--muted-foreground,#6b7280)]">
         <span>{path.nodes.length} resources in path</span>
         {showBlockingPoint && (
-          <span className="text-red-500 font-medium">
+          <span className="text-[#ef4444] font-medium">
             Blocking {showBlockingPoint} will break this path
           </span>
         )}
@@ -248,7 +248,7 @@ export function DependencyPathVertical({
                 <div className="text-xs opacity-70">{node.type}</div>
               </div>
               {isBlockingPoint && (
-                <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded">
+                <span className="bg-[#ef444410]0 text-white text-[10px] px-1.5 py-0.5 rounded">
                   BLOCK
                 </span>
               )}
@@ -258,9 +258,9 @@ export function DependencyPathVertical({
               <div className="flex items-center justify-center py-1">
                 <div className="flex flex-col items-center">
                   <div className="w-0.5 h-3 bg-gray-300" />
-                  <ArrowRight className="w-4 h-4 text-gray-400 rotate-90" />
+                  <ArrowRight className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)] rotate-90" />
                   {edge && (
-                    <span className="text-[10px] text-gray-400">
+                    <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">
                       {edgeLabels[edge.type] || "connects"}
                     </span>
                   )}

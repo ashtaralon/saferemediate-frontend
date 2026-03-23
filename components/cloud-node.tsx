@@ -163,16 +163,16 @@ export function CloudNode({
         </div>
 
         {/* Name */}
-        <div className="font-semibold text-sm text-gray-900 mb-1 truncate">{name}</div>
+        <div className="font-semibold text-sm text-[var(--foreground,#111827)] mb-1 truncate">{name}</div>
 
         {/* Instance Type / Details */}
-        {details?.instanceType && <div className="text-gray-600 text-xs mb-2">{details.instanceType}</div>}
+        {details?.instanceType && <div className="text-[var(--muted-foreground,#4b5563)] text-xs mb-2">{details.instanceType}</div>}
 
         {/* Metrics */}
         {metrics && (
           <div className="flex justify-between text-xs mb-2">
-            {metrics.cpu && <span className="text-blue-600">CPU: {metrics.cpu}</span>}
-            {metrics.memory && <span className="text-purple-600">Mem: {metrics.memory}</span>}
+            {metrics.cpu && <span className="text-[#3b82f6]">CPU: {metrics.cpu}</span>}
+            {metrics.memory && <span className="text-[#8b5cf6]">Mem: {metrics.memory}</span>}
           </div>
         )}
 
@@ -181,14 +181,14 @@ export function CloudNode({
           <div className="space-y-1 text-xs">
             {details.size && (
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Size:</span>
-                <span className="font-semibold text-gray-900">{details.size}</span>
+                <span className="text-[var(--muted-foreground,#4b5563)]">Size:</span>
+                <span className="font-semibold text-[var(--foreground,#111827)]">{details.size}</span>
               </div>
             )}
             {details.objects && (
               <div className="flex items-center justify-between">
-                <span className="text-gray-600">Objects:</span>
-                <span className="font-semibold text-gray-900">{details.objects}</span>
+                <span className="text-[var(--muted-foreground,#4b5563)]">Objects:</span>
+                <span className="font-semibold text-[var(--foreground,#111827)]">{details.objects}</span>
               </div>
             )}
           </div>

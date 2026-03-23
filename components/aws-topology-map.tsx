@@ -70,7 +70,7 @@ const AWSNode = ({ data }: { data: any }) => {
       </div>
       
       {/* Label */}
-      <div className="font-medium text-sm text-gray-800 truncate max-w-[120px]" title={data.fullName}>
+      <div className="font-medium text-sm text-[var(--foreground,#1f2937)] truncate max-w-[120px]" title={data.fullName}>
         {data.label}
       </div>
       
@@ -199,7 +199,7 @@ export function AWSTopologyMap({ systemName = 'alon-prod' }: TopologyMapProps) {
     return (
       <div className="flex items-center justify-center h-[600px] bg-gray-50 rounded-lg">
         <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-        <span className="ml-3 text-gray-600">Loading topology...</span>
+        <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading topology...</span>
       </div>
     )
   }
@@ -208,7 +208,7 @@ export function AWSTopologyMap({ systemName = 'alon-prod' }: TopologyMapProps) {
     return (
       <Card className="h-[600px]">
         <CardContent className="flex flex-col items-center justify-center h-full">
-          <div className="text-red-500 text-lg mb-4">⚠️ {error}</div>
+          <div className="text-[#ef4444] text-lg mb-4">⚠️ {error}</div>
           <Button onClick={fetchTopology} variant="outline">
             <RefreshCw className="w-4 h-4 mr-2" />
             Retry
@@ -224,7 +224,7 @@ export function AWSTopologyMap({ systemName = 'alon-prod' }: TopologyMapProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <span>AWS Topology Map</span>
-            <span className="text-sm font-normal text-gray-500">
+            <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">
               ({stats?.nodeCount || 0} resources, {stats?.edgeCount || 0} connections)
             </span>
           </CardTitle>
@@ -243,9 +243,9 @@ export function AWSTopologyMap({ systemName = 'alon-prod' }: TopologyMapProps) {
                 className="w-3 h-3 rounded-full" 
                 style={{ backgroundColor: color }}
               />
-              <span className="text-gray-600">{name}</span>
+              <span className="text-[var(--muted-foreground,#4b5563)]">{name}</span>
               {stats?.categories?.[key] && (
-                <span className="text-gray-400">({stats.categories[key]})</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)]">({stats.categories[key]})</span>
               )}
             </div>
           ))}

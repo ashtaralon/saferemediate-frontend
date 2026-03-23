@@ -237,8 +237,8 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
   const getDecisionColor = (d: Decision) => {
     switch (d) {
       case "EXECUTE": return "bg-green-600 text-white"
-      case "CANARY": return "bg-blue-500 text-white"
-      case "REVIEW": return "bg-orange-500 text-white"
+      case "CANARY": return "bg-[#3b82f610]0 text-white"
+      case "REVIEW": return "bg-[#f9731610]0 text-white"
       case "BLOCK": return "bg-red-600 text-white"
     }
   }
@@ -266,9 +266,9 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
 
         {loading && (
           <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-            <span className="mt-3 text-gray-600">Running simulation...</span>
-            <div className="mt-4 space-y-2 text-sm text-gray-500">
+            <Loader2 className="w-8 h-8 animate-spin text-[#3b82f6]" />
+            <span className="mt-3 text-[var(--muted-foreground,#4b5563)]">Running simulation...</span>
+            <div className="mt-4 space-y-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <div className="flex items-center gap-2">
                 <span className="animate-pulse">📊</span> Checking permission usage...
               </div>
@@ -283,12 +283,12 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-            <div className="flex items-center gap-2 text-red-700">
+          <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-2 text-[#ef4444]">
               <AlertTriangle className="w-5 h-5" />
               <span className="font-medium">Simulation Error</span>
             </div>
-            <p className="text-sm text-red-600 mt-1">{error}</p>
+            <p className="text-sm text-[#ef4444] mt-1">{error}</p>
             <Button
               variant="outline"
               size="sm"
@@ -327,22 +327,22 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                       fill="none"
                       strokeDasharray={`${(safetyScore / 100) * 352} 352`}
                       className={`transition-all duration-500 ${
-                        decision === "EXECUTE" ? "text-green-600" :
+                        decision === "EXECUTE" ? "text-[#22c55e]" :
                         decision === "CANARY" ? "text-blue-500" :
-                        decision === "REVIEW" ? "text-orange-500" : "text-red-600"
+                        decision === "REVIEW" ? "text-orange-500" : "text-[#ef4444]"
                       }`}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       <div className={`text-2xl font-bold ${
-                        decision === "EXECUTE" ? "text-green-600" :
+                        decision === "EXECUTE" ? "text-[#22c55e]" :
                         decision === "CANARY" ? "text-blue-500" :
-                        decision === "REVIEW" ? "text-orange-500" : "text-red-600"
+                        decision === "REVIEW" ? "text-orange-500" : "text-[#ef4444]"
                       }`}>
                         {safetyScore}%
                       </div>
-                      <div className="text-xs text-gray-500">Safety</div>
+                      <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Safety</div>
                     </div>
                   </div>
                 </div>
@@ -357,7 +357,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                        decision === "REVIEW" ? "REQUIRE APPROVAL" : "BLOCKED"}
                     </span>
                   </Badge>
-                  <p className="text-sm text-gray-600 mt-2 max-w-xs">
+                  <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-2 max-w-xs">
                     {decision === "EXECUTE" && "Safe to execute automatically"}
                     {decision === "CANARY" && "Execute with canary deployment first"}
                     {decision === "REVIEW" && "Requires manual review before execution"}
@@ -370,7 +370,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
               {simulation.decision && (
                 <Card className="bg-gray-900 text-green-400 font-mono p-4">
                   <div className="text-xs space-y-1">
-                    <div className="text-gray-400">Decision Engine v1.0</div>
+                    <div className="text-[var(--muted-foreground,#9ca3af)]">Decision Engine v1.0</div>
                     <div className="mt-2">
                       Confidence: <span className="text-white">{Math.round(simulation.decision.confidence * 100)}%</span>
                     </div>
@@ -399,17 +399,17 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                     {(Object.keys(SCORE_BREAKDOWN_LABELS) as Array<keyof DecisionBreakdown>).map((key) => {
                       const value = simulation.decision!.breakdown[key]
                       const percent = Math.round(value * 100)
-                      const color = percent >= 80 ? "bg-green-500" : percent >= 60 ? "bg-yellow-500" : "bg-red-500"
+                      const color = percent >= 80 ? "bg-[#22c55e10]0" : percent >= 60 ? "bg-[#eab30810]0" : "bg-[#ef444410]0"
 
                       return (
                         <div key={key}>
                           <div className="flex justify-between text-sm mb-1">
-                            <span className="text-gray-600" title={SCORE_BREAKDOWN_LABELS[key].description}>
+                            <span className="text-[var(--muted-foreground,#4b5563)]" title={SCORE_BREAKDOWN_LABELS[key].description}>
                               {SCORE_BREAKDOWN_LABELS[key].label}
                             </span>
                             <span className={`font-medium ${
-                              percent >= 80 ? "text-green-600" :
-                              percent >= 60 ? "text-yellow-600" : "text-red-600"
+                              percent >= 80 ? "text-[#22c55e]" :
+                              percent >= 60 ? "text-yellow-600" : "text-[#ef4444]"
                             }`}>
                               {percent}%
                             </span>
@@ -441,8 +441,8 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                   <ul className="space-y-2">
                     {simulation.decision.reasons.map((reason, i) => (
                       <li key={i} className="flex items-start gap-2 text-sm">
-                        <span className="text-green-500 mt-0.5">•</span>
-                        <span className="text-gray-700">{reason}</span>
+                        <span className="text-[#22c55e] mt-0.5">•</span>
+                        <span className="text-[var(--foreground,#374151)]">{reason}</span>
                       </li>
                     ))}
                   </ul>
@@ -452,9 +452,9 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
 
             {/* Warnings */}
             {simulation.warnings && simulation.warnings.length > 0 && (
-              <Card className="border-yellow-200 bg-yellow-50">
+              <Card className="border-[#eab30840] bg-[#eab30810]">
                 <CardHeader>
-                  <CardTitle className="text-sm flex items-center gap-2 text-yellow-700">
+                  <CardTitle className="text-sm flex items-center gap-2 text-[#eab308]">
                     <AlertTriangle className="w-4 h-4" />
                     Warnings
                   </CardTitle>
@@ -462,7 +462,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 <CardContent>
                   <ul className="space-y-1">
                     {simulation.warnings.map((warning, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-yellow-700">
+                      <li key={i} className="flex items-start gap-2 text-sm text-[#eab308]">
                         <span>⚠️</span>
                         <span>{warning}</span>
                       </li>
@@ -481,17 +481,17 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 <CardContent>
                   {simulation.resource_changes.map((change, i) => (
                     <div key={i} className="mb-3 pb-3 border-b last:border-0">
-                      <div className="text-sm font-medium text-gray-800 mb-2">
+                      <div className="text-sm font-medium text-[var(--foreground,#1f2937)] mb-2">
                         {change.resource_id}
                       </div>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-red-50 rounded p-2">
-                          <div className="text-xs text-red-600 font-medium mb-1">Before</div>
-                          <div className="text-xs text-gray-600">{change.before}</div>
+                        <div className="bg-[#ef444410] rounded p-2">
+                          <div className="text-xs text-[#ef4444] font-medium mb-1">Before</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">{change.before}</div>
                         </div>
-                        <div className="bg-green-50 rounded p-2">
-                          <div className="text-xs text-green-600 font-medium mb-1">After</div>
-                          <div className="text-xs text-gray-600">{change.after}</div>
+                        <div className="bg-[#22c55e10] rounded p-2">
+                          <div className="text-xs text-[#22c55e] font-medium mb-1">After</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">{change.after}</div>
                         </div>
                       </div>
                     </div>
@@ -509,8 +509,8 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                 <CardContent>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">Permissions to remove:</span>
-                      <Badge className="bg-red-100 text-red-700">
+                      <span className="text-[var(--muted-foreground,#4b5563)]">Permissions to remove:</span>
+                      <Badge className="bg-[#ef444420] text-[#ef4444]">
                         {simulation.diff.removed_permissions?.length || 0} permissions
                       </Badge>
                     </div>
@@ -523,7 +523,7 @@ export function SimulateModal({ isOpen, onClose, finding, onExecute }: SimulateM
                             </code>
                           ))}
                           {simulation.diff.removed_permissions.length > 20 && (
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-[var(--muted-foreground,#6b7280)]">
                               +{simulation.diff.removed_permissions.length - 20} more
                             </span>
                           )}

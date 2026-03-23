@@ -166,8 +166,8 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-purple-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#8b5cf615] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#8b5cf6]" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">🔐 IAM Permissions</h3>
@@ -187,8 +187,8 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
     return (
       <div className="bg-white rounded-xl border p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-purple-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#8b5cf615] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#8b5cf6]" />
           </div>
           <div>
             <h3 className="font-semibold text-lg">🔐 IAM Permissions</h3>
@@ -212,8 +212,8 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
           ) : (
             <ChevronRight className="w-5 h-5 text-slate-400" />
           )}
-          <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-            <Key className="w-5 h-5 text-purple-600" />
+          <div className="w-10 h-10 rounded-lg bg-[#8b5cf615] flex items-center justify-center">
+            <Key className="w-5 h-5 text-[#8b5cf6]" />
           </div>
           <div className="text-left">
             <h3 className="font-semibold text-lg">🔐 IAM Permissions</h3>
@@ -223,9 +223,9 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
         <div className="flex items-center gap-3">
           {data.lp_score !== undefined && (
             <div className={`px-3 py-1.5 rounded-full text-sm font-medium ${
-              data.lp_score >= 80 ? 'bg-green-100 text-green-700' :
-              data.lp_score >= 50 ? 'bg-amber-100 text-amber-700' :
-              'bg-red-100 text-red-700'
+              data.lp_score >= 80 ? 'bg-[#22c55e20] text-[#22c55e]' :
+              data.lp_score >= 50 ? 'bg-[#f9731620] text-[#f97316]' :
+              'bg-[#ef444420] text-[#ef4444]'
             }`}>
               LP Score: {data.lp_score}%
             </div>
@@ -244,16 +244,16 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
           )}
 
           {/* Permission Score Bar */}
-          <div className="mb-6 p-4 bg-gradient-to-r from-slate-50 to-purple-50 rounded-lg border">
+          <div className="mb-6 p-4 bg-white rounded-lg border">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4" />
                 Permission Score
               </span>
               <span className={`text-lg font-bold ${
-                permissionScore >= 80 ? 'text-green-600' :
-                permissionScore >= 50 ? 'text-amber-600' :
-                'text-red-600'
+                permissionScore >= 80 ? 'text-[#22c55e]' :
+                permissionScore >= 50 ? 'text-[#f97316]' :
+                'text-[#ef4444]'
               }`}>
                 {permissionScore}%
               </span>
@@ -266,9 +266,9 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
             <div className="w-full bg-slate-200 rounded-full h-2.5">
               <div 
                 className={`h-2.5 rounded-full transition-all ${
-                  permissionScore >= 80 ? 'bg-green-500' :
-                  permissionScore >= 50 ? 'bg-amber-500' :
-                  'bg-red-500'
+                  permissionScore >= 80 ? 'bg-[#22c55e10]0' :
+                  permissionScore >= 50 ? 'bg-[#f9731610]0' :
+                  'bg-[#ef444410]0'
                 }`}
                 style={{ width: `${permissionScore}%` }}
               />
@@ -280,22 +280,22 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
             <div className="mb-4">
               <button 
                 onClick={() => setShowUsed(!showUsed)}
-                className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2 hover:text-green-800"
+                className="flex items-center gap-2 text-sm font-medium text-[#22c55e] mb-2 hover:text-[#22c55e]"
               >
                 {showUsed ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 <CheckCircle className="w-4 h-4" />
                 {data.used_permissions.length} Used Permissions (from CloudTrail)
               </button>
               {showUsed && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="p-3 bg-[#22c55e10] border border-[#22c55e40] rounded-lg">
                   <div className="flex flex-wrap gap-1.5">
                     {data.used_permissions.slice(0, 20).map((perm, i) => (
-                      <span key={i} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-mono">
+                      <span key={i} className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-mono">
                         {perm}
                       </span>
                     ))}
                     {data.used_permissions.length > 20 && (
-                      <span className="px-2 py-1 text-green-600 text-xs">
+                      <span className="px-2 py-1 text-[#22c55e] text-xs">
                         +{data.used_permissions.length - 20} more
                       </span>
                     )}
@@ -310,23 +310,23 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
             <div className="mb-4">
               <button 
                 onClick={() => setShowUnused(!showUnused)}
-                className="flex items-center gap-2 text-sm font-medium text-amber-700 mb-2 hover:text-amber-800"
+                className="flex items-center gap-2 text-sm font-medium text-[#f97316] mb-2 hover:text-[#f97316]"
               >
                 {showUnused ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 <AlertTriangle className="w-4 h-4" />
                 {data.unused_permissions.length} Unused Permissions Detected
               </button>
               {showUnused && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="p-3 bg-[#f9731610] border border-[#f9731640] rounded-lg">
                   <div className="flex flex-wrap gap-1.5">
                     {data.unused_permissions.slice(0, 15).map((perm, i) => (
-                      <span key={i} className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-mono flex items-center gap-1">
+                      <span key={i} className="px-2 py-1 bg-[#f9731620] text-[#f97316] rounded text-xs font-mono flex items-center gap-1">
                         {perm}
                         <X className="w-3 h-3 text-amber-500" />
                       </span>
                     ))}
                     {data.unused_permissions.length > 15 && (
-                      <span className="px-2 py-1 text-amber-600 text-xs">
+                      <span className="px-2 py-1 text-[#f97316] text-xs">
                         +{data.unused_permissions.length - 15} more
                       </span>
                     )}
@@ -348,7 +348,7 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
                   <button
                     onClick={() => togglePolicy(policy.name)}
                     className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors ${
-                      policy.is_admin ? 'bg-red-50' : policy.is_overpermissioned ? 'bg-amber-50' : ''
+                      policy.is_admin ? 'bg-[#ef444410]' : policy.is_overpermissioned ? 'bg-[#f9731610]' : ''
                     }`}
                   >
                     {expandedPolicies.has(policy.name) ? (
@@ -360,13 +360,13 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
                     <div className="flex-1 text-left">
                       <span className="font-medium">{policy.name}</span>
                       <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
-                        policy.type === 'inline' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                        policy.type === 'inline' ? 'bg-[#3b82f620] text-[#3b82f6]' : 'bg-slate-100 text-slate-600'
                       }`}>
                         {policy.type}
                       </span>
                     </div>
                     {policy.is_admin && (
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                      <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded">
                         ADMIN
                       </span>
                     )}

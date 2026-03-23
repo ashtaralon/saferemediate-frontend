@@ -149,11 +149,11 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
       case "critical":
         return "bg-red-600 text-white"
       case "high":
-        return "bg-orange-500 text-white"
+        return "bg-[#f9731610]0 text-white"
       case "medium":
-        return "bg-yellow-500 text-black"
+        return "bg-[#eab30810]0 text-black"
       case "low":
-        return "bg-blue-500 text-white"
+        return "bg-[#3b82f610]0 text-white"
       default:
         return "bg-gray-500 text-white"
     }
@@ -297,7 +297,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
           </Button>
           {scanStatus && (
             <div className="mt-2">
-              <p className="text-sm text-blue-600">{scanStatus}</p>
+              <p className="text-sm text-[#3b82f6]">{scanStatus}</p>
             </div>
           )}
           {lastScanTime && !scanning && (
@@ -364,7 +364,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
                 {/* Remediation suggestion */}
                 {finding.remediation && (
                   <div className="mt-2 text-sm">
-                    <span className="font-medium text-green-600">Remediation:</span>{" "}
+                    <span className="font-medium text-[#22c55e]">Remediation:</span>{" "}
                     {finding.remediation}
                   </div>
                 )}

@@ -185,7 +185,7 @@ export function CriticalFindingsModal({ isOpen, onClose, onSimulateFix, onAutoFi
                 <div
                   key={finding.id}
                   className={`rounded-xl p-6 border-l-8 transition-all cursor-pointer ${
-                    selectedFindings.has(finding.id) ? "ring-2 ring-purple-500" : ""
+                    selectedFindings.has(finding.id) ? "ring-2 ring-[#8b5cf6]" : ""
                   }`}
                   style={{
                     background: "#2d3548",

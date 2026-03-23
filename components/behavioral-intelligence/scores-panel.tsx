@@ -42,15 +42,15 @@ const ScoreGauge: React.FC<{
   // For risk: lower is better (so high risk = red)
   const getColor = () => {
     if (type === 'confidence') {
-      if (score.value >= 80) return { bg: 'bg-emerald-500', text: 'text-emerald-400' }
-      if (score.value >= 60) return { bg: 'bg-blue-500', text: 'text-blue-400' }
-      if (score.value >= 40) return { bg: 'bg-amber-500', text: 'text-amber-400' }
+      if (score.value >= 80) return { bg: 'bg-[#10b98110]0', text: 'text-emerald-400' }
+      if (score.value >= 60) return { bg: 'bg-[#3b82f610]0', text: 'text-blue-400' }
+      if (score.value >= 40) return { bg: 'bg-[#f9731610]0', text: 'text-amber-400' }
       return { bg: 'bg-rose-500', text: 'text-rose-400' }
     } else {
       // Risk: inverse
-      if (score.value <= 25) return { bg: 'bg-emerald-500', text: 'text-emerald-400' }
-      if (score.value <= 50) return { bg: 'bg-amber-500', text: 'text-amber-400' }
-      if (score.value <= 75) return { bg: 'bg-orange-500', text: 'text-orange-400' }
+      if (score.value <= 25) return { bg: 'bg-[#10b98110]0', text: 'text-emerald-400' }
+      if (score.value <= 50) return { bg: 'bg-[#f9731610]0', text: 'text-amber-400' }
+      if (score.value <= 75) return { bg: 'bg-[#f9731610]0', text: 'text-orange-400' }
       return { bg: 'bg-rose-500', text: 'text-rose-400' }
     }
   }
@@ -59,9 +59,9 @@ const ScoreGauge: React.FC<{
 
   const getLevelBadge = () => {
     const levelColors: Record<string, string> = {
-      LOW: 'bg-emerald-500/20 text-emerald-400',
-      MEDIUM: 'bg-amber-500/20 text-amber-400',
-      HIGH: 'bg-orange-500/20 text-orange-400',
+      LOW: 'bg-[#10b98110]0/20 text-emerald-400',
+      MEDIUM: 'bg-[#f9731610]0/20 text-amber-400',
+      HIGH: 'bg-[#f9731610]0/20 text-orange-400',
       CRITICAL: 'bg-rose-500/20 text-rose-400',
     }
     return levelColors[score.level] || levelColors.MEDIUM
@@ -125,7 +125,7 @@ const MetricCard: React.FC<{
 }> = ({ label, value, icon, color, subLabel }) => {
   const colorStyles: Record<string, string> = {
     emerald: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400',
-    blue: 'from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400',
+    blue: 'from-blue-500/20 to-blue-600/10 border-[#3b82f6]/30 text-blue-400',
     violet: 'from-violet-500/20 to-violet-600/10 border-violet-500/30 text-violet-400',
     amber: 'from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400',
     rose: 'from-rose-500/20 to-rose-600/10 border-rose-500/30 text-rose-400',

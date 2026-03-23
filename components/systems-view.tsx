@@ -496,28 +496,28 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       : 0
 
   const getCriticalityColor = (criticality: number) => {
-    if (criticality >= 5) return "bg-red-500"
-    if (criticality >= 4) return "bg-orange-500"
-    if (criticality >= 3) return "bg-yellow-500"
-    return "bg-green-500"
+    if (criticality >= 5) return "bg-[#ef444410]0"
+    if (criticality >= 4) return "bg-[#f9731610]0"
+    if (criticality >= 3) return "bg-[#eab30810]0"
+    return "bg-[#22c55e10]0"
   }
 
   const getHealthColor = (health: number) => {
-    if (health >= 90) return "text-green-600"
+    if (health >= 90) return "text-[#22c55e]"
     if (health >= 70) return "text-yellow-600"
     if (health >= 50) return "text-orange-600"
-    return "text-red-600"
+    return "text-[#ef4444]"
   }
 
   if (localSystems.length === 0 && !isLoadingData) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-12">
+      <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-12">
         <div className="text-center max-w-md mx-auto">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Shield className="w-8 h-8 text-blue-600" />
+          <div className="w-16 h-16 bg-[#3b82f620] rounded-full flex items-center justify-center mx-auto mb-6">
+            <Shield className="w-8 h-8 text-[#3b82f6]" />
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Systems Found</h2>
-          <p className="text-gray-600 mb-8">
+          <h2 className="text-2xl font-semibold text-[var(--foreground,#111827)] mb-2">No Systems Found</h2>
+          <p className="text-[var(--muted-foreground,#4b5563)] mb-8">
             Add your first system to start monitoring security and compliance across your infrastructure.
           </p>
 
@@ -532,9 +532,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
-                <div className="p-3 border-b border-gray-100">
-                  <p className="text-sm text-gray-600">
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 bg-white rounded-lg shadow-xl border border-[var(--border,#e5e7eb)] z-50">
+                <div className="p-3 border-b border-[var(--border,#f3f4f6)]">
+                  <p className="text-sm text-[var(--muted-foreground,#4b5563)]">
                     {backendStatus === "checking"
                       ? "Checking backend..."
                       : backendStatus === "connected"
@@ -546,11 +546,11 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                 <div className="max-h-64 overflow-y-auto">
                   {isLoadingAvailable ? (
                     <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" />
-                      <p className="text-sm text-gray-500 mt-2">Loading systems...</p>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#3b82f6]" />
+                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">Loading systems...</p>
                     </div>
                   ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center text-gray-500">
+                    <div className="p-4 text-center text-[var(--muted-foreground,#6b7280)]">
                       <p className="text-sm">No new systems found</p>
                     </div>
                   ) : (
@@ -558,15 +558,15 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                       <button
                         key={idx}
                         onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-gray-100 last:border-0"
+                        className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-[var(--border,#f3f4f6)] last:border-0"
                       >
                         <div>
-                          <p className="font-medium text-gray-900">{sys.SystemName || ""}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="font-medium text-[var(--foreground,#111827)]">{sys.SystemName || ""}</p>
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
                             {sys.resourceCount || sys.resource_count || 0} resources
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-blue-600" />
+                        <Plus className="w-4 h-4 text-[#3b82f6]" />
                       </button>
                     ))
                   )}
@@ -584,22 +584,22 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Systems Overview</h1>
+          <h1 className="text-3xl font-bold text-[var(--foreground,#111827)]">Systems Overview</h1>
           <div className="flex items-center gap-4 mt-1">
-            <p className="text-gray-500">{localSystems.length} systems monitored across all environments</p>
+            <p className="text-[var(--muted-foreground,#6b7280)]">{localSystems.length} systems monitored across all environments</p>
             <div className="flex items-center gap-2">
               {isScanning ? (
-                <div className="flex items-center gap-2 text-blue-600">
+                <div className="flex items-center gap-2 text-[#3b82f6]">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3b82f610]0"></span>
                   </span>
                   <span className="text-sm font-medium">Scanning...</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-gray-500">
+                <div className="flex items-center gap-2 text-[var(--muted-foreground,#6b7280)]">
                   <span className="relative flex h-2 w-2">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e10]0"></span>
                   </span>
                   <span className="text-sm">Next scan in {secondsUntilRefresh}s</span>
                 </div>
@@ -607,7 +607,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             </div>
           </div>
           {gapData.unused > 0 && (
-            <div className="mt-2 inline-flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-3 py-1.5 rounded-full text-sm font-medium">
+            <div className="mt-2 inline-flex items-center gap-2 bg-[#eab30810] border border-[#eab30840] text-[#eab308] px-3 py-1.5 rounded-full text-sm font-medium">
               <AlertTriangle className="w-4 h-4" />
               Auto-remediation pending: {gapData.unused} permissions at 99% confidence
             </div>
@@ -618,7 +618,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           <button
             onClick={() => fetchSystemsData()}
             disabled={isScanning}
-            className="inline-flex items-center gap-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 border border-[var(--border,#d1d5db)] bg-white hover:bg-gray-50 text-[var(--foreground,#374151)] px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isScanning ? "animate-spin" : ""}`} />
             Refresh
@@ -627,7 +627,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           <button
             onClick={() => handleReingest("all")}
             disabled={isReingesting || isScanning}
-            className="inline-flex items-center gap-2 border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 border border-blue-300 bg-[#3b82f610] hover:bg-[#3b82f620] text-[#3b82f6] px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
             title="Trigger manual resource discovery from AWS. Systems will emerge from tags."
           >
             <RotateCcw className={`w-4 h-4 ${isReingesting ? "animate-spin" : ""}`} />
@@ -645,9 +645,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
-                <div className="p-3 border-b border-gray-100">
-                  <p className="text-sm text-gray-600">
+              <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-[var(--border,#e5e7eb)] z-50">
+                <div className="p-3 border-b border-[var(--border,#f3f4f6)]">
+                  <p className="text-sm text-[var(--muted-foreground,#4b5563)]">
                     {backendStatus === "checking"
                       ? "Checking backend..."
                       : backendStatus === "connected"
@@ -659,11 +659,11 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                 <div className="max-h-64 overflow-y-auto">
                   {isLoadingAvailable ? (
                     <div className="p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-600" />
-                      <p className="text-sm text-gray-500 mt-2">Loading systems...</p>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#3b82f6]" />
+                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">Loading systems...</p>
                     </div>
                   ) : availableSystems.length === 0 ? (
-                    <div className="p-4 text-center text-gray-500">
+                    <div className="p-4 text-center text-[var(--muted-foreground,#6b7280)]">
                       <p className="text-sm">No new systems found</p>
                     </div>
                   ) : (
@@ -671,15 +671,15 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                       <button
                         key={idx}
                         onClick={() => addSystemToTable(sys)}
-                        className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-gray-100 last:border-0"
+                        className="w-full p-3 text-left hover:bg-gray-50 flex items-center justify-between border-b border-[var(--border,#f3f4f6)] last:border-0"
                       >
                         <div>
-                          <p className="font-medium text-gray-900">{sys.SystemName || ""}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="font-medium text-[var(--foreground,#111827)]">{sys.SystemName || ""}</p>
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
                             {sys.resourceCount || sys.resource_count || 0} resources
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-blue-600" />
+                        <Plus className="w-4 h-4 text-[#3b82f6]" />
                       </button>
                     ))
                   )}
@@ -688,7 +688,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             )}
           </div>
 
-          <button className="inline-flex items-center gap-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors">
+          <button className="inline-flex items-center gap-2 border border-[var(--border,#d1d5db)] bg-white hover:bg-gray-50 text-[var(--foreground,#374151)] px-4 py-2 rounded-lg font-medium transition-colors">
             <Download className="w-4 h-4" />
             Export Report
           </button>
@@ -696,19 +696,19 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       </div>
 
       {/* Search and Filter */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-4">
         <div className="flex items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--muted-foreground,#9ca3af)]" />
             <input
               type="text"
               placeholder="Search systems..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-[var(--border,#e5e7eb)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#8b5cf6]"
             />
           </div>
-          <button className="inline-flex items-center gap-2 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors">
+          <button className="inline-flex items-center gap-2 border border-[var(--border,#d1d5db)] bg-white hover:bg-gray-50 text-[var(--foreground,#374151)] px-4 py-2 rounded-lg font-medium transition-colors">
             <Filter className="w-4 h-4" />
             Filter
           </button>
@@ -716,33 +716,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       </div>
 
       {/* Systems Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] overflow-hidden">
         {isLoadingData ? (
           <div className="p-12 text-center">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-600" />
-            <p className="text-gray-500 mt-4">Loading systems from backend...</p>
+            <Loader2 className="w-8 h-8 animate-spin mx-auto text-[#3b82f6]" />
+            <p className="text-[var(--muted-foreground,#6b7280)] mt-4">Loading systems from backend...</p>
           </div>
         ) : (
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-gray-50 border-b border-[var(--border,#e5e7eb)]">
               <tr>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">SYSTEM NAME</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">BUSINESS CRITICALITY</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">ENVIRONMENT</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-gray-600">HEALTH SCORE</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-gray-600">CRITICAL</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-gray-600">HIGH</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-gray-600">TOTAL FINDINGS</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">LAST SCAN</th>
-                <th className="text-left px-6 py-4 text-sm font-semibold text-gray-600">OWNER</th>
-                <th className="text-center px-6 py-4 text-sm font-semibold text-gray-600">ACTIONS</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">SYSTEM NAME</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">BUSINESS CRITICALITY</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">ENVIRONMENT</th>
+                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">HEALTH SCORE</th>
+                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">CRITICAL</th>
+                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">HIGH</th>
+                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">TOTAL FINDINGS</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">LAST SCAN</th>
+                <th className="text-left px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">OWNER</th>
+                <th className="text-center px-6 py-4 text-sm font-semibold text-[var(--muted-foreground,#4b5563)]">ACTIONS</th>
               </tr>
             </thead>
             <tbody>
               {filteredSystems.map((system, idx) => (
-                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr key={idx} className="border-b border-[var(--border,#f3f4f6)] hover:bg-gray-50">
                   <td className="px-6 py-4">
-                    <span className="font-medium text-gray-900">{system.name}</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">{system.name}</span>
                   </td>
                   <td className="px-6 py-4">
                     <span
@@ -752,7 +752,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                    <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold bg-[#22c55e20] text-[#22c55e]">
                       {system.environment}
                     </span>
                   </td>
@@ -767,26 +767,26 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span
-                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${system.critical > 0 ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"}`}
+                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${system.critical > 0 ? "bg-[#ef444420] text-[#ef4444]" : "bg-gray-100 text-[var(--muted-foreground,#6b7280)]"}`}
                     >
                       {system.critical}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span
-                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${system.high > 0 ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-500"}`}
+                      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold ${system.high > 0 ? "bg-[#f9731610]0 text-white" : "bg-gray-100 text-[var(--muted-foreground,#6b7280)]"}`}
                     >
                       {system.high}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className="font-semibold text-gray-900">{system.total}</span>
+                    <span className="font-semibold text-[var(--foreground,#111827)]">{system.total}</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-sm text-gray-600">{system.lastScan}</span>
+                    <span className="text-sm text-[var(--muted-foreground,#4b5563)]">{system.lastScan}</span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-sm text-gray-900">{system.owner}</span>
+                    <span className="text-sm text-[var(--foreground,#111827)]">{system.owner}</span>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <div className="flex items-center justify-center gap-2">
@@ -799,7 +799,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
                       <button
                         onClick={() => handleReingest("system", system.name)}
                         disabled={isReingesting}
-                        className="inline-flex items-center gap-1 border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1 border border-blue-300 bg-[#3b82f610] hover:bg-[#3b82f620] text-[#3b82f6] px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                         title={`Re-ingest resources for ${system.name}. Resources with SystemName=${system.name} tag will be discovered.`}
                       >
                         <RotateCcw className={`w-3 h-3 ${isReingesting ? "animate-spin" : ""}`} />
@@ -815,13 +815,13 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
       {/* Summary Cards */}
       <div className="grid grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <Server className="w-6 h-6 text-gray-400 mb-3" />
-          <div className="text-3xl font-bold text-gray-900">{totalSystems}</div>
-          <div className="text-sm text-gray-600">Total Systems</div>
+        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-6">
+          <Server className="w-6 h-6 text-[var(--muted-foreground,#9ca3af)] mb-3" />
+          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{totalSystems}</div>
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Systems</div>
         </div>
 
-        <div className="bg-white rounded-xl border border-orange-200 p-6">
+        <div className="bg-white rounded-xl border border-[#f9731640] p-6">
           <svg
             className="w-6 h-6 text-orange-500 mb-3"
             viewBox="0 0 24 24"
@@ -832,33 +832,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           <div className="text-3xl font-bold text-orange-500">{missionCriticalAtRisk}</div>
-          <div className="text-sm text-gray-600">Mission Critical at Risk</div>
-          <div className="text-xs text-gray-400">Requires immediate attention</div>
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Mission Critical at Risk</div>
+          <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">Requires immediate attention</div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <AlertTriangle className="w-6 h-6 text-red-500 mb-3" />
-          <div className="text-3xl font-bold text-red-500">{totalCriticalIssues}</div>
-          <div className="text-sm text-gray-600">Total Critical Issues</div>
+        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] p-6">
+          <AlertTriangle className="w-6 h-6 text-[#ef4444] mb-3" />
+          <div className="text-3xl font-bold text-[#ef4444]">{totalCriticalIssues}</div>
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Critical Issues</div>
         </div>
 
         {/* Permission Gap card - NOW SHOWS 10! */}
         <div className="bg-white rounded-xl border border-purple-200 p-6">
           <Shield className="w-6 h-6 text-purple-500 mb-3" />
-          <div className="text-3xl font-bold text-purple-600">{gapData.unused}</div>
-          <div className="text-sm text-gray-600">Permission Gap</div>
-          <div className="text-xs text-gray-400">
+          <div className="text-3xl font-bold text-[#8b5cf6]">{gapData.unused}</div>
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Permission Gap</div>
+          <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">
             {gapData.allowed} allowed, {gapData.used} used
           </div>
         </div>
 
-        <div className="bg-gray-50 rounded-xl border border-gray-200 p-6">
+        <div className="bg-gray-50 rounded-xl border border-[var(--border,#e5e7eb)] p-6">
           <Activity className="w-6 h-6 text-blue-500 mb-3" />
-          <div className="text-3xl font-bold text-gray-900">
+          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">
             {avgHealthScore}
-            <span className="text-lg text-gray-400">/100</span>
+            <span className="text-lg text-[var(--muted-foreground,#9ca3af)]">/100</span>
           </div>
-          <div className="text-sm text-gray-600">Avg Health Score</div>
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Avg Health Score</div>
         </div>
       </div>
 

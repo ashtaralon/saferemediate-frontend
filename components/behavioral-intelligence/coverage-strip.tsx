@@ -51,7 +51,7 @@ const PlaneCard: React.FC<PlaneCardProps> = ({ name, plane, status, icon, color 
 
   const colorStyles: Record<string, string> = {
     emerald: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/30',
-    blue: 'from-blue-500/20 to-blue-600/10 border-blue-500/30',
+    blue: 'from-blue-500/20 to-blue-600/10 border-[#3b82f6]/30',
     violet: 'from-violet-500/20 to-violet-600/10 border-violet-500/30',
     amber: 'from-amber-500/20 to-amber-600/10 border-amber-500/30',
   }
@@ -138,9 +138,9 @@ export const CoverageStrip: React.FC<CoverageStripProps> = ({ coverage }) => {
           </p>
         </div>
         <div className={`px-4 py-2 rounded-lg font-bold text-lg ${
-          coveragePercent === 100 ? 'bg-emerald-500/20 text-emerald-400' :
-          coveragePercent >= 75 ? 'bg-blue-500/20 text-blue-400' :
-          coveragePercent >= 50 ? 'bg-amber-500/20 text-amber-400' :
+          coveragePercent === 100 ? 'bg-[#10b98110]0/20 text-emerald-400' :
+          coveragePercent >= 75 ? 'bg-[#3b82f610]0/20 text-blue-400' :
+          coveragePercent >= 50 ? 'bg-[#f9731610]0/20 text-amber-400' :
           'bg-rose-500/20 text-rose-400'
         }`}>
           {coveragePercent}%
@@ -183,11 +183,11 @@ export const CoverageStrip: React.FC<CoverageStripProps> = ({ coverage }) => {
       <div className="mt-6">
         <div className="h-2 bg-slate-800 rounded-full overflow-hidden flex">
           <div
-            className="h-full bg-emerald-500 transition-all duration-500"
+            className="h-full bg-[#10b98110]0 transition-all duration-500"
             style={{ width: coverage.flow_logs.present ? '25%' : '0%' }}
           />
           <div
-            className="h-full bg-blue-500 transition-all duration-500"
+            className="h-full bg-[#3b82f610]0 transition-all duration-500"
             style={{ width: coverage.cloudtrail.present ? '25%' : '0%' }}
           />
           <div
@@ -195,17 +195,17 @@ export const CoverageStrip: React.FC<CoverageStripProps> = ({ coverage }) => {
             style={{ width: coverage.config.present ? '25%' : '0%' }}
           />
           <div
-            className="h-full bg-amber-500 transition-all duration-500"
+            className="h-full bg-[#f9731610]0 transition-all duration-500"
             style={{ width: coverage.iam.present ? '25%' : '0%' }}
           />
         </div>
         <div className="flex mt-2 text-xs">
           <div className="flex-1 flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <div className="w-2 h-2 rounded-full bg-[#10b98110]0" />
             <span className="text-slate-400">Flow Logs</span>
           </div>
           <div className="flex-1 flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <div className="w-2 h-2 rounded-full bg-[#3b82f610]0" />
             <span className="text-slate-400">CloudTrail</span>
           </div>
           <div className="flex-1 flex items-center gap-1">
@@ -213,7 +213,7 @@ export const CoverageStrip: React.FC<CoverageStripProps> = ({ coverage }) => {
             <span className="text-slate-400">Config</span>
           </div>
           <div className="flex-1 flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            <div className="w-2 h-2 rounded-full bg-[#f9731610]0" />
             <span className="text-slate-400">IAM</span>
           </div>
         </div>

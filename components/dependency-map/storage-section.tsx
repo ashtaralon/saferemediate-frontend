@@ -278,7 +278,7 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
                   return (
                     <div key={i} className={`p-4 rounded-lg border-l-4 ${
                       bucket.is_public 
-                        ? 'bg-red-50 border-red-400' 
+                        ? 'bg-[#ef444410] border-red-400' 
                         : 'bg-slate-50 border-cyan-400'
                     }`}>
                       <div className="flex items-start justify-between mb-2">
@@ -291,15 +291,15 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
                           </div>
                           {bucket.encryption_type && (
                             <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                              ├── Encryption: <Shield className="w-3 h-3 text-green-500" /> 
+                              ├── Encryption: <Shield className="w-3 h-3 text-[#22c55e]" /> 
                               <span className="font-mono">{bucket.encryption_type}</span>
                             </div>
                           )}
                           <div className="text-xs mt-1 flex items-center gap-1">
                             <span className="text-slate-500">└── Last accessed:</span>
                             <span className={`flex items-center gap-1 ${
-                              lastAccessed.isRecent ? 'text-green-600' : 
-                              lastAccessed.isOld ? 'text-amber-600' : 'text-slate-600'
+                              lastAccessed.isRecent ? 'text-[#22c55e]' : 
+                              lastAccessed.isOld ? 'text-[#f97316]' : 'text-slate-600'
                             }`}>
                               {lastAccessed.text}
                               {lastAccessed.isRecent && <CheckCircle className="w-3 h-3" />}
@@ -309,18 +309,18 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           {bucket.is_public ? (
-                            <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs flex items-center gap-1">
+                            <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] rounded text-xs flex items-center gap-1">
                               <Unlock className="w-3 h-3" />
                               Public
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs flex items-center gap-1">
+                            <span className="px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs flex items-center gap-1">
                               <Lock className="w-3 h-3" />
                               Private
                             </span>
                           )}
                           {!bucket.is_encrypted && (
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs flex items-center gap-1">
+                            <span className="px-2 py-0.5 bg-[#f9731620] text-[#f97316] rounded text-xs flex items-center gap-1">
                               <AlertTriangle className="w-3 h-3" />
                               No encryption
                             </span>
@@ -338,14 +338,14 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
           {data?.dynamodb_tables && data.dynamodb_tables.length > 0 && (
             <div>
               <h4 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                <Database className="w-4 h-4 text-amber-600" />
+                <Database className="w-4 h-4 text-[#f97316]" />
                 DynamoDB Tables (from IAM policy + CloudTrail)
               </h4>
               <div className="space-y-3">
                 {data.dynamodb_tables.map((table, i) => {
                   const lastAccessed = formatDate(table.last_accessed)
                   return (
-                    <div key={i} className="p-4 bg-slate-50 rounded-lg border-l-4 border-amber-400">
+                    <div key={i} className="p-4 bg-slate-50 rounded-lg border-l-4 border-[#f9731680]">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
                           <div className="font-medium text-sm flex items-center gap-2">
@@ -357,8 +357,8 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
                           <div className="text-xs mt-1 flex items-center gap-1">
                             <span className="text-slate-500">└── Last accessed:</span>
                             <span className={`flex items-center gap-1 ${
-                              lastAccessed.isRecent ? 'text-green-600' : 
-                              lastAccessed.isOld ? 'text-amber-600' : 'text-slate-600'
+                              lastAccessed.isRecent ? 'text-[#22c55e]' : 
+                              lastAccessed.isOld ? 'text-[#f97316]' : 'text-slate-600'
                             }`}>
                               {lastAccessed.text}
                               {lastAccessed.isRecent && <CheckCircle className="w-3 h-3" />}
@@ -374,7 +374,7 @@ export default function StorageSection({ resourceId, resourceType, resourceName 
                         <div className="flex flex-col items-end gap-1">
                           <span className={`px-2 py-0.5 rounded text-xs ${
                             table.status === 'ACTIVE' 
-                              ? 'bg-green-100 text-green-700' 
+                              ? 'bg-[#22c55e20] text-[#22c55e]' 
                               : 'bg-slate-100 text-slate-600'
                           }`}>
                             {table.status || 'ACTIVE'}

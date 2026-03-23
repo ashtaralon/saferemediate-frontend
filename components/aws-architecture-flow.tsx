@@ -232,10 +232,10 @@ export default function AWSArchitectureFlow({ systemName = 'alon-prod' }: Props)
           <button
             onClick={() => setIsLive(!isLive)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
-              isLive ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'
+              isLive ? 'bg-[#22c55e20] text-[#22c55e]' : 'bg-slate-200 text-slate-600'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-[#22c55e10]0 animate-pulse' : 'bg-slate-400'}`} />
             {isLive ? 'LIVE' : 'PAUSED'}
           </button>
           <button onClick={fetchData} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">
@@ -298,7 +298,7 @@ export default function AWSArchitectureFlow({ systemName = 'alon-prod' }: Props)
                 {selectedNode.lpScore !== undefined && (
                   <div className="p-3 bg-slate-50 rounded-lg mb-2">
                     <span className="text-slate-500">LP Score: </span>
-                    <span className={`font-semibold ${selectedNode.lpScore >= 80 ? 'text-green-600' : selectedNode.lpScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                    <span className={`font-semibold ${selectedNode.lpScore >= 80 ? 'text-[#22c55e]' : selectedNode.lpScore >= 50 ? 'text-[#f97316]' : 'text-[#ef4444]'}`}>
                       {selectedNode.lpScore}%
                     </span>
                   </div>

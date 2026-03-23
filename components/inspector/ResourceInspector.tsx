@@ -35,14 +35,14 @@ import type { ResourceInspectorData, RemoveSection } from '@/types/resource-insp
 
 // Icon mapping for resource types
 const RESOURCE_ICONS: Record<string, React.ReactNode> = {
-  SecurityGroup: <Shield className="w-6 h-6 text-blue-600" />,
+  SecurityGroup: <Shield className="w-6 h-6 text-[#3b82f6]" />,
   NetworkACL: <Globe className="w-6 h-6 text-cyan-600" />,
-  IAMRole: <Key className="w-6 h-6 text-amber-600" />,
+  IAMRole: <Key className="w-6 h-6 text-[#f97316]" />,
   IAMUser: <Key className="w-6 h-6 text-amber-500" />,
-  S3: <Database className="w-6 h-6 text-green-600" />,
-  RDS: <Database className="w-6 h-6 text-purple-600" />,
+  S3: <Database className="w-6 h-6 text-[#22c55e]" />,
+  RDS: <Database className="w-6 h-6 text-[#8b5cf6]" />,
   EC2: <Server className="w-6 h-6 text-orange-600" />,
-  Unknown: <HelpCircle className="w-6 h-6 text-gray-400" />,
+  Unknown: <HelpCircle className="w-6 h-6 text-[var(--muted-foreground,#9ca3af)]" />,
 }
 
 export interface ResourceInspectorProps {
@@ -125,8 +125,8 @@ export function ResourceInspector({
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center">
-        <RefreshCw className="w-6 h-6 animate-spin text-gray-400 mr-2" />
-        <span className="text-gray-600">Loading resource data...</span>
+        <RefreshCw className="w-6 h-6 animate-spin text-[var(--muted-foreground,#9ca3af)] mr-2" />
+        <span className="text-[var(--muted-foreground,#4b5563)]">Loading resource data...</span>
       </div>
     )
   }
@@ -135,13 +135,13 @@ export function ResourceInspector({
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
-          <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-          <p className="text-red-700 font-medium">Error Loading Inspector</p>
-          <p className="text-red-600 text-sm mt-1">{error}</p>
+        <div className="bg-[#ef444410] border border-[#ef444440] rounded-lg p-4 text-center">
+          <AlertTriangle className="w-8 h-8 text-[#ef4444] mx-auto mb-2" />
+          <p className="text-[#ef4444] font-medium">Error Loading Inspector</p>
+          <p className="text-[#ef4444] text-sm mt-1">{error}</p>
           <button
             onClick={fetchData}
-            className="mt-3 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm"
+            className="mt-3 px-4 py-2 bg-[#ef444420] hover:bg-red-200 text-[#ef4444] rounded-lg text-sm"
           >
             Retry
           </button>
@@ -155,19 +155,19 @@ export function ResourceInspector({
   // Check if unsupported resource type
   if ('supported' in data && data.supported === false) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="bg-white rounded-xl shadow-sm border border-[var(--border,#e5e7eb)] overflow-hidden">
+        <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
           <div className="flex items-center gap-3">
             {RESOURCE_ICONS[data.resource_type] || RESOURCE_ICONS.Unknown}
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{data.resource_name}</h2>
-              <p className="text-sm text-gray-500">{data.resource_type}</p>
+              <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
+              <p className="text-sm text-[var(--muted-foreground,#6b7280)]">{data.resource_type}</p>
             </div>
           </div>
         </div>
         <div className="p-6 text-center">
           <HelpCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">{data.message}</p>
+          <p className="text-[var(--muted-foreground,#6b7280)]">{data.message}</p>
         </div>
         <Footer data={data} onClose={onClose} onExport={handleExport} />
       </div>
@@ -176,7 +176,7 @@ export function ResourceInspector({
 
   // Render resource-specific template
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-xl shadow-sm border border-[var(--border,#e5e7eb)] overflow-hidden">
       {data.resource_type === 'SecurityGroup' && (
         <SecurityGroupTemplate data={data as any} formatTime={formatRelativeTime} />
       )}
@@ -233,13 +233,13 @@ function SecurityGroupTemplate({
   return (
     <>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <Shield className="w-6 h-6 text-blue-600" />
+            <Shield className="w-6 h-6 text-[#3b82f6]" />
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{data.sg_name || data.resource_name}</h2>
-              <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+              <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.sg_name || data.resource_name}</h2>
+              <div className="flex items-center gap-2 mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
                 <span>Security Group</span>
                 {data.system_name && (
                   <>
@@ -252,17 +252,17 @@ function SecurityGroupTemplate({
           </div>
           <div>
             {healthStatus.status === 'unknown' ? (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-sm font-medium">
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 text-[var(--muted-foreground,#4b5563)] rounded-full text-sm font-medium">
                 <HelpCircle className="w-4 h-4" />
                 {healthStatus.label}
               </span>
             ) : healthStatus.status === 'healthy' ? (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#22c55e20] text-[#22c55e] rounded-full text-sm font-medium">
                 <CheckCircle className="w-4 h-4" />
                 {healthStatus.label}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#f9731620] text-[#f97316] rounded-full text-sm font-medium">
                 <AlertTriangle className="w-4 h-4" />
                 {healthStatus.label}
               </span>
@@ -273,10 +273,10 @@ function SecurityGroupTemplate({
 
       {/* Current Rules Section */}
       <SectionHeader title={`Current Inbound Rules (${data.summary?.total_rules || 0})`} source="AWS Config" />
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-gray-500 border-b border-gray-100">
+            <tr className="text-left text-[var(--muted-foreground,#6b7280)] border-b border-[var(--border,#f3f4f6)]">
               <th className="pb-2 font-medium">Port</th>
               <th className="pb-2 font-medium">Source</th>
               <th className="pb-2 font-medium">Status</th>
@@ -287,9 +287,9 @@ function SecurityGroupTemplate({
             {data.configured_rules?.map((rule: any, idx: number) => (
               <tr key={idx} className="border-b border-gray-50 last:border-0">
                 <td className="py-3">
-                  <div className="font-mono text-gray-900">{rule.port_display}</div>
+                  <div className="font-mono text-[var(--foreground,#111827)]">{rule.port_display}</div>
                   {rule.port_name && (
-                    <div className="text-xs text-gray-400">({rule.port_name})</div>
+                    <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">({rule.port_name})</div>
                   )}
                 </td>
                 <td className="py-3">
@@ -297,10 +297,10 @@ function SecurityGroupTemplate({
                     {rule.is_public ? (
                       <Globe className="w-4 h-4 text-orange-500" />
                     ) : (
-                      <Server className="w-4 h-4 text-gray-400" />
+                      <Server className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                     )}
                     <div>
-                      <div className="font-mono text-gray-900">
+                      <div className="font-mono text-[var(--foreground,#111827)]">
                         {rule.source_cidr || rule.source_sg || 'Unknown'}
                       </div>
                       {rule.is_public && (
@@ -313,15 +313,15 @@ function SecurityGroupTemplate({
                   <StatusBadge status={rule.status} />
                 </td>
                 <td className="py-3 text-right">
-                  <div className="font-medium text-gray-900">
+                  <div className="font-medium text-[var(--foreground,#111827)]">
                     {rule.status === 'unknown' ? (
-                      <span className="text-gray-400">-</span>
+                      <span className="text-[var(--muted-foreground,#9ca3af)]">-</span>
                     ) : (
                       rule.flow_count?.toLocaleString() || 0
                     )}
                   </div>
                   {rule.last_seen && rule.status !== 'unknown' && (
-                    <div className="text-xs text-gray-400">{formatTime(rule.last_seen)}</div>
+                    <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">{formatTime(rule.last_seen)}</div>
                   )}
                 </td>
               </tr>
@@ -334,10 +334,10 @@ function SecurityGroupTemplate({
       {data.top_source_ips?.length > 0 && (
         <>
           <SectionHeader title={`Top Source IPs (${data.evidence?.flow_logs?.window_days || 30}d)`} source="VPC Flow Logs" />
-          <div className="px-6 py-4 border-b border-gray-100">
+          <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-gray-500 border-b border-gray-100">
+                <tr className="text-left text-[var(--muted-foreground,#6b7280)] border-b border-[var(--border,#f3f4f6)]">
                   <th className="pb-2 font-medium">Source IP</th>
                   <th className="pb-2 font-medium text-right">Flows</th>
                   <th className="pb-2 font-medium text-right">Last Seen</th>
@@ -346,11 +346,11 @@ function SecurityGroupTemplate({
               <tbody>
                 {data.top_source_ips.slice(0, 10).map((src: any, idx: number) => (
                   <tr key={idx} className="border-b border-gray-50 last:border-0">
-                    <td className="py-2 font-mono text-gray-900">{src.ip}</td>
-                    <td className="py-2 text-right text-gray-900">
+                    <td className="py-2 font-mono text-[var(--foreground,#111827)]">{src.ip}</td>
+                    <td className="py-2 text-right text-[var(--foreground,#111827)]">
                       {src.flow_count?.toLocaleString()}
                     </td>
-                    <td className="py-2 text-right text-gray-500">
+                    <td className="py-2 text-right text-[var(--muted-foreground,#6b7280)]">
                       {formatTime(src.last_seen)}
                     </td>
                   </tr>
@@ -370,16 +370,16 @@ function SecurityGroupTemplate({
       )}
 
       {/* Evidence */}
-      <div className="px-6 py-3 bg-gray-50 text-xs text-gray-500 flex items-center gap-2">
+      <div className="px-6 py-3 bg-gray-50 text-xs text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
         <Clock className="w-3 h-3" />
         <span>Evidence:</span>
         {data.evidence?.flow_logs?.available ? (
-          <span className="text-green-600">✓ VPC Flow Logs ({data.evidence.flow_logs.window_days}d)</span>
+          <span className="text-[#22c55e]">✓ VPC Flow Logs ({data.evidence.flow_logs.window_days}d)</span>
         ) : (
-          <span className="text-gray-400">⚠ No Flow Logs</span>
+          <span className="text-[var(--muted-foreground,#9ca3af)]">⚠ No Flow Logs</span>
         )}
         <span>•</span>
-        <span className="text-green-600">✓ AWS Config</span>
+        <span className="text-[#22c55e]">✓ AWS Config</span>
       </div>
     </>
   )
@@ -393,12 +393,12 @@ function NetworkACLTemplate({ data }: { data: any }) {
   return (
     <>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-center gap-3">
           <Globe className="w-6 h-6 text-cyan-600" />
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">{data.resource_name}</h2>
-            <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+            <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
+            <div className="flex items-center gap-2 mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
               <span>Network ACL</span>
               {data.current?.is_default && (
                 <>
@@ -419,10 +419,10 @@ function NetworkACLTemplate({ data }: { data: any }) {
 
       {/* Inbound Rules */}
       <SectionHeader title="Current Inbound Rules" source="AWS Config" />
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-gray-500 border-b border-gray-100">
+            <tr className="text-left text-[var(--muted-foreground,#6b7280)] border-b border-[var(--border,#f3f4f6)]">
               <th className="pb-2 font-medium">Rule</th>
               <th className="pb-2 font-medium">Traffic</th>
               <th className="pb-2 font-medium">Port</th>
@@ -433,20 +433,20 @@ function NetworkACLTemplate({ data }: { data: any }) {
           <tbody>
             {data.current?.inbound_rules?.map((rule: any, idx: number) => (
               <tr key={idx} className="border-b border-gray-50 last:border-0">
-                <td className="py-2 font-mono text-gray-900">
+                <td className="py-2 font-mono text-[var(--foreground,#111827)]">
                   {rule.rule_number === 32767 ? '*' : rule.rule_number}
                 </td>
-                <td className="py-2 text-gray-600">All traffic</td>
-                <td className="py-2 font-mono text-gray-900">{rule.port_range}</td>
-                <td className="py-2 font-mono text-gray-900">{rule.source}</td>
+                <td className="py-2 text-[var(--muted-foreground,#4b5563)]">All traffic</td>
+                <td className="py-2 font-mono text-[var(--foreground,#111827)]">{rule.port_range}</td>
+                <td className="py-2 font-mono text-[var(--foreground,#111827)]">{rule.source}</td>
                 <td className="py-2">
                   {rule.action === 'ALLOW' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-medium">
                       <CheckCircle className="w-3 h-3" />
                       ALLOW
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#ef444420] text-[#ef4444] rounded text-xs font-medium">
                       <X className="w-3 h-3" />
                       DENY
                     </span>
@@ -462,12 +462,12 @@ function NetworkACLTemplate({ data }: { data: any }) {
       {data.current?.associated_subnets?.length > 0 && (
         <>
           <SectionHeader title={`Associated Subnets (${data.current.associated_subnets.length})`} source="AWS Config" />
-          <div className="px-6 py-4 border-b border-gray-100">
+          <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
             <ul className="space-y-1 text-sm">
               {data.current.associated_subnets.map((subnet: any, idx: number) => (
-                <li key={idx} className="font-mono text-gray-700">
+                <li key={idx} className="font-mono text-[var(--foreground,#374151)]">
                   • {subnet.id}
-                  {subnet.cidr && <span className="text-gray-400"> ({subnet.cidr})</span>}
+                  {subnet.cidr && <span className="text-[var(--muted-foreground,#9ca3af)]"> ({subnet.cidr})</span>}
                 </li>
               ))}
             </ul>
@@ -477,8 +477,8 @@ function NetworkACLTemplate({ data }: { data: any }) {
 
       {/* Observed Section - NACLs don't have flow-level tracking */}
       <SectionHeader title="Traffic Analysis" source="VPC Flow Logs" />
-      <div className="px-6 py-4 border-b border-gray-100">
-        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-gray-500">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-[var(--muted-foreground,#6b7280)]">
           <HelpCircle className="w-6 h-6 text-gray-300 mx-auto mb-2" />
           Network ACL traffic analysis requires VPC Flow Logs.
           <br />
@@ -504,42 +504,42 @@ function IAMRoleTemplate({ data }: { data: any }) {
   return (
     <>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-center gap-3">
-          <Key className="w-6 h-6 text-amber-600" />
+          <Key className="w-6 h-6 text-[#f97316]" />
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">{data.resource_name}</h2>
-            <p className="text-sm text-gray-500">IAM Role</p>
+            <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
+            <p className="text-sm text-[var(--muted-foreground,#6b7280)]">IAM Role</p>
           </div>
         </div>
       </div>
 
       {/* Current Permissions */}
       <SectionHeader title={`Current Permissions (${data.current?.total_policies || 0} policies)`} source="IAM Policy Analysis" />
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
         {data.current?.policies?.length > 0 ? (
           <ul className="space-y-2">
             {data.current.policies.map((policy: any, idx: number) => (
               <li key={idx} className="flex items-start gap-2 text-sm">
-                <span className="text-gray-400">
+                <span className="text-[var(--muted-foreground,#9ca3af)]">
                   {policy.type === 'AWS Managed' ? '📜' : policy.type === 'Inline' ? '📝' : '📄'}
                 </span>
                 <div>
-                  <span className="font-medium text-gray-900">{policy.name}</span>
-                  <span className="text-xs text-gray-400 ml-2">({policy.type})</span>
+                  <span className="font-medium text-[var(--foreground,#111827)]">{policy.name}</span>
+                  <span className="text-xs text-[var(--muted-foreground,#9ca3af)] ml-2">({policy.type})</span>
                 </div>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-gray-500 text-sm">No policies attached</p>
+          <p className="text-[var(--muted-foreground,#6b7280)] text-sm">No policies attached</p>
         )}
       </div>
 
       {/* Observed Section */}
       <SectionHeader title="Observed Usage" source="CloudTrail" />
-      <div className="px-6 py-4 border-b border-gray-100">
-        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-gray-500">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-[var(--muted-foreground,#6b7280)]">
           <HelpCircle className="w-6 h-6 text-gray-300 mx-auto mb-2" />
           IAM activity analysis requires CloudTrail integration.
           <br />
@@ -562,20 +562,20 @@ function S3Template({ data }: { data: any }) {
   return (
     <>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <Database className="w-6 h-6 text-green-600" />
+            <Database className="w-6 h-6 text-[#22c55e]" />
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{data.resource_name}</h2>
-              <p className="text-sm text-gray-500">S3 Bucket</p>
+              <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
+              <p className="text-sm text-[var(--muted-foreground,#6b7280)]">S3 Bucket</p>
             </div>
           </div>
           {pab && (
             <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
               pab.is_public
-                ? 'bg-orange-100 text-orange-700'
-                : 'bg-green-100 text-green-700'
+                ? 'bg-[#f9731620] text-[#f97316]'
+                : 'bg-[#22c55e20] text-[#22c55e]'
             }`}>
               {pab.is_public ? (
                 <>
@@ -595,38 +595,38 @@ function S3Template({ data }: { data: any }) {
 
       {/* Public Access Block Settings */}
       <SectionHeader title="Current Access Configuration" source="AWS Config" />
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
         {pab && (
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="flex items-center gap-2">
               {pab.block_public_acls ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-[#22c55e]" />
               ) : (
-                <X className="w-4 h-4 text-red-500" />
+                <X className="w-4 h-4 text-[#ef4444]" />
               )}
               <span>Block public ACLs</span>
             </div>
             <div className="flex items-center gap-2">
               {pab.ignore_public_acls ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-[#22c55e]" />
               ) : (
-                <X className="w-4 h-4 text-red-500" />
+                <X className="w-4 h-4 text-[#ef4444]" />
               )}
               <span>Ignore public ACLs</span>
             </div>
             <div className="flex items-center gap-2">
               {pab.block_public_policy ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-[#22c55e]" />
               ) : (
-                <X className="w-4 h-4 text-red-500" />
+                <X className="w-4 h-4 text-[#ef4444]" />
               )}
               <span>Block public policy</span>
             </div>
             <div className="flex items-center gap-2">
               {pab.restrict_public_buckets ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
+                <CheckCircle className="w-4 h-4 text-[#22c55e]" />
               ) : (
-                <X className="w-4 h-4 text-red-500" />
+                <X className="w-4 h-4 text-[#ef4444]" />
               )}
               <span>Restrict public buckets</span>
             </div>
@@ -635,9 +635,9 @@ function S3Template({ data }: { data: any }) {
 
         {/* Bucket Policy */}
         {data.current?.bucket_policy?.exists && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-sm font-medium text-gray-700 mb-2">Bucket Policy</p>
-            <p className="text-xs text-gray-500">
+          <div className="mt-4 pt-4 border-t border-[var(--border,#f3f4f6)]">
+            <p className="text-sm font-medium text-[var(--foreground,#374151)] mb-2">Bucket Policy</p>
+            <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
               {data.current.bucket_policy.statements.length} statement(s)
             </p>
           </div>
@@ -646,14 +646,14 @@ function S3Template({ data }: { data: any }) {
 
       {/* Observed Operations - S3 uses CloudTrail, NOT Flow Logs */}
       <SectionHeader title="Observed Operations" source="CloudTrail" />
-      <div className="px-6 py-4 border-b border-gray-100">
-        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-gray-500">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-[var(--muted-foreground,#6b7280)]">
           <HelpCircle className="w-6 h-6 text-gray-300 mx-auto mb-2" />
           S3 operation analysis requires CloudTrail integration.
           <br />
           This will show which API operations (GetObject, PutObject, etc.) are being used.
           <br />
-          <span className="text-xs text-gray-400 mt-2 block">
+          <span className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-2 block">
             Note: S3 does not use VPC Flow Logs or TCP ports.
           </span>
         </div>
@@ -678,13 +678,13 @@ function RDSTemplate({ data }: { data: any }) {
   return (
     <>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <Database className="w-6 h-6 text-purple-600" />
+            <Database className="w-6 h-6 text-[#8b5cf6]" />
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{data.resource_name}</h2>
-              <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+              <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
+              <div className="flex items-center gap-2 mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
                 <span>{data.db_engine || 'RDS'}</span>
                 {data.db_port && (
                   <>
@@ -696,7 +696,7 @@ function RDSTemplate({ data }: { data: any }) {
             </div>
           </div>
           {data.current?.publicly_accessible && (
-            <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">
+            <span className="inline-flex items-center gap-1 px-3 py-1 bg-[#ef444420] text-[#ef4444] rounded-full text-sm font-medium">
               <AlertTriangle className="w-4 h-4" />
               Publicly Accessible
             </span>
@@ -706,22 +706,22 @@ function RDSTemplate({ data }: { data: any }) {
 
       {/* Current Access */}
       <SectionHeader title="Current Access Configuration" source="AWS Config" />
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
         <div className="space-y-3 text-sm">
           <div className="flex items-center gap-2">
-            <span className="text-gray-500">Endpoint:</span>
-            <span className="font-mono text-gray-900">{data.current?.endpoint || 'N/A'}</span>
+            <span className="text-[var(--muted-foreground,#6b7280)]">Endpoint:</span>
+            <span className="font-mono text-[var(--foreground,#111827)]">{data.current?.endpoint || 'N/A'}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500">VPC:</span>
-            <span className="font-mono text-gray-900">{data.current?.vpc_id || 'N/A'}</span>
+            <span className="text-[var(--muted-foreground,#6b7280)]">VPC:</span>
+            <span className="font-mono text-[var(--foreground,#111827)]">{data.current?.vpc_id || 'N/A'}</span>
           </div>
           {data.current?.security_groups?.length > 0 && (
             <div>
-              <span className="text-gray-500">Security Groups:</span>
+              <span className="text-[var(--muted-foreground,#6b7280)]">Security Groups:</span>
               <ul className="mt-1 space-y-1">
                 {data.current.security_groups.map((sg: any, idx: number) => (
-                  <li key={idx} className="font-mono text-gray-700 ml-4">
+                  <li key={idx} className="font-mono text-[var(--foreground,#374151)] ml-4">
                     • {sg.sg_id}
                   </li>
                 ))}
@@ -733,8 +733,8 @@ function RDSTemplate({ data }: { data: any }) {
 
       {/* Observed Connections */}
       <SectionHeader title="Observed Connections" source="VPC Flow Logs" />
-      <div className="px-6 py-4 border-b border-gray-100">
-        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-gray-500">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-[var(--muted-foreground,#6b7280)]">
           <HelpCircle className="w-6 h-6 text-gray-300 mx-auto mb-2" />
           Connection analysis requires VPC Flow Logs integration.
           <br />
@@ -762,16 +762,16 @@ function EC2Template({ data }: { data: any }) {
   return (
     <>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+      <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] bg-gray-50">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <Server className="w-6 h-6 text-orange-600" />
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{data.resource_name}</h2>
-              <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+              <h2 className="text-lg font-semibold text-[var(--foreground,#111827)]">{data.resource_name}</h2>
+              <div className="flex items-center gap-2 mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
                 <span>{data.instance_type}</span>
                 <span>•</span>
-                <span className={data.state === 'running' ? 'text-green-600' : 'text-gray-400'}>
+                <span className={data.state === 'running' ? 'text-[#22c55e]' : 'text-[var(--muted-foreground,#9ca3af)]'}>
                   {data.state}
                 </span>
               </div>
@@ -782,25 +782,25 @@ function EC2Template({ data }: { data: any }) {
 
       {/* Current Configuration */}
       <SectionHeader title="Current Configuration" source="AWS Config" />
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
         <div className="space-y-3 text-sm">
           {/* Network */}
           {network && (
             <>
               <div className="flex items-center gap-2">
-                <span className="text-gray-500">Private IP:</span>
-                <span className="font-mono text-gray-900">{network.private_ip || 'N/A'}</span>
+                <span className="text-[var(--muted-foreground,#6b7280)]">Private IP:</span>
+                <span className="font-mono text-[var(--foreground,#111827)]">{network.private_ip || 'N/A'}</span>
               </div>
               {network.public_ip && (
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500">Public IP:</span>
+                  <span className="text-[var(--muted-foreground,#6b7280)]">Public IP:</span>
                   <span className="font-mono text-orange-600">{network.public_ip}</span>
                   <AlertTriangle className="w-4 h-4 text-orange-500" />
                 </div>
               )}
               <div className="flex items-center gap-2">
-                <span className="text-gray-500">VPC:</span>
-                <span className="font-mono text-gray-900">{network.vpc_id || 'N/A'}</span>
+                <span className="text-[var(--muted-foreground,#6b7280)]">VPC:</span>
+                <span className="font-mono text-[var(--foreground,#111827)]">{network.vpc_id || 'N/A'}</span>
               </div>
             </>
           )}
@@ -808,10 +808,10 @@ function EC2Template({ data }: { data: any }) {
           {/* Security Groups */}
           {data.current?.security_groups?.length > 0 && (
             <div>
-              <span className="text-gray-500">Security Groups:</span>
+              <span className="text-[var(--muted-foreground,#6b7280)]">Security Groups:</span>
               <ul className="mt-1 space-y-1">
                 {data.current.security_groups.map((sg: any, idx: number) => (
-                  <li key={idx} className="font-mono text-gray-700 ml-4">
+                  <li key={idx} className="font-mono text-[var(--foreground,#374151)] ml-4">
                     • {sg.sg_name || sg.sg_id}
                   </li>
                 ))}
@@ -822,8 +822,8 @@ function EC2Template({ data }: { data: any }) {
           {/* IAM Role */}
           {data.current?.iam_role && (
             <div className="flex items-center gap-2">
-              <span className="text-gray-500">IAM Role:</span>
-              <span className="font-mono text-gray-900 text-xs break-all">
+              <span className="text-[var(--muted-foreground,#6b7280)]">IAM Role:</span>
+              <span className="font-mono text-[var(--foreground,#111827)] text-xs break-all">
                 {data.current.iam_role.arn}
               </span>
             </div>
@@ -833,8 +833,8 @@ function EC2Template({ data }: { data: any }) {
 
       {/* Observed Activity */}
       <SectionHeader title="Observed Activity" source="Flow Logs + CloudTrail" />
-      <div className="px-6 py-4 border-b border-gray-100">
-        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-gray-500">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)]">
+        <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-[var(--muted-foreground,#6b7280)]">
           <HelpCircle className="w-6 h-6 text-gray-300 mx-auto mb-2" />
           Activity analysis requires VPC Flow Logs and CloudTrail integration.
         </div>
@@ -856,9 +856,9 @@ function EC2Template({ data }: { data: any }) {
 
 function SectionHeader({ title, source }: { title: string; source: string }) {
   return (
-    <div className="px-6 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{title}</h3>
-      <span className="text-xs text-gray-400">from {source}</span>
+    <div className="px-6 py-2 bg-gray-50 border-b border-[var(--border,#f3f4f6)] flex items-center justify-between">
+      <h3 className="text-sm font-semibold text-[var(--foreground,#374151)] uppercase tracking-wide">{title}</h3>
+      <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">from {source}</span>
     </div>
   )
 }
@@ -866,7 +866,7 @@ function SectionHeader({ title, source }: { title: string; source: string }) {
 function StatusBadge({ status }: { status: 'used' | 'unused' | 'unknown' }) {
   if (status === 'used') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-medium">
         <CheckCircle className="w-3 h-3" />
         Used
       </span>
@@ -874,14 +874,14 @@ function StatusBadge({ status }: { status: 'used' | 'unused' | 'unknown' }) {
   }
   if (status === 'unused') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-medium">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f9731620] text-[#f97316] rounded text-xs font-medium">
         <AlertTriangle className="w-3 h-3" />
         Unused
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-medium">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-[var(--muted-foreground,#4b5563)] rounded text-xs font-medium">
       <HelpCircle className="w-3 h-3" />
       Unknown
     </span>
@@ -891,16 +891,16 @@ function StatusBadge({ status }: { status: 'used' | 'unused' | 'unknown' }) {
 function RemoveSectionUI({ title, items }: { title: string; items: any[] }) {
   return (
     <>
-      <div className="px-6 py-2 bg-orange-50 border-b border-orange-100 flex items-center gap-2">
+      <div className="px-6 py-2 bg-[#f9731610] border-b border-orange-100 flex items-center gap-2">
         <AlertTriangle className="w-4 h-4 text-orange-600" />
-        <h3 className="text-sm font-semibold text-orange-700 uppercase tracking-wide">
+        <h3 className="text-sm font-semibold text-[#f97316] uppercase tracking-wide">
           {title} ({items.length})
         </h3>
       </div>
-      <div className="px-6 py-4 border-b border-gray-100 bg-orange-50/50">
+      <div className="px-6 py-4 border-b border-[var(--border,#f3f4f6)] bg-[#f9731610]/50">
         <ul className="space-y-2">
           {items.map((item, idx) => (
-            <li key={idx} className="text-sm text-orange-800">
+            <li key={idx} className="text-sm text-[#f97316]">
               • {item.rule_summary || item.message}
               {item.reason && (
                 <span className="text-orange-600 ml-1">— {item.reason}</span>
@@ -915,12 +915,12 @@ function RemoveSectionUI({ title, items }: { title: string; items: any[] }) {
 
 function EvidenceBar({ sources }: { sources: string[] }) {
   return (
-    <div className="px-6 py-3 bg-gray-50 text-xs text-gray-500 flex items-center gap-2">
+    <div className="px-6 py-3 bg-gray-50 text-xs text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
       <Clock className="w-3 h-3" />
       Evidence:
       {sources.map((source, idx) => (
         <span key={idx}>
-          <span className="text-green-600">✓</span> {source}
+          <span className="text-[#22c55e]">✓</span> {source}
           {idx < sources.length - 1 && ' •'}
         </span>
       ))}
@@ -940,8 +940,8 @@ function Footer({
   onApplyFix?: () => void
 }) {
   return (
-    <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-      <div className="text-xs text-gray-400">{data.resource_id}</div>
+    <div className="px-6 py-4 border-t border-[var(--border,#e5e7eb)] bg-gray-50 flex items-center justify-between">
+      <div className="text-xs text-[var(--muted-foreground,#9ca3af)]">{data.resource_id}</div>
       <div className="flex items-center gap-2">
         {onApplyFix && (
           <button
@@ -953,7 +953,7 @@ function Footer({
         )}
         <button
           onClick={onExport}
-          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium flex items-center gap-2"
+          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-[var(--foreground,#374151)] rounded-lg text-sm font-medium flex items-center gap-2"
         >
           <Download className="w-4 h-4" />
           Export
@@ -961,7 +961,7 @@ function Footer({
         {onClose && (
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-[var(--foreground,#374151)] rounded-lg text-sm font-medium"
           >
             Close
           </button>

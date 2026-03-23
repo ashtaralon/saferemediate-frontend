@@ -110,24 +110,24 @@ const SERVICE_ICONS: Record<string, React.ElementType> = {
 }
 
 const SERVICE_COLORS: Record<string, string> = {
-  EC2: "bg-orange-100 text-orange-700",
-  Lambda: "bg-amber-100 text-amber-700",
-  LambdaFunction: "bg-amber-100 text-amber-700",
-  S3: "bg-green-100 text-green-700",
-  RDS: "bg-blue-100 text-blue-700",
-  DynamoDB: "bg-purple-100 text-purple-700",
+  EC2: "bg-[#f9731620] text-[#f97316]",
+  Lambda: "bg-[#f9731620] text-[#f97316]",
+  LambdaFunction: "bg-[#f9731620] text-[#f97316]",
+  S3: "bg-[#22c55e20] text-[#22c55e]",
+  RDS: "bg-[#3b82f620] text-[#3b82f6]",
+  DynamoDB: "bg-[#8b5cf615] text-[#7c3aed]",
   ECS: "bg-cyan-100 text-cyan-700",
   EKS: "bg-cyan-100 text-cyan-700",
-  VPC: "bg-indigo-100 text-indigo-700",
-  Subnet: "bg-indigo-100 text-indigo-700",
+  VPC: "bg-[#8b5cf615] text-[#7c3aed]",
+  Subnet: "bg-[#8b5cf615] text-[#7c3aed]",
   LoadBalancer: "bg-teal-100 text-teal-700",
-  IAMRole: "bg-red-100 text-red-700",
-  IAMPolicy: "bg-red-100 text-red-700",
-  IAMUser: "bg-red-100 text-red-700",
+  IAMRole: "bg-[#ef444420] text-[#ef4444]",
+  IAMPolicy: "bg-[#ef444420] text-[#ef4444]",
+  IAMUser: "bg-[#ef444420] text-[#ef4444]",
   SecurityGroup: "bg-pink-100 text-pink-700",
-  CloudTrail: "bg-yellow-100 text-yellow-700",
-  CloudWatch: "bg-yellow-100 text-yellow-700",
-  default: "bg-gray-100 text-gray-700",
+  CloudTrail: "bg-[#eab30820] text-[#eab308]",
+  CloudWatch: "bg-[#eab30820] text-[#eab308]",
+  default: "bg-gray-100 text-[var(--foreground,#374151)]",
 }
 
 export function AllServicesTab({ systemName }: AllServicesTabProps) {
@@ -489,10 +489,10 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
   const getStatusColor = (status: string) => {
     const s = status.toLowerCase()
-    if (s === "running" || s === "active" || s === "available") return "bg-emerald-100 text-emerald-700"
-    if (s === "stopped" || s === "inactive") return "bg-gray-100 text-gray-700"
-    if (s === "pending" || s === "starting") return "bg-yellow-100 text-yellow-700"
-    return "bg-blue-100 text-blue-700"
+    if (s === "running" || s === "active" || s === "available") return "bg-[#10b98120] text-[#10b981]"
+    if (s === "stopped" || s === "inactive") return "bg-gray-100 text-[var(--foreground,#374151)]"
+    if (s === "pending" || s === "starting") return "bg-[#eab30820] text-[#eab308]"
+    return "bg-[#3b82f620] text-[#3b82f6]"
   }
 
   // Helper function to extract permissions from policy document
@@ -750,7 +750,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-        <span className="ml-3 text-gray-600">Loading all services...</span>
+        <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading all services...</span>
       </div>
     )
   }
@@ -761,42 +761,42 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
-            <div className="text-sm text-gray-500">Total Services</div>
-            <div className="text-3xl font-bold text-gray-900">{services.length}</div>
-            <div className="text-xs text-gray-400 mt-1">Across all categories</div>
+            <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Total Services</div>
+            <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{services.length}</div>
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">Across all categories</div>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-orange-500">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <Server className="w-4 h-4" />
               Compute & Data
             </div>
             <div className="text-3xl font-bold text-orange-600">{computeServices.length}</div>
-            <div className="text-xs text-gray-400 mt-1">Running infrastructure</div>
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">Running infrastructure</div>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-red-500">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <Shield className="w-4 h-4" />
               Identity & Security
             </div>
-            <div className="text-3xl font-bold text-red-600">{identityServices.length}</div>
-            <div className="text-xs text-gray-400 mt-1">Permissions & monitoring</div>
+            <div className="text-3xl font-bold text-[#ef4444]">{identityServices.length}</div>
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">Permissions & monitoring</div>
           </CardContent>
         </Card>
 
         <Card className="border-l-4 border-l-yellow-500">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <Activity className="w-4 h-4" />
               Permission Gap
             </div>
             <div className="text-3xl font-bold text-yellow-600">{gapData?.unused_actions ?? 0}</div>
-            <div className="text-xs text-gray-400 mt-1">
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
               {gapData?.allowed_actions ?? 0} allowed, {gapData?.used_actions ?? 0} used
             </div>
           </CardContent>
@@ -804,16 +804,16 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
         <Card className="border-l-4 border-l-purple-500">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
               <Shield className="w-4 h-4" />
               Tag Coverage
             </div>
-            <div className="text-3xl font-bold text-purple-600">
+            <div className="text-3xl font-bold text-[#8b5cf6]">
               {services.length > 0 
                 ? Math.round((services.filter(s => s.systemName !== 'Untagged').length / services.length) * 100) 
                 : 0}%
             </div>
-            <div className="text-xs text-gray-400 mt-1">
+            <div className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1">
               {services.filter(s => s.systemName !== 'Untagged').length} tagged • {services.filter(s => s.systemName === 'Untagged').length} untagged
             </div>
           </CardContent>
@@ -823,7 +823,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
       {/* Search */}
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
           <Input
             placeholder="Search all services..."
             value={searchQuery}
@@ -839,7 +839,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           variant="default"
           onClick={handleSyncFromAWS}
           disabled={syncing}
-          className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+          className="gap-2 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white"
         >
           {syncing ? (
             <>
@@ -854,7 +854,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           )}
         </Button>
         {syncMessage && (
-          <span className={`text-sm ${syncMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+          <span className={`text-sm ${syncMessage.type === 'success' ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
             {syncMessage.text}
           </span>
         )}
@@ -872,7 +872,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               )}
               <Server className="w-5 h-5 text-orange-500" />
               <span>COMPUTE & DATA (Running Infrastructure)</span>
-              <span className="text-sm font-normal text-gray-500">({filteredCompute.length} services)</span>
+              <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">({filteredCompute.length} services)</span>
             </div>
             <div className="flex gap-2">
               {Object.entries(computeTypeCounts)
@@ -905,7 +905,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               <TableBody>
                 {filteredCompute.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                    <TableCell colSpan={7} className="text-center text-[var(--muted-foreground,#6b7280)] py-8">
                       No compute/data services found
                     </TableCell>
                   </TableRow>
@@ -920,7 +920,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
-                            <IconComponent className="w-4 h-4 text-gray-500" />
+                            <IconComponent className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
                             <span className="truncate max-w-[250px]" title={service.name}>
                               {service.name}
                             </span>
@@ -937,24 +937,24 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                           <div className="flex flex-col gap-1">
                             <span className={`text-xs px-2 py-1 rounded ${
                               service.systemName !== 'Untagged' 
-                                ? 'bg-blue-100 text-blue-700' 
-                                : 'bg-orange-100 text-orange-700'
+                                ? 'bg-[#3b82f620] text-[#3b82f6]' 
+                                : 'bg-[#f9731620] text-[#f97316]'
                             }`}>
                               {service.systemName === 'Untagged' ? '⚠️ Untagged' : service.systemName}
                             </span>
                             {service.vpcId && (
-                              <span className="text-xs text-gray-400 font-mono truncate max-w-[120px]" title={service.vpcId}>
+                              <span className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]" title={service.vpcId}>
                                 VPC: {service.vpcId.slice(0, 12)}...
                               </span>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">
+                          <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
                             {service.environment}
                           </span>
                         </TableCell>
-                        <TableCell className="text-gray-600">{service.region}</TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#4b5563)]">{service.region}</TableCell>
                         <TableCell>
                           <span
                             className={`text-xs px-2 py-1 rounded ${getStatusColor(service.instanceState || service.status)}`}
@@ -962,7 +962,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                             {service.instanceState || service.status}
                           </span>
                         </TableCell>
-                        <TableCell className="text-gray-500 text-sm">{formatDate(service.lastSeen)}</TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{formatDate(service.lastSeen)}</TableCell>
                       </TableRow>
                     )
                   })
@@ -983,9 +983,9 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               ) : (
                 <ChevronRight className="w-5 h-5" />
               )}
-              <Shield className="w-5 h-5 text-red-500" />
+              <Shield className="w-5 h-5 text-[#ef4444]" />
               <span>IDENTITY & SECURITY (Permissions & Monitoring)</span>
-              <span className="text-sm font-normal text-gray-500">({filteredIdentity.length} services)</span>
+              <span className="text-sm font-normal text-[var(--muted-foreground,#6b7280)]">({filteredIdentity.length} services)</span>
             </div>
             <div className="flex gap-2">
               {Object.entries(identityTypeCounts)
@@ -1018,7 +1018,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               <TableBody>
                 {filteredIdentity.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                    <TableCell colSpan={7} className="text-center text-[var(--muted-foreground,#6b7280)] py-8">
                       No identity/security services found
                     </TableCell>
                   </TableRow>
@@ -1034,7 +1034,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
-                            <IconComponent className="w-4 h-4 text-gray-500" />
+                            <IconComponent className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
                             <span className="truncate max-w-[250px]" title={service.name}>
                               {service.name}
                             </span>
@@ -1051,44 +1051,44 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                           <div className="flex flex-col gap-1">
                             <span className={`text-xs px-2 py-1 rounded ${
                               service.systemName !== 'Untagged' 
-                                ? 'bg-blue-100 text-blue-700' 
-                                : 'bg-orange-100 text-orange-700'
+                                ? 'bg-[#3b82f620] text-[#3b82f6]' 
+                                : 'bg-[#f9731620] text-[#f97316]'
                             }`}>
                               {service.systemName === 'Untagged' ? '⚠️ Untagged' : service.systemName}
                             </span>
                             {service.vpcId && (
-                              <span className="text-xs text-gray-400 font-mono truncate max-w-[120px]" title={service.vpcId}>
+                              <span className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[120px]" title={service.vpcId}>
                                 VPC: {service.vpcId.slice(0, 12)}...
                               </span>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">
+                          <span className="text-xs px-2 py-1 rounded bg-[#22c55e20] text-[#22c55e]">
                             {service.environment}
                           </span>
                         </TableCell>
                         <TableCell>
                           {isIAMRole ? (
-                            <span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700">
+                            <span className="text-xs px-2 py-1 rounded bg-[#8b5cf615] text-[#7c3aed]">
                               {service.attachedPolicies || 0} policies
                             </span>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-[var(--muted-foreground,#9ca3af)]">-</span>
                           )}
                         </TableCell>
                         <TableCell>
                           {service.permissionCount > 0 ? (
                             <span
-                              className={`text-xs px-2 py-1 rounded ${service.permissionCount > 20 ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}
+                              className={`text-xs px-2 py-1 rounded ${service.permissionCount > 20 ? "bg-[#ef444420] text-[#ef4444]" : "bg-[#eab30820] text-[#eab308]"}`}
                             >
                               {service.permissionCount} permissions
                             </span>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-[var(--muted-foreground,#9ca3af)]">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-gray-500 text-sm">{formatDate(service.lastSeen)}</TableCell>
+                        <TableCell className="text-[var(--muted-foreground,#6b7280)] text-sm">{formatDate(service.lastSeen)}</TableCell>
                       </TableRow>
                     )
                   })
@@ -1101,30 +1101,30 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
       {/* Gap Analysis Summary */}
       {gapData && (
-        <Card className="bg-gradient-to-r from-yellow-50 to-red-50 border-yellow-200">
+        <Card className="bg-white border-[#eab30840]">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                <h3 className="font-semibold text-[var(--foreground,#111827)] flex items-center gap-2">
                   <Activity className="w-5 h-5 text-yellow-600" />
                   Permission Gap Analysis
                 </h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
                   Shows the gap between what's RUNNING (compute) and what's ALLOWED (permissions)
                 </p>
               </div>
               <div className="flex gap-6 text-center">
                 <div>
-                  <div className="text-2xl font-bold text-blue-600">{gapData.allowed_actions}</div>
-                  <div className="text-xs text-gray-500">Allowed</div>
+                  <div className="text-2xl font-bold text-[#3b82f6]">{gapData.allowed_actions}</div>
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Allowed</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-green-600">{gapData.used_actions}</div>
-                  <div className="text-xs text-gray-500">Used</div>
+                  <div className="text-2xl font-bold text-[#22c55e]">{gapData.used_actions}</div>
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Used</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-red-600">{gapData.unused_actions}</div>
-                  <div className="text-xs text-gray-500">Unused (GAP)</div>
+                  <div className="text-2xl font-bold text-[#ef4444]">{gapData.unused_actions}</div>
+                  <div className="text-xs text-[var(--muted-foreground,#6b7280)]">Unused (GAP)</div>
                 </div>
               </div>
             </div>
@@ -1144,7 +1144,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               <div className="flex items-center gap-3">
                 {(() => {
                   const IconComponent = SERVICE_ICONS[selectedService.type] || SERVICE_ICONS.default
-                  return <IconComponent className="w-6 h-6 text-gray-600" />
+                  return <IconComponent className="w-6 h-6 text-[var(--muted-foreground,#4b5563)]" />
                 })()}
                 <div>
                   <h2 className="text-xl font-bold">{selectedService.name}</h2>
@@ -1170,8 +1170,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 onClick={() => setActiveTab('overview')}
                 className={`px-6 py-3 font-medium text-sm transition-colors ${
                   activeTab === 'overview'
-                    ? 'border-b-2 border-blue-600 text-blue-600 bg-white'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'border-b-2 border-blue-600 text-[#3b82f6] bg-white'
+                    : 'text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)]'
                 }`}
               >
                 Overview
@@ -1181,8 +1181,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   onClick={() => setActiveTab('iam')}
                   className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
                     activeTab === 'iam'
-                      ? 'border-b-2 border-blue-600 text-blue-600 bg-white'
-                      : 'text-gray-600 hover:text-gray-900'
+                      ? 'border-b-2 border-blue-600 text-[#3b82f6] bg-white'
+                      : 'text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)]'
                   }`}
                 >
                   <Key className="w-4 h-4" />
@@ -1193,14 +1193,14 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                 onClick={() => setActiveTab('policies')}
                 className={`px-6 py-3 font-medium text-sm transition-colors flex items-center gap-2 ${
                   activeTab === 'policies'
-                    ? 'border-b-2 border-blue-600 text-blue-600 bg-white'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'border-b-2 border-blue-600 text-[#3b82f6] bg-white'
+                    : 'text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)]'
                 }`}
               >
                 <FileText className="w-4 h-4" />
                 Policies & Rules
                 {servicePolicies?.policyCount > 0 && (
-                  <span className="ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                  <span className="ml-1 px-2 py-0.5 bg-[#3b82f620] text-[#3b82f6] text-xs rounded">
                     {servicePolicies.policyCount}
                   </span>
                 )}
@@ -1214,30 +1214,30 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <div className="text-sm text-gray-500">System</div>
+                  <div className="text-sm text-[var(--muted-foreground,#6b7280)]">System</div>
                   <div className="font-medium">{selectedService.systemName}</div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-500">Environment</div>
+                  <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Environment</div>
                   <div className="font-medium">{selectedService.environment}</div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-500">Region</div>
+                  <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Region</div>
                   <div className="font-medium">{selectedService.region}</div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-500">Status</div>
+                  <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Status</div>
                   <div className={`inline-block px-2 py-1 rounded text-xs ${getStatusColor(selectedService.instanceState || selectedService.status)}`}>
                     {selectedService.instanceState || selectedService.status}
                   </div>
                 </div>
                 <div>
-                  <div className="text-sm text-gray-500">Last Seen</div>
+                  <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Last Seen</div>
                   <div className="font-medium">{formatDate(selectedService.lastSeen)}</div>
                 </div>
                 {selectedService.attachedPolicies !== undefined && (
                   <div>
-                    <div className="text-sm text-gray-500">Attached Policies</div>
+                    <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Attached Policies</div>
                     <div className="font-medium">{selectedService.attachedPolicies}</div>
                   </div>
                 )}
@@ -1250,8 +1250,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                     {Object.entries(selectedService.properties).slice(0, 10).map(([key, value]) => (
                       <div key={key} className="flex justify-between text-sm">
-                        <span className="text-gray-500">{key}</span>
-                        <span className="font-mono text-gray-700 truncate max-w-[300px]" title={String(value)}>
+                        <span className="text-[var(--muted-foreground,#6b7280)]">{key}</span>
+                        <span className="font-mono text-[var(--foreground,#374151)] truncate max-w-[300px]" title={String(value)}>
                           {typeof value === 'object' ? JSON.stringify(value).slice(0, 50) : String(value).slice(0, 50)}
                         </span>
                       </div>
@@ -1266,35 +1266,35 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   {iamLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-                      <span className="ml-3 text-gray-600">Loading IAM data...</span>
+                      <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading IAM data...</span>
                     </div>
                   ) : iamError ? (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+                    <div className="bg-[#ef444410] border border-[#ef444440] rounded-xl p-6 text-center">
                       <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                      <p className="text-red-600">{iamError}</p>
-                      <p className="text-sm text-red-500 mt-2">Role: {getIAMRoleName(selectedService)}</p>
+                      <p className="text-[#ef4444]">{iamError}</p>
+                      <p className="text-sm text-[#ef4444] mt-2">Role: {getIAMRoleName(selectedService)}</p>
                     </div>
                   ) : iamData ? (
                     <>
                       {/* Role Header */}
-                      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
+                      <div className="bg-white rounded-xl p-6 border border-[#3b82f640]">
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                              <Key className="w-6 h-6 text-blue-600" />
+                            <div className="w-12 h-12 rounded-lg bg-[#3b82f620] flex items-center justify-center">
+                              <Key className="w-6 h-6 text-[#3b82f6]" />
                             </div>
                             <div>
-                              <h3 className="text-lg font-bold text-gray-900">{iamData.role_name || getIAMRoleName(selectedService)}</h3>
+                              <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">{iamData.role_name || getIAMRoleName(selectedService)}</h3>
                               {iamData.role_arn && (
-                                <p className="text-xs font-mono text-gray-600 mt-1 break-all">{iamData.role_arn}</p>
+                                <p className="text-xs font-mono text-[var(--muted-foreground,#4b5563)] mt-1 break-all">{iamData.role_arn}</p>
                               )}
                             </div>
                           </div>
                           {iamData.summary?.lp_score !== undefined && (
                             <div className={`px-4 py-2 rounded-lg font-bold text-lg ${
-                              iamData.summary.lp_score >= 80 ? 'bg-green-100 text-green-700' :
-                              iamData.summary.lp_score >= 50 ? 'bg-amber-100 text-amber-700' :
-                              'bg-red-100 text-red-700'
+                              iamData.summary.lp_score >= 80 ? 'bg-[#22c55e20] text-[#22c55e]' :
+                              iamData.summary.lp_score >= 50 ? 'bg-[#f9731620] text-[#f97316]' :
+                              'bg-[#ef444420] text-[#ef4444]'
                             }`}>
                               {iamData.summary.lp_score}% LP
                             </div>
@@ -1304,20 +1304,20 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                         {/* Permission Stats */}
                         <div className="grid grid-cols-3 gap-4 mt-4">
                           <div className="bg-white rounded-lg p-3">
-                            <div className="text-xs text-gray-500 mb-1">Total</div>
-                            <div className="text-2xl font-bold text-gray-900">
+                            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Total</div>
+                            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">
                               {iamData.summary?.total_permissions || iamData.summary?.allowed_count || iamData.allowed_count || 0}
                             </div>
                           </div>
                           <div className="bg-white rounded-lg p-3">
-                            <div className="text-xs text-gray-500 mb-1">Used</div>
-                            <div className="text-2xl font-bold text-green-600">
+                            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Used</div>
+                            <div className="text-2xl font-bold text-[#22c55e]">
                               {iamData.summary?.used_count || iamData.used_count || 0}
                             </div>
                           </div>
                           <div className="bg-white rounded-lg p-3">
-                            <div className="text-xs text-gray-500 mb-1">Unused</div>
-                            <div className="text-2xl font-bold text-red-600">
+                            <div className="text-xs text-[var(--muted-foreground,#6b7280)] mb-1">Unused</div>
+                            <div className="text-2xl font-bold text-[#ef4444]">
                               {iamData.summary?.unused_count || iamData.unused_count || 0}
                             </div>
                           </div>
@@ -1327,7 +1327,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       {/* Trust Policy */}
                       {iamData.trust_policy && (
                         <div className="bg-gray-50 rounded-xl p-4 border">
-                          <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                          <h4 className="text-sm font-semibold text-[var(--foreground,#374151)] mb-3 flex items-center gap-2">
                             <User className="w-4 h-4" />
                             Trust Relationship
                           </h4>
@@ -1342,13 +1342,13 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                         const policies = iamData.policy_analysis || iamData.policies || iamData.attached_policies || []
                         if (policies.length === 0) {
                           return (
-                            <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+                            <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-xl p-6 text-center">
                               <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                              <p className="text-gray-600 font-medium">No Policy Data Available</p>
-                              <p className="text-sm text-gray-500 mt-2">
+                              <p className="text-[var(--muted-foreground,#4b5563)] font-medium">No Policy Data Available</p>
+                              <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">
                                 The backend may not have policy analysis data for this role yet.
                               </p>
-                              <p className="text-xs text-gray-400 mt-1 font-mono">
+                              <p className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1 font-mono">
                                 Role: {getIAMRoleName(selectedService)}
                               </p>
                             </div>
@@ -1356,7 +1356,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                         }
                         return (
                           <div className="space-y-3">
-                            <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                            <h4 className="text-sm font-semibold text-[var(--foreground,#374151)] flex items-center gap-2">
                               <FileText className="w-4 h-4" />
                               Attached Policies ({policies.length})
                             </h4>
@@ -1371,48 +1371,48 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                                 <button
                                   onClick={() => togglePolicy(policyName)}
                                   className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left ${
-                                    policy.has_admin_access ? 'bg-red-50' : 
-                                    unusedPerms.length > 0 ? 'bg-amber-50' : ''
+                                    policy.has_admin_access ? 'bg-[#ef444410]' : 
+                                    unusedPerms.length > 0 ? 'bg-[#f9731610]' : ''
                                   }`}
                                 >
                                   {isExpanded ? (
-                                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                                    <ChevronDown className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                                   ) : (
-                                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                                    <ChevronRight className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                                   )}
-                                  <FileText className="w-4 h-4 text-gray-500" />
+                                  <FileText className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
                                   <div className="flex-1">
                                     <span className="font-medium">{policyName}</span>
                                     <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
                                       policy.policy_type?.toLowerCase().includes('inline') 
-                                        ? 'bg-blue-100 text-blue-700' 
-                                        : 'bg-gray-100 text-gray-600'
+                                        ? 'bg-[#3b82f620] text-[#3b82f6]' 
+                                        : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                                     }`}>
                                       {policy.policy_type || 'managed'}
                                     </span>
                                   </div>
                                   {policy.has_admin_access && (
-                                    <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                                    <span className="px-2 py-0.5 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded">
                                       ADMIN
                                     </span>
                                   )}
                                   {unusedPerms.length > 0 && !policy.has_admin_access && (
                                     <AlertTriangle className="w-4 h-4 text-amber-500" />
                                   )}
-                                  <span className="text-sm text-gray-500">{permissions.length} permissions</span>
+                                  <span className="text-sm text-[var(--muted-foreground,#6b7280)]">{permissions.length} permissions</span>
                                 </button>
                                 
                                 {isExpanded && (
                                   <div className="border-t px-4 py-3 bg-gray-50 space-y-3">
                                     {policy.policy_arn && (
                                       <div className="text-xs">
-                                        <span className="text-gray-500">ARN: </span>
-                                        <span className="font-mono text-gray-700 break-all">{policy.policy_arn}</span>
+                                        <span className="text-[var(--muted-foreground,#6b7280)]">ARN: </span>
+                                        <span className="font-mono text-[var(--foreground,#374151)] break-all">{policy.policy_arn}</span>
                                       </div>
                                     )}
                                     {permissions.length > 0 && (
                                       <div>
-                                        <div className="text-xs font-medium text-gray-700 mb-2">
+                                        <div className="text-xs font-medium text-[var(--foreground,#374151)] mb-2">
                                           All Permissions ({permissions.length})
                                         </div>
                                         <div className="flex flex-wrap gap-1.5">
@@ -1422,7 +1422,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                                             </span>
                                           ))}
                                           {permissions.length > 15 && (
-                                            <span className="px-2 py-1 text-gray-500 text-xs">
+                                            <span className="px-2 py-1 text-[var(--muted-foreground,#6b7280)] text-xs">
                                               +{permissions.length - 15} more
                                             </span>
                                           )}
@@ -1443,22 +1443,22 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                         <div>
                           <button
                             onClick={() => setShowUsedPerms(!showUsedPerms)}
-                            className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2 hover:text-green-800"
+                            className="flex items-center gap-2 text-sm font-medium text-[#22c55e] mb-2 hover:text-[#22c55e]"
                           >
                             {showUsedPerms ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             <CheckCircle className="w-4 h-4" />
                             {iamData.used_permissions.length} Used Permissions
                           </button>
                           {showUsedPerms && (
-                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <div className="p-3 bg-[#22c55e10] border border-[#22c55e40] rounded-lg">
                               <div className="flex flex-wrap gap-1.5">
                                 {iamData.used_permissions.slice(0, 20).map((perm: string, i: number) => (
-                                  <span key={i} className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-mono">
+                                  <span key={i} className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] rounded text-xs font-mono">
                                     {perm}
                                   </span>
                                 ))}
                                 {iamData.used_permissions.length > 20 && (
-                                  <span className="px-2 py-1 text-green-600 text-xs">
+                                  <span className="px-2 py-1 text-[#22c55e] text-xs">
                                     +{iamData.used_permissions.length - 20} more
                                   </span>
                                 )}
@@ -1473,23 +1473,23 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                         <div>
                           <button
                             onClick={() => setShowUnusedPerms(!showUnusedPerms)}
-                            className="flex items-center gap-2 text-sm font-medium text-amber-700 mb-2 hover:text-amber-800"
+                            className="flex items-center gap-2 text-sm font-medium text-[#f97316] mb-2 hover:text-[#f97316]"
                           >
                             {showUnusedPerms ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             <AlertTriangle className="w-4 h-4" />
                             {iamData.unused_permissions.length} Unused Permissions
                           </button>
                           {showUnusedPerms && (
-                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="p-3 bg-[#f9731610] border border-[#f9731640] rounded-lg">
                               <div className="flex flex-wrap gap-1.5">
                                 {iamData.unused_permissions.slice(0, 15).map((perm: string, i: number) => (
-                                  <span key={i} className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-mono flex items-center gap-1">
+                                  <span key={i} className="px-2 py-1 bg-[#f9731620] text-[#f97316] rounded text-xs font-mono flex items-center gap-1">
                                     {perm}
                                     <X className="w-3 h-3 text-amber-500" />
                                   </span>
                                 ))}
                                 {iamData.unused_permissions.length > 15 && (
-                                  <span className="px-2 py-1 text-amber-600 text-xs">
+                                  <span className="px-2 py-1 text-[#f97316] text-xs">
                                     +{iamData.unused_permissions.length - 15} more
                                   </span>
                                 )}
@@ -1502,8 +1502,8 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   ) : (
                     <div className="text-center py-12">
                       <Key className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                      <p className="text-gray-500">No IAM data available</p>
-                      <p className="text-sm text-gray-400 mt-1">Role: {getIAMRoleName(selectedService)}</p>
+                      <p className="text-[var(--muted-foreground,#6b7280)]">No IAM data available</p>
+                      <p className="text-sm text-[var(--muted-foreground,#9ca3af)] mt-1">Role: {getIAMRoleName(selectedService)}</p>
                     </div>
                   )}
                 </div>
@@ -1513,20 +1513,20 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                   {policiesLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-                      <span className="ml-3 text-gray-600">Loading policies...</span>
+                      <span className="ml-3 text-[var(--muted-foreground,#4b5563)]">Loading policies...</span>
                     </div>
                   ) : policiesError ? (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+                    <div className="bg-[#ef444410] border border-[#ef444440] rounded-xl p-6 text-center">
                       <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-                      <p className="text-red-600">{policiesError}</p>
+                      <p className="text-[#ef4444]">{policiesError}</p>
                     </div>
                   ) : servicePolicies && servicePolicies.policies && servicePolicies.policies.length > 0 ? (
                     <div className="space-y-4">
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="bg-[#3b82f610] border border-[#3b82f640] rounded-lg p-4">
                         <div className="flex items-center justify-between">
                           <div>
-                            <h3 className="font-semibold text-gray-900">Service Policies</h3>
-                            <p className="text-sm text-gray-600 mt-1">
+                            <h3 className="font-semibold text-[var(--foreground,#111827)]">Service Policies</h3>
+                            <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
                               {servicePolicies.policyCount} policy{servicePolicies.policyCount !== 1 ? 'ies' : ''} found
                             </p>
                           </div>
@@ -1550,34 +1550,34 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
                             >
                               {isExpanded ? (
-                                <ChevronDown className="w-4 h-4 text-gray-400" />
+                                <ChevronDown className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                               ) : (
-                                <ChevronRight className="w-4 h-4 text-gray-400" />
+                                <ChevronRight className="w-4 h-4 text-[var(--muted-foreground,#9ca3af)]" />
                               )}
-                              <FileText className="w-4 h-4 text-gray-500" />
+                              <FileText className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />
                               <div className="flex-1">
                                 <span className="font-medium">{policyName}</span>
                                 <span className={`ml-2 px-2 py-0.5 text-xs rounded ${
                                   policy.type === 'InlinePolicy' || policy.isInline
-                                    ? 'bg-blue-100 text-blue-700'
+                                    ? 'bg-[#3b82f620] text-[#3b82f6]'
                                     : policy.type === 'ManagedPolicy' || policy.isManaged
-                                    ? 'bg-gray-100 text-gray-600'
+                                    ? 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                                     : policy.type === 'BucketPolicy'
-                                    ? 'bg-green-100 text-green-700'
+                                    ? 'bg-[#22c55e20] text-[#22c55e]'
                                     : policy.type === 'IngressRules' || policy.type === 'EgressRules'
-                                    ? 'bg-purple-100 text-purple-700'
-                                    : 'bg-gray-100 text-gray-600'
+                                    ? 'bg-[#8b5cf615] text-[#7c3aed]'
+                                    : 'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                                 }`}>
                                   {policy.type || 'Policy'}
                                 </span>
                                 {policy.ruleCount !== undefined && (
-                                  <span className="ml-2 text-xs text-gray-500">
+                                  <span className="ml-2 text-xs text-[var(--muted-foreground,#6b7280)]">
                                     {policy.ruleCount} rule{policy.ruleCount !== 1 ? 's' : ''}
                                   </span>
                                 )}
                               </div>
                               {policy.arn && (
-                                <span className="text-xs text-gray-400 font-mono truncate max-w-[200px]" title={policy.arn}>
+                                <span className="text-xs text-[var(--muted-foreground,#9ca3af)] font-mono truncate max-w-[200px]" title={policy.arn}>
                                   {policy.arn.split('/').pop()}
                                 </span>
                               )}
@@ -1587,15 +1587,15 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                               <div className="border-t px-4 py-4 bg-gray-50 space-y-3">
                                 {policy.arn && (
                                   <div className="text-xs">
-                                    <span className="text-gray-500">ARN: </span>
-                                    <span className="font-mono text-gray-700 break-all">{policy.arn}</span>
+                                    <span className="text-[var(--muted-foreground,#6b7280)]">ARN: </span>
+                                    <span className="font-mono text-[var(--foreground,#374151)] break-all">{policy.arn}</span>
                                   </div>
                                 )}
                                 
                                 {/* Security Group Rules */}
                                 {(policy.type === 'IngressRules' || policy.type === 'EgressRules') && Array.isArray(policyDoc) && (
                                   <div>
-                                    <div className="text-xs font-medium text-gray-700 mb-2">
+                                    <div className="text-xs font-medium text-[var(--foreground,#374151)] mb-2">
                                       {policy.type === 'IngressRules' ? 'Inbound' : 'Outbound'} Rules ({policyDoc.length})
                                     </div>
                                     <div className="space-y-2">
@@ -1603,11 +1603,11 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                                         <div key={ruleIdx} className="bg-white p-3 rounded border text-xs">
                                           <div className="grid grid-cols-2 gap-2 mb-2">
                                             <div>
-                                              <span className="text-gray-500">Protocol: </span>
+                                              <span className="text-[var(--muted-foreground,#6b7280)]">Protocol: </span>
                                               <span className="font-mono">{rule.IpProtocol || 'All'}</span>
                                             </div>
                                             <div>
-                                              <span className="text-gray-500">Port: </span>
+                                              <span className="text-[var(--muted-foreground,#6b7280)]">Port: </span>
                                               <span className="font-mono">
                                                 {rule.FromPort === rule.ToPort 
                                                   ? rule.FromPort || 'All'
@@ -1616,15 +1616,15 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                                             </div>
                                           </div>
                                           <div>
-                                            <span className="text-gray-500">Source/Destination: </span>
+                                            <span className="text-[var(--muted-foreground,#6b7280)]">Source/Destination: </span>
                                             <div className="mt-1 space-y-1">
                                               {rule.IpRanges?.map((range: any, i: number) => (
-                                                <div key={i} className="font-mono text-gray-700">
+                                                <div key={i} className="font-mono text-[var(--foreground,#374151)]">
                                                   {range.CidrIp || range.CidrIpv6} {range.Description ? `(${range.Description})` : ''}
                                                 </div>
                                               ))}
                                               {rule.UserIdGroupPairs?.map((sg: any, i: number) => (
-                                                <div key={i} className="font-mono text-gray-700">
+                                                <div key={i} className="font-mono text-[var(--foreground,#374151)]">
                                                   {sg.GroupId || sg.GroupName} {sg.Description ? `(${sg.Description})` : ''}
                                                 </div>
                                               ))}
@@ -1639,7 +1639,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                                 {/* IAM Policy Document */}
                                 {policyDoc && typeof policyDoc === 'object' && !Array.isArray(policyDoc) && Object.keys(policyDoc).length > 0 && (
                                   <div>
-                                    <div className="text-xs font-medium text-gray-700 mb-2">Policy Document</div>
+                                    <div className="text-xs font-medium text-[var(--foreground,#374151)] mb-2">Policy Document</div>
                                     <pre className="text-xs bg-white p-3 rounded border overflow-x-auto max-h-96">
                                       {JSON.stringify(policyDoc, null, 2)}
                                     </pre>
@@ -1647,7 +1647,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                                 )}
                                 
                                 {(!policyDoc || (typeof policyDoc === 'object' && Object.keys(policyDoc).length === 0)) && (
-                                  <div className="text-sm text-gray-500 text-center py-4">
+                                  <div className="text-sm text-[var(--muted-foreground,#6b7280)] text-center py-4">
                                     No policy document available
                                   </div>
                                 )}
@@ -1658,13 +1658,13 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
                       })}
                     </div>
                   ) : (
-                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+                    <div className="bg-gray-50 border border-[var(--border,#e5e7eb)] rounded-xl p-6 text-center">
                       <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-600 font-medium">No Policies Found</p>
-                      <p className="text-sm text-gray-500 mt-2">
+                      <p className="text-[var(--muted-foreground,#4b5563)] font-medium">No Policies Found</p>
+                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-2">
                         This service does not have any policies or rules configured.
                       </p>
-                      <p className="text-xs text-gray-400 mt-1 font-mono">
+                      <p className="text-xs text-[var(--muted-foreground,#9ca3af)] mt-1 font-mono">
                         Service: {selectedService.name} ({selectedService.type})
                       </p>
                     </div>

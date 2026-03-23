@@ -403,7 +403,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
               syncing
                 ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-500 text-white'
+                : 'bg-blue-600 hover:bg-[#3b82f610]0 text-white'
             }`}
           >
             {syncing ? (
@@ -423,7 +423,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
           <button
             onClick={fetchData}
             disabled={loading}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-2 bg-emerald-600 hover:bg-[#10b98110]0 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -480,7 +480,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Users className="w-5 h-5 text-blue-400" />
                 Identity & Change
-                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-sm">
+                <span className="px-2 py-0.5 bg-[#3b82f610]0/20 text-blue-400 rounded text-sm">
                   {data.identity.controlPlaneActors.length} actors
                 </span>
               </h2>
@@ -512,7 +512,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                   <Shield className="w-5 h-5 text-emerald-400" />
                   Critical Paths
-                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-sm">
+                  <span className="px-2 py-0.5 bg-[#10b98110]0/20 text-emerald-400 rounded text-sm">
                     {data.critical_paths.length}
                   </span>
                 </h2>
@@ -538,7 +538,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5 text-amber-400" />
                   Detections
-                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded text-sm">
+                  <span className="px-2 py-0.5 bg-[#f9731610]0/20 text-amber-400 rounded text-sm">
                     {data.detections.length}
                   </span>
                 </h2>
@@ -563,7 +563,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Database className="w-5 h-5 text-orange-400" />
                 Data Access (S3)
-                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-sm">
+                <span className="px-2 py-0.5 bg-[#f9731610]0/20 text-orange-400 rounded text-sm">
                   {data.dataAccess.buckets.length} buckets
                 </span>
               </h2>
@@ -593,7 +593,7 @@ export function BehavioralPage({ systemName }: BehavioralPageProps) {
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Key className="w-5 h-5 text-amber-400" />
                 Crypto & Keys (KMS)
-                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 rounded text-sm">
+                <span className="px-2 py-0.5 bg-[#f9731610]0/20 text-amber-400 rounded text-sm">
                   {data.cryptoKeys.keys.length} keys
                 </span>
               </h2>
