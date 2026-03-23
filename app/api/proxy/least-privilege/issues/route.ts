@@ -31,7 +31,7 @@ const EMPTY_RESPONSE = {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const systemName = url.searchParams.get("systemName") || ""
   const observationDays = url.searchParams.get("observationDays") ?? "365"
   const forceRefresh = url.searchParams.get("refresh") === "true"
   

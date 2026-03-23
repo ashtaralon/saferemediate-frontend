@@ -652,7 +652,7 @@ export default function HomePage() {
         return <PerResourceAnalysis />
 
       case "least-privilege":
-        return <LeastPrivilegeTab systemName="alon-prod" />
+        return <LeastPrivilegeTab />
 
       case "vulnerabilities":
         return <VulnerabilitiesSection />

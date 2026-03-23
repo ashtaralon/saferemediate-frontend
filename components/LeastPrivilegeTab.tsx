@@ -145,7 +145,7 @@ interface LeastPrivilegeResponse {
   timestamp: string
 }
 
-export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { systemName?: string }) {
+export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
   const [data, setData] = useState<LeastPrivilegeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -500,7 +500,8 @@ export default function LeastPrivilegeTab({ systemName = 'alon-prod' }: { system
       // Use AWS-based endpoint directly - this returns actual LP analysis data
       // The Neo4j endpoint returns graph nodes without LP analysis, causing "0 used / 0 unused" display
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
-      const response = await fetch(`/api/proxy/least-privilege/issues?systemName=${systemName}&observationDays=365${refreshParam}`)
+      const systemParam = systemName ? `systemName=${systemName}&` : ''
+      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`)
       if (!response.ok) throw new Error(`Failed: ${response.status}`)
       const result = await response.json()
       
