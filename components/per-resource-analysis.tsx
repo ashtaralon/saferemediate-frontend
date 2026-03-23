@@ -460,49 +460,88 @@ export function PerResourceAnalysis() {
         {roles.length > 0 && !selectedRole && (
           <div className="space-y-3">
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Found <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{roles.length}</span> shared role(s)
+              Found <span className="font-semibold" style={{ color: "#ef4444" }}>{roles.length}</span> shared role(s) — each is a blast radius risk
             </p>
-            {roles.map((role) => (
-              <button
-                key={role.role_name}
-                onClick={() => analyzeRole(role.role_name)}
-                className="w-full text-left rounded-lg border p-4 transition-all hover:bg-white/5"
-                style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {role.role_name}
+            {roles.map((role) => {
+              // Determine role type from resources
+              const resourceTypes = [...new Set(role.resources.map(r => getTypeLabel(r.resource_type)))]
+              const roleType = resourceTypes.length === 1
+                ? `${resourceTypes[0]} Execution Role`
+                : `Shared across ${resourceTypes.join(", ")}`
+              const totalExposure = role.total_permissions * role.resources.length
+              const exposureSeverity = totalExposure > 100 ? "#ef4444" : totalExposure > 30 ? "#f97316" : "#eab308"
+
+              return (
+                <button
+                  key={role.role_name}
+                  onClick={() => analyzeRole(role.role_name)}
+                  className="w-full text-left rounded-lg border p-5 transition-all hover:bg-white/5"
+                  style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
+                >
+                  {/* Header row */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                        {role.role_name}
+                      </div>
+                      <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                        {roleType}
+                      </div>
                     </div>
-                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                      {role.total_permissions} permissions &middot; {role.resources.length} resources
+                    <ChevronRight className="w-5 h-5 mt-1" style={{ color: "var(--text-muted)" }} />
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="grid grid-cols-4 gap-3 mb-3">
+                    <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+                      <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{role.total_permissions}</div>
+                      <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Permissions</div>
+                    </div>
+                    <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+                      <div className="text-lg font-bold" style={{ color: "#f97316" }}>{role.resources.length}</div>
+                      <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Resources</div>
+                    </div>
+                    <div className="rounded-lg p-2 border text-center" style={{ borderColor: `${exposureSeverity}40`, background: `${exposureSeverity}10` }}>
+                      <div className="text-lg font-bold" style={{ color: exposureSeverity }}>{totalExposure}</div>
+                      <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Total Exposure</div>
+                    </div>
+                    <div className="rounded-lg p-2 border text-center" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
+                      <div className="text-xs font-bold" style={{ color: "#ef4444" }}>
+                        {role.resources.length > 1 ? "SHARED" : "SINGLE"}
+                      </div>
+                      <div className="text-[10px] uppercase mt-1" style={{ color: "var(--text-muted)" }}>
+                        {role.resources.length > 1 ? "Blast radius risk" : "No sharing risk"}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>
-                      {role.resources.length} resources share this role
-                    </span>
-                    <ChevronRight className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+
+                  {/* Problem statement */}
+                  {role.resources.length > 1 && (
+                    <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+                      If any of these {role.resources.length} {resourceTypes[0] || "resource"}s is compromised, the attacker gets all {role.total_permissions} permissions — affecting every resource on this role.
+                    </div>
+                  )}
+
+                  {/* Resource badges */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {role.resources.map((r) => {
+                      const color = getTypeColor(r.resource_type)
+                      const label = getTypeLabel(r.resource_type)
+                      return (
+                        <span
+                          key={r.resource_id}
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium"
+                          style={{ background: `${color}15`, color, borderColor: `${color}40` }}
+                        >
+                          <span className="text-[10px] uppercase opacity-75 font-semibold">{label}</span>
+                          <span className="font-bold">{r.resource_name}</span>
+                        </span>
+                      )
+                    })}
                   </div>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {role.resources.map((r) => {
-                    const color = getTypeColor(r.resource_type)
-                    const label = getTypeLabel(r.resource_type)
-                    return (
-                      <span
-                        key={r.resource_id}
-                        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium"
-                        style={{ background: `${color}15`, color, borderColor: `${color}40` }}
-                      >
-                        <span className="text-[10px] uppercase opacity-75 font-semibold">{label}</span>
-                        <span className="font-bold">{r.resource_name}</span>
-                      </span>
-                    )
-                  })}
-                </div>
-              </button>
-            ))}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
@@ -510,6 +549,7 @@ export function PerResourceAnalysis() {
       {/* ──────────── ANALYSIS SECTION ──────────── */}
       {analysisData && stage !== "scan" && (
         <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Permission Usage Analysis</h3>
             <div className="flex items-center gap-2">
@@ -519,6 +559,74 @@ export function PerResourceAnalysis() {
               </span>
             </div>
           </div>
+
+          {/* Summary Banner — answers "what's the problem?" */}
+          {(() => {
+            const totalPerms = analysisData.aggregated.total_permissions
+            const usedPerms = analysisData.aggregated.used_permissions
+            const unusedPerms = totalPerms - usedPerms
+            const resourceCount = analysisData.analyses.length
+            const totalExposure = totalPerms * resourceCount
+            const usagePct = totalPerms > 0 ? Math.round((usedPerms / totalPerms) * 100) : 0
+            const isOverPermissioned = unusedPerms > 0
+            const severityColor = unusedPerms > 20 ? "#ef4444" : unusedPerms > 5 ? "#f97316" : "#eab308"
+
+            return (
+              <div className="grid grid-cols-5 gap-3 mb-5">
+                <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+                  <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{totalPerms}</div>
+                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Total Permissions</div>
+                </div>
+                <div className="rounded-lg p-3 border text-center" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
+                  <div className="text-2xl font-bold" style={{ color: "#22c55e" }}>{usedPerms}</div>
+                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Actually Used</div>
+                </div>
+                <div className="rounded-lg p-3 border text-center" style={{ borderColor: `${severityColor}40`, background: `${severityColor}10` }}>
+                  <div className="text-2xl font-bold" style={{ color: severityColor }}>{unusedPerms}</div>
+                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Unused (Waste)</div>
+                </div>
+                <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+                  <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{resourceCount}</div>
+                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Resources Sharing</div>
+                </div>
+                <div className="rounded-lg p-3 border text-center" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
+                  <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{totalExposure}</div>
+                  <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Total Exposure</div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Verdict */}
+          {(() => {
+            const unusedPerms = analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions
+            const resourceCount = analysisData.analyses.length
+            if (unusedPerms === 0 && resourceCount <= 1) {
+              return (
+                <div className="mb-5 p-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
+                  <span className="text-sm font-medium" style={{ color: "#22c55e" }}>
+                    This role follows least privilege — no unused permissions and not shared across multiple resources.
+                  </span>
+                </div>
+              )
+            }
+            return (
+              <div className="mb-5 p-3 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#ef4444" }} />
+                  <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                    {unusedPerms > 0 && resourceCount > 1 ? (
+                      <><strong style={{ color: "#ef4444" }}>Over-permissioned shared role.</strong> {resourceCount} resources share {analysisData.aggregated.total_permissions} permissions but only use {analysisData.aggregated.used_permissions}. If any resource is compromised, the attacker gets all {unusedPerms} unused permissions across every resource.</>
+                    ) : unusedPerms > 0 ? (
+                      <><strong style={{ color: "#ef4444" }}>{unusedPerms} unused permissions detected.</strong> This role has more permissions than needed. Remove unused permissions to reduce attack surface.</>
+                    ) : (
+                      <><strong style={{ color: "#f97316" }}>Shared role risk.</strong> All permissions are in use, but {resourceCount} resources share the same role. If one is compromised, all are affected. Consider splitting into per-resource roles.</>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Tab Toggle */}
           <div className="flex gap-1 mb-6 rounded-lg p-1 w-fit" style={{ background: "var(--bg-primary)" }}>
