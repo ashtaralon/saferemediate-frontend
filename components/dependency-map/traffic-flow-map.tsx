@@ -74,6 +74,7 @@ interface SystemArchitecture {
   totalBytes: number;
   totalConnections: number;
   totalGaps: number;
+  vpcGroups?: Array<{ vpcId: string; vpcName: string; subnets: Array<{ subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>;
 }
 
 // Attack Path types
@@ -1861,6 +1862,7 @@ function UnifiedArchitectureDiagram({
   heatmapMode?: boolean;
   ghostedNodeIds?: Set<string>;
   highlightedNodeId?: string | null;
+  showVPCBoundaries?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -1994,6 +1996,14 @@ function UnifiedArchitectureDiagram({
 
       {/* Main diagram */}
       <div ref={containerRef} className="relative min-h-[450px]">
+        {/* VPC Boundary boxes */}
+        {showVPCBoundaries && architecture.vpcGroups && (
+          <VPCBoundaries
+            vpcGroups={architecture.vpcGroups}
+            containerRef={containerRef}
+            visible={showVPCBoundaries}
+          />
+        )}
         <ConnectionLinesSVG
           architecture={architecture}
           hoveredId={effectiveHoveredId}
@@ -2544,6 +2554,8 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
     const naclNodeMap = new Map<string, any>();
     const roleNodeMap = new Map<string, any>();
     const subnetToNACL = new Map<string, string>();
+    const nodeToVPC = new Map<string, string>();
+    const nodeToSubnet = new Map<string, { subnetId: string; isPublic: boolean }>();
 
     // First pass: collect subnet to NACL mappings
     edges.forEach(edge => {
@@ -2601,6 +2613,18 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         if (naclId) {
           computeToNACL.set(canonicalSrc, naclId);
         }
+        // Track subnet membership
+        const subnetNode = nodeMap.get(tgtId);
+        const isPublic = subnetNode?.is_public || subnetNode?.map_public_ip_on_launch ||
+                         (subnetNode?.name || '').toLowerCase().includes('public');
+        nodeToSubnet.set(canonicalSrc, { subnetId: tgtId, isPublic: !!isPublic });
+      }
+
+      // Track VPC membership
+      if (edgeType === 'IN_VPC' || edgeType === 'BELONGS_TO_VPC') {
+        const canonicalSrc = extractInstanceId(srcId);
+        nodeToVPC.set(canonicalSrc, tgtId);
+        nodeToVPC.set(srcId, tgtId);
       }
 
       if (edgeType === 'USES_ROLE' || edgeType === 'ASSUMES_ROLE') {
@@ -2906,6 +2930,63 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       totalConnections,
     });
 
+    // Build VPC groups for VPC Boundaries visualization
+    const vpcGroupsMap = new Map<string, { vpcId: string; vpcName: string; subnets: Map<string, { subnetId: string; subnetName: string; isPublic: boolean; nodeIds: string[] }> }>();
+
+    // Collect VPC info from SGs, NACLs, and compute nodes
+    const allVPCNodeMappings: Array<{ nodeId: string; vpcId: string; subnetId?: string; isPublic?: boolean }> = [];
+
+    securityGroups.forEach(sg => {
+      if (sg.vpcId) allVPCNodeMappings.push({ nodeId: sg.id, vpcId: sg.vpcId });
+    });
+    nacls.forEach(n => {
+      if (n.vpcId) allVPCNodeMappings.push({ nodeId: n.id, vpcId: n.vpcId });
+    });
+    computeServices.forEach(cs => {
+      const vpcId = nodeToVPC.get(cs.id);
+      if (vpcId) {
+        const subnet = nodeToSubnet.get(cs.id);
+        allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic });
+      }
+    });
+    // Also map resources via their connected compute's VPC
+    resources.forEach(r => {
+      const connectedFlow = flows.find(f => f.targetId === r.id);
+      if (connectedFlow) {
+        const vpcId = nodeToVPC.get(connectedFlow.sourceId);
+        if (vpcId) allVPCNodeMappings.push({ nodeId: r.id, vpcId });
+      }
+    });
+
+    allVPCNodeMappings.forEach(({ nodeId, vpcId, subnetId, isPublic }) => {
+      if (!vpcGroupsMap.has(vpcId)) {
+        const vpcNode = nodeMap.get(vpcId);
+        vpcGroupsMap.set(vpcId, {
+          vpcId,
+          vpcName: shortName(vpcNode?.name || vpcId, 20),
+          subnets: new Map(),
+        });
+      }
+      const vpc = vpcGroupsMap.get(vpcId)!;
+      const subKey = subnetId || 'default';
+      if (!vpc.subnets.has(subKey)) {
+        const subnetNode = subnetId ? nodeMap.get(subnetId) : null;
+        vpc.subnets.set(subKey, {
+          subnetId: subKey,
+          subnetName: subnetNode ? shortName(subnetNode.name || subnetId || '', 20) : 'Default Subnet',
+          isPublic: isPublic || false,
+          nodeIds: [],
+        });
+      }
+      vpc.subnets.get(subKey)!.nodeIds.push(nodeId);
+    });
+
+    const vpcGroups = Array.from(vpcGroupsMap.values()).map(vpc => ({
+      vpcId: vpc.vpcId,
+      vpcName: vpc.vpcName,
+      subnets: Array.from(vpc.subnets.values()),
+    }));
+
     return {
       computeServices,
       resources,
@@ -2916,6 +2997,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       totalBytes,
       totalConnections,
       totalGaps,
+      vpcGroups,
     };
   }, []);
 
@@ -3373,6 +3455,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             heatmapMode={heatmapMode}
             ghostedNodeIds={ghostedNodeIds}
             highlightedNodeId={highlightedNodeId}
+            showVPCBoundaries={showVPCBoundaries}
           />
         ) : (
           <div className="text-center py-16">
