@@ -40,8 +40,8 @@ interface VPCRect extends BoundingRect {
   subnetRects: SubnetRect[];
 }
 
-const PADDING = 24;
-const VPC_LABEL_HEIGHT = 24;
+const PADDING = 32;
+const VPC_LABEL_HEIGHT = 32;
 const SUBNET_LABEL_HEIGHT = 20;
 
 function findNodeElements(
@@ -54,6 +54,10 @@ function findNodeElements(
       `[data-node-id="${nodeId}"]`,
       `[data-compute-id="${nodeId}"]`,
       `[data-sg-id="${nodeId}"]`,
+      `[data-nacl-id="${nodeId}"]`,
+      `[data-role-id="${nodeId}"]`,
+      `[data-resource-id="${nodeId}"]`,
+      `[data-api-id="${nodeId}"]`,
     ];
     for (const selector of selectors) {
       const el = container.querySelector<HTMLElement>(selector);
@@ -242,7 +246,7 @@ export function VPCBoundaries({
 
       {vpcRects.map((vpc) => (
         <g key={vpc.vpcId}>
-          {/* VPC boundary rect */}
+          {/* VPC boundary rect - bright border */}
           <rect
             x={vpc.x}
             y={vpc.y}
@@ -250,32 +254,33 @@ export function VPCBoundaries({
             height={vpc.height}
             rx={16}
             ry={16}
-            fill="transparent"
-            stroke="#475569"
-            strokeWidth={2}
+            fill="rgba(59, 130, 246, 0.04)"
+            stroke="#3b82f6"
+            strokeWidth={2.5}
+            strokeDasharray="12,6"
+            opacity={0.8}
           />
 
-          {/* VPC label with dark background pill */}
+          {/* VPC label with colored background pill */}
           <rect
             x={vpc.x + 12}
             y={vpc.y + 6}
-            width={Math.min(vpc.vpcName.length * 7.5 + 16, vpc.width - 24)}
-            height={20}
-            rx={10}
-            ry={10}
-            fill="#1e293b"
-            stroke="#475569"
-            strokeWidth={1}
+            width={Math.min(vpc.vpcName.length * 7.5 + 40, vpc.width - 24)}
+            height={22}
+            rx={11}
+            ry={11}
+            fill="#1e40af"
+            opacity={0.9}
           />
           <text
-            x={vpc.x + 20}
-            y={vpc.y + 20}
+            x={vpc.x + 24}
+            y={vpc.y + 21}
             fill="#ffffff"
-            fontSize={12}
+            fontSize={11}
             fontFamily="system-ui, -apple-system, sans-serif"
-            fontWeight={500}
+            fontWeight={600}
           >
-            {vpc.vpcName}
+            🌐 {vpc.vpcName}
           </text>
 
           {/* Subnet boundaries */}
