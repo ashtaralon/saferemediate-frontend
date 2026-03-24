@@ -714,15 +714,15 @@ export default function DependencyMapTab({
         ) : activeView === 'graph' ? (
           graphEngine === 'neo4j' ? (
             <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
                 <div className="text-center">
-                  <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
-                  <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
+                  <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
+                  <p className="text-slate-400 text-xs mt-1">Connecting to Neo4j</p>
                 </div>
               </div>
             }>
-              <Neo4jAWSMap />
+              <TrafficFlowMap systemName={systemName} />
             </React.Suspense>
           ) : graphEngine === 'comprehensive' ? (
             <React.Suspense fallback={
@@ -780,15 +780,15 @@ export default function DependencyMapTab({
           )
         ) : activeView === 'flows' ? (
           <React.Suspense fallback={
-            <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+            <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
               <div className="text-center">
-                <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
-                <p className="text-slate-400 text-xs mt-1">Building full stack flows</p>
+                <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+                <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
               </div>
             </div>
           }>
-            <TrafficFlowMap systemName={systemName} />
+            <Neo4jAWSMap />
           </React.Suspense>
         ) : (
           <ResourceView
