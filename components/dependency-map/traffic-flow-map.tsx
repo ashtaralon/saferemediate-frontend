@@ -2937,26 +2937,63 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
     // Collect VPC info from SGs, NACLs, and compute nodes
     const allVPCNodeMappings: Array<{ nodeId: string; vpcId: string; subnetId?: string; isPublic?: boolean }> = [];
 
-    securityGroups.forEach(sg => {
-      if (sg.vpcId) allVPCNodeMappings.push({ nodeId: sg.id, vpcId: sg.vpcId });
-    });
-    nacls.forEach(n => {
-      if (n.vpcId) allVPCNodeMappings.push({ nodeId: n.id, vpcId: n.vpcId });
-    });
+    // Step 1: Build a map of compute node -> VPC from node properties and edges
+    const computeVPCMap = new Map<string, string>();
     computeServices.forEach(cs => {
-      // Try edge-based VPC first, then fall back to node property vpc_id
       let vpcId = nodeToVPC.get(cs.id);
       if (!vpcId) {
-        // Check the original node's vpc_id property
         const origNode = nodeByInstanceId.get(cs.id) || nodeMap.get(cs.id);
         if (origNode?.vpc_id) vpcId = origNode.vpc_id;
       }
+      if (vpcId) computeVPCMap.set(cs.id, vpcId);
+    });
+
+    // Step 2: Add compute nodes to VPC groups
+    computeServices.forEach(cs => {
+      const vpcId = computeVPCMap.get(cs.id);
       if (vpcId) {
         const subnet = nodeToSubnet.get(cs.id);
         allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic });
       }
     });
-    // Also map resources via their own vpc_id property or connected compute's VPC
+
+    // Step 3: Add SGs - from their own vpc_id OR from connected compute nodes
+    securityGroups.forEach(sg => {
+      if (sg.vpcId) {
+        allVPCNodeMappings.push({ nodeId: sg.id, vpcId: sg.vpcId });
+      } else {
+        // Find VPC from connected compute nodes
+        const connectedCompute = sg.connectedSources[0];
+        if (connectedCompute) {
+          const vpcId = computeVPCMap.get(connectedCompute);
+          if (vpcId) allVPCNodeMappings.push({ nodeId: sg.id, vpcId });
+        }
+      }
+    });
+
+    // Step 4: Add NACLs - from their own vpc_id OR from connected compute nodes
+    nacls.forEach(n => {
+      if (n.vpcId) {
+        allVPCNodeMappings.push({ nodeId: n.id, vpcId: n.vpcId });
+      } else {
+        const connectedCompute = n.connectedSources[0];
+        if (connectedCompute) {
+          const vpcId = computeVPCMap.get(connectedCompute);
+          if (vpcId) allVPCNodeMappings.push({ nodeId: n.id, vpcId });
+        }
+      }
+    });
+
+    // Step 5: Add IAM Roles - from connected compute nodes
+    iamRoles.forEach(role => {
+      const connectedCompute = role.connectedSources[0];
+      if (connectedCompute) {
+        const vpcId = computeVPCMap.get(connectedCompute);
+        if (vpcId) allVPCNodeMappings.push({ nodeId: role.id, vpcId });
+      }
+    });
+
+    // Step 6: Add resources - from their own vpc_id OR connected compute
     resources.forEach(r => {
       const origNode = nodeMap.get(r.id) || nodeByResourceName.get(r.name);
       if (origNode?.vpc_id) {
@@ -2964,8 +3001,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       } else {
         const connectedFlow = flows.find(f => f.targetId === r.id);
         if (connectedFlow) {
-          const computeNode = nodeByInstanceId.get(connectedFlow.sourceId);
-          const vpcId = nodeToVPC.get(connectedFlow.sourceId) || computeNode?.vpc_id;
+          const vpcId = computeVPCMap.get(connectedFlow.sourceId);
           if (vpcId) allVPCNodeMappings.push({ nodeId: r.id, vpcId });
         }
       }
