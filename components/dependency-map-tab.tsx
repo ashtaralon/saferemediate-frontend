@@ -120,6 +120,23 @@ const Neo4jDataView = dynamic(
   }
 )
 
+// Lazy load TrafficFlowMap (Full stack flows with stack components, connection details, gaps, blast radius) with SSR disabled
+const TrafficFlowMap = dynamic(
+  () => import('./dependency-map/traffic-flow-map'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
+          <p className="text-slate-400 text-xs mt-1">Building full stack flows</p>
+        </div>
+      </div>
+    )
+  }
+)
+
 // Feature flag for v2 (Observed-first) dependency map
 // Set NEXT_PUBLIC_DEPENDENCY_MAP_V2=true to enable
 const DEPENDENCY_MAP_V2_ENABLED = process.env.NEXT_PUBLIC_DEPENDENCY_MAP_V2 === 'true'
@@ -765,19 +782,13 @@ export default function DependencyMapTab({
           <React.Suspense fallback={
             <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
               <div className="text-center">
-                <div className="relative w-16 h-16 mx-auto mb-4">
-                  <div className="absolute inset-0 border-4 border-cyan-500/20 rounded-full"></div>
-                  <div className="absolute inset-0 border-4 border-transparent border-t-cyan-500 rounded-full animate-spin"></div>
-                </div>
-                <p className="text-slate-400">Loading Full Stack Flows...</p>
+                <div className="w-10 h-10 border-3 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-white text-sm font-medium">Loading Traffic Flow Map...</p>
+                <p className="text-slate-400 text-xs mt-1">Building full stack flows</p>
               </div>
             </div>
           }>
-            <ComprehensiveFlowViz
-              systemName={systemName}
-              onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
-              onRefresh={fetchGraphData}
-            />
+            <TrafficFlowMap systemName={systemName} />
           </React.Suspense>
         ) : (
           <ResourceView
