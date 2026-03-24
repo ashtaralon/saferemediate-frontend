@@ -763,15 +763,21 @@ export default function DependencyMapTab({
           )
         ) : activeView === 'flows' ? (
           <React.Suspense fallback={
-            <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+            <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
               <div className="text-center">
-                <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
-                <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
+                <div className="relative w-16 h-16 mx-auto mb-4">
+                  <div className="absolute inset-0 border-4 border-cyan-500/20 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-transparent border-t-cyan-500 rounded-full animate-spin"></div>
+                </div>
+                <p className="text-slate-400">Loading Full Stack Flows...</p>
               </div>
             </div>
           }>
-            <Neo4jAWSMap />
+            <ComprehensiveFlowViz
+              systemName={systemName}
+              onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
+              onRefresh={fetchGraphData}
+            />
           </React.Suspense>
         ) : (
           <ResourceView
