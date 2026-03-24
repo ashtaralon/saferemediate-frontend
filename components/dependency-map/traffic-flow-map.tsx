@@ -2944,18 +2944,30 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       if (n.vpcId) allVPCNodeMappings.push({ nodeId: n.id, vpcId: n.vpcId });
     });
     computeServices.forEach(cs => {
-      const vpcId = nodeToVPC.get(cs.id);
+      // Try edge-based VPC first, then fall back to node property vpc_id
+      let vpcId = nodeToVPC.get(cs.id);
+      if (!vpcId) {
+        // Check the original node's vpc_id property
+        const origNode = nodeByInstanceId.get(cs.id) || nodeMap.get(cs.id);
+        if (origNode?.vpc_id) vpcId = origNode.vpc_id;
+      }
       if (vpcId) {
         const subnet = nodeToSubnet.get(cs.id);
         allVPCNodeMappings.push({ nodeId: cs.id, vpcId, subnetId: subnet?.subnetId, isPublic: subnet?.isPublic });
       }
     });
-    // Also map resources via their connected compute's VPC
+    // Also map resources via their own vpc_id property or connected compute's VPC
     resources.forEach(r => {
-      const connectedFlow = flows.find(f => f.targetId === r.id);
-      if (connectedFlow) {
-        const vpcId = nodeToVPC.get(connectedFlow.sourceId);
-        if (vpcId) allVPCNodeMappings.push({ nodeId: r.id, vpcId });
+      const origNode = nodeMap.get(r.id) || nodeByResourceName.get(r.name);
+      if (origNode?.vpc_id) {
+        allVPCNodeMappings.push({ nodeId: r.id, vpcId: origNode.vpc_id });
+      } else {
+        const connectedFlow = flows.find(f => f.targetId === r.id);
+        if (connectedFlow) {
+          const computeNode = nodeByInstanceId.get(connectedFlow.sourceId);
+          const vpcId = nodeToVPC.get(connectedFlow.sourceId) || computeNode?.vpc_id;
+          if (vpcId) allVPCNodeMappings.push({ nodeId: r.id, vpcId });
+        }
       }
     });
 
