@@ -1852,6 +1852,7 @@ function UnifiedArchitectureDiagram({
   heatmapMode = false,
   ghostedNodeIds = new Set<string>(),
   highlightedNodeId,
+  showVPCBoundaries = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
