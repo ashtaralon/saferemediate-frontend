@@ -697,14 +697,15 @@ export default function DependencyMapTab({
         ) : activeView === 'graph' ? (
           graphEngine === 'neo4j' ? (
             <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
+              <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
                 <div className="text-center">
-                  <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
-                  <p className="text-white text-sm font-medium mt-3">Loading Full Stack Flows...</p>
+                  <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+                  <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
                 </div>
               </div>
             }>
-              <FlowStripView systemName={systemName} />
+              <Neo4jAWSMap />
             </React.Suspense>
           ) : graphEngine === 'comprehensive' ? (
             <React.Suspense fallback={
@@ -762,11 +763,15 @@ export default function DependencyMapTab({
           )
         ) : activeView === 'flows' ? (
           <React.Suspense fallback={
-            <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
-              <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
+            <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
+              <div className="text-center">
+                <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
+                <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
+              </div>
             </div>
           }>
-            <FlowStripView systemName={systemName} />
+            <Neo4jAWSMap />
           </React.Suspense>
         ) : (
           <ResourceView
