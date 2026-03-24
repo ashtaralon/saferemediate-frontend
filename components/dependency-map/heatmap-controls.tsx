@@ -82,18 +82,18 @@ export function HeatmapControls({
         </div>
       )}
 
-      {/* Heatmap legend */}
+      {/* Heatmap legend - Risk-based */}
       {heatmapMode && (
         <div className="flex items-center gap-1.5 ml-1 pl-2 border-l border-slate-600">
-          <span className="text-[9px] text-slate-500">Low</span>
+          <span className="text-[9px] text-green-400">Safe</span>
           <div
             className="w-16 h-2 rounded-full"
             style={{
               background:
-                'linear-gradient(to right, #3b82f6, #06b6d4, #22c55e, #eab308, #ef4444)',
+                'linear-gradient(to right, #22c55e, #84cc16, #eab308, #f97316, #ef4444)',
             }}
           />
-          <span className="text-[9px] text-slate-500">High</span>
+          <span className="text-[9px] text-red-400">Critical</span>
         </div>
       )}
     </div>

@@ -1482,13 +1482,14 @@ function AnimatedTrafficLine({
   const particleCount = isAttackPath ? 6 : trafficIntensity === 'high' ? 5 : trafficIntensity === 'medium' ? 3 : 2;
   const particleOffsets = Array.from({ length: particleCount }, (_, i) => i / particleCount);
 
-  // Heatmap color calculation
+  // Heatmap color calculation - RISK-BASED (not traffic volume)
+  // Risk gradient: green (safe) → yellow (warning) → orange (high) → red (critical)
   const getHeatmapColor = (ratio: number): string => {
-    if (ratio <= 0.2) return '#3b82f6'; // blue
-    if (ratio <= 0.4) return '#06b6d4'; // cyan
-    if (ratio <= 0.6) return '#22c55e'; // green
-    if (ratio <= 0.8) return '#eab308'; // yellow
-    return '#ef4444'; // red
+    if (ratio <= 0.2) return '#22c55e'; // green - safe
+    if (ratio <= 0.4) return '#84cc16'; // lime - low risk
+    if (ratio <= 0.6) return '#eab308'; // yellow - medium risk
+    if (ratio <= 0.8) return '#f97316'; // orange - high risk
+    return '#ef4444'; // red - critical risk
   };
 
   // Colors based on state - attack paths use red, heatmap overrides normal colors
@@ -1498,7 +1499,7 @@ function AnimatedTrafficLine({
   const particleColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#3b82f6';
   const glowColor = isAttackPath ? '#f87171' : isHighlighted ? '#34d399' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#60a5fa';
 
-  // Heatmap stroke width
+  // Heatmap stroke width - thicker = higher risk
   const heatmapStrokeWidth = heatmapMode && !isAttackPath ? 2 + (heatmapRatio * 8) : undefined;
 
   // Ghosted (outside dependency hop radius)
@@ -1795,6 +1796,25 @@ function ConnectionLinesSVG({
           const isGhosted = ghostedNodeIds.size > 0 && (
             ghostedNodeIds.has(line.flow.sourceId) || ghostedNodeIds.has(line.flow.targetId)
           );
+          // Risk-based heatmap ratio: calculate risk score per flow
+          let riskRatio = 0;
+          if (heatmapMode) {
+            let riskScore = 0;
+            // Attack path = critical risk
+            if (line.isAttackPath) riskScore += 0.4;
+            // SG with public rules = high risk
+            const sg = line.flow.sgId ? architecture.securityGroups.find(s => s.id === line.flow.sgId) : null;
+            if (sg?.rules?.some(r => r.isPublic)) riskScore += 0.3;
+            // SG with gaps (unused/unobserved rules) = medium risk
+            if (sg && sg.gapCount > 0) riskScore += 0.2;
+            // No NACL protection = additional risk
+            if (!line.flow.naclId) riskScore += 0.1;
+            // No IAM role = additional risk
+            if (!line.flow.roleId) riskScore += 0.1;
+            // High traffic amplifies risk (small factor)
+            riskScore += (line.flow.bytes / maxBytes) * 0.1;
+            riskRatio = Math.min(1, riskScore);
+          }
           return (
             <AnimatedTrafficLine
               key={`line-${i}-${line.flow.sourceId}-${line.flow.targetId}`}
@@ -1809,7 +1829,7 @@ function ConnectionLinesSVG({
               animate={heatmapMode ? false : animate}
               trafficIntensity={line.trafficIntensity}
               heatmapMode={heatmapMode}
-              heatmapRatio={heatmapMode ? line.flow.bytes / maxBytes : 0}
+              heatmapRatio={riskRatio}
               ghosted={isGhosted}
             />
           );
