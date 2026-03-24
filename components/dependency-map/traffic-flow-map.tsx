@@ -1028,7 +1028,7 @@ function ServiceDetailsPopup({
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between bg-white
+        <div className="px-6 py-4 border-b border-slate-700 flex items-center justify-between bg-white">
           <div className="flex items-center gap-4">
             <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${getNodeColor(serviceType)}`}>
               {getNodeIcon(serviceType)}
