@@ -1,8 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
+import { StackSidebar } from './stack-sidebar';
+import { HeatmapControls } from './heatmap-controls';
+import { TimelineSlider } from './timeline-slider';
+import { VPCBoundaries } from './vpc-boundaries';
+import { ExportControls } from './export-controls';
 
 // ============================================
 // TYPES
@@ -1448,6 +1453,9 @@ function AnimatedTrafficLine({
   flowData,
   animate,
   trafficIntensity = 'medium',
+  heatmapMode = false,
+  heatmapRatio = 0,
+  ghosted = false,
 }: {
   x1: number; y1: number; x2: number; y2: number;
   isActive: boolean;
@@ -1456,6 +1464,9 @@ function AnimatedTrafficLine({
   flowData?: TrafficFlow;
   animate: boolean;
   trafficIntensity?: 'low' | 'medium' | 'high';
+  heatmapMode?: boolean;
+  heatmapRatio?: number;
+  ghosted?: boolean;
 }) {
   const pathId = useMemo(() => `path-${Math.random().toString(36).substr(2, 9)}`, []);
   const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
@@ -1471,10 +1482,33 @@ function AnimatedTrafficLine({
   const particleCount = isAttackPath ? 6 : trafficIntensity === 'high' ? 5 : trafficIntensity === 'medium' ? 3 : 2;
   const particleOffsets = Array.from({ length: particleCount }, (_, i) => i / particleCount);
 
-  // Colors based on state - attack paths use red
-  const lineColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : isActive ? '#3b82f6' : '#475569';
-  const particleColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : '#3b82f6';
-  const glowColor = isAttackPath ? '#f87171' : isHighlighted ? '#34d399' : '#60a5fa';
+  // Heatmap color calculation
+  const getHeatmapColor = (ratio: number): string => {
+    if (ratio <= 0.2) return '#3b82f6'; // blue
+    if (ratio <= 0.4) return '#06b6d4'; // cyan
+    if (ratio <= 0.6) return '#22c55e'; // green
+    if (ratio <= 0.8) return '#eab308'; // yellow
+    return '#ef4444'; // red
+  };
+
+  // Colors based on state - attack paths use red, heatmap overrides normal colors
+  const lineColor = heatmapMode && !isAttackPath
+    ? getHeatmapColor(heatmapRatio)
+    : isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : isActive ? '#3b82f6' : '#475569';
+  const particleColor = isAttackPath ? '#ef4444' : isHighlighted ? '#10b981' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#3b82f6';
+  const glowColor = isAttackPath ? '#f87171' : isHighlighted ? '#34d399' : heatmapMode ? getHeatmapColor(heatmapRatio) : '#60a5fa';
+
+  // Heatmap stroke width
+  const heatmapStrokeWidth = heatmapMode && !isAttackPath ? 2 + (heatmapRatio * 8) : undefined;
+
+  // Ghosted (outside dependency hop radius)
+  if (ghosted) {
+    return (
+      <g opacity={0.08}>
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#475569" strokeWidth={1} strokeLinecap="round" />
+      </g>
+    );
+  }
 
   return (
     <g>
@@ -1502,7 +1536,7 @@ function AnimatedTrafficLine({
       <line
         x1={x1} y1={y1} x2={x2} y2={y2}
         stroke={lineColor}
-        strokeWidth={isAttackPath ? 4 : isHighlighted ? 3 : 2}
+        strokeWidth={heatmapStrokeWidth ?? (isAttackPath ? 4 : isHighlighted ? 3 : 2)}
         strokeLinecap="round"
         strokeDasharray={isAttackPath ? "10,5" : undefined}
         className="transition-all duration-300"
@@ -1600,12 +1634,16 @@ function ConnectionLinesSVG({
   containerRef,
   animate,
   attackPathEdges = new Set<string>(),
+  heatmapMode = false,
+  ghostedNodeIds = new Set<string>(),
 }: {
   architecture: SystemArchitecture;
   hoveredId: string | null;
   containerRef: React.RefObject<HTMLDivElement>;
   animate: boolean;
   attackPathEdges?: Set<string>;
+  heatmapMode?: boolean;
+  ghostedNodeIds?: Set<string>;
 }) {
   const [lines, setLines] = useState<Array<{
     x1: number; y1: number; x2: number; y2: number;
@@ -1753,21 +1791,29 @@ function ConnectionLinesSVG({
           const bScore = (b.isAttackPath ? 2 : 0) + (b.isHighlighted ? 1 : 0);
           return aScore - bScore;
         })
-        .map((line, i) => (
-          <AnimatedTrafficLine
-            key={`line-${i}-${line.flow.sourceId}-${line.flow.targetId}`}
-            x1={line.x1}
-            y1={line.y1}
-            x2={line.x2}
-            y2={line.y2}
-            isActive={line.isActive}
-            isHighlighted={line.isHighlighted}
-            isAttackPath={line.isAttackPath}
-            flowData={line.flow}
-            animate={animate}
-            trafficIntensity={line.trafficIntensity}
-          />
-        ))}
+        .map((line, i) => {
+          const isGhosted = ghostedNodeIds.size > 0 && (
+            ghostedNodeIds.has(line.flow.sourceId) || ghostedNodeIds.has(line.flow.targetId)
+          );
+          return (
+            <AnimatedTrafficLine
+              key={`line-${i}-${line.flow.sourceId}-${line.flow.targetId}`}
+              x1={line.x1}
+              y1={line.y1}
+              x2={line.x2}
+              y2={line.y2}
+              isActive={line.isActive}
+              isHighlighted={line.isHighlighted}
+              isAttackPath={line.isAttackPath}
+              flowData={line.flow}
+              animate={heatmapMode ? false : animate}
+              trafficIntensity={line.trafficIntensity}
+              heatmapMode={heatmapMode}
+              heatmapRatio={heatmapMode ? line.flow.bytes / maxBytes : 0}
+              ghosted={isGhosted}
+            />
+          );
+        })}
     </svg>
   );
 }
@@ -1782,6 +1828,9 @@ function UnifiedArchitectureDiagram({
   attackPaths = [],
   selectedAttackPath,
   onSelectAttackPath,
+  heatmapMode = false,
+  ghostedNodeIds = new Set<string>(),
+  highlightedNodeId,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -1789,8 +1838,13 @@ function UnifiedArchitectureDiagram({
   attackPaths?: AttackPath[];
   selectedAttackPath?: string | null;
   onSelectAttackPath?: (pathId: string | null) => void;
+  heatmapMode?: boolean;
+  ghostedNodeIds?: Set<string>;
+  highlightedNodeId?: string | null;
 }) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
+  const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
+  const effectiveHoveredId = highlightedNodeId || hoveredId;
   const [expandedSG, setExpandedSG] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1869,12 +1923,12 @@ function UnifiedArchitectureDiagram({
   }, [architecture.flows]);
 
   const isNodeHighlighted = (nodeId: string): boolean => {
-    if (!hoveredId) return false;
-    if (nodeId === hoveredId) return true;
+    if (!effectiveHoveredId) return false;
+    if (nodeId === effectiveHoveredId) return true;
     return architecture.flows.some(f =>
-      (f.sourceId === hoveredId && (f.targetId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
-      (f.targetId === hoveredId && (f.sourceId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
-      (f.sgId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId)) ||
+      (f.sourceId === effectiveHoveredId && (f.targetId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
+      (f.targetId === effectiveHoveredId && (f.sourceId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
+      (f.sgId === effectiveHoveredId && (f.sourceId === nodeId || f.targetId === nodeId)) ||
       (f.roleId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId))
     );
   };
@@ -1922,10 +1976,12 @@ function UnifiedArchitectureDiagram({
       <div ref={containerRef} className="relative min-h-[450px]">
         <ConnectionLinesSVG
           architecture={architecture}
-          hoveredId={hoveredId}
+          hoveredId={effectiveHoveredId}
           containerRef={containerRef}
           animate={animate}
           attackPathEdges={attackPathEdges}
+          heatmapMode={heatmapMode}
+          ghostedNodeIds={ghostedNodeIds}
         />
 
         <div className="relative grid grid-cols-[1fr_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
@@ -2183,7 +2239,7 @@ function UnifiedArchitectureDiagram({
       </div>
 
       {/* Flow details on hover */}
-      {hoveredId && (
+      {effectiveHoveredId && (
         <div className="mt-6 pt-4 border-t border-slate-700 animate-in fade-in duration-200">
           <div className="flex items-center gap-2 mb-3">
             <Info className="w-4 h-4 text-slate-400" />
@@ -2191,7 +2247,7 @@ function UnifiedArchitectureDiagram({
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {architecture.flows
-              .filter(f => f.sourceId === hoveredId || f.targetId === hoveredId || f.sgId === hoveredId || f.roleId === hoveredId)
+              .filter(f => f.sourceId === effectiveHoveredId || f.targetId === effectiveHoveredId || f.sgId === effectiveHoveredId || f.roleId === effectiveHoveredId)
               .map((flow, i) => {
                 const source = architecture.computeServices.find(c => c.id === flow.sourceId);
                 const target = architecture.resources.find(r => r.id === flow.targetId);
@@ -2376,8 +2432,63 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
   const [loadingAttackPaths, setLoadingAttackPaths] = useState(false);
   const [selectedAttackPath, setSelectedAttackPath] = useState<string | null>(null);
   const [showPathDetails, setShowPathDetails] = useState<string | null>(null);
+  // New killer map features
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [heatmapMode, setHeatmapMode] = useState(false);
+  const [hopDepth, setHopDepth] = useState(3);
+  const [selectedNodeForHops, setSelectedNodeForHops] = useState<string | null>(null);
+  const [showVPCBoundaries, setShowVPCBoundaries] = useState(false);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const [timelineActive, setTimelineActive] = useState(false);
+  const [timeWindow, setTimeWindow] = useState<'7d' | '30d' | '90d'>('30d');
+  const [timePoint, setTimePoint] = useState(100);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const previousArchRef = useRef<SystemArchitecture | null>(null);
+
+  // BFS to find nodes within N hops for dependency depth
+  const ghostedNodeIds = useMemo(() => {
+    if (!heatmapMode || !selectedNodeForHops || !architecture) return new Set<string>();
+    const adj = new Map<string, Set<string>>();
+    architecture.flows.forEach(f => {
+      if (!adj.has(f.sourceId)) adj.set(f.sourceId, new Set());
+      if (!adj.has(f.targetId)) adj.set(f.targetId, new Set());
+      adj.get(f.sourceId)!.add(f.targetId);
+      adj.get(f.targetId)!.add(f.sourceId);
+      // Include checkpoint nodes
+      [f.sgId, f.naclId, f.roleId].filter(Boolean).forEach(cp => {
+        if (cp) {
+          if (!adj.has(cp)) adj.set(cp, new Set());
+          adj.get(f.sourceId)!.add(cp);
+          adj.get(cp)!.add(f.targetId);
+        }
+      });
+    });
+    // BFS
+    const visited = new Set<string>();
+    const queue: { id: string; depth: number }[] = [{ id: selectedNodeForHops, depth: 0 }];
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (visited.has(id) || depth > hopDepth) continue;
+      visited.add(id);
+      const neighbors = adj.get(id);
+      if (neighbors) {
+        neighbors.forEach(n => {
+          if (!visited.has(n)) queue.push({ id: n, depth: depth + 1 });
+        });
+      }
+    }
+    // All nodes NOT in visited are ghosted
+    const allNodeIds = new Set<string>();
+    architecture.computeServices.forEach(n => allNodeIds.add(n.id));
+    architecture.resources.forEach(n => allNodeIds.add(n.id));
+    architecture.securityGroups.forEach(n => allNodeIds.add(n.id));
+    architecture.nacls.forEach(n => allNodeIds.add(n.id));
+    architecture.iamRoles.forEach(n => allNodeIds.add(n.id));
+    const ghosted = new Set<string>();
+    allNodeIds.forEach(id => { if (!visited.has(id)) ghosted.add(id); });
+    return ghosted;
+  }, [heatmapMode, selectedNodeForHops, hopDepth, architecture]);
 
   const buildArchitecture = useCallback((nodes: any[], edges: any[], iamData: any[]): SystemArchitecture => {
     const extractInstanceId = (id: string | null | undefined): string => {
@@ -3062,10 +3173,41 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full flex flex-col bg-slate-900 overflow-hidden">
+    <div ref={containerRef} className="h-full w-full flex flex-row bg-slate-900 overflow-hidden">
+      {/* Stack Components Sidebar */}
+      {sidebarOpen && architecture && (
+        <StackSidebar
+          architecture={architecture}
+          onSelectResource={(resource, type) => {
+            setSelectedService({ service: resource, type: type as any });
+            setSelectedNodeForHops(resource.id);
+            // Scroll to node on map
+            const el = mapContainerRef.current?.querySelector(
+              `[data-compute-id="${resource.id}"], [data-resource-id="${resource.id}"], [data-sg-id="${resource.id}"], [data-nacl-id="${resource.id}"], [data-role-id="${resource.id}"]`
+            );
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }}
+          highlightedNodeId={highlightedNodeId}
+          onHighlightNode={setHighlightedNodeId}
+          attackPaths={attackPaths}
+        />
+      )}
+
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header with refresh controls */}
       <div className="flex items-center justify-between px-4 py-3 bg-slate-800/90 border-b border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-4">
+          {/* Sidebar toggle */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              sidebarOpen ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-400'
+            }`}
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          >
+            <Layers className="w-4 h-4" />
+          </button>
           <h2 className="text-white font-bold text-lg">Traffic Flow Map</h2>
 
           {/* Live indicator */}
@@ -3155,6 +3297,23 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             {animate ? '⏸ Pause' : '▶ Play'}
           </button>
 
+          {/* Heatmap + VPC controls */}
+          <HeatmapControls
+            heatmapMode={heatmapMode}
+            onToggleHeatmap={() => setHeatmapMode(!heatmapMode)}
+            selectedNodeId={selectedNodeForHops}
+            hopDepth={hopDepth}
+            onHopDepthChange={setHopDepth}
+            showVPCBoundaries={showVPCBoundaries}
+            onToggleVPC={() => setShowVPCBoundaries(!showVPCBoundaries)}
+          />
+
+          {/* Export */}
+          <ExportControls
+            containerRef={containerRef}
+            systemName={systemName}
+          />
+
           {/* Manual refresh button */}
           <button
             onClick={handleManualRefresh}
@@ -3179,15 +3338,21 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 relative">
+      <div ref={mapContainerRef} className="flex-1 overflow-y-auto p-4 relative">
         {architecture && (architecture.computeServices.length > 0 || architecture.resources.length > 0) ? (
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
-            onSelectService={(service, type) => setSelectedService({ service, type })}
+            onSelectService={(service, type) => {
+              setSelectedService({ service, type });
+              setSelectedNodeForHops(service.id);
+            }}
             attackPaths={showAttackPaths ? attackPaths : []}
             selectedAttackPath={selectedAttackPath}
             onSelectAttackPath={setSelectedAttackPath}
+            heatmapMode={heatmapMode}
+            ghostedNodeIds={ghostedNodeIds}
+            highlightedNodeId={highlightedNodeId}
           />
         ) : (
           <div className="text-center py-16">
@@ -3310,6 +3475,16 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         )}
       </div>
 
+      {/* Timeline Slider */}
+      <TimelineSlider
+        currentWindow={timeWindow}
+        onWindowChange={(w) => setTimeWindow(w as '7d' | '30d' | '90d')}
+        timePoint={timePoint}
+        onTimePointChange={setTimePoint}
+        isActive={timelineActive}
+        onToggle={() => setTimelineActive(!timelineActive)}
+      />
+
       {/* Service Details Popup */}
       {selectedService && architecture && (
         <ServiceDetailsPopup
@@ -3328,6 +3503,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
           onClose={() => setShowPathDetails(null)}
         />
       )}
+      </div>{/* Close main content area */}
     </div>
   );
 }
