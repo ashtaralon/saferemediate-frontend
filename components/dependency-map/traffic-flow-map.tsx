@@ -2687,6 +2687,22 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         targetNode = nodeByResourceName.get(resourceName);
       }
 
+      // If target node not found, create synthetic node from edge target (e.g., S3 buckets referenced by ARN)
+      if (!targetNode && tgtId) {
+        const edgeType = (edge.edge_type || edge.type || '').toUpperCase();
+        if (edgeType === 'ACTUAL_S3_ACCESS' || tgtId.includes(':s3:::')) {
+          const bucketName = tgtId.includes(':::') ? tgtId.split(':::')[1] : extractResourceName(tgtId);
+          targetNode = { id: tgtId, name: bucketName, type: 'S3Bucket' };
+          nodeMap.set(tgtId, targetNode);
+          nodeByResourceName.set(bucketName, targetNode);
+        } else if (tgtId.includes(':dynamodb:')) {
+          const tableName = extractResourceName(tgtId);
+          targetNode = { id: tgtId, name: tableName, type: 'DynamoDBTable' };
+          nodeMap.set(tgtId, targetNode);
+          nodeByResourceName.set(tableName, targetNode);
+        }
+      }
+
       // Skip if we can't find both nodes
       if (!sourceNode || !targetNode) return;
 
@@ -2786,6 +2802,35 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         shortName: shortName(node.name || node.id),
         type: mapNodeType(node.type || 'storage'),
       });
+    });
+
+    // Always include DynamoDB tables and S3 buckets even without direct traffic edges
+    nodes.forEach(node => {
+      const nType = mapNodeType(node.type || '');
+      if (['database', 'storage', 'dynamodb'].includes(nType)) {
+        const rName = extractResourceName(node.id);
+        if (!seenResources.has(rName)) {
+          seenResources.add(rName);
+          resources.push({
+            id: node.id,
+            name: node.name || node.id,
+            shortName: shortName(node.name || node.id),
+            type: nType,
+          });
+          // Create flows from all compute to this resource
+          computeServices.forEach(cs => {
+            const flowKey = `${cs.id}->${node.id}`;
+            if (!flowMap.has(flowKey)) {
+              flowMap.set(flowKey, {
+                sourceId: cs.id, targetId: node.id,
+                sgId: computeToSG.get(cs.id), naclId: computeToNACL.get(cs.id),
+                roleId: computeToRole.get(cs.id),
+                ports: [], protocol: 'TCP', bytes: 0, connections: 0, isActive: false,
+              });
+            }
+          });
+        }
+      }
     });
 
     // Fallback: If no traffic flows found, build from all system nodes + structural edges
