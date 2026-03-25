@@ -459,7 +459,7 @@ export function AttackSimulationPanel({
                     <Shield className="h-5 w-5 text-red-400" />
                     <span className="font-medium text-white">Exploitable Vulnerabilities</span>
                     <Badge className="bg-red-500/20 text-red-400">
-                      {simulationData.exploitable_vulnerabilities.filter(v => v.current_risk === "EXPLOITABLE_NOW").length} Active
+                      {simulationData.exploitable_vulnerabilities.filter(v => v?.current_risk === "EXPLOITABLE_NOW").length} Active
                     </Badge>
                   </div>
                   {expandedSections.vulnerabilities ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
@@ -558,7 +558,7 @@ export function AttackSimulationPanel({
                           </Badge>
                         </div>
 
-                        {store.accessible_objects.tables && store.accessible_objects.tables.length > 0 && (
+                        {store?.accessible_objects?.tables && store.accessible_objects.tables.length > 0 && (
                           <div className="mt-2">
                             <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Accessible Tables:</span>
                             <div className="flex flex-wrap gap-1 mt-1">
@@ -572,17 +572,17 @@ export function AttackSimulationPanel({
                         )}
 
                         <div className="flex flex-wrap gap-2 mt-2 text-xs">
-                          {store.accessible_objects.estimated_rows && (
+                          {store?.accessible_objects?.estimated_rows && (
                             <span className="px-2 py-1 bg-gray-700 rounded">
-                              ~{store.accessible_objects.estimated_rows.toLocaleString()} rows
+                              ~{store?.accessible_objects?.estimated_rows.toLocaleString()} rows
                             </span>
                           )}
-                          {store.accessible_objects.contains_pii && (
+                          {store?.accessible_objects?.contains_pii && (
                             <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded">
                               Contains PII
                             </span>
                           )}
-                          {store.accessible_objects.contains_financial && (
+                          {store?.accessible_objects?.contains_financial && (
                             <span className="px-2 py-1 bg-orange-500/20 text-orange-400 rounded">
                               Financial Data
                             </span>
@@ -823,8 +823,8 @@ export function AttackSimulationPanel({
                                   {option.impact_preview.side_effects.map((se, seIdx) => (
                                     <div key={seIdx} className="text-xs text-gray-300 mt-1">
                                       <span className="text-yellow-400">{se.type}:</span> {se.description}
-                                      {se.affected_services.length > 0 && (
-                                        <span className="text-[var(--muted-foreground,#6b7280)]"> (affects: {se.affected_services.join(", ")})</span>
+                                      {se.affected_services?.length > 0 && (
+                                        <span className="text-[var(--muted-foreground,#6b7280)]"> (affects: {se?.affected_services?.join(", ")})</span>
                                       )}
                                     </div>
                                   ))}
