@@ -1,34 +1,11 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Download, FileImage, FileText, Loader2 } from 'lucide-react';
+import { Download, FileImage, Printer, Loader2 } from 'lucide-react';
 
 interface ExportControlsProps {
   containerRef: React.RefObject<HTMLDivElement>;
   systemName: string;
-}
-
-function getFormattedDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-}
-
-async function captureCanvas(
-  container: HTMLElement
-): Promise<HTMLCanvasElement> {
-  const html2canvas = (await import('html2canvas')).default;
-  return html2canvas(container, {
-    backgroundColor: '#0f172a',
-    scale: 2,
-    useCORS: true,
-  });
 }
 
 export function ExportControls({
@@ -37,7 +14,6 @@ export function ExportControls({
 }: ExportControlsProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportType, setExportType] = useState<'png' | 'pdf' | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleClickOutside = useCallback(
@@ -61,63 +37,51 @@ export function ExportControls({
     };
   }, [isOpen, handleClickOutside]);
 
-  const triggerDownload = (url: string, filename: string) => {
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = url;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const handleExportPNG = async () => {
     if (!containerRef.current) return;
 
     setIsExporting(true);
-    setExportType('png');
     setIsOpen(false);
 
     try {
-      const canvas = await captureCanvas(containerRef.current);
-      const dataUrl = canvas.toDataURL('image/png');
-      const date = getFormattedDate();
-      const safeName = sanitizeFilename(systemName);
-      triggerDownload(dataUrl, `traffic-flow-map-${safeName}-${date}.png`);
+      // Dynamic import html2canvas only when needed
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(containerRef.current, {
+        backgroundColor: '#0f172a',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        // Limit the capture area to prevent freezing
+        width: containerRef.current.scrollWidth,
+        height: containerRef.current.scrollHeight,
+        windowWidth: containerRef.current.scrollWidth,
+        windowHeight: containerRef.current.scrollHeight,
+      });
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const date = new Date().toISOString().split('T')[0];
+        link.download = `traffic-flow-map-${systemName}-${date}.png`;
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 'image/png');
     } catch (error) {
       console.error('PNG export failed:', error);
+      alert('PNG export failed. Try the Print option instead.');
     } finally {
       setIsExporting(false);
-      setExportType(null);
     }
   };
 
-  const handleExportPDF = async () => {
-    // PDF export: render as high-res PNG and open in new tab for printing to PDF
-    if (!containerRef.current) return;
-
-    setIsExporting(true);
-    setExportType('pdf');
+  const handlePrint = () => {
     setIsOpen(false);
-
-    try {
-      const canvas = await captureCanvas(containerRef.current);
-      const dataUrl = canvas.toDataURL('image/png');
-      // Open in new window for print-to-PDF
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(`
-          <html><head><title>Traffic Flow Map - ${systemName}</title>
-          <style>body{margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;min-height:100vh}img{max-width:100%;height:auto}</style>
-          </head><body><img src="${dataUrl}" /><script>setTimeout(()=>window.print(),500)<\/script></body></html>
-        `);
-        printWindow.document.close();
-      }
-    } catch (error) {
-      console.error('PDF export failed:', error);
-    } finally {
-      setIsExporting(false);
-      setExportType(null);
-    }
+    // Simple: use browser's print dialog which can save as PDF
+    window.print();
   };
 
   return (
@@ -138,9 +102,7 @@ export function ExportControls({
         {isExporting ? (
           <>
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span>
-              Exporting{exportType ? ` ${exportType.toUpperCase()}` : ''}...
-            </span>
+            <span>Exporting...</span>
           </>
         ) : (
           <>
@@ -152,34 +114,22 @@ export function ExportControls({
 
       {isOpen && (
         <div
-          className="
-            absolute right-0 mt-1 w-48
-            bg-slate-800 border border-slate-600 rounded-lg
-            shadow-2xl overflow-visible
-          "
+          className="absolute right-0 mt-1 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl overflow-visible"
           style={{ zIndex: 9999, top: '100%' }}
         >
           <button
             onClick={handleExportPNG}
-            className="
-              flex items-center gap-2 w-full px-4 py-2
-              text-sm text-white hover:bg-slate-700
-              transition-colors duration-150
-            "
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-white hover:bg-slate-700 transition-colors"
           >
-            <FileImage className="w-4 h-4 text-slate-400" />
+            <FileImage className="w-4 h-4 text-blue-400" />
             Export as PNG
           </button>
           <button
-            onClick={handleExportPDF}
-            className="
-              flex items-center gap-2 w-full px-4 py-2
-              text-sm text-white hover:bg-slate-700
-              transition-colors duration-150
-            "
+            onClick={handlePrint}
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-white hover:bg-slate-700 transition-colors"
           >
-            <FileText className="w-4 h-4 text-slate-400" />
-            Export as PDF
+            <Printer className="w-4 h-4 text-green-400" />
+            Print / Save as PDF
           </button>
         </div>
       )}
