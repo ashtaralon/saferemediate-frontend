@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { X, Shield, Database, AlertTriangle, ChevronDown, ChevronRight, Lock, Unlock, Server, HardDrive, FileWarning, Zap, Check, ExternalLink } from "lucide-react"
+import { X, Shield, Database, AlertTriangle, ChevronDown, ChevronRight, Lock, Unlock, Server, HardDrive, FileWarning, Zap, Check, ExternalLink, Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -161,6 +161,7 @@ export function AttackSimulationPanel({
   const [appliedRemediations, setAppliedRemediations] = useState<string[]>([])
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [chainExpanded, setChainExpanded] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -638,10 +639,19 @@ export function AttackSimulationPanel({
               </div>
 
               {/* Attack Chain Visualization */}
-              <div className="bg-[#252540] rounded-lg border border-gray-700 p-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <Zap className="h-5 w-5 text-orange-400" />
-                  <span className="font-medium text-white">Attack Chain — Step by Step</span>
+              <div
+                className="bg-[#252540] rounded-lg border border-gray-700 p-4 cursor-pointer hover:border-orange-500/50 transition-colors group"
+                onClick={() => setChainExpanded(true)}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-orange-400" />
+                    <span className="font-medium text-white">Attack Chain — Step by Step</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-gray-500 group-hover:text-orange-400 transition-colors">
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    <span>Click to expand</span>
+                  </div>
                 </div>
                 <div className="flex items-stretch gap-0 overflow-x-auto pb-2">
                   {buildAttackChain(simulationData).map((step, idx, arr) => (
@@ -675,6 +685,119 @@ export function AttackSimulationPanel({
                   ))}
                 </div>
               </div>
+
+              {/* Fullscreen Attack Chain Modal */}
+              {chainExpanded && (
+                <div
+                  className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+                  onClick={() => setChainExpanded(false)}
+                >
+                  <div
+                    className="bg-[#1a1a2e] rounded-2xl border border-orange-500/30 w-full max-w-[95vw] max-h-[90vh] overflow-auto shadow-2xl shadow-orange-500/10"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Modal Header */}
+                    <div className="flex items-center justify-between p-6 border-b border-gray-700">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                          <Zap className="h-6 w-6 text-orange-400" />
+                        </div>
+                        <div>
+                          <h2 className="text-xl font-bold text-white">Attack Chain Analysis</h2>
+                          <p className="text-sm text-gray-400">{pathName || 'Attack path progression — from entry to impact'}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setChainExpanded(false)}
+                        className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
+                      >
+                        <X className="h-5 w-5 text-gray-400" />
+                      </button>
+                    </div>
+
+                    {/* Expanded Chain */}
+                    <div className="p-6">
+                      <div className="flex flex-wrap items-stretch gap-4 justify-center">
+                        {buildAttackChain(simulationData).map((step, idx, arr) => (
+                          <div key={idx} className="flex items-stretch">
+                            <div className={cn(
+                              "w-64 rounded-xl border-2 p-5 flex flex-col",
+                              step.risk === 'critical' ? 'bg-red-500/10 border-red-500/50' :
+                              step.risk === 'high' ? 'bg-orange-500/10 border-orange-500/50' :
+                              step.risk === 'medium' ? 'bg-yellow-500/10 border-yellow-500/50' :
+                              'bg-slate-700/50 border-slate-500'
+                            )}>
+                              <div className="flex items-center gap-2 mb-3">
+                                <span className={cn(
+                                  "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white",
+                                  step.risk === 'critical' ? 'bg-red-500' : step.risk === 'high' ? 'bg-orange-500' : step.risk === 'medium' ? 'bg-yellow-500' : 'bg-slate-500'
+                                )}>
+                                  {idx + 1}
+                                </span>
+                                <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">{step.phase}</span>
+                                <Badge className={cn(
+                                  "ml-auto text-[10px]",
+                                  step.risk === 'critical' ? 'bg-red-500/20 text-red-400' :
+                                  step.risk === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                                  step.risk === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                  'bg-slate-500/20 text-slate-400'
+                                )}>
+                                  {step.risk}
+                                </Badge>
+                              </div>
+                              <div className="text-base font-semibold text-white mb-2">{step.resource}</div>
+                              <div className="text-sm text-gray-300 leading-relaxed flex-1">{step.action}</div>
+                              {step.detail && (
+                                <div className="mt-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400 font-medium">
+                                  {step.detail}
+                                </div>
+                              )}
+                            </div>
+                            {idx < arr.length - 1 && (
+                              <div className="flex items-center px-2">
+                                <div className="text-orange-400 text-2xl font-bold">→</div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Summary bar at bottom */}
+                      <div className="mt-6 p-4 bg-[#252540] rounded-xl border border-gray-700 flex items-center justify-between">
+                        <div className="flex items-center gap-6">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-red-400">{buildAttackChain(simulationData).length}</div>
+                            <div className="text-[10px] text-gray-400 uppercase">Steps</div>
+                          </div>
+                          <div className="w-px h-8 bg-gray-700" />
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-orange-400">{simulationData?.exploitable_vulnerabilities?.length || 0}</div>
+                            <div className="text-[10px] text-gray-400 uppercase">CVEs</div>
+                          </div>
+                          <div className="w-px h-8 bg-gray-700" />
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-blue-400">{simulationData?.data_access_scope?.data_stores_accessible?.length || 0}</div>
+                            <div className="text-[10px] text-gray-400 uppercase">Data Stores</div>
+                          </div>
+                          <div className="w-px h-8 bg-gray-700" />
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-purple-400">
+                              {simulationData?.data_access_scope?.data_stores_accessible?.reduce((sum, s) => sum + (s?.accessible_objects?.estimated_rows || 0), 0)?.toLocaleString() || '0'}
+                            </div>
+                            <div className="text-[10px] text-gray-400 uppercase">Records at Risk</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setChainExpanded(false)}
+                          className="px-4 py-2 bg-orange-500/20 text-orange-400 rounded-lg hover:bg-orange-500/30 transition-colors text-sm font-medium"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Data Access Scope Section */}
               <div className="bg-[#252540] rounded-lg border border-gray-700">
