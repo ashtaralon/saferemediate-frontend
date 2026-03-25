@@ -86,6 +86,9 @@ function computeBoundingBox(
     const relX = rect.left - containerRect.left;
     const relY = rect.top - containerRect.top;
 
+    // Skip elements that are not visible or have zero dimensions
+    if (rect.width === 0 || rect.height === 0) continue;
+
     minX = Math.min(minX, relX);
     minY = Math.min(minY, relY);
     maxX = Math.max(maxX, relX + rect.width);
@@ -100,6 +103,23 @@ function computeBoundingBox(
     width: maxX - minX + PADDING * 2,
     height: maxY - minY + PADDING * 2,
   };
+}
+
+// Fallback: find ALL architecture nodes in container
+function findAllArchitectureNodes(container: HTMLElement): HTMLElement[] {
+  const selectors = [
+    '[data-compute-id]',
+    '[data-sg-id]',
+    '[data-nacl-id]',
+    '[data-role-id]',
+    '[data-resource-id]',
+    '[data-api-id]',
+  ];
+  const elements: HTMLElement[] = [];
+  for (const sel of selectors) {
+    container.querySelectorAll<HTMLElement>(sel).forEach(el => elements.push(el));
+  }
+  return elements;
 }
 
 export function VPCBoundaries({
@@ -125,7 +145,13 @@ export function VPCBoundaries({
 
     for (const vpc of vpcGroups) {
       const allNodeIds = vpc.subnets.flatMap((s) => s.nodeIds);
-      const allElements = findNodeElements(container, allNodeIds);
+      let allElements = findNodeElements(container, allNodeIds);
+
+      // Fallback: if we found very few elements but have many nodeIds,
+      // the IDs might not match DOM attributes. Use all architecture nodes instead.
+      if (allElements.length < 2 && allNodeIds.length >= 2) {
+        allElements = findAllArchitectureNodes(container);
+      }
       const vpcBox = computeBoundingBox(allElements, containerRect);
 
       if (!vpcBox) continue;
