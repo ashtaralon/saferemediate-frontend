@@ -2324,20 +2324,18 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
         </div>
       </div>
 
-      {/* Attack Simulation Panel - wrapped to prevent crash */}
+      {/* Attack Simulation Panel */}
       {showSimulation && (
-        <React.Suspense fallback={<div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"><div className="text-white">Loading simulation...</div></div>}>
-          <AttackSimulationPanel
-            isOpen={showSimulation}
-            onClose={() => setShowSimulation(false)}
-            systemName={systemName}
-            pathId={pathId}
-            pathName={details?.path_summary?.source?.name && details?.path_summary?.target?.name
-              ? `${details.path_summary.source.name} → ${details.path_summary.target.name}`
-              : undefined
-            }
-          />
-        </React.Suspense>
+        <AttackSimulationPanel
+          isOpen={showSimulation}
+          onClose={() => setShowSimulation(false)}
+          systemName={systemName}
+          pathId={pathId}
+          pathName={details?.path_summary?.source?.name && details?.path_summary?.target?.name
+            ? `${details.path_summary.source.name} → ${details.path_summary.target.name}`
+            : undefined
+          }
+        />
       )}
     </div>
   )
