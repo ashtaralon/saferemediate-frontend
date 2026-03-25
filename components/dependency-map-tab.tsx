@@ -485,17 +485,6 @@ export default function DependencyMapTab({
           {/* Main View Toggle */}
           <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
             <button
-              onClick={() => setActiveView('sankey')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeView === 'sankey'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <GitBranch className="w-4 h-4" />
-              Traffic Flow
-            </button>
-            <button
               onClick={() => setActiveView('graph')}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeView === 'graph'
@@ -517,17 +506,6 @@ export default function DependencyMapTab({
               <Search className="w-4 h-4" />
               Resource View
             </button>
-            <button
-              onClick={() => setActiveView('flows')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeView === 'flows'
-                  ? 'bg-[#8b5cf6] text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <GitBranch className="w-4 h-4" />
-              Full Stack Flows
-            </button>
           </div>
 
           {/* Graph Engine Toggle (only show in graph view) */}
@@ -544,42 +522,6 @@ export default function DependencyMapTab({
               >
                 <Layers className="w-4 h-4" />
                 Full Map
-              </button>
-              <button
-                onClick={() => handleGraphEngineChange('observed')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'observed'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Observed-First View - Only real traffic from VPC Flow Logs"
-              >
-                <Activity className="w-4 h-4" />
-                Traffic
-              </button>
-              <button
-                onClick={() => handleGraphEngineChange('logical')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'logical'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Logical View - Graph theory layout with all connections"
-              >
-                <Network className="w-4 h-4" />
-                Logical
-              </button>
-              <button
-                onClick={() => handleGraphEngineChange('architectural')}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  graphEngine === 'architectural'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="Architectural View - True containment with functional lanes"
-              >
-                <Layers className="w-4 h-4" />
-                Arch
               </button>
               <button
                 onClick={() => handleGraphEngineChange('neo4j')}
@@ -636,16 +578,10 @@ export default function DependencyMapTab({
           </div>
 
           <div className="text-sm text-slate-500">
-            {activeView === 'sankey' ? (
-              <span>Professional traffic flow visualization • Based on actual VPC Flow Logs</span>
-            ) : activeView === 'graph' ? (
+            {activeView === 'graph' ? (
               <span>
                 {graphEngine === 'comprehensive'
                   ? 'AWS Architecture Map • Force-directed layout with official AWS icons • Click nodes for details'
-                  : graphEngine === 'observed'
-                  ? 'Traffic-only view • Real network flows from VPC Flow Logs'
-                  : graphEngine === 'architectural'
-                  ? 'True containment view with VPC/Subnet boxes • Left-to-right functional lanes'
                   : graphEngine === 'neo4j'
                   ? 'Neo4j-powered visualization • Animated data flows with real-time updates • Drag to pan, scroll to zoom'
                   : 'Graph theory view with all connections • Double-click a node for details'}
@@ -702,16 +638,7 @@ export default function DependencyMapTab({
 
       {/* View Content */}
       <div className="flex-1 h-[650px]">
-        {activeView === 'sankey' ? (
-          <SankeyView
-            graphData={graphData}
-            isLoading={isLoading}
-            onNodeClick={handleNodeClick}
-            onRefresh={fetchGraphData}
-            showIAM={false}
-            height={550}
-          />
-        ) : activeView === 'graph' ? (
+        {activeView === 'graph' ? (
           graphEngine === 'neo4j' ? (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[700px] bg-slate-900 rounded-xl">
@@ -724,7 +651,7 @@ export default function DependencyMapTab({
             }>
               <TrafficFlowMap systemName={systemName} />
             </React.Suspense>
-          ) : graphEngine === 'comprehensive' ? (
+          ) : (
             <React.Suspense fallback={
               <div className="flex items-center justify-center h-[700px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-xl">
                 <div className="text-center">
@@ -742,54 +669,7 @@ export default function DependencyMapTab({
                 onRefresh={fetchGraphData}
               />
             </React.Suspense>
-          ) : graphEngine === 'observed' ? (
-            <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
-                <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
-              </div>
-            }>
-              <InfrastructureFlowViz
-                systemName={systemName}
-                onNodeClick={(node) => handleNodeClick(node.id, node.type, node.name)}
-                onRefresh={fetchGraphData}
-              />
-            </React.Suspense>
-          ) : graphEngine === 'architectural' ? (
-            <React.Suspense fallback={
-              <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-                <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-              </div>
-            }>
-              <GraphViewX6
-                systemName={systemName}
-                graphData={graphData}
-                isLoading={isLoading}
-                onNodeClick={handleNodeClick}
-                onRefresh={fetchGraphData}
-                highlightPath={highlightPath}
-              />
-            </React.Suspense>
-          ) : (
-            <GraphView
-              systemName={systemName}
-              graphData={graphData}
-              isLoading={isLoading}
-              onNodeClick={handleNodeClick}
-              onRefresh={fetchGraphData}
-            />
           )
-        ) : activeView === 'flows' ? (
-          <React.Suspense fallback={
-            <div className="flex items-center justify-center h-[650px] bg-slate-900 rounded-xl">
-              <div className="text-center">
-                <div className="w-10 h-10 border-3 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-white text-sm font-medium">Loading Neo4j Map...</p>
-                <p className="text-slate-400 text-xs mt-1">Connecting to database</p>
-              </div>
-            </div>
-          }>
-            <Neo4jAWSMap />
-          </React.Suspense>
         ) : (
           <ResourceView
             systemName={systemName}
