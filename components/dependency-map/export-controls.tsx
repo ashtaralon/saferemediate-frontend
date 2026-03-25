@@ -153,10 +153,11 @@ export function ExportControls({
       {isOpen && (
         <div
           className="
-            absolute right-0 top-full mt-1 w-48
+            absolute right-0 mt-1 w-48
             bg-slate-800 border border-slate-600 rounded-lg
-            shadow-xl z-50 overflow-hidden
+            shadow-2xl overflow-visible
           "
+          style={{ zIndex: 9999, top: '100%' }}
         >
           <button
             onClick={handleExportPNG}

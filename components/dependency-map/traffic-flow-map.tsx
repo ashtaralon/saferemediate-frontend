@@ -3347,7 +3347,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header with refresh controls */}
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-800/90 border-b border-slate-700 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-800/90 border-b border-slate-700 flex-shrink-0 relative z-50 overflow-visible">
         <div className="flex items-center gap-4">
           {/* Sidebar toggle */}
           <button
@@ -3461,7 +3461,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
 
           {/* Export */}
           <ExportControls
-            containerRef={containerRef}
+            containerRef={mapContainerRef}
             systemName={systemName}
           />
 
