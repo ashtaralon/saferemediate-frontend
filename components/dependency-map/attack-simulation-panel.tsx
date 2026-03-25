@@ -406,6 +406,101 @@ export function AttackSimulationPanel({
     }
   }
 
+  const getDamageNarrative = (vuln: ExploitableVulnerability): string => {
+    const cvss = vuln.cvss_score;
+    const name = vuln.cve_name || '';
+    const port = vuln.affected_port;
+    const isNetworkExploitable = vuln.exploitability?.network_exploitable;
+    const hasExploit = vuln.exploitability?.exploit_available;
+
+    if (cvss >= 9) {
+      return `Critical: ${hasExploit ? 'Exploit code is publicly available. ' : ''}Attacker can gain remote code execution via port ${port}${isNetworkExploitable ? ' from the internet' : ''}. Full system compromise leads to shell access → credential theft → lateral movement to connected databases and services.`;
+    }
+    if (cvss >= 7) {
+      return `High: Attacker can escalate privileges${isNetworkExploitable ? ' remotely' : ' with local access'} via port ${port}. ${hasExploit ? 'Known exploit exists. ' : ''}This enables access to IAM credentials → unauthorized data access → potential exfiltration of sensitive records.`;
+    }
+    if (cvss >= 4) {
+      return `Medium: Attacker can read sensitive data through exposed service on port ${port}. Information disclosure may reveal credentials, API keys, or internal architecture details enabling further attacks.`;
+    }
+    return `Low: Limited information disclosure via port ${port}. Minimal direct impact but may assist in reconnaissance for more targeted attacks.`;
+  };
+
+  const buildAttackChain = (data: SimulationData | null): Array<{phase: string; resource: string; action: string; detail?: string; risk: string}> => {
+    if (!data) return [];
+    const chain: Array<{phase: string; resource: string; action: string; detail?: string; risk: string}> = [];
+
+    // Step 1: Entry point
+    const firstVuln = data.exploitable_vulnerabilities?.[0];
+    chain.push({
+      phase: 'Entry Point',
+      resource: pathName?.split(' → ')[0] || 'External',
+      action: firstVuln ? `Exploit ${firstVuln.cve_id} on port ${firstVuln.affected_port}` : 'Network access',
+      detail: firstVuln?.exploitability?.exploit_available ? '⚡ Exploit available' : undefined,
+      risk: firstVuln?.cvss_score >= 9 ? 'critical' : firstVuln?.cvss_score >= 7 ? 'high' : 'medium',
+    });
+
+    // Step 2: Exploitation (for each CVE)
+    if (data.exploitable_vulnerabilities?.length > 1) {
+      data.exploitable_vulnerabilities?.slice(1).forEach(v => {
+        chain.push({
+          phase: 'Exploit',
+          resource: v.cve_id,
+          action: `${v.severity} - ${v.cve_name?.slice(0, 40) || 'Vulnerability'}`,
+          detail: `CVSS ${v.cvss_score}`,
+          risk: v.cvss_score >= 9 ? 'critical' : v.cvss_score >= 7 ? 'high' : 'medium',
+        });
+      });
+    }
+
+    // Step 3: Pivot / Lateral Movement
+    const roles = data.data_access_scope?.iam_roles_in_path || [];
+    if (roles.length > 0) {
+      chain.push({
+        phase: 'Pivot',
+        resource: roles[0]?.split('/')?.pop() || roles[0] || 'IAM Role',
+        action: `Assume role → ${data.data_access_scope?.combined_permissions?.length || 0} permissions`,
+        risk: 'high',
+      });
+    }
+
+    // Step 4: Data Access
+    const stores = data.data_access_scope?.data_stores_accessible || [];
+    stores.forEach(store => {
+      chain.push({
+        phase: 'Data Access',
+        resource: store.resource_name,
+        action: `${store.resource_type} — ${store?.accessible_objects?.tables?.length || 0} tables, ${store?.accessible_objects?.estimated_rows?.toLocaleString() || '?'} rows`,
+        detail: store?.accessible_objects?.contains_pii ? '🔴 Contains PII' : undefined,
+        risk: store?.accessible_objects?.contains_pii ? 'critical' : 'high',
+      });
+    });
+
+    // Step 5: Impact
+    const impacts = data.potential_impacts || [];
+    if (impacts.length > 0) {
+      chain.push({
+        phase: 'Impact',
+        resource: impacts[0]?.impact_type?.replace(/_/g, ' ') || 'Data Breach',
+        action: impacts[0]?.description?.slice(0, 60) || 'Potential data exfiltration',
+        detail: impacts[0]?.affected_data?.compliance_violations?.join(', ') || undefined,
+        risk: 'critical',
+      });
+    } else if (stores.length > 0) {
+      // Fallback impact based on data access
+      const totalRows = stores.reduce((sum, s) => sum + (s?.accessible_objects?.estimated_rows || 0), 0);
+      const hasPII = stores.some(s => s?.accessible_objects?.contains_pii);
+      chain.push({
+        phase: 'Impact',
+        resource: 'Data Exfiltration',
+        action: `${totalRows.toLocaleString()} records at risk${hasPII ? ' including PII' : ''}`,
+        detail: hasPII ? 'GDPR, SOC2 violation' : undefined,
+        risk: 'critical',
+      });
+    }
+
+    return chain;
+  };
+
   if (!isOpen) return null
 
   return (
@@ -501,6 +596,38 @@ export function AttackSimulationPanel({
                             Complexity: {vuln.exploitability.attack_complexity}
                           </span>
                         </div>
+                        {/* Damage Scenario */}
+                        <div className="mt-3 p-2.5 bg-red-500/5 border border-red-500/20 rounded-lg">
+                          <div className="text-xs font-semibold text-red-400 mb-1.5 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Damage Scenario
+                          </div>
+                          <p className="text-xs text-gray-300 leading-relaxed">
+                            {getDamageNarrative(vuln)}
+                          </p>
+                          {/* CVSS severity bar */}
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className={cn("h-full rounded-full", vuln.cvss_score >= 9 ? "bg-red-500" : vuln.cvss_score >= 7 ? "bg-orange-500" : vuln.cvss_score >= 4 ? "bg-yellow-500" : "bg-green-500")}
+                                style={{ width: `${(vuln.cvss_score / 10) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-gray-400">{vuln.cvss_score}/10</span>
+                          </div>
+                          {/* Affected data from this CVE */}
+                          {simulationData.data_access_scope?.data_stores_accessible?.length > 0 && (
+                            <div className="mt-2 flex items-center gap-1.5 text-[10px] text-gray-400">
+                              <Database className="h-3 w-3 text-blue-400" />
+                              <span>If exploited, gives access to: </span>
+                              {simulationData.data_access_scope?.data_stores_accessible?.map((s, i) => (
+                                <Badge key={i} className="bg-blue-500/10 text-blue-400 text-[10px] px-1.5 py-0">
+                                  {s.resource_name} ({s?.accessible_objects?.estimated_rows?.toLocaleString() || '?'} rows{s?.accessible_objects?.contains_pii ? ', PII' : ''})
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                     {simulationData.exploitable_vulnerabilities?.length === 0 && (
@@ -508,6 +635,45 @@ export function AttackSimulationPanel({
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Attack Chain Visualization */}
+              <div className="bg-[#252540] rounded-lg border border-gray-700 p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <Zap className="h-5 w-5 text-orange-400" />
+                  <span className="font-medium text-white">Attack Chain — Step by Step</span>
+                </div>
+                <div className="flex items-stretch gap-0 overflow-x-auto pb-2">
+                  {buildAttackChain(simulationData).map((step, idx, arr) => (
+                    <div key={idx} className="flex items-stretch flex-shrink-0">
+                      <div className={cn(
+                        "w-44 rounded-lg border p-3 flex flex-col",
+                        step.risk === 'critical' ? 'bg-red-500/10 border-red-500/40' :
+                        step.risk === 'high' ? 'bg-orange-500/10 border-orange-500/40' :
+                        step.risk === 'medium' ? 'bg-yellow-500/10 border-yellow-500/40' :
+                        'bg-slate-700/50 border-slate-600'
+                      )}>
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className={cn(
+                            "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white",
+                            step.risk === 'critical' ? 'bg-red-500' : step.risk === 'high' ? 'bg-orange-500' : step.risk === 'medium' ? 'bg-yellow-500' : 'bg-slate-500'
+                          )}>
+                            {idx + 1}
+                          </span>
+                          <span className="text-[10px] font-semibold text-gray-400 uppercase">{step.phase}</span>
+                        </div>
+                        <div className="text-sm font-medium text-white truncate" title={step.resource}>{step.resource}</div>
+                        <div className="text-[10px] text-gray-400 mt-1 leading-relaxed flex-1">{step.action}</div>
+                        {step.detail && <div className="text-[10px] text-red-400 mt-1 font-medium">{step.detail}</div>}
+                      </div>
+                      {idx < arr.length - 1 && (
+                        <div className="flex items-center px-1">
+                          <div className="text-orange-400 text-lg">→</div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Data Access Scope Section */}
@@ -791,14 +957,30 @@ export function AttackSimulationPanel({
                                 <span className="text-[var(--muted-foreground,#9ca3af)]">Risk Reduction:</span>
                                 <span className="text-green-400 font-medium">{option.impact_preview?.risk_reduction}</span>
                               </div>
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded">
-                                  Before: {option.impact_preview?.before_score.toFixed(1)}
-                                </span>
-                                <span className="text-[var(--muted-foreground,#9ca3af)]">-&gt;</span>
-                                <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded">
-                                  After: {option.impact_preview?.after_score.toFixed(1)}
-                                </span>
+                              {/* Visual Before/After Risk Gauge */}
+                              <div className="flex items-center gap-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center justify-between text-[10px] mb-1">
+                                    <span className="text-red-400 font-medium">Before: {option.impact_preview?.before_score?.toFixed(1) || '?'}</span>
+                                    <span className="text-green-400 font-medium">After: {option.impact_preview?.after_score?.toFixed(1) || '?'}</span>
+                                  </div>
+                                  <div className="relative h-2.5 bg-gray-700 rounded-full overflow-hidden">
+                                    {/* Before bar (full width, red) */}
+                                    <div
+                                      className="absolute inset-y-0 left-0 bg-red-500/40 rounded-full"
+                                      style={{ width: `${Math.min(100, ((option.impact_preview?.before_score || 0) / 100) * 100)}%` }}
+                                    />
+                                    {/* After bar (shorter, green, on top) */}
+                                    <div
+                                      className="absolute inset-y-0 left-0 bg-green-500 rounded-full transition-all duration-500"
+                                      style={{ width: `${Math.min(100, ((option.impact_preview?.after_score || 0) / 100) * 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="text-center px-2 py-1 bg-green-500/20 rounded-lg min-w-[60px]">
+                                  <div className="text-green-400 font-bold text-sm">-{(((option.impact_preview?.before_score || 0) - (option.impact_preview?.after_score || 0))).toFixed(0)}</div>
+                                  <div className="text-[9px] text-gray-400">risk pts</div>
+                                </div>
                               </div>
 
                               {option.impact_preview?.attack_impacts_prevented && option.impact_preview?.attack_impacts_prevented.length > 0 && (
