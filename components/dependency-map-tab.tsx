@@ -530,10 +530,10 @@ export default function DependencyMapTab({
                     ? 'bg-white text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
-                title="Neo4j Map - Real-time animated data flows from Neo4j database"
+                title="System Map - Real-time animated data flows with live traffic visualization"
               >
                 <Activity className="w-4 h-4" />
-                Neo4j
+                System Map
               </button>
             </div>
           )}
@@ -583,7 +583,7 @@ export default function DependencyMapTab({
                 {graphEngine === 'comprehensive'
                   ? 'AWS Architecture Map • Force-directed layout with official AWS icons • Click nodes for details'
                   : graphEngine === 'neo4j'
-                  ? 'Neo4j-powered visualization • Animated data flows with real-time updates • Drag to pan, scroll to zoom'
+                  ? 'System Map • Animated data flows with real-time updates • Drag to pan, scroll to zoom'
                   : 'Graph theory view with all connections • Double-click a node for details'}
               </span>
             ) : (

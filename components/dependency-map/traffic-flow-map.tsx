@@ -3137,7 +3137,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       console.log(`[TrafficFlowMap] Loaded ${nodes.length} nodes, ${edges.length} edges from Neo4j`);
 
       if (nodes.length === 0) {
-        setError('No data available in Neo4j');
+        setError('No data available');
         setArchitecture(null);
         setRefreshStatus('error');
       } else {
@@ -3476,7 +3476,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
             }`}
           >
             <RefreshCw className={`w-4 h-4 ${refreshStatus === 'fetching' ? 'animate-spin' : ''}`} />
-            {refreshStatus === 'fetching' ? 'Syncing...' : 'Refresh from Neo4j'}
+            {refreshStatus === 'fetching' ? 'Syncing...' : 'Refresh Data'}
           </button>
 
           {/* Fullscreen toggle */}
