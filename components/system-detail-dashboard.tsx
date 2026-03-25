@@ -1756,7 +1756,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       )}
 
       {activeTab === "vulnerabilities" && (
-        <div className="max-w-[1800px] mx-auto px-8 py-6">
+        <div className="max-w-[1800px] mx-auto px-8 py-3">
           <VulnerabilitiesSection systemName={systemName} />
         </div>
       )}
