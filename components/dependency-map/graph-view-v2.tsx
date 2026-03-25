@@ -582,13 +582,13 @@ export default function GraphViewV2({
                 </div>
 
                 {n.is_internet_exposed && (
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-[#ef444410]0 rounded-full flex items-center justify-center animate-pulse">
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
                     <Globe className="w-2.5 h-2.5 text-white" />
                   </div>
                 )}
 
                 {n.permission_gaps > 0 && (
-                  <div className="absolute -top-1 -left-1 w-4 h-4 bg-[#f9731610]0 rounded-full flex items-center justify-center text-[8px] text-white font-bold">
+                  <div className="absolute -top-1 -left-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold">
                     {n.permission_gaps}
                   </div>
                 )}
@@ -617,8 +617,8 @@ export default function GraphViewV2({
         <div className="text-white font-semibold mb-1.5 text-[10px]">Legend</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-0.5 bg-[#22c55e10]0 relative">
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#22c55e10]0 rounded-full" />
+            <div className="w-5 h-0.5 bg-green-500 relative">
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-green-500 rounded-full" />
             </div>
             <span className="text-slate-300 text-[10px]">Observed Traffic</span>
           </div>

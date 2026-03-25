@@ -306,12 +306,12 @@ const NodeCard: React.FC<{
       {totalFlow > 0 && (
         <div className="absolute -top-1.5 -right-1.5 flex gap-0.5">
           {inFlow > 0 && (
-            <div className="bg-[#22c55e10]0 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg shadow-green-500/30">
+            <div className="bg-green-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg shadow-green-500/30">
               ↓{formatCount(inFlow)}
             </div>
           )}
           {outFlow > 0 && (
-            <div className="bg-[#3b82f610]0 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg shadow-blue-500/30">
+            <div className="bg-blue-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg shadow-blue-500/30">
               ↑{formatCount(outFlow)}
             </div>
           )}
@@ -670,7 +670,7 @@ export default function InfrastructureFlowViz({ systemName, onNodeClick, onRefre
         <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Connection Types</div>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 text-[10px]">
-            <div className="w-6 h-0.5 bg-[#22c55e10]0 rounded" />
+            <div className="w-6 h-0.5 bg-green-500 rounded" />
             <span className="text-slate-400">Network Traffic (VPC Flow)</span>
           </div>
           <div className="flex items-center gap-2 text-[10px]">

@@ -614,9 +614,9 @@ function BucketCard({
   const aggregated = aggregateConnections(bucket.connections)
 
   const riskColors = {
-    low: 'bg-[#22c55e10]0',
-    medium: 'bg-[#f9731610]0',
-    high: 'bg-[#ef444410]0',
+    low: 'bg-green-500',
+    medium: 'bg-orange-500',
+    high: 'bg-red-500',
   }
 
   return (
@@ -726,10 +726,10 @@ function StatBadge({ count, label, color }: { count: number; label: string; colo
     amber: 'bg-[#f9731620] text-[#f97316]',
   }
   const dotColors = {
-    green: 'bg-[#22c55e10]0',
-    blue: 'bg-[#3b82f610]0',
+    green: 'bg-green-500',
+    blue: 'bg-blue-500',
     purple: 'bg-[#8b5cf6]',
-    amber: 'bg-[#f9731610]0',
+    amber: 'bg-orange-500',
   }
 
   return (
@@ -1147,7 +1147,7 @@ export default function ResourceView({
                 <Key className="w-3.5 h-3.5" />
                 Identity Evidence
                 {showIdentityOverlay && identityEvidence.summary.critical > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 bg-[#ef444410]0 text-white text-xs rounded-full">
+                  <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">
                     {identityEvidence.summary.critical}
                   </span>
                 )}

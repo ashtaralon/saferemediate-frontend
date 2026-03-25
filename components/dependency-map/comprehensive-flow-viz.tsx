@@ -302,16 +302,16 @@ const NodeCard: React.FC<{
       {/* Extra info badges */}
       <div className="flex flex-wrap gap-1 mt-2">
         {'security_groups' in node && node.security_groups?.length > 0 && (
-          <span className="text-[9px] bg-[#f9731610]0/20 text-amber-400 px-1.5 py-0.5 rounded">{node.security_groups.length} SGs</span>
+          <span className="text-[9px] bg-orange-500/20 text-amber-400 px-1.5 py-0.5 rounded">{node.security_groups.length} SGs</span>
         )}
         {'port' in node && node.port && (
           <span className="text-[9px] bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded">:{node.port}</span>
         )}
         {'unused_permissions_count' in node && node.unused_permissions_count > 0 && (
-          <span className="text-[9px] bg-[#ef444410]0/20 text-red-400 px-1.5 py-0.5 rounded">{node.unused_permissions_count} unused</span>
+          <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded">{node.unused_permissions_count} unused</span>
         )}
         {'ingress_rules' in node && (
-          <span className="text-[9px] bg-[#f9731610]0/20 text-amber-400 px-1.5 py-0.5 rounded">{node.ingress_rules?.length || 0} rules</span>
+          <span className="text-[9px] bg-orange-500/20 text-amber-400 px-1.5 py-0.5 rounded">{node.ingress_rules?.length || 0} rules</span>
         )}
       </div>
     </div>

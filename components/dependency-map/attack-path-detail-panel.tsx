@@ -343,11 +343,11 @@ function AttackPathDiagram({
   const getCategoryColor = (category: string) => {
     switch (category) {
       case "compute":
-        return { bg: "bg-[#3b82f610]0/20", border: "border-[#3b82f6]", text: "text-blue-400", glow: "shadow-blue-500/30" }
+        return { bg: "bg-blue-500/20", border: "border-[#3b82f6]", text: "text-blue-400", glow: "shadow-blue-500/30" }
       case "security":
-        return { bg: "bg-[#f9731610]0/20", border: "border-orange-500", text: "text-orange-400", glow: "shadow-orange-500/30" }
+        return { bg: "bg-orange-500/20", border: "border-orange-500", text: "text-orange-400", glow: "shadow-orange-500/30" }
       case "identity":
-        return { bg: "bg-[#eab30810]0/20", border: "border-yellow-500", text: "text-yellow-400", glow: "shadow-yellow-500/30" }
+        return { bg: "bg-yellow-500/20", border: "border-yellow-500", text: "text-yellow-400", glow: "shadow-yellow-500/30" }
       case "data":
         return { bg: "bg-[#8b5cf6]/20", border: "border-purple-500", text: "text-purple-400", glow: "shadow-purple-500/30" }
       default:
@@ -372,7 +372,7 @@ function AttackPathDiagram({
       {/* Title */}
       <div className="relative flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#ef444410]0/20 rounded-xl flex items-center justify-center">
+          <div className="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center">
             <Target className="w-5 h-5 text-red-400" />
           </div>
           <div>
@@ -384,15 +384,15 @@ function AttackPathDiagram({
         </div>
         <div className="flex items-center gap-3 text-xs flex-wrap">
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#3b82f610]0" />
+            <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
             <span className="text-slate-400">Compute</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#f9731610]0" />
+            <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
             <span className="text-slate-400">Network</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#eab30810]0" />
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
             <span className="text-slate-400">Identity</span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -400,15 +400,15 @@ function AttackPathDiagram({
             <span className="text-slate-400">Data</span>
           </div>
           <div className="border-l border-slate-600 pl-3 flex items-center gap-1.5">
-            <div className="px-1.5 py-0.5 rounded bg-[#eab30810]0/80 text-[9px] text-black font-bold">ZT</div>
+            <div className="px-1.5 py-0.5 rounded bg-yellow-500/80 text-[9px] text-black font-bold">ZT</div>
             <span className="text-slate-400">Zero-Trust Risk</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="px-1.5 py-0.5 rounded bg-[#ef444410]0/20 text-[9px] text-red-400">EXT</div>
+            <div className="px-1.5 py-0.5 rounded bg-red-500/20 text-[9px] text-red-400">EXT</div>
             <span className="text-slate-400">External</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="px-1.5 py-0.5 rounded bg-[#eab30810]0/20 text-[9px] text-yellow-400">INT</div>
+            <div className="px-1.5 py-0.5 rounded bg-yellow-500/20 text-[9px] text-yellow-400">INT</div>
             <span className="text-slate-400">Internal</span>
           </div>
         </div>
@@ -450,7 +450,7 @@ function AttackPathDiagram({
                 {isVulnerable && (
                   <div className="absolute -top-3 -right-3 z-10">
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg ${
-                      node.critical_cves > 0 ? 'bg-[#ef444410]0 animate-pulse' : 'bg-[#f9731610]0'
+                      node.critical_cves > 0 ? 'bg-red-500 animate-pulse' : 'bg-orange-500'
                     }`}>
                       {node.cve_count}
                     </div>
@@ -461,9 +461,9 @@ function AttackPathDiagram({
                 {isInternal && !isVulnerable && (
                   <div className="absolute -top-3 -left-3 z-10">
                     <div className={`px-2 py-0.5 rounded-full flex items-center justify-center text-[9px] font-bold shadow-lg ${
-                      zeroTrustRisk === "high" ? 'bg-[#ef444410]0/80 text-white' :
-                      zeroTrustRisk === "medium" ? 'bg-[#eab30810]0/80 text-black' :
-                      'bg-[#22c55e10]0/80 text-white'
+                      zeroTrustRisk === "high" ? 'bg-red-500/80 text-white' :
+                      zeroTrustRisk === "medium" ? 'bg-yellow-500/80 text-black' :
+                      'bg-green-500/80 text-white'
                     }`}>
                       ZT
                     </div>
@@ -490,7 +490,7 @@ function AttackPathDiagram({
 
                 {/* Internal/External indicator */}
                 <div className={`absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] px-1.5 py-0.5 rounded ${
-                  isInternal ? 'bg-[#eab30810]0/20 text-yellow-400' : 'bg-[#ef444410]0/20 text-red-400'
+                  isInternal ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'
                 }`}>
                   {isInternal ? "INT" : "EXT"}
                 </div>
@@ -546,7 +546,7 @@ function AttackPathDiagram({
               }}
             >
               {/* Arrow line */}
-              <div className="relative w-full h-0.5 bg-[#ef444410]0 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
+              <div className="relative w-full h-0.5 bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
                 {/* Animated dash overlay */}
                 <div
                   className="absolute inset-0 bg-gradient-to-r from-transparent via-red-300 to-transparent"
@@ -574,13 +574,13 @@ function AttackPathDiagram({
 
       {/* Traffic indicator + Zero Trust banner */}
       <div className="relative flex items-center justify-center gap-4 mt-4 flex-wrap">
-        <div className="flex items-center gap-2 px-4 py-2 bg-[#22c55e10]0/10 border border-green-500/30 rounded-full">
-          <div className="w-2 h-2 bg-[#22c55e10]0 rounded-full animate-pulse" />
+        <div className="flex items-center gap-2 px-4 py-2 bg-green-500/10 border border-green-500/30 rounded-full">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
           <span className="text-xs text-green-400 font-medium">
             {details.path_summary.evidence_type === "observed" ? "Live Observed Traffic" : "Configured Path"}
           </span>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-[#eab30810]0/10 border border-yellow-500/30 rounded-full">
+        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-full">
           <Shield className="w-3 h-3 text-yellow-400" />
           <span className="text-xs text-yellow-400 font-medium">
             Zero-Trust Model: Assume Breach
@@ -1419,26 +1419,26 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
   const getRiskColor = (level: string) => {
     switch (level.toLowerCase()) {
       case "critical":
-        return "text-red-400 bg-[#ef444410]0/20 border-red-500/50"
+        return "text-red-400 bg-red-500/20 border-red-500/50"
       case "high":
-        return "text-orange-400 bg-[#f9731610]0/20 border-orange-500/50"
+        return "text-orange-400 bg-orange-500/20 border-orange-500/50"
       case "medium":
-        return "text-yellow-400 bg-[#eab30810]0/20 border-yellow-500/50"
+        return "text-yellow-400 bg-yellow-500/20 border-yellow-500/50"
       default:
-        return "text-green-400 bg-[#22c55e10]0/20 border-green-500/50"
+        return "text-green-400 bg-green-500/20 border-green-500/50"
     }
   }
 
   const getSeverityColor = (severity: string) => {
     switch (severity.toUpperCase()) {
       case "CRITICAL":
-        return "bg-[#ef444410]0"
+        return "bg-red-500"
       case "HIGH":
-        return "bg-[#f9731610]0"
+        return "bg-orange-500"
       case "MEDIUM":
-        return "bg-[#eab30810]0"
+        return "bg-yellow-500"
       default:
-        return "bg-[#22c55e10]0"
+        return "bg-green-500"
     }
   }
 
@@ -1479,7 +1479,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-[#ef444410]0/20 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 bg-red-500/20 rounded-xl flex items-center justify-center">
                 <Skull className="w-6 h-6 text-red-400" />
               </div>
               <div>
@@ -1553,18 +1553,18 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className={`px-4 py-2 rounded-xl font-bold text-lg ${
-                        riskAssessment.risk_level === 'critical' ? 'bg-[#ef444410]0/20 text-red-400 border border-red-500/50' :
-                        riskAssessment.risk_level === 'high' ? 'bg-[#f9731610]0/20 text-orange-400 border border-orange-500/50' :
-                        riskAssessment.risk_level === 'medium' ? 'bg-[#eab30810]0/20 text-yellow-400 border border-yellow-500/50' :
-                        'bg-[#22c55e10]0/20 text-green-400 border border-green-500/50'
+                        riskAssessment.risk_level === 'critical' ? 'bg-red-500/20 text-red-400 border border-red-500/50' :
+                        riskAssessment.risk_level === 'high' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' :
+                        riskAssessment.risk_level === 'medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' :
+                        'bg-green-500/20 text-green-400 border border-green-500/50'
                       }`}>
                         {riskAssessment.risk_score} Risk Score
                       </div>
                       <span className={`px-3 py-1 rounded-full text-sm font-medium uppercase ${
-                        riskAssessment.risk_level === 'critical' ? 'bg-[#ef444410]0/20 text-red-400' :
-                        riskAssessment.risk_level === 'high' ? 'bg-[#f9731610]0/20 text-orange-400' :
-                        riskAssessment.risk_level === 'medium' ? 'bg-[#eab30810]0/20 text-yellow-400' :
-                        'bg-[#22c55e10]0/20 text-green-400'
+                        riskAssessment.risk_level === 'critical' ? 'bg-red-500/20 text-red-400' :
+                        riskAssessment.risk_level === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                        riskAssessment.risk_level === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-green-500/20 text-green-400'
                       }`}>
                         {riskAssessment.risk_level}
                       </span>
@@ -1580,15 +1580,15 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                         <span className="text-sm font-medium text-white">CVE Summary</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-center">
-                        <div className="bg-[#ef444410]0/10 rounded-lg p-2">
+                        <div className="bg-red-500/10 rounded-lg p-2">
                           <div className="text-xl font-bold text-red-400">{riskAssessment.cve_summary?.critical ?? 0}</div>
                           <div className="text-[10px] text-slate-500 uppercase">Critical</div>
                         </div>
-                        <div className="bg-[#f9731610]0/10 rounded-lg p-2">
+                        <div className="bg-orange-500/10 rounded-lg p-2">
                           <div className="text-xl font-bold text-orange-400">{riskAssessment.cve_summary?.high ?? 0}</div>
                           <div className="text-[10px] text-slate-500 uppercase">High</div>
                         </div>
-                        <div className="bg-[#eab30810]0/10 rounded-lg p-2">
+                        <div className="bg-yellow-500/10 rounded-lg p-2">
                           <div className="text-xl font-bold text-yellow-400">{riskAssessment.cve_summary?.medium ?? 0}</div>
                           <div className="text-[10px] text-slate-500 uppercase">Medium</div>
                         </div>
@@ -1640,9 +1640,9 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                               <div className="text-xs text-white font-medium truncate">{store.name}</div>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                  store.sensitivity === 'critical' ? 'bg-[#ef444410]0/20 text-red-400' :
-                                  store.sensitivity === 'high' ? 'bg-[#f9731610]0/20 text-orange-400' :
-                                  'bg-[#eab30810]0/20 text-yellow-400'
+                                  store.sensitivity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                                  store.sensitivity === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                                  'bg-yellow-500/20 text-yellow-400'
                                 }`}>
                                   {store.sensitivity}
                                 </span>
@@ -1664,14 +1664,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
                   {/* Dangerous Permissions */}
                   {(riskAssessment.dangerous_permissions?.length || 0) > 0 && (
-                    <div className="bg-[#ef444410]0/5 rounded-xl p-4 border border-red-500/20">
+                    <div className="bg-red-500/5 rounded-xl p-4 border border-red-500/20">
                       <div className="flex items-center gap-2 mb-3">
                         <Key className="w-4 h-4 text-red-400" />
                         <span className="text-sm font-medium text-white">Dangerous Permissions</span>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {(riskAssessment.dangerous_permissions || []).slice(0, 6).map((perm, i) => (
-                          <span key={i} className="px-2 py-1 bg-[#ef444410]0/20 text-red-400 text-xs rounded-lg font-mono">
+                          <span key={i} className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded-lg font-mono">
                             {perm.permission}
                           </span>
                         ))}
@@ -1686,7 +1686,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
                   {/* Attack Impacts */}
                   {(riskAssessment.attack_impacts?.length || 0) > 0 && (
-                    <div className="bg-[#f9731610]0/5 rounded-xl p-4 border border-orange-500/20">
+                    <div className="bg-orange-500/5 rounded-xl p-4 border border-orange-500/20">
                       <div className="flex items-center gap-2 mb-3">
                         <AlertTriangle className="w-4 h-4 text-orange-400" />
                         <span className="text-sm font-medium text-white">Potential Attack Impacts</span>
@@ -1729,14 +1729,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             </code>
             {details.risk_formula.model && (
               <div className="mt-2">
-                <span className="px-3 py-1 bg-[#eab30810]0/20 text-yellow-400 text-sm rounded-full">
+                <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 text-sm rounded-full">
                   {details.risk_formula.model}
                 </span>
               </div>
             )}
           </div>
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-[#3b82f610]0/10 border border-[#3b82f6]/30 rounded-xl p-4 text-center">
+            <div className="bg-blue-500/10 border border-[#3b82f6]/30 rounded-xl p-4 text-center">
               <div className="text-3xl font-bold text-blue-400 mb-2">{details.risk_formula.reachability.score}</div>
               <div className="text-sm text-slate-400 mb-3">Reachability</div>
               <div className="space-y-1">
@@ -1745,7 +1745,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                 ))}
               </div>
             </div>
-            <div className="bg-[#f9731610]0/10 border border-orange-500/30 rounded-xl p-4 text-center">
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 text-center">
               <div className="text-3xl font-bold text-orange-400 mb-2">{details.risk_formula.privilege.score}</div>
               <div className="text-sm text-slate-400 mb-3">Privilege</div>
               <div className="space-y-1">
@@ -1764,7 +1764,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </div>
             </div>
             {details.risk_formula.blast_radius && (
-              <div className="bg-[#ef444410]0/10 border border-red-500/30 rounded-xl p-4 text-center">
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-center">
                 <div className="text-3xl font-bold text-red-400 mb-2">{details.risk_formula.blast_radius.score}</div>
                 <div className="text-sm text-slate-400 mb-3">Blast Radius</div>
                 <div className="space-y-1">
@@ -1790,7 +1790,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                 <div className="flex items-center gap-3">
                   <Bug className="w-6 h-6 text-red-400" />
                   <span className="text-lg font-semibold text-white">Vulnerabilities</span>
-                  <span className="px-3 py-1 bg-[#ef444410]0/20 text-red-400 text-sm rounded-full">
+                  <span className="px-3 py-1 bg-red-500/20 text-red-400 text-sm rounded-full">
                     {details.path_summary.total_cves} CVEs
                   </span>
                 </div>
@@ -1809,12 +1809,12 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                           <div className="font-medium text-white text-lg">{vuln.node_name}</div>
                           <div className="flex gap-2">
                             {vuln.critical_count > 0 && (
-                              <span className="px-3 py-1 bg-[#ef444410]0 text-white text-sm rounded-lg font-medium">
+                              <span className="px-3 py-1 bg-red-500 text-white text-sm rounded-lg font-medium">
                                 {vuln.critical_count} Critical
                               </span>
                             )}
                             {vuln.high_count > 0 && (
-                              <span className="px-3 py-1 bg-[#f9731610]0 text-white text-sm rounded-lg font-medium">
+                              <span className="px-3 py-1 bg-orange-500 text-white text-sm rounded-lg font-medium">
                                 {vuln.high_count} High
                               </span>
                             )}
@@ -1829,7 +1829,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                                   <code className="text-red-400 font-mono">{cve.cve_id}</code>
                                   <span className="text-xs text-slate-500">CVSS {cve.cvss_score}</span>
                                   {cve.exploit_available && (
-                                    <span className="px-2 py-0.5 bg-[#ef444410]0/20 text-red-400 text-xs rounded font-medium">
+                                    <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded font-medium">
                                       EXPLOIT AVAILABLE
                                     </span>
                                   )}
@@ -1868,7 +1868,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <Network className="w-6 h-6 text-blue-400" />
                   <span className="text-lg font-semibold text-white">Network Layer</span>
                   {details.network_layer.internet_exposed && (
-                    <span className="px-3 py-1 bg-[#ef444410]0/20 text-red-400 text-sm rounded-full">
+                    <span className="px-3 py-1 bg-red-500/20 text-red-400 text-sm rounded-full">
                       Internet Exposed
                     </span>
                   )}
@@ -1885,7 +1885,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-slate-400">Open Ports:</span>
                     {details.network_layer.open_ports.map((port) => (
-                      <span key={port} className="px-3 py-1 bg-[#3b82f610]0/20 text-blue-400 text-sm rounded-lg font-mono">
+                      <span key={port} className="px-3 py-1 bg-blue-500/20 text-blue-400 text-sm rounded-lg font-mono">
                         {port}/{details.network_layer.protocols[0] || "TCP"}
                       </span>
                     ))}
@@ -1900,7 +1900,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                           <span className="font-medium text-white">{sg.sg_name}</span>
                         </div>
                         {sg.open_to_internet && (
-                          <span className="px-2 py-1 bg-[#ef444410]0/20 text-red-400 text-xs rounded">
+                          <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded">
                             Open to Internet
                           </span>
                         )}
@@ -1909,7 +1909,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                         <div className="space-y-2">
                           <div className="text-xs text-slate-400">Risky Rules:</div>
                           {sg.risky_rules.map((rule, i) => (
-                            <div key={i} className="flex items-center gap-2 p-2 bg-[#ef444410]0/10 rounded-lg border border-red-500/20">
+                            <div key={i} className="flex items-center gap-2 p-2 bg-red-500/10 rounded-lg border border-red-500/20">
                               <XCircle className="w-4 h-4 text-red-400" />
                               <span className="text-sm text-slate-300">
                                 {rule.direction} {rule.port}/{rule.protocol} from {rule.source}
@@ -1927,7 +1927,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                     <div className="space-y-2">
                       {details.network_layer.network_path.map((hop, i) => (
                         <div key={i} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
-                          <div className="w-2 h-2 rounded-full bg-[#22c55e10]0" />
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
                           <span className="text-sm text-slate-300 flex-1 truncate">{hop.from}</span>
                           <ArrowRight className="w-4 h-4 text-slate-500" />
                           <span className="text-sm text-slate-300 flex-1 truncate">{hop.to}</span>
@@ -1960,7 +1960,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <Key className="w-6 h-6 text-yellow-400" />
                   <span className="text-lg font-semibold text-white">Identity Layer (IAM)</span>
                   {details.identity_layer.dangerous_permissions.length > 0 && (
-                    <span className="px-3 py-1 bg-[#f9731610]0/20 text-orange-400 text-sm rounded-full">
+                    <span className="px-3 py-1 bg-orange-500/20 text-orange-400 text-sm rounded-full">
                       {details.identity_layer.dangerous_permissions.length} Risky
                     </span>
                   )}
@@ -1993,7 +1993,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                       {role.policies.length > 0 && (
                         <div className="flex flex-wrap gap-2">
                           {role.policies.map((policy) => (
-                            <span key={policy} className="px-2 py-1 bg-[#eab30810]0/10 text-yellow-400 text-xs rounded">
+                            <span key={policy} className="px-2 py-1 bg-yellow-500/10 text-yellow-400 text-xs rounded">
                               {policy}
                             </span>
                           ))}
@@ -2004,7 +2004,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
                   {/* Dangerous Permissions */}
                   {details.identity_layer.dangerous_permissions.length > 0 && (
-                    <div className="bg-[#ef444410]0/10 border border-red-500/20 rounded-xl p-4">
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
                       <div className="text-sm text-red-400 font-medium mb-3">Dangerous Permissions</div>
                       {details.identity_layer.dangerous_permissions.map((perm, i) => (
                         <div key={i} className="flex items-center gap-2 py-2">
@@ -2018,14 +2018,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
                   {/* Least Privilege Gaps */}
                   {details.identity_layer.least_privilege_gaps.length > 0 && (
-                    <div className="bg-[#f9731610]0/10 border border-orange-500/20 rounded-xl p-4">
+                    <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4">
                       <div className="text-sm text-orange-400 font-medium mb-3">Least Privilege Gaps</div>
                       {details.identity_layer.least_privilege_gaps.map((gap, i) => (
                         <div key={i} className="flex items-center justify-between py-2">
                           <span className="text-sm text-slate-300">{gap.role}</span>
                           <div className="flex items-center gap-3">
                             <span className="text-xs text-slate-400">{gap.observed}/{gap.allowed} used</span>
-                            <span className="px-2 py-1 bg-[#f9731610]0/20 text-orange-400 text-xs rounded font-medium">
+                            <span className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded font-medium">
                               {gap.gap_percentage}% unused
                             </span>
                           </div>
@@ -2048,7 +2048,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <span className="text-lg font-semibold text-white">Crown Jewel</span>
                   <span className={`px-3 py-1 text-sm rounded-full ${
                     details.data_impact.sensitivity === "Critical"
-                      ? "bg-[#ef444410]0/20 text-red-400"
+                      ? "bg-red-500/20 text-red-400"
                       : "bg-[#8b5cf6]/20 text-purple-400"
                   }`}>
                     {details.data_impact.sensitivity}
@@ -2103,7 +2103,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                       <div className="text-sm text-slate-400 mb-2">Compliance Frameworks:</div>
                       <div className="flex flex-wrap gap-2">
                         {details.data_impact.compliance.map((framework) => (
-                          <span key={framework} className="px-3 py-1 bg-[#3b82f610]0/20 text-blue-400 text-sm rounded-lg">
+                          <span key={framework} className="px-3 py-1 bg-blue-500/20 text-blue-400 text-sm rounded-lg">
                             {framework}
                           </span>
                         ))}
@@ -2124,7 +2124,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   </div>
 
                   {/* Breach Impact */}
-                  <div className="bg-[#ef444410]0/10 border border-red-500/20 rounded-xl p-4">
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
                     <div className="flex items-center gap-2 text-red-400 font-medium mb-2">
                       <FileWarning className="w-5 h-5" />
                       Potential Breach Impact
@@ -2146,7 +2146,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-6 h-6 text-green-400" />
               <span className="text-lg font-semibold text-white">Remediation Actions</span>
-              <span className="px-3 py-1 bg-[#22c55e10]0/20 text-green-400 text-sm rounded-full">
+              <span className="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">
                 {details.remediations.length} actions
               </span>
             </div>
@@ -2163,9 +2163,9 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <div key={i} className="bg-slate-800/50 rounded-xl p-4">
                     <div className="flex items-start gap-4">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold ${
-                        rem.priority === 1 ? "bg-[#ef444410]0 text-white" :
-                        rem.priority === 2 ? "bg-[#f9731610]0 text-white" :
-                        rem.priority === 3 ? "bg-[#eab30810]0 text-black" :
+                        rem.priority === 1 ? "bg-red-500 text-white" :
+                        rem.priority === 2 ? "bg-orange-500 text-white" :
+                        rem.priority === 3 ? "bg-yellow-500 text-black" :
                         "bg-slate-600 text-white"
                       }`}>
                         {rem.priority}
@@ -2175,15 +2175,15 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                           <span className="font-medium text-white text-lg">{rem.title}</span>
                           <div className="flex gap-2">
                             <span className={`px-2 py-1 text-xs rounded ${
-                              rem.category === "Vulnerability" ? "bg-[#ef444410]0/20 text-red-400" :
-                              rem.category === "Network" ? "bg-[#3b82f610]0/20 text-blue-400" :
-                              rem.category === "Identity" ? "bg-[#eab30810]0/20 text-yellow-400" :
+                              rem.category === "Vulnerability" ? "bg-red-500/20 text-red-400" :
+                              rem.category === "Network" ? "bg-blue-500/20 text-blue-400" :
+                              rem.category === "Identity" ? "bg-yellow-500/20 text-yellow-400" :
                               "bg-slate-600 text-slate-300"
                             }`}>
                               {rem.category}
                             </span>
                             {rem.automation_available && (
-                              <span className="px-2 py-1 bg-[#22c55e10]0/20 text-green-400 text-xs rounded">
+                              <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">
                                 Auto
                               </span>
                             )}
@@ -2208,7 +2208,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-60">
             <div className="bg-slate-900 rounded-2xl border border-green-500/50 p-8 max-w-2xl w-full mx-4 shadow-2xl">
               <div className="flex items-center gap-4 mb-6">
-                <div className="w-16 h-16 bg-[#22c55e10]0/20 rounded-2xl flex items-center justify-center">
+                <div className="w-16 h-16 bg-green-500/20 rounded-2xl flex items-center justify-center">
                   <CheckCircle2 className="w-8 h-8 text-green-400" />
                 </div>
                 <div>
@@ -2218,7 +2218,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </div>
 
               {/* Risk Reduction */}
-              <div className="bg-[#22c55e10]0/10 border border-green-500/30 rounded-xl p-4 mb-6">
+              <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 mb-6">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-300">Risk Reduction</span>
                   <span className="text-2xl font-bold text-green-400">-{blockResult.risk_reduction} points</span>
@@ -2249,7 +2249,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
               {/* Rollback Notice */}
               {blockResult.rollback_available && (
-                <div className="bg-[#eab30810]0/10 border border-yellow-500/30 rounded-lg p-3 mb-6">
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-6">
                   <div className="flex items-center gap-2 text-yellow-400 text-sm">
                     <AlertTriangle className="w-4 h-4" />
                     Rollback is available if you need to undo these changes
@@ -2264,7 +2264,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                     setShowBlockSuccess(false)
                     onClose()
                   }}
-                  className="px-8 py-3 bg-[#22c55e10]0 hover:bg-green-600 text-white rounded-xl font-medium text-lg transition-colors"
+                  className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-medium text-lg transition-colors"
                 >
                   Done
                 </button>
@@ -2281,7 +2281,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             className={`px-8 py-3 rounded-xl font-medium text-lg transition-colors flex items-center gap-3 ${
               blocking || showBlockSuccess
                 ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-                : 'bg-[#ef444410]0 hover:bg-red-600 text-white'
+                : 'bg-red-500 hover:bg-red-600 text-white'
             }`}
           >
             {blocking ? (
@@ -2303,7 +2303,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
           </button>
           <button
             onClick={() => setShowSimulation(true)}
-            className="px-8 py-3 bg-[#f9731610]0 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
+            className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
           >
             <Zap className="w-5 h-5" />
             Run Simulation

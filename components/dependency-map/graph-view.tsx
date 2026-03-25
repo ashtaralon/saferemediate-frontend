@@ -1027,7 +1027,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             onClick={() => setIsLive(!isLive)} 
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${isLive ? 'bg-[#22c55e20] text-[#22c55e]' : 'bg-slate-200'}`}
           >
-            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-[#22c55e10]0 animate-pulse' : 'bg-slate-400'}`} />
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />
             {isLive ? 'LIVE' : 'PAUSED'}
           </button>
           <button onClick={onRefresh} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">
@@ -1051,7 +1051,7 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
             <Activity className="w-4 h-4" /> 
             {highlightTraffic ? 'Clear Traffic' : 'Show Traffic'}
             {stats.actualTraffic > 0 && (
-              <span className={"ml-1 px-1.5 py-0.5 rounded-full text-xs " + (highlightTraffic ? 'bg-[#22c55e10]0' : 'bg-green-200')}>
+              <span className={"ml-1 px-1.5 py-0.5 rounded-full text-xs " + (highlightTraffic ? 'bg-green-500' : 'bg-green-200')}>
                 {stats.actualTraffic}
               </span>
             )}
@@ -1110,11 +1110,11 @@ export default function GraphView({ systemName, graphData, isLoading, onNodeClic
           ))}
           <div className="mt-2 pt-2 border-t font-medium mb-1">Connections</div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-6 h-1 rounded bg-[#22c55e10]0" />
+            <div className="w-6 h-1 rounded bg-green-500" />
             <span className="text-[#22c55e] font-medium">ACTUAL_TRAFFIC</span>
           </div>
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-6 h-0.5 bg-[#ef444410]0" style={{ borderStyle: 'dashed', borderWidth: '1px', borderColor: '#ef4444' }} />
+            <div className="w-6 h-0.5 bg-red-500" style={{ borderStyle: 'dashed', borderWidth: '1px', borderColor: '#ef4444' }} />
             <span>Internet Exposed</span>
           </div>
           <div className="flex items-center gap-2">

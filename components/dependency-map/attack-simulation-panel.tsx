@@ -178,7 +178,16 @@ export function AttackSimulationPanel({
         throw new Error(`Failed to fetch simulation: ${response.status}`)
       }
       const data = await response.json()
-      setSimulationData(data)
+      // Add safety defaults for missing fields
+      setSimulationData({
+        ...data,
+        exploitable_vulnerabilities: data.exploitable_vulnerabilities || [],
+        data_access_scope: data.data_access_scope || { data_stores_accessible: [], sensitive_data_types: [] },
+        potential_impacts: data.potential_impacts || [],
+        remediation_options: data.remediation_options || [],
+        risk_score: data.risk_score || 0,
+        risk_level: data.risk_level || 'unknown',
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load simulation")
     } finally {
@@ -314,10 +323,10 @@ export function AttackSimulationPanel({
 
   const getSeverityColor = (severity: string) => {
     switch (severity?.toUpperCase()) {
-      case "CRITICAL": return "bg-[#ef444410]0/20 text-red-400 border-red-500/50"
-      case "HIGH": return "bg-[#f9731610]0/20 text-orange-400 border-orange-500/50"
-      case "MEDIUM": return "bg-[#eab30810]0/20 text-yellow-400 border-yellow-500/50"
-      case "LOW": return "bg-[#22c55e10]0/20 text-green-400 border-green-500/50"
+      case "CRITICAL": return "bg-red-500/20 text-red-400 border-red-500/50"
+      case "HIGH": return "bg-orange-500/20 text-orange-400 border-orange-500/50"
+      case "MEDIUM": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/50"
+      case "LOW": return "bg-green-500/20 text-green-400 border-green-500/50"
       default: return "bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)] border-gray-500/50"
     }
   }
@@ -334,11 +343,11 @@ export function AttackSimulationPanel({
   const getRiskStatusBadge = (status: string) => {
     switch (status) {
       case "EXPLOITABLE_NOW":
-        return <Badge className="bg-[#ef444410]0/20 text-red-400 border-red-500/50">EXPLOITABLE NOW</Badge>
+        return <Badge className="bg-red-500/20 text-red-400 border-red-500/50">EXPLOITABLE NOW</Badge>
       case "BLOCKED":
-        return <Badge className="bg-[#22c55e10]0/20 text-green-400 border-green-500/50">BLOCKED</Badge>
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/50">BLOCKED</Badge>
       case "REQUIRES_AUTH":
-        return <Badge className="bg-[#eab30810]0/20 text-yellow-400 border-yellow-500/50">REQUIRES AUTH</Badge>
+        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/50">REQUIRES AUTH</Badge>
       default:
         return <Badge className="bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)]">{status}</Badge>
     }
@@ -371,9 +380,9 @@ export function AttackSimulationPanel({
 
   const getEffortBadge = (effort: string) => {
     switch (effort) {
-      case "LOW": return <Badge className="bg-[#22c55e10]0/20 text-green-400">Low Effort</Badge>
-      case "MEDIUM": return <Badge className="bg-[#eab30810]0/20 text-yellow-400">Medium Effort</Badge>
-      case "HIGH": return <Badge className="bg-[#f9731610]0/20 text-orange-400">High Effort</Badge>
+      case "LOW": return <Badge className="bg-green-500/20 text-green-400">Low Effort</Badge>
+      case "MEDIUM": return <Badge className="bg-yellow-500/20 text-yellow-400">Medium Effort</Badge>
+      case "HIGH": return <Badge className="bg-orange-500/20 text-orange-400">High Effort</Badge>
       default: return <Badge>{effort}</Badge>
     }
   }
@@ -387,7 +396,7 @@ export function AttackSimulationPanel({
         <div className="sticky top-0 z-10 bg-[#1a1a2e] border-b border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-[#ef444410]0/20 rounded-lg">
+              <div className="p-2 bg-red-500/20 rounded-lg">
                 <Zap className="h-5 w-5 text-red-400" />
               </div>
               <div>
@@ -411,7 +420,7 @@ export function AttackSimulationPanel({
           )}
 
           {error && (
-            <div className="bg-[#ef444410]0/10 border border-red-500/30 rounded-lg p-4">
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
               <p className="text-red-400">{error}</p>
               <Button variant="outline" size="sm" className="mt-2" onClick={fetchSimulation}>
                 Retry
@@ -430,7 +439,7 @@ export function AttackSimulationPanel({
                   <div className="flex items-center gap-2">
                     <Shield className="h-5 w-5 text-red-400" />
                     <span className="font-medium text-white">Exploitable Vulnerabilities</span>
-                    <Badge className="bg-[#ef444410]0/20 text-red-400">
+                    <Badge className="bg-red-500/20 text-red-400">
                       {simulationData.exploitable_vulnerabilities.filter(v => v.current_risk === "EXPLOITABLE_NOW").length} Active
                     </Badge>
                   </div>
@@ -458,7 +467,7 @@ export function AttackSimulationPanel({
                           </span>
                           <span className={cn(
                             "px-2 py-1 rounded",
-                            vuln.port_status.is_open ? "bg-[#ef444410]0/20 text-red-400" : "bg-[#22c55e10]0/20 text-green-400"
+                            vuln.port_status.is_open ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"
                           )}>
                             {vuln.port_status.is_open ? "Port Open" : "Port Closed"}
                           </span>
@@ -491,7 +500,7 @@ export function AttackSimulationPanel({
                   <div className="flex items-center gap-2">
                     <Database className="h-5 w-5 text-blue-400" />
                     <span className="font-medium text-white">Data Access Scope</span>
-                    <Badge className="bg-[#3b82f610]0/20 text-blue-400">
+                    <Badge className="bg-blue-500/20 text-blue-400">
                       {simulationData.data_access_scope.data_stores_accessible.length} Stores
                     </Badge>
                   </div>
@@ -523,8 +532,8 @@ export function AttackSimulationPanel({
                           </div>
                           <Badge className={
                             store.access_level === "FULL" || store.access_level === "ADMIN"
-                              ? "bg-[#ef444410]0/20 text-red-400"
-                              : "bg-[#eab30810]0/20 text-yellow-400"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-yellow-500/20 text-yellow-400"
                           }>
                             {store.access_level}
                           </Badge>
@@ -550,12 +559,12 @@ export function AttackSimulationPanel({
                             </span>
                           )}
                           {store.accessible_objects.contains_pii && (
-                            <span className="px-2 py-1 bg-[#ef444410]0/20 text-red-400 rounded">
+                            <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded">
                               Contains PII
                             </span>
                           )}
                           {store.accessible_objects.contains_financial && (
-                            <span className="px-2 py-1 bg-[#f9731610]0/20 text-orange-400 rounded">
+                            <span className="px-2 py-1 bg-orange-500/20 text-orange-400 rounded">
                               Financial Data
                             </span>
                           )}
@@ -602,7 +611,7 @@ export function AttackSimulationPanel({
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-orange-400" />
                     <span className="font-medium text-white">What Attackers Can Do</span>
-                    <Badge className="bg-[#f9731610]0/20 text-orange-400">
+                    <Badge className="bg-orange-500/20 text-orange-400">
                       {simulationData.potential_impacts.length} Impacts
                     </Badge>
                   </div>
@@ -653,7 +662,7 @@ export function AttackSimulationPanel({
                                       {impact.affected_data.record_count?.toLocaleString()} records
                                     </span>
                                     {impact.affected_data.compliance_violations?.map((v, vIdx) => (
-                                      <span key={vIdx} className="px-2 py-0.5 bg-[#ef444410]0/20 text-red-400 rounded text-xs">
+                                      <span key={vIdx} className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
                                         {v}
                                       </span>
                                     ))}
@@ -679,7 +688,7 @@ export function AttackSimulationPanel({
                   <div className="flex items-center gap-2">
                     <Shield className="h-5 w-5 text-green-400" />
                     <span className="font-medium text-white">Remediation Options</span>
-                    <Badge className="bg-[#22c55e10]0/20 text-green-400">
+                    <Badge className="bg-green-500/20 text-green-400">
                       {simulationData.remediation_options.length} Available
                     </Badge>
                   </div>
@@ -698,7 +707,7 @@ export function AttackSimulationPanel({
                         className={cn(
                           "bg-[#1a1a2e] rounded-lg p-3 border transition-all",
                           isApplied
-                            ? "border-[#3b82f6] ring-1 ring-blue-500/50 bg-[#3b82f610]0/5"
+                            ? "border-[#3b82f6] ring-1 ring-blue-500/50 bg-blue-500/5"
                             : selectedRemediations.includes(option.id)
                             ? "border-green-500 ring-1 ring-green-500/50"
                             : "border-gray-600"
@@ -706,7 +715,7 @@ export function AttackSimulationPanel({
                       >
                         <div className="flex items-start gap-3">
                           {isApplied ? (
-                            <div className="mt-1 h-5 w-5 rounded bg-[#3b82f610]0 flex items-center justify-center">
+                            <div className="mt-1 h-5 w-5 rounded bg-blue-500 flex items-center justify-center">
                               <Check className="h-3 w-3 text-white" />
                             </div>
                           ) : (
@@ -714,7 +723,7 @@ export function AttackSimulationPanel({
                               className={cn(
                                 "mt-1 h-5 w-5 rounded border flex items-center justify-center",
                                 selectedRemediations.includes(option.id)
-                                  ? "bg-[#22c55e10]0 border-green-500"
+                                  ? "bg-green-500 border-green-500"
                                   : "border-gray-500"
                               )}
                               onClick={() => toggleRemediation(option.id)}
@@ -730,7 +739,7 @@ export function AttackSimulationPanel({
                               <div className="flex items-center gap-2">
                                 <span className="font-medium text-white">{option.title}</span>
                                 {isApplied && (
-                                  <Badge className="bg-[#3b82f610]0/20 text-blue-400">Applied</Badge>
+                                  <Badge className="bg-blue-500/20 text-blue-400">Applied</Badge>
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
@@ -738,7 +747,7 @@ export function AttackSimulationPanel({
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-6 px-2 text-xs border-orange-500/50 text-orange-400 hover:bg-[#f9731610]0/10"
+                                    className="h-6 px-2 text-xs border-orange-500/50 text-orange-400 hover:bg-orange-500/10"
                                     onClick={() => rollbackRemediation(option.id)}
                                     disabled={isRollingBackThis}
                                   >
@@ -764,11 +773,11 @@ export function AttackSimulationPanel({
                                 <span className="text-green-400 font-medium">{option.impact_preview.risk_reduction}</span>
                               </div>
                               <div className="flex items-center gap-2 text-xs">
-                                <span className="px-2 py-1 bg-[#ef444410]0/20 text-red-400 rounded">
+                                <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded">
                                   Before: {option.impact_preview.before_score.toFixed(1)}
                                 </span>
                                 <span className="text-[var(--muted-foreground,#9ca3af)]">-&gt;</span>
-                                <span className="px-2 py-1 bg-[#22c55e10]0/20 text-green-400 rounded">
+                                <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded">
                                   After: {option.impact_preview.after_score.toFixed(1)}
                                 </span>
                               </div>
@@ -778,7 +787,7 @@ export function AttackSimulationPanel({
                                   <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Prevents:</span>
                                   <div className="flex flex-wrap gap-1 mt-1">
                                     {option.impact_preview.attack_impacts_prevented.map((imp, iIdx) => (
-                                      <Badge key={iIdx} className="bg-[#22c55e10]0/20 text-green-400 text-xs">
+                                      <Badge key={iIdx} className="bg-green-500/20 text-green-400 text-xs">
                                         {getImpactLabel(imp)}
                                       </Badge>
                                     ))}
@@ -820,10 +829,10 @@ export function AttackSimulationPanel({
                       <div className={cn(
                         "p-3 rounded-lg border mb-3",
                         applyResult.status === "SUCCESS"
-                          ? "bg-[#22c55e10]0/10 border-green-500/30"
+                          ? "bg-green-500/10 border-green-500/30"
                           : applyResult.status === "PARTIAL"
-                          ? "bg-[#eab30810]0/10 border-yellow-500/30"
-                          : "bg-[#ef444410]0/10 border-red-500/30"
+                          ? "bg-yellow-500/10 border-yellow-500/30"
+                          : "bg-red-500/10 border-red-500/30"
                       )}>
                         <div className="flex items-center gap-2 mb-1">
                           {applyResult.status === "SUCCESS" ? (
@@ -842,7 +851,7 @@ export function AttackSimulationPanel({
                         {applyResult.newRiskScore !== undefined && (
                           <div className="flex items-center gap-3 mt-2 text-sm">
                             <span className="text-[var(--muted-foreground,#9ca3af)]">New Risk Score:</span>
-                            <span className="px-2 py-0.5 bg-[#22c55e10]0/20 text-green-400 rounded font-medium">
+                            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded font-medium">
                               {applyResult.newRiskScore}
                             </span>
                             <span className="text-green-400">
@@ -916,7 +925,7 @@ export function AttackSimulationPanel({
                 ))}
             </div>
 
-            <div className="bg-[#eab30810]0/10 border border-yellow-500/30 rounded-lg p-3 mt-4">
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mt-4">
               <p className="text-sm text-yellow-400 flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span>

@@ -202,7 +202,7 @@ export default function Neo4jDataView({ systemName }: Props) {
           <p className="text-slate-400 text-sm mb-4">{error}</p>
           <button
             onClick={loadData}
-            className="px-4 py-2 bg-[#ef444410]0 hover:bg-red-600 text-white rounded-lg text-sm font-medium"
+            className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium"
           >
             Retry
           </button>
@@ -218,7 +218,7 @@ export default function Neo4jDataView({ systemName }: Props) {
         <div className="flex items-center gap-4">
           {/* Stats */}
           <div className="flex gap-2">
-            <span className="px-3 py-1 bg-[#f9731610]0/20 text-orange-400 rounded-lg text-xs font-semibold flex items-center gap-1.5">
+            <span className="px-3 py-1 bg-orange-500/20 text-orange-400 rounded-lg text-xs font-semibold flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5" />
               {stats.nodes.toLocaleString()} Nodes
             </span>

@@ -409,19 +409,19 @@ export default function GraphViewX6({
                 </div>
                 
                 {n.internet_exposed && (
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-[#ef444410]0 rounded-full flex items-center justify-center animate-pulse">
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
                     <Globe className="w-2.5 h-2.5 text-white" />
                   </div>
                 )}
                 
                 {(n.permission_gaps || 0) > 0 && (
-                  <div className="absolute -top-1 -left-1 w-4 h-4 bg-[#f9731610]0 rounded-full flex items-center justify-center text-[8px] text-white font-bold">
+                  <div className="absolute -top-1 -left-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center text-[8px] text-white font-bold">
                     {n.permission_gaps}
                   </div>
                 )}
                 
                 {hasTraffic && showTrafficFlow && (
-                  <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-[#22c55e10]0 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                  <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-green-500 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                     <Activity className="w-2.5 h-2.5 text-white animate-pulse" />
                     <span className="text-[7px] text-white font-bold">LIVE</span>
                   </div>
@@ -437,8 +437,8 @@ export default function GraphViewX6({
         <div className="text-white font-semibold mb-1.5 text-[10px]">Legend</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-0.5 bg-[#22c55e10]0 relative">
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#22c55e10]0 rounded-full" />
+            <div className="w-5 h-0.5 bg-green-500 relative">
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-green-500 rounded-full" />
             </div>
             <span className="text-slate-300 text-[10px]">Active Traffic</span>
           </div>

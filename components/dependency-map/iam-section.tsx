@@ -266,9 +266,9 @@ export default function IAMSection({ resourceId, resourceType, resourceName }: P
             <div className="w-full bg-slate-200 rounded-full h-2.5">
               <div 
                 className={`h-2.5 rounded-full transition-all ${
-                  permissionScore >= 80 ? 'bg-[#22c55e10]0' :
-                  permissionScore >= 50 ? 'bg-[#f9731610]0' :
-                  'bg-[#ef444410]0'
+                  permissionScore >= 80 ? 'bg-green-500' :
+                  permissionScore >= 50 ? 'bg-orange-500' :
+                  'bg-red-500'
                 }`}
                 style={{ width: `${permissionScore}%` }}
               />
