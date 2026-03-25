@@ -409,7 +409,7 @@ export function AttackSimulationPanel({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex justify-end">
+    <div className="fixed inset-0 bg-black/50 flex justify-end" style={{ zIndex: 9999 }}>
       <div className="w-[700px] bg-[#1a1a2e] h-full overflow-y-auto border-l border-gray-700">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-[#1a1a2e] border-b border-gray-700 p-4">
@@ -459,7 +459,7 @@ export function AttackSimulationPanel({
                     <Shield className="h-5 w-5 text-red-400" />
                     <span className="font-medium text-white">Exploitable Vulnerabilities</span>
                     <Badge className="bg-red-500/20 text-red-400">
-                      {simulationData.exploitable_vulnerabilities.filter(v => v?.current_risk === "EXPLOITABLE_NOW").length} Active
+                      {simulationData.exploitable_vulnerabilities?.filter(v => v?.current_risk === "EXPLOITABLE_NOW").length} Active
                     </Badge>
                   </div>
                   {expandedSections.vulnerabilities ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
@@ -467,7 +467,7 @@ export function AttackSimulationPanel({
 
                 {expandedSections.vulnerabilities && (
                   <div className="px-4 pb-4 space-y-3">
-                    {simulationData.exploitable_vulnerabilities.map((vuln, idx) => (
+                    {simulationData.exploitable_vulnerabilities?.map((vuln, idx) => (
                       <div key={idx} className="bg-[#1a1a2e] rounded-lg p-3 border border-gray-600">
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex items-center gap-2">
@@ -503,7 +503,7 @@ export function AttackSimulationPanel({
                         </div>
                       </div>
                     ))}
-                    {simulationData.exploitable_vulnerabilities.length === 0 && (
+                    {simulationData.exploitable_vulnerabilities?.length === 0 && (
                       <p className="text-[var(--muted-foreground,#9ca3af)] text-center py-4">No exploitable vulnerabilities found</p>
                     )}
                   </div>
@@ -520,7 +520,7 @@ export function AttackSimulationPanel({
                     <Database className="h-5 w-5 text-blue-400" />
                     <span className="font-medium text-white">Data Access Scope</span>
                     <Badge className="bg-blue-500/20 text-blue-400">
-                      {simulationData.data_access_scope.data_stores_accessible.length} Stores
+                      {simulationData.data_access_scope?.data_stores_accessible?.length} Stores
                     </Badge>
                   </div>
                   {expandedSections.dataAccess ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
@@ -532,7 +532,7 @@ export function AttackSimulationPanel({
                     <div className="text-sm">
                       <span className="text-[var(--muted-foreground,#9ca3af)]">IAM Roles in Path:</span>
                       <div className="flex flex-wrap gap-2 mt-1">
-                        {simulationData.data_access_scope.iam_roles_in_path.map((role, idx) => (
+                        {simulationData.data_access_scope?.iam_roles_in_path?.map((role, idx) => (
                           <Badge key={idx} variant="outline" className="text-purple-400 border-purple-500/50">
                             {role}
                           </Badge>
@@ -541,7 +541,7 @@ export function AttackSimulationPanel({
                     </div>
 
                     {/* Data Stores */}
-                    {simulationData.data_access_scope.data_stores_accessible.map((store, idx) => (
+                    {simulationData.data_access_scope?.data_stores_accessible?.map((store, idx) => (
                       <div key={idx} className="bg-[#1a1a2e] rounded-lg p-3 border border-gray-600">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
@@ -592,7 +592,7 @@ export function AttackSimulationPanel({
                     ))}
 
                     {/* S3 Access */}
-                    {simulationData.data_access_scope.s3_access.map((s3, idx) => (
+                    {simulationData.data_access_scope?.s3_access?.map((s3, idx) => (
                       <div key={idx} className="bg-[#1a1a2e] rounded-lg p-3 border border-gray-600">
                         <div className="flex items-center gap-2 mb-2">
                           <HardDrive className="h-4 w-4 text-green-400" />
@@ -631,7 +631,7 @@ export function AttackSimulationPanel({
                     <AlertTriangle className="h-5 w-5 text-orange-400" />
                     <span className="font-medium text-white">What Attackers Can Do</span>
                     <Badge className="bg-orange-500/20 text-orange-400">
-                      {simulationData.potential_impacts.length} Impacts
+                      {simulationData.potential_impacts?.length} Impacts
                     </Badge>
                   </div>
                   {expandedSections.impacts ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
@@ -640,7 +640,7 @@ export function AttackSimulationPanel({
                 {expandedSections.impacts && (
                   <div className="px-4 pb-4">
                     <div className="grid grid-cols-2 gap-3">
-                      {simulationData.potential_impacts.map((impact, idx) => (
+                      {simulationData.potential_impacts?.map((impact, idx) => (
                         <div
                           key={idx}
                           className={cn(
@@ -708,7 +708,7 @@ export function AttackSimulationPanel({
                     <Shield className="h-5 w-5 text-green-400" />
                     <span className="font-medium text-white">Remediation Options</span>
                     <Badge className="bg-green-500/20 text-green-400">
-                      {simulationData.remediation_options.length} Available
+                      {simulationData.remediation_options?.length} Available
                     </Badge>
                   </div>
                   {expandedSections.remediation ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
@@ -716,7 +716,7 @@ export function AttackSimulationPanel({
 
                 {expandedSections.remediation && (
                   <div className="px-4 pb-4 space-y-3">
-                    {simulationData.remediation_options.map((option, idx) => {
+                    {simulationData.remediation_options?.map((option, idx) => {
                       const isApplied = appliedRemediations.includes(option.id)
                       const isRollingBackThis = rollingBack === option.id
 
@@ -789,23 +789,23 @@ export function AttackSimulationPanel({
                             <div className="bg-[#252540] rounded p-2 space-y-2">
                               <div className="flex items-center justify-between text-sm">
                                 <span className="text-[var(--muted-foreground,#9ca3af)]">Risk Reduction:</span>
-                                <span className="text-green-400 font-medium">{option.impact_preview.risk_reduction}</span>
+                                <span className="text-green-400 font-medium">{option.impact_preview?.risk_reduction}</span>
                               </div>
                               <div className="flex items-center gap-2 text-xs">
                                 <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded">
-                                  Before: {option.impact_preview.before_score.toFixed(1)}
+                                  Before: {option.impact_preview?.before_score.toFixed(1)}
                                 </span>
                                 <span className="text-[var(--muted-foreground,#9ca3af)]">-&gt;</span>
                                 <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded">
-                                  After: {option.impact_preview.after_score.toFixed(1)}
+                                  After: {option.impact_preview?.after_score.toFixed(1)}
                                 </span>
                               </div>
 
-                              {option.impact_preview.attack_impacts_prevented && option.impact_preview.attack_impacts_prevented.length > 0 && (
+                              {option.impact_preview?.attack_impacts_prevented && option.impact_preview?.attack_impacts_prevented.length > 0 && (
                                 <div>
                                   <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Prevents:</span>
                                   <div className="flex flex-wrap gap-1 mt-1">
-                                    {option.impact_preview.attack_impacts_prevented.map((imp, iIdx) => (
+                                    {option.impact_preview?.attack_impacts_prevented.map((imp, iIdx) => (
                                       <Badge key={iIdx} className="bg-green-500/20 text-green-400 text-xs">
                                         {getImpactLabel(imp)}
                                       </Badge>
@@ -814,13 +814,13 @@ export function AttackSimulationPanel({
                                 </div>
                               )}
 
-                              {option.impact_preview.side_effects && option.impact_preview.side_effects.length > 0 && (
+                              {option.impact_preview?.side_effects && option.impact_preview?.side_effects.length > 0 && (
                                 <div className="pt-2 border-t border-gray-700">
                                   <span className="text-xs text-yellow-400 flex items-center gap-1">
                                     <AlertTriangle className="h-3 w-3" />
                                     Side Effects:
                                   </span>
-                                  {option.impact_preview.side_effects.map((se, seIdx) => (
+                                  {option.impact_preview?.side_effects.map((se, seIdx) => (
                                     <div key={seIdx} className="text-xs text-gray-300 mt-1">
                                       <span className="text-yellow-400">{se.type}:</span> {se.description}
                                       {se.affected_services?.length > 0 && (
@@ -831,7 +831,7 @@ export function AttackSimulationPanel({
                                 </div>
                               )}
 
-                              {(!option.impact_preview.side_effects || option.impact_preview.side_effects.length === 0) && (
+                              {(!option.impact_preview?.side_effects || option.impact_preview?.side_effects.length === 0) && (
                                 <div className="text-xs text-green-400 flex items-center gap-1">
                                   <Check className="h-3 w-3" />
                                   No side effects detected
