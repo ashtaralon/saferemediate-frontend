@@ -178,15 +178,34 @@ export function AttackSimulationPanel({
         throw new Error(`Failed to fetch simulation: ${response.status}`)
       }
       const data = await response.json()
-      // Add safety defaults for missing fields
+      // Add safety defaults for missing/null fields
+      const ps = data.path_summary || {};
+      const das = data.data_access_scope || {};
       setSimulationData({
         ...data,
         exploitable_vulnerabilities: data.exploitable_vulnerabilities || [],
-        data_access_scope: data.data_access_scope || { data_stores_accessible: [], sensitive_data_types: [] },
+        data_access_scope: {
+          ...das,
+          data_stores_accessible: (das.data_stores_accessible || []).map((s: any) => ({
+            ...s,
+            accessible_objects: s.accessible_objects || { tables: [], estimated_rows: 0, contains_pii: false, contains_financial: false },
+          })),
+          sensitive_data_types: das.sensitive_data_types || [],
+        },
         potential_impacts: data.potential_impacts || [],
-        remediation_options: data.remediation_options || [],
-        risk_score: data.risk_score || 0,
-        risk_level: data.risk_level || 'unknown',
+        remediation_options: (data.remediation_options || []).map((r: any) => ({
+          ...r,
+          impact_preview: {
+            ...(r.impact_preview || {}),
+            attack_impacts_prevented: r.impact_preview?.attack_impacts_prevented || [],
+            side_effects: r.impact_preview?.side_effects || [],
+            risk_reduction: r.impact_preview?.risk_reduction || 0,
+            before_score: r.impact_preview?.before_score || ps.risk_score || 0,
+            after_score: r.impact_preview?.after_score || 0,
+          },
+        })),
+        risk_score: data.risk_score ?? ps.risk_score ?? 0,
+        risk_level: data.risk_level ?? ps.risk_level ?? 'unknown',
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load simulation")
