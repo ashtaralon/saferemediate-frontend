@@ -172,7 +172,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
   const [showRemediableOnly, setShowRemediableOnly] = useState(false) // Default to show ALL roles
   const [searchTerm, setSearchTerm] = useState('')
-  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket' | 'Remediated'>('all')
+  const [resourceTypeFilter, setResourceTypeFilter] = useState<'all' | 'IAMRole' | 'SecurityGroup' | 'S3Bucket'>('all')
+  const [activeTab, setActiveTab] = useState<'active' | 'remediated'>('active')
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const { toast } = useToast()
@@ -857,7 +858,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return AlertTriangle
   }
   const getSeverityColor = (resource: GapResource) => {
-    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) return '#10b981'
+    if (isRemediated(resource)) return '#10b981'
     const pct = resource.gapPercent ?? 0
     if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
       const s = (resource.severity || '').toUpperCase()
@@ -872,7 +873,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     return '#22c55e'
   }
   const getSeverityLabel = (resource: GapResource) => {
-    if (resource.resourceType === 'IAMRole' && resource.allowedCount === 0) return 'Remediated'
+    if (isRemediated(resource)) return 'Remediated'
     const pct = resource.gapPercent ?? 0
     if (resource.resourceType === 'SecurityGroup' && resource.isOrphan) {
       return (resource.severity || 'low').toUpperCase()
@@ -929,12 +930,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     }
   }
 
+  // ---------- Identify remediated resources ----------
+  const isRemediated = (r: LeastPrivilegeResource) => !!(r.remediatedAt || (r.resourceType === 'IAMRole' && r.allowedCount === 0))
+
   // ---------- Compute filtered resources ----------
-  const filteredResources = resources
-    .filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName))
+  const nonDeletedResources = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName))
+  const activeResources = nonDeletedResources.filter(r => !isRemediated(r))
+  const remediatedResources = nonDeletedResources.filter(r => isRemediated(r))
+
+  const filteredResources = (activeTab === 'remediated' ? remediatedResources : activeResources)
     .filter(r => {
       if (resourceTypeFilter === 'all') return true
-      if (resourceTypeFilter === 'Remediated') return r.resourceType === 'IAMRole' && r.allowedCount === 0
       return r.resourceType === resourceTypeFilter
     })
     .filter(r => {
@@ -943,18 +949,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       return r.resourceName?.toLowerCase().includes(s) || r.resourceArn?.toLowerCase().includes(s) || r.id?.toLowerCase().includes(s)
     })
     .filter(r => {
-      if (r.resourceType === 'IAMRole') return (r.gapCount ?? 0) > 0 || r.allowedCount === 0
+      if (activeTab === 'remediated') return true
+      if (r.resourceType === 'IAMRole') return (r.gapCount ?? 0) > 0
       return true
     })
     .filter(r => {
+      if (activeTab === 'remediated') return true
       if (r.resourceType !== 'IAMRole') return true
       if (!showRemediableOnly) return true
       return r.isRemediable !== false
     })
 
-  const iamCount = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName) && r.resourceType === 'IAMRole').length
-  const sgCount = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName) && r.resourceType === 'SecurityGroup').length
-  const s3Count = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName) && r.resourceType === 'S3Bucket').length
+  const iamCount = activeResources.filter(r => r.resourceType === 'IAMRole').length
+  const sgCount = activeResources.filter(r => r.resourceType === 'SecurityGroup').length
+  const s3Count = activeResources.filter(r => r.resourceType === 'S3Bucket').length
 
   return (
     <div className="space-y-6">
@@ -1058,6 +1066,36 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         </div>
       </div>
 
+      {/* Tabs: Active Issues / Remediated */}
+      <div className="flex gap-1 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+        <button
+          onClick={() => { setActiveTab('active'); setResourceTypeFilter('all') }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'active' ? 'border-[#8b5cf6] text-[#8b5cf6]' : 'border-transparent'
+          }`}
+          style={activeTab !== 'active' ? { color: "var(--text-secondary)" } : undefined}
+        >
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Active Issues
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#ef444420] text-[#ef4444]">{activeResources.length}</span>
+          </span>
+        </button>
+        <button
+          onClick={() => { setActiveTab('remediated'); setResourceTypeFilter('all') }}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'remediated' ? 'border-[#10b981] text-[#10b981]' : 'border-transparent'
+          }`}
+          style={activeTab !== 'remediated' ? { color: "var(--text-secondary)" } : undefined}
+        >
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            Remediated
+            <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-[#10b98120] text-[#10b981]">{remediatedResources.length}</span>
+          </span>
+        </button>
+      </div>
+
       {/* Search & Filters */}
       <div className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         <div className="flex items-center gap-4">
@@ -1078,21 +1116,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             className="px-3 py-2 rounded-lg border text-sm"
             style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           >
-            <option value="all">All Types ({resources.length})</option>
-            <option value="IAMRole">IAM Roles ({iamCount})</option>
-            <option value="SecurityGroup">Security Groups ({sgCount})</option>
-            <option value="S3Bucket">S3 Buckets ({s3Count})</option>
-            <option value="Remediated">Remediated</option>
+            <option value="all">All Types ({(activeTab === 'remediated' ? remediatedResources : activeResources).length})</option>
+            <option value="IAMRole">IAM Roles ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'IAMRole').length})</option>
+            <option value="SecurityGroup">Security Groups ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'SecurityGroup').length})</option>
+            <option value="S3Bucket">S3 Buckets ({(activeTab === 'remediated' ? remediatedResources : activeResources).filter(r => r.resourceType === 'S3Bucket').length})</option>
           </select>
-          <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-            <input
-              type="checkbox"
-              checked={showRemediableOnly}
-              onChange={(e) => setShowRemediableOnly(e.target.checked)}
-              className="rounded"
-            />
-            Remediable only
-          </label>
+          {activeTab === 'active' && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+              <input
+                type="checkbox"
+                checked={showRemediableOnly}
+                onChange={(e) => setShowRemediableOnly(e.target.checked)}
+                className="rounded"
+              />
+              Remediable only
+            </label>
+          )}
           {deletedResources.size > 0 && (
             <button
               onClick={() => { setDeletedResources(new Set()); try { localStorage.removeItem(`remediated_roles_${systemName}`) } catch {} }}
@@ -1156,7 +1195,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       </div>
                       <div className="min-w-0">
                         <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
-                        <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{resource.systemName || systemName}</div>
+                        <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                          {activeTab === 'remediated' && resource.remediatedAt
+                            ? `Remediated ${new Date(resource.remediatedAt).toLocaleDateString()}${resource.remediatedBy ? ` by ${resource.remediatedBy}` : ''}`
+                            : (resource.systemName || systemName)}
+                        </div>
                       </div>
                     </div>
 
