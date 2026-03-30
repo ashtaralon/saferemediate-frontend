@@ -458,19 +458,22 @@ export function IAMPermissionAnalysisModal({
   if (!isOpen) return null
 
   // Calculate derived values
-  const totalPermissions = gapData?.summary?.total_permissions ?? 0
-  const usedCount = gapData?.summary?.used_count ?? 0
-  const unusedCount = gapData?.summary?.unused_count ?? 0
-  const lpScore = gapData?.summary?.lp_score ?? 0
   const observationDays = gapData?.observation_days ?? 90
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
   const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
-  
-  const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
-  const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
-  
+
   const usedPermissions = (gapData?.permissions_analysis ?? []).filter(p => p.status === 'USED')
   const unusedPermissions = (gapData?.permissions_analysis ?? []).filter(p => p.status === 'UNUSED')
+
+  // Use permission lists as single source of truth for counts to avoid mismatches
+  // between summary counts and actual displayed permissions
+  const usedCount = usedPermissions.length > 0 ? usedPermissions.length : (gapData?.summary?.used_count ?? 0)
+  const unusedCount = unusedPermissions.length > 0 ? unusedPermissions.length : (gapData?.summary?.unused_count ?? 0)
+  const totalPermissions = gapData?.summary?.total_permissions ?? (usedCount + unusedCount)
+  const lpScore = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : (gapData?.summary?.lp_score ?? 0)
+
+  const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
+  const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
   
   // Calculate dates
   const endDate = new Date()
