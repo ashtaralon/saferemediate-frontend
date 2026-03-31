@@ -249,7 +249,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
       <div className="rounded-lg p-3 border flex items-center gap-3" style={{ background: "#3b82f610", borderColor: "#3b82f640" }}>
         <Clock className="w-4 h-4 flex-shrink-0" style={{ color: "#3b82f6" }} />
         <span className="text-xs" style={{ color: "#3b82f6" }}>
-          <strong>365-day behavioral observation window</strong> — captures seasonal patterns (quarterly reports, annual DR tests, audit processes) that 90-day windows miss
+          <strong>90-day behavioral observation window</strong> — powered by CloudTrail activity analysis from the Behavioral Data Engine
         </span>
       </div>
 

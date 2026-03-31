@@ -502,7 +502,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // The Neo4j endpoint returns graph nodes without LP analysis, causing "0 used / 0 unused" display
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`)
+      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=90${refreshParam}`)
       if (!response.ok) throw new Error(`Failed: ${response.status}`)
       const result = await response.json()
       
@@ -533,7 +533,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           mediumCount: result.summary?.mediumCount || 0,
           lowCount: result.summary?.lowCount || 0,
           confidenceLevel: result.summary?.confidenceLevel || 0,
-          observationDays: result.observationDays || 365,
+          observationDays: result.observationDays || 90,
           attackSurfaceReduction: result.resources?.length > 0
             ? result.resources.reduce((acc: number, r: any) => acc + r.gapPercent, 0) / result.resources.length
             : 0
@@ -583,11 +583,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               }
             }),
             evidence: {
-              dataSources: r.evidence?.dataSources || ['CloudTrail'],
-              observationDays: r.observationDays || r.evidence?.observationDays || 365,
-              // Confidence levels: HIGH (85%+), MEDIUM (60-84%), LOW (<60%)
-              confidence: r.confidence >= 85 ? 'HIGH' as const : r.confidence >= 60 ? 'MEDIUM' as const : 'LOW' as const,
-              lastUsed: r.lastUsed,
+              dataSources: r.evidence?.dataSources || ['Identity Graph'],
+              observationDays: r.observationDays || r.evidence?.observationDays || 90,
+              confidence: r.evidence?.confidence || (r.confidence >= 85 ? 'HIGH' as const : r.confidence >= 60 ? 'MEDIUM' as const : r.usedCount > 0 ? 'MEDIUM' as const : 'LOW' as const),
+              lastUsed: r.lastUsed || r.evidence?.lastUsed,
               coverage: {
                 regions: r.evidence?.coverage?.regions || ['us-east-1'],
                 complete: r.evidence?.coverage?.complete !== false
@@ -599,7 +598,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             },
             severity: r.severity || 'medium',
             confidence: r.confidence || 0,
-            observationDays: r.observationDays || 365,
+            observationDays: r.observationDays || 90,
             title: r.title || (isSecurityGroup
               ? `${r.resourceName} has network exposure risk`
               : `${r.resourceName} has ${r.gapCount || 0} unused permissions`),
