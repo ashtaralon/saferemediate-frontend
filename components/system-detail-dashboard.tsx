@@ -35,6 +35,7 @@ import {
 } from "lucide-react"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
+import { PendingApprovals } from "./pending-approvals"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
@@ -1690,6 +1691,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Pending Tag Approvals */}
+            <div className="mt-6">
+              <PendingApprovals systemName={systemName} />
             </div>
 
             {/* Security Findings Section */}
