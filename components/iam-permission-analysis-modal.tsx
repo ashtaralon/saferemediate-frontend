@@ -50,6 +50,8 @@ interface GapAnalysisData {
   high_risk_unused: string[]
   confidence: string
   dependency_context?: DependencyContext
+  remediated_at?: string | null
+  service_role_analysis?: any
 }
 
 interface IAMPermissionAnalysisModalProps {
@@ -184,57 +186,64 @@ export function IAMPermissionAnalysisModal({
                          rawData.unused_actions_list || 
                          []
       
-      // CRITICAL FIX: Derive counts from actual list lengths to ensure UI consistency
-      // The backend may return counts that don't match the lists (e.g., used_count is intersection
-      // of allowed & observed, but used_actions_list contains all observed actions)
+      // Use lists when available, but ALWAYS trust backend summary counts as authoritative
+      // Lists may be empty when Neo4j has counts but not the actual permission arrays
       const actualUsedPerms = Array.isArray(usedPerms) ? usedPerms : []
       const actualUnusedPerms = Array.isArray(unusedPerms) ? unusedPerms : []
 
-      // Use list lengths as the source of truth for counts displayed in UI
-      const derivedUsedCount = actualUsedPerms.length
-      const derivedUnusedCount = actualUnusedPerms.length
-      const derivedTotalCount = derivedUsedCount + derivedUnusedCount
+      // Backend summary counts are authoritative — lists are supplementary detail
+      const finalUsedCount = actualUsedPerms.length > 0 ? actualUsedPerms.length : usedCount
+      const finalUnusedCount = actualUnusedPerms.length > 0 ? actualUnusedPerms.length : unusedCount
+      const finalTotalCount = allowedCount > 0 ? allowedCount : (finalUsedCount + finalUnusedCount)
 
-      // Calculate LP score based on actual list data if not provided
+      // LP score: trust backend first, then calculate from counts
       const derivedLpScore = rawData.summary?.lp_score ?? rawData.lp_score ??
-        (derivedTotalCount > 0 ? Math.round((derivedUsedCount / derivedTotalCount) * 100) : 0)
+        (finalTotalCount > 0 ? Math.round((finalUsedCount / finalTotalCount) * 100) : 0)
+
+      // Track whether we have actual permission names or just counts
+      const hasPermissionLists = actualUsedPerms.length > 0 || actualUnusedPerms.length > 0
 
       const mappedData: GapAnalysisData = {
         role_name: rawData.role_name || roleName,
         role_arn: rawData.role_arn,
         observation_days: rawData.observation_days || 90,
         summary: {
-          // Use derived counts from actual lists to ensure consistency with displayed data
-          total_permissions: derivedTotalCount > 0 ? derivedTotalCount : allowedCount,
-          used_count: derivedUsedCount > 0 ? derivedUsedCount : usedCount,
-          unused_count: derivedUnusedCount > 0 ? derivedUnusedCount : unusedCount,
+          // Always use backend counts — they come from Neo4j pre-computed data
+          total_permissions: finalTotalCount,
+          used_count: finalUsedCount,
+          unused_count: finalUnusedCount,
           lp_score: derivedLpScore,
           overall_risk: rawData.summary?.overall_risk ?? rawData.overall_risk ?? 'MEDIUM',
           cloudtrail_events: rawData.summary?.cloudtrail_events ?? rawData.event_count ?? rawData.total_events ?? 0,
           high_risk_unused_count: rawData.summary?.high_risk_unused_count ?? rawData.high_risk_unused?.length ?? 0
         },
-        // Build permissions_analysis from used_permissions and unused_permissions arrays
-        permissions_analysis: [
-          ...actualUsedPerms.map((p: string) => ({
-            permission: p,
-            status: 'USED' as const,
-            risk_level: 'LOW' as const,
-            recommendation: 'Keep this permission',
-            usage_count: 1
-          })),
-          ...actualUnusedPerms.map((p: string) => ({
-            permission: p,
-            status: 'UNUSED' as const,
-            risk_level: (rawData.high_risk_unused || []).includes(p) ? 'HIGH' as const : 'MEDIUM' as const,
-            recommendation: 'Remove this permission',
-            usage_count: 0
-          }))
-        ],
+        // Use backend's permissions_analysis when available (has real usage_count),
+        // otherwise build from flat string arrays
+        permissions_analysis: rawData.permissions_analysis?.length > 0
+          ? rawData.permissions_analysis
+          : [
+            ...actualUsedPerms.map((p: string) => ({
+              permission: p,
+              status: 'USED' as const,
+              risk_level: 'LOW' as const,
+              recommendation: 'Keep this permission',
+              usage_count: 1
+            })),
+            ...actualUnusedPerms.map((p: string) => ({
+              permission: p,
+              status: 'UNUSED' as const,
+              risk_level: (rawData.high_risk_unused || []).includes(p) ? 'HIGH' as const : 'MEDIUM' as const,
+              recommendation: 'Remove this permission',
+              usage_count: 0
+            }))
+          ],
         used_permissions: actualUsedPerms,
         unused_permissions: actualUnusedPerms,
         high_risk_unused: rawData.high_risk_unused || [],
         confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
-        dependency_context: rawData.dependency_context
+        dependency_context: rawData.dependency_context,
+        remediated_at: rawData.remediated_at || null,
+        service_role_analysis: rawData.service_role_analysis || null
       }
       
       console.log('[IAM-Modal] Mapped data:', {
@@ -250,6 +259,13 @@ export function IAMPermissionAnalysisModal({
       // Initialize all unused permissions as selected by default
       const unusedPermsSet = new Set(mappedData.unused_permissions)
       setSelectedPermissionsToRemove(unusedPermsSet)
+
+      // Auto-enable "Detach managed policies" when permission lists are empty
+      // (managed policies can't be remediated by removing individual permissions)
+      if (mappedData.unused_permissions.length === 0 && mappedData.summary.unused_count > 0) {
+        setDetachManagedPolicies(true)
+        setDetachAllManagedPolicies(true)
+      }
     } catch (err: any) {
       console.error('[IAM-Modal] Error:', err)
       setError(err.message || 'Failed to fetch gap analysis')
@@ -290,7 +306,6 @@ export function IAMPermissionAnalysisModal({
   }
 
   const handleSimulate = async () => {
-    alert('handleSimulate function called!')
     console.log('[IAM-Modal] handleSimulate called! roleName:', roleName, 'unusedCount:', gapData?.summary?.unused_count)
     setSimulating(true)
 
@@ -465,12 +480,12 @@ export function IAMPermissionAnalysisModal({
   const usedPermissions = (gapData?.permissions_analysis ?? []).filter(p => p.status === 'USED')
   const unusedPermissions = (gapData?.permissions_analysis ?? []).filter(p => p.status === 'UNUSED')
 
-  // Use permission lists as single source of truth for counts to avoid mismatches
-  // between summary counts and actual displayed permissions
-  const usedCount = usedPermissions.length > 0 ? usedPermissions.length : (gapData?.summary?.used_count ?? 0)
-  const unusedCount = unusedPermissions.length > 0 ? unusedPermissions.length : (gapData?.summary?.unused_count ?? 0)
+  // Backend summary counts are authoritative — permission lists are supplementary detail
+  const usedCount = gapData?.summary?.used_count ?? usedPermissions.length
+  const unusedCount = gapData?.summary?.unused_count ?? unusedPermissions.length
   const totalPermissions = gapData?.summary?.total_permissions ?? (usedCount + unusedCount)
-  const lpScore = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : (gapData?.summary?.lp_score ?? 0)
+  const lpScore = gapData?.summary?.lp_score ?? (totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0)
+  const hasPermissionLists = usedPermissions.length > 0 || unusedPermissions.length > 0
 
   const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
   const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
@@ -683,84 +698,126 @@ export function IAMPermissionAnalysisModal({
             {/* What Will Change */}
             <div>
               <h3 className="font-bold text-lg  mb-3" style={{ color: "var(--foreground, #111827)" }}>What Will Change:</h3>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
-                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Remove <strong>{selectedPermissionsToRemove.size}</strong> selected permissions from {roleName}</span>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
-                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Reduce attack surface by {totalPermissions > 0 ? Math.round((selectedPermissionsToRemove.size / totalPermissions) * 100) : 0}%</span>
-                </div>
-                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
-                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Improve LP score from {lpScore}% to {(() => {
-                    // LP score = (used / total) * 100
-                    // After removing unused permissions: newTotal = total - removed, used stays same
-                    const newTotal = totalPermissions - selectedPermissionsToRemove.size
-                    return newTotal > 0 ? Math.round((usedCount / newTotal) * 100) : 100
-                  })()}%</span>
-                </div>
-              </div>
+              {(() => {
+                // When we have individual permission names, use selection count
+                // When we only have counts (managed policies), use total unused count
+                const removalCount = selectedPermissionsToRemove.size > 0
+                  ? selectedPermissionsToRemove.size
+                  : unusedCount
+                const reductionPct = totalPermissions > 0 ? Math.round((removalCount / totalPermissions) * 100) : 0
+                const newTotal = totalPermissions - removalCount
+                const newLpScore = newTotal > 0 ? Math.round((usedCount / newTotal) * 100) : 100
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                      <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                      <span>Remove <strong>{removalCount}</strong> unused permissions from {roleName}</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                      <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                      <span>Reduce attack surface by <strong>{reductionPct}%</strong> ({totalPermissions} → {newTotal} permissions)</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                      <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                      <span>Reduce over-privileged from <strong>{unusedPercent}%</strong> to <strong>{newTotal > 0 ? Math.round(((newTotal - usedCount) / newTotal) * 100) : 0}%</strong></span>
+                    </div>
+                    {!hasPermissionLists && unusedCount > 0 && (
+                      <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-300" style={{ background: "#fef3c710" }}>
+                        <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium" style={{ color: "var(--foreground, #111827)" }}>
+                            This role uses AWS managed policies
+                          </p>
+                          <p className="text-xs mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                            Individual permission names are not available. Remediation will detach managed policies and create a minimal inline policy with only the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
 
-            {/* Permissions to Remove - With Selection */}
+            {/* Permissions to Remove */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-lg" style={{ color: "var(--foreground, #111827)" }}>
-                  Permissions to Remove ({selectedPermissionsToRemove.size} of {unusedCount} selected)
+                  Permissions to Remove ({unusedPermissions.length > 0 ? `${selectedPermissionsToRemove.size} of ${unusedCount} selected` : `${unusedCount} total`})
                 </h3>
-                <div className="flex gap-2 text-xs">
-                  <button
-                    onClick={selectAllPermissions}
-                    className="text-[#8b5cf6] hover:underline font-medium"
-                  >
-                    Select All
-                  </button>
-                  <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>|</span>
-                  <button
-                    onClick={deselectAllPermissions}
-                    className="text-[#8b5cf6] hover:underline font-medium"
-                  >
-                    Clear All
-                  </button>
-                </div>
-              </div>
-              <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-64 overflow-y-auto">
-                <div className="space-y-2">
-                  {unusedPermissions.map((perm, i) => (
-                    <label
-                      key={i}
-                      className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                        selectedPermissionsToRemove.has(perm.permission)
-                          ? 'bg-[#ef444420] border border-[#ef444440]'
-                          : 'bg-white border border-[var(--border,#e5e7eb)] hover:bg-gray-50'
-                      }`}
+                {unusedPermissions.length > 0 && (
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      onClick={selectAllPermissions}
+                      className="text-[#8b5cf6] hover:underline font-medium"
                     >
-                      <input
-                        type="checkbox"
-                        checked={selectedPermissionsToRemove.has(perm.permission)}
-                        onChange={() => togglePermissionSelection(perm.permission)}
-                        className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
-                      />
-                      <span className="font-mono text-sm text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
-                        perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
-                        perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
-                        'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
-                      }`}>
-                        {perm.risk_level}
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                      Select All
+                    </button>
+                    <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>|</span>
+                    <button
+                      onClick={deselectAllPermissions}
+                      className="text-[#8b5cf6] hover:underline font-medium"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                )}
               </div>
-              {selectedPermissionsToRemove.size === 0 && (
-                <p className="mt-2 text-sm text-[#f97316] flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" />
-                  Select at least one permission to remove
-                </p>
-              )}
+
+              {unusedPermissions.length > 0 ? (
+                <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-64 overflow-y-auto">
+                  <div className="space-y-2">
+                    {unusedPermissions.map((perm, i) => (
+                      <label
+                        key={i}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                          selectedPermissionsToRemove.has(perm.permission)
+                            ? 'bg-[#ef444420] border border-[#ef444440]'
+                            : 'bg-white border border-[var(--border,#e5e7eb)] hover:bg-gray-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPermissionsToRemove.has(perm.permission)}
+                          onChange={() => togglePermissionSelection(perm.permission)}
+                          className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
+                        />
+                        <span className="font-mono text-sm text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
+                          perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                          perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                          'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
+                        }`}>
+                          {perm.risk_level}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : unusedCount > 0 ? (
+                <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-[#ef4444] flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-[#ef4444]">{unusedCount} permissions to remove via managed policy detachment</p>
+                      <p className="text-sm mt-1" style={{ color: "var(--foreground, #374151)" }}>
+                        These permissions come from AWS managed policies attached to this role. Individual permission names are not expanded in the graph.
+                        To remediate, enable <strong>"Detach managed policies"</strong> below — this will detach the managed policies and the role will only retain the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
+                      </p>
+                      <div className="mt-3 p-3 bg-white rounded-lg border" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+                        <p className="text-xs font-semibold" style={{ color: "var(--muted-foreground, #4b5563)" }}>Remediation approach:</p>
+                        <ol className="text-xs mt-1 space-y-1 list-decimal list-inside" style={{ color: "var(--foreground, #374151)" }}>
+                          <li>Create rollback snapshot (automatic)</li>
+                          <li>Detach all AWS managed policies from the role</li>
+                          <li>Create minimal inline policy with only the {usedCount} observed permission{usedCount !== 1 ? 's' : ''}</li>
+                          <li>Attack surface reduced from {totalPermissions} → {usedCount} permissions ({totalPermissions > 0 ? Math.round(((totalPermissions - usedCount) / totalPermissions) * 100) : 0}% reduction)</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {/* Permissions to Keep */}
@@ -773,14 +830,21 @@ export function IAMPermissionAnalysisModal({
                       <div key={i} className="flex items-center gap-2">
                         <Check className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
                         <span className="font-mono text-sm " style={{ color: "var(--foreground, #111827)" }}>{perm.permission}</span>
-                        <span className="text-[#22c55e] text-sm">{perm.usage_count || 0} uses/day</span>
+                        <span className="text-[#22c55e] text-sm">{perm.usage_count || 0} API calls</span>
                       </div>
                     ))}
                   </div>
                 </div>
+              ) : usedCount > 0 ? (
+                <div className="p-4 bg-[#22c55e10] border border-[#22c55e40] rounded-xl">
+                  <p className="text-sm" style={{ color: "var(--foreground, #374151)" }}>
+                    <strong className="text-[#22c55e]">{usedCount} permission{usedCount !== 1 ? 's' : ''}</strong> observed in active use — these will be preserved in the new minimal inline policy after remediation.
+                  </p>
+                </div>
               ) : (
                 <div className="p-4 bg-[#f9731610] border border-[#f9731640] rounded-xl">
-                  <p className="text-[#f97316] italic">No permissions currently in use - this role may be safe to delete entirely</p>
+                  <p className="text-[#f97316]">No permissions observed in use during the observation period.</p>
+                  <p className="text-[#f97316] text-sm mt-1">This role may be safe to delete entirely, or it may be used by an AWS service that doesn't log to CloudTrail.</p>
                 </div>
               )}
             </div>
@@ -1011,8 +1075,8 @@ export function IAMPermissionAnalysisModal({
                   return (
                     <button
                       onClick={handleApplyFix}
-                      disabled={applying || selectedPermissionsToRemove.size === 0}
-                      className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-amber-600 hover:to-orange-600 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
+                      className="px-6 py-2.5 bg-[#f97316] text-white rounded-lg font-bold hover:bg-[#ea580c] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       title="Low confidence - proceed with caution"
                     >
                       {applying ? (
@@ -1023,7 +1087,7 @@ export function IAMPermissionAnalysisModal({
                       ) : (
                         <>
                           <AlertTriangle className="w-4 h-4" />
-                          APPLY ANYWAY ({selectedPermissionsToRemove.size})
+                          APPLY ANYWAY ({selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} permissions` : 'detach policies'})
                         </>
                       )}
                     </button>
@@ -1032,16 +1096,20 @@ export function IAMPermissionAnalysisModal({
                   return (
                     <button
                       onClick={handleApplyFix}
-                      disabled={applying || selectedPermissionsToRemove.size === 0}
-                      className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-blue-700 hover:to-indigo-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
+                      className="px-6 py-2.5 bg-[#8b5cf6] text-white rounded-lg font-bold hover:bg-[#7c3aed] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                       {applying ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
                           Applying...
                         </>
-                      ) : (
+                      ) : selectedPermissionsToRemove.size > 0 ? (
                         `APPLY FIX (${selectedPermissionsToRemove.size} permissions)`
+                      ) : detachManagedPolicies ? (
+                        `APPLY FIX (detach managed policies)`
+                      ) : (
+                        'Select permissions or enable "Detach managed policies"'
                       )}
                     </button>
                   )
@@ -1241,20 +1309,58 @@ export function IAMPermissionAnalysisModal({
             </div>
           )}
 
-          {/* Stats Grid - Only show if not remediated */}
+          {/* Over-Privileged Banner + Stats Grid - Only show if not remediated */}
           {totalPermissions > 0 && (
-          <div className="grid grid-cols-3 gap-4 p-6">
-            <div className="rounded-xl p-4 text-center border" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
-              <div className="text-4xl font-bold" style={{ color: "var(--foreground, #111827)" }}>{totalPermissions}</div>
-              <div className="mt-1" style={{ color: "var(--muted-foreground, #9ca3af)" }}>Total Permissions</div>
+          <div className="p-6 space-y-4">
+            {/* Over-Privileged Banner - matches list view format */}
+            <div className="flex items-center gap-5 p-5 rounded-xl border-2" style={{
+              borderColor: unusedPercent >= 75 ? '#ef444440' : unusedPercent >= 50 ? '#f9731640' : unusedPercent >= 25 ? '#eab30840' : '#22c55e40',
+              background: unusedPercent >= 75 ? '#ef444408' : unusedPercent >= 50 ? '#f9731608' : unusedPercent >= 25 ? '#eab30808' : '#22c55e08',
+            }}>
+              <div className="flex flex-col items-center flex-shrink-0">
+                <span className="text-4xl font-bold" style={{
+                  color: unusedPercent >= 75 ? '#ef4444' : unusedPercent >= 50 ? '#f97316' : unusedPercent >= 25 ? '#eab308' : '#22c55e'
+                }}>{unusedPercent}%</span>
+                <span className="text-xs font-semibold mt-0.5" style={{
+                  color: unusedPercent >= 75 ? '#ef4444' : unusedPercent >= 50 ? '#f97316' : unusedPercent >= 25 ? '#eab308' : '#22c55e'
+                }}>Over-Privileged</span>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                  <strong>{unusedCount}</strong> of <strong>{totalPermissions}</strong> permissions never used — only <strong>{usedCount}</strong> needed
+                </p>
+                <div className="flex items-center gap-1 mt-2 h-3 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+                  <div className="h-full rounded-l-full transition-all" style={{
+                    width: `${usedPercent}%`,
+                    background: '#22c55e',
+                    minWidth: usedCount > 0 ? '4px' : '0'
+                  }} />
+                  <div className="h-full rounded-r-full transition-all" style={{
+                    width: `${unusedPercent}%`,
+                    background: unusedPercent >= 75 ? '#ef4444' : unusedPercent >= 50 ? '#f97316' : unusedPercent >= 25 ? '#eab308' : '#22c55e'
+                  }} />
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-xs" style={{ color: '#22c55e' }}>{usedCount} used</span>
+                  <span className="text-xs" style={{ color: unusedPercent >= 75 ? '#ef4444' : '#f97316' }}>{unusedCount} to remove</span>
+                </div>
+              </div>
             </div>
-            <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
-              <div className="text-4xl font-bold" style={{ color: "#22c55e" }}>{usedCount}</div>
-              <div className="mt-1" style={{ color: "#22c55e" }}>Actually Used ({usedPercent}%)</div>
-            </div>
-            <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
-              <div className="text-4xl font-bold" style={{ color: "#ef4444" }}>{unusedCount}</div>
-              <div className="mt-1" style={{ color: "#ef4444" }}>Unused ({unusedPercent}%)</div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl p-4 text-center border" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
+                <div className="text-4xl font-bold" style={{ color: "var(--foreground, #111827)" }}>{totalPermissions}</div>
+                <div className="mt-1" style={{ color: "var(--muted-foreground, #9ca3af)" }}>Total Permissions</div>
+              </div>
+              <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
+                <div className="text-4xl font-bold" style={{ color: "#22c55e" }}>{usedCount}</div>
+                <div className="mt-1" style={{ color: "#22c55e" }}>Actually Used ({usedPercent}%)</div>
+              </div>
+              <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
+                <div className="text-4xl font-bold" style={{ color: "#ef4444" }}>{unusedCount}</div>
+                <div className="mt-1" style={{ color: "#ef4444" }}>To Remove ({unusedPercent}%)</div>
+              </div>
             </div>
           </div>
           )}
@@ -1309,10 +1415,19 @@ export function IAMPermissionAnalysisModal({
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <span className="text-[#22c55e]">✓</span>
                     <span className="font-mono text-[var(--foreground,#1f2937)]">{perm.permission}</span>
-                    <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>- {perm.usage_count || 0} uses/day</span>
+                    <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>- {perm.usage_count || 0} API calls</span>
                   </div>
-                )) : (
-                  <p className="text-[var(--muted-foreground,#9ca3af)] text-sm italic">No permissions currently in use</p>
+                )) : usedCount > 0 ? (
+                  <div className="p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                    <p className="text-sm" style={{ color: "var(--foreground, #374151)" }}>
+                      <strong>{usedCount} permission{usedCount !== 1 ? 's' : ''}</strong> observed in use via CloudTrail.
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+                      Permission names not yet resolved — the role has managed policies whose individual actions were not expanded in the graph.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[var(--muted-foreground,#9ca3af)] text-sm italic">No permissions observed in use during the observation period</p>
                 )}
               </div>
             </div>
@@ -1328,14 +1443,25 @@ export function IAMPermissionAnalysisModal({
                   Remove these
                 </span>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                {unusedPermissions.map((perm, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <X className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
-                    <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
-                  </div>
-                ))}
-              </div>
+              {unusedPermissions.length > 0 ? (
+                <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {unusedPermissions.map((perm, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <X className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                      <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : unusedCount > 0 ? (
+                <div className="mt-3 p-3 rounded-lg bg-[#ef444408]">
+                  <p className="text-sm" style={{ color: "var(--foreground, #374151)" }}>
+                    <strong>{unusedCount} permission{unusedCount !== 1 ? 's' : ''}</strong> are configured but were never used in {observationDays} days.
+                  </p>
+                  <p className="text-xs mt-1 text-[#ef4444]">
+                    These permissions come from managed policies attached to this role. To remediate, detach the managed policies and replace with a minimal inline policy containing only the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
           )}
@@ -1345,20 +1471,50 @@ export function IAMPermissionAnalysisModal({
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
             const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
-            const isRemediated = totalPermissions === 0
+            const isRemediated = totalPermissions === 0 || !!gapData?.remediated_at
 
             // Show success message for remediated roles
             if (isRemediated) {
+              const remediatedDate = gapData?.remediated_at
+                ? new Date(gapData.remediated_at).toLocaleDateString()
+                : null
               return (
-                <div className="mx-6 mb-6 p-4 border-2 border-[#10b98140] bg-[#10b98110] rounded-xl">
-                  <h3 className="font-bold text-emerald-800">No Action Required</h3>
-                  <p className="text-[#10b981] mt-1">
-                    This role has been fully remediated. All managed policies have been detached from AWS IAM.
-                  </p>
-                  <div className="flex items-center gap-2 mt-3 text-[#10b981]">
-                    <CheckCircle className="w-5 h-5" />
-                    <span className="font-medium">Least privilege achieved - Role is optimized</span>
+                <div className="mx-6 mb-6 space-y-3">
+                  <div className="p-4 border-2 border-[#10b98140] bg-[#10b98110] rounded-xl">
+                    <h3 className="font-bold text-emerald-800">Remediated{remediatedDate ? ` on ${remediatedDate}` : ''}</h3>
+                    <p className="text-[#10b981] mt-1">
+                      This role has been remediated. Managed policies were detached from AWS IAM.
+                    </p>
+                    <div className="flex items-center gap-2 mt-3 text-[#10b981]">
+                      <CheckCircle className="w-5 h-5" />
+                      <span className="font-medium">Least privilege achieved - Role is optimized</span>
+                    </div>
                   </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/proxy/iam-roles/rollback`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ role_name: roleName })
+                        })
+                        const result = await res.json()
+                        if (res.ok) {
+                          toast({ title: "Rollback Successful", description: `Restored ${roleName} to pre-remediation state`, variant: "default" })
+                          fetchGapAnalysis(true)
+                          onRemediationSuccess?.(roleName)
+                        } else {
+                          toast({ title: "Rollback Failed", description: result.detail || 'Could not rollback', variant: "destructive" })
+                        }
+                      } catch (err: any) {
+                        toast({ title: "Rollback Error", description: err.message, variant: "destructive" })
+                      }
+                    }}
+                    className="w-full p-3 border-2 border-amber-300 bg-amber-50 rounded-xl text-amber-700 font-medium hover:bg-amber-100 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Rollback to Pre-Remediation State
+                  </button>
                 </div>
               )
             } else if (isServiceRole) {
@@ -1416,7 +1572,7 @@ export function IAMPermissionAnalysisModal({
           >
             CLOSE
           </button>
-          <button
+          {!gapData?.remediated_at && <button
             onClick={async () => {
               setSimulating(true)
               try {
@@ -1429,11 +1585,11 @@ export function IAMPermissionAnalysisModal({
                   })
                 })
 
-                if (!response.ok) {
-                  throw new Error(`Remediation failed: ${response.status}`)
-                }
-
                 const result = await response.json()
+
+                if (!response.ok) {
+                  throw new Error(result.detail || result.error || `Remediation failed: ${response.status}`)
+                }
 
                 toast({
                   title: 'Simulation Complete',
@@ -1464,7 +1620,7 @@ export function IAMPermissionAnalysisModal({
             ) : (
               'SIMULATE FIX'
             )}
-          </button>
+          </button>}
         </div>
       </div>
     </div>

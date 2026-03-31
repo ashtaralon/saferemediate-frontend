@@ -15,6 +15,7 @@ import { IdentitiesSection } from "@/components/identities-section"
 import { AutomationSection } from "@/components/automation-section"
 import { PerResourceAnalysis } from "@/components/per-resource-analysis"
 import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
+import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
@@ -652,10 +653,10 @@ export default function HomePage() {
         return <PerResourceAnalysis />
 
       case "least-privilege":
-        return <LeastPrivilegeTab />
+        return <LeastPrivilegeTab systemName={selectedSystem} />
 
       case "vulnerabilities":
-        return <VulnerabilitiesSection />
+        return <BehavioralVulnerabilitiesView systemName={selectedSystem} />
 
       case "automation":
         return <AutomationSection />

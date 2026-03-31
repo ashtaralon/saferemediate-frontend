@@ -7,7 +7,7 @@ const BACKEND_URL =
 // In-memory cache
 let cachedData: any = null
 let cacheTimestamp: number = 0
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes in ms
+const CACHE_DURATION = 2 * 60 * 1000 // 2 minutes in ms
 
 const EMPTY_RESPONSE = {
   summary: {
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const systemName = url.searchParams.get("systemName") || ""
   const observationDays = url.searchParams.get("observationDays") ?? "365"
-  const forceRefresh = url.searchParams.get("refresh") === "true"
+  const forceRefresh = url.searchParams.get("refresh") === "true" || url.searchParams.get("force_refresh") === "true"
   
   const cacheKey = `${systemName}-${observationDays}`
   const now = Date.now()
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
     })
   }
   
-  console.log(`[LP Proxy] Fetching fresh data from backend... (refresh=${forceRefresh})`)
+  console.log(`[LP Proxy] Fetching fresh data from backend=${BACKEND_URL} (refresh=${forceRefresh})`)
 
   try {
     const controller = new AbortController()

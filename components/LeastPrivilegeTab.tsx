@@ -1154,9 +1154,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         >
           <span>Resource</span>
           <span>Type</span>
-          <span className="text-center">Gap</span>
+          <span className="text-center">Over-Privileged</span>
           <span className="text-center">Used</span>
-          <span className="text-center">Unused</span>
+          <span className="text-center">To Remove</span>
           <span className="text-center">Severity</span>
           <span className="text-center">Action</span>
         </div>
@@ -1247,35 +1247,43 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   {isExpanded && (
                     <div className="px-6 py-5 border-t" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
                       <div className="grid grid-cols-3 gap-5">
-                        {/* Column 1: Permission Usage */}
+                        {/* Column 1: Over-Privilege Summary */}
                         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
                             <BarChart3 className="w-3.5 h-3.5" />
-                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security' : resource.resourceType === 'S3Bucket' ? 'Policy Usage' : 'Permission Usage'}
+                            {resource.resourceType === 'SecurityGroup' ? 'Rule Security' : resource.resourceType === 'S3Bucket' ? 'Access Analysis' : 'Privilege Analysis'}
                           </h4>
-                          <div className="flex items-center gap-3 mb-3">
+                          <div className="flex items-center gap-3 mb-2">
                             <span className="text-3xl font-bold" style={{ color: sevColor }}>
-                              {resource.lpScore !== null && !isNaN(resource.lpScore ?? NaN) ? `${Math.round(resource.lpScore ?? 0)}%` : `${100 - metrics.gapPct}%`}
+                              {metrics.gapPct}%
                             </span>
-                            <span className="text-xs" style={{ color: "var(--text-muted)" }}>LP Score</span>
+                            <span className="text-xs font-medium" style={{ color: sevColor }}>Over-Privileged</span>
                           </div>
-                          <div className="space-y-1.5 text-xs" style={{ color: "var(--text-secondary)" }}>
-                            <div className="flex justify-between">
-                              <span>Total</span>
-                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{metrics.total}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>{resource.resourceType === 'SecurityGroup' ? 'Secure' : 'Used'}</span>
-                              <span className="font-medium" style={{ color: "#22c55e" }}>{metrics.usedCount}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>{resource.resourceType === 'SecurityGroup' ? 'Exposed' : 'Unused'}</span>
-                              <span className="font-medium" style={{ color: "#ef4444" }}>{metrics.unusedCount}</span>
-                            </div>
+                          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                            {metrics.unusedCount > 0
+                              ? <>{metrics.unusedCount} of {metrics.total} permissions never used — only <strong style={{ color: "#22c55e" }}>{metrics.usedCount}</strong> needed</>
+                              : <>All {metrics.total} permissions are in active use</>
+                            }
+                          </p>
+                          {/* Visual bar: green (used) vs red (unused) */}
+                          <div className="h-3 rounded-full overflow-hidden flex" style={{ background: "var(--bg-primary)" }}>
+                            {metrics.usedCount > 0 && (
+                              <div className="h-full rounded-l-full" style={{
+                                width: `${Math.max(((metrics.usedCount / Math.max(1, metrics.total)) * 100), 4)}%`,
+                                background: '#22c55e'
+                              }} />
+                            )}
+                            {metrics.unusedCount > 0 && (
+                              <div className="h-full" style={{
+                                width: `${(metrics.unusedCount / Math.max(1, metrics.total)) * 100}%`,
+                                background: '#ef4444',
+                                borderRadius: metrics.usedCount > 0 ? '0 9999px 9999px 0' : '9999px'
+                              }} />
+                            )}
                           </div>
-                          {/* Progress bar */}
-                          <div className="mt-3 h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-                            <div className="h-full rounded-full" style={{ width: `${100 - metrics.gapPct}%`, background: metrics.gapPct >= 50 ? '#ef4444' : metrics.gapPct >= 20 ? '#f97316' : '#22c55e' }} />
+                          <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                            <span>{metrics.usedCount} used</span>
+                            <span>{metrics.unusedCount} to remove</span>
                           </div>
                         </div>
 
@@ -1405,7 +1413,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </div>
                             <div className="flex justify-between">
                               <span>Data Sources</span>
-                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{(resource.evidence?.dataSources || []).join(', ') || 'Neo4j'}</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                                {(() => {
+                                  const sources = resource.evidence?.dataSources || []
+                                  const labels = sources.map((s: string) => {
+                                    const sl = s.toLowerCase()
+                                    if (sl.includes('neo4j') || sl.includes('graph')) return 'Identity Graph'
+                                    if (sl.includes('cloudtrail') || sl.includes('trail')) return 'API Activity Logs'
+                                    if (sl.includes('flowlog') || sl.includes('flow')) return 'Network Traffic'
+                                    if (sl.includes('config')) return 'Configuration'
+                                    if (sl.includes('s3') || sl.includes('access')) return 'Access Logs'
+                                    return s
+                                  })
+                                  return [...new Set(labels)].join(', ') || 'Identity Graph'
+                                })()}
+                              </span>
                             </div>
                             <div className="flex justify-between">
                               <span>Last Used</span>
