@@ -53,9 +53,20 @@ export async function GET(req: NextRequest) {
 
     const data = await res.json()
 
-    // Deduplicate roles by normalized role name
+    // Separate IAM roles from Security Groups
+    const iamRoles: any[] = []
+    const securityGroups: any[] = []
+    for (const item of data) {
+      if (item.resource_type === "SecurityGroup") {
+        securityGroups.push(item)
+      } else {
+        iamRoles.push(item)
+      }
+    }
+
+    // Deduplicate IAM roles by normalized role name
     const roleMap = new Map<string, any>()
-    for (const role of data) {
+    for (const role of iamRoles) {
       const normalizedName = extractRoleName(role.role_name)
 
       // Skip roles with "Unknown" name or instance profiles without a proper role
@@ -88,7 +99,8 @@ export async function GET(req: NextRequest) {
     }
 
     const dedupedRoles = Array.from(roleMap.values())
-    return NextResponse.json(dedupedRoles)
+    // SGs already come pre-filtered (2+ ENIs) from backend — pass through as-is
+    return NextResponse.json([...dedupedRoles, ...securityGroups])
   } catch (error: any) {
     clearTimeout(timeoutId)
     if (error.name === "AbortError") {

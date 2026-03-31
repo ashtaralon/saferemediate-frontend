@@ -34,6 +34,10 @@ interface ScannedRole {
   total_permissions: number
   resources: ScanResource[]
   all_permissions: string[]
+  resource_type?: string  // "SecurityGroup" for SGs, undefined for IAM roles
+  sg_id?: string
+  has_public?: boolean
+  active_ports?: number
 }
 
 interface PermissionUsed {
@@ -151,6 +155,8 @@ export function PerResourceAnalysis() {
   // Data
   const [roles, setRoles] = useState<ScannedRole[]>([])
   const [selectedRole, setSelectedRole] = useState<string | null>(null)
+  const [selectedIsSG, setSelectedIsSG] = useState(false)
+  const [selectedSGData, setSelectedSGData] = useState<ScannedRole | null>(null)
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null)
   const [recommendData, setRecommendData] = useState<RecommendData | null>(null)
   const [simData, setSimData] = useState<SimData | null>(null)
@@ -179,7 +185,7 @@ export function PerResourceAnalysis() {
   // ── Scan ──
   const runScan = useCallback(async () => {
     setLoading(true)
-    setLoadingMsg("Scanning EC2, Lambda, ECS for shared roles...")
+    setLoadingMsg("Scanning for shared IAM roles and Security Groups...")
     setError(null)
     setRoles([])
     setSelectedRole(null)
@@ -194,7 +200,7 @@ export function PerResourceAnalysis() {
       const data = await apiCall("GET", "/api/proxy/cyntro/scan")
       setRoles(data)
       if (data.length === 0) {
-        setError("No shared roles found. All roles are single-resource.")
+        setError("No shared resources found. All roles and SGs are single-resource.")
       }
     } catch (e: any) {
       setError(e.message)
@@ -204,18 +210,30 @@ export function PerResourceAnalysis() {
     }
   }, [apiCall])
 
-  // ── Analyze role ──
+  // ── Analyze role or SG ──
   const analyzeRole = useCallback(
     async (roleName: string) => {
-      setLoading(true)
-      setLoadingMsg("Querying CloudTrail for per-resource usage...")
-      setError(null)
+      // Check if it's an SG
+      const sgItem = roles.find(r => r.role_name === roleName && r.resource_type === "SecurityGroup")
+      setSelectedIsSG(!!sgItem)
+      setSelectedSGData(sgItem || null)
       setSelectedRole(roleName)
       setActiveTab("aggregated")
       setAggApplied(false)
       setRecommendData(null)
       setSimData(null)
       setRemediateData(null)
+
+      if (sgItem) {
+        // For SGs, we show the scan data directly — no CloudTrail analysis needed
+        setAnalysisData(null)
+        setStage("analysis")
+        return
+      }
+
+      setLoading(true)
+      setLoadingMsg("Querying CloudTrail for per-resource usage...")
+      setError(null)
       setStage("analysis")
 
       try {
@@ -231,7 +249,7 @@ export function PerResourceAnalysis() {
         setLoadingMsg("")
       }
     },
-    [apiCall]
+    [apiCall, roles]
   )
 
   // ── Compare ──
@@ -397,13 +415,15 @@ export function PerResourceAnalysis() {
         <div>
           <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Per-Resource Analysis</h2>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Discover shared IAM roles and split into per-resource least-privilege policies
+            Discover shared IAM roles and Security Groups, split into per-resource least-privilege policies
           </p>
         </div>
         {selectedRole && (
           <button
             onClick={() => {
               setSelectedRole(null)
+              setSelectedIsSG(false)
+              setSelectedSGData(null)
               setAnalysisData(null)
               setRecommendData(null)
               setSimData(null)
@@ -441,7 +461,7 @@ export function PerResourceAnalysis() {
       {/* ──────────── SCAN SECTION ──────────── */}
       <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Shared Role Scanner</h3>
+          <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Shared Resource Scanner</h3>
           <button
             onClick={runScan}
             disabled={loading}
@@ -454,16 +474,28 @@ export function PerResourceAnalysis() {
         </div>
 
         {roles.length === 0 && !loading && !error && (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Click &quot;Scan AWS Account&quot; to discover shared roles.</p>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Click &quot;Scan AWS Account&quot; to discover shared roles and security groups.</p>
         )}
 
-        {roles.length > 0 && !selectedRole && (
+        {roles.length > 0 && !selectedRole && (() => {
+          const iamRoles = roles.filter(r => r.resource_type !== "SecurityGroup")
+          const sgItems = roles.filter(r => r.resource_type === "SecurityGroup")
+          return (
           <div className="space-y-3">
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Found <span className="font-semibold" style={{ color: "#ef4444" }}>{roles.length}</span> shared role(s) — each is a blast radius risk
+              Found <span className="font-semibold" style={{ color: "#ef4444" }}>{roles.length}</span> shared resource(s)
+              {iamRoles.length > 0 && sgItems.length > 0
+                ? ` — ${iamRoles.length} IAM role(s), ${sgItems.length} security group(s)`
+                : " — each is a blast radius risk"}
             </p>
-            {roles.map((role) => {
-              // Determine role type from resources
+
+            {/* IAM Roles section */}
+            {iamRoles.length > 0 && sgItems.length > 0 && (
+              <div className="text-xs font-semibold uppercase tracking-wider pt-2" style={{ color: "var(--text-muted)" }}>
+                IAM Roles
+              </div>
+            )}
+            {iamRoles.map((role) => {
               const resourceTypes = [...new Set(role.resources.map(r => getTypeLabel(r.resource_type)))]
               const roleType = resourceTypes.length === 1
                 ? `${resourceTypes[0]} Execution Role`
@@ -478,7 +510,6 @@ export function PerResourceAnalysis() {
                   className="w-full text-left rounded-lg border p-5 transition-all hover:bg-white/5"
                   style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}
                 >
-                  {/* Header row */}
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <div className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>
@@ -491,7 +522,6 @@ export function PerResourceAnalysis() {
                     <ChevronRight className="w-5 h-5 mt-1" style={{ color: "var(--text-muted)" }} />
                   </div>
 
-                  {/* Stats row */}
                   <div className="grid grid-cols-4 gap-3 mb-3">
                     <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
                       <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{role.total_permissions}</div>
@@ -506,23 +536,17 @@ export function PerResourceAnalysis() {
                       <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Total Exposure</div>
                     </div>
                     <div className="rounded-lg p-2 border text-center" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
-                      <div className="text-xs font-bold" style={{ color: "#ef4444" }}>
-                        {role.resources.length > 1 ? "SHARED" : "SINGLE"}
-                      </div>
-                      <div className="text-[10px] uppercase mt-1" style={{ color: "var(--text-muted)" }}>
-                        {role.resources.length > 1 ? "Blast radius risk" : "No sharing risk"}
-                      </div>
+                      <div className="text-xs font-bold" style={{ color: "#ef4444" }}>SHARED</div>
+                      <div className="text-[10px] uppercase mt-1" style={{ color: "var(--text-muted)" }}>Blast radius risk</div>
                     </div>
                   </div>
 
-                  {/* Problem statement */}
                   {role.resources.length > 1 && (
                     <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
                       If any of these {role.resources.length} {resourceTypes[0] || "resource"}s is compromised, the attacker gets all {role.total_permissions} permissions — affecting every resource on this role.
                     </div>
                   )}
 
-                  {/* Resource badges */}
                   <div className="flex flex-wrap gap-1.5">
                     {role.resources.map((r) => {
                       const color = getTypeColor(r.resource_type)
@@ -542,12 +566,194 @@ export function PerResourceAnalysis() {
                 </button>
               )
             })}
+
+            {/* Security Groups section */}
+            {sgItems.length > 0 && (
+              <>
+                {iamRoles.length > 0 && (
+                  <div className="text-xs font-semibold uppercase tracking-wider pt-3" style={{ color: "var(--text-muted)" }}>
+                    Security Groups
+                  </div>
+                )}
+                {sgItems.map((sg) => {
+                  const totalRules = sg.total_permissions || 0
+                  const activePorts = sg.active_ports || 0
+                  const hasPublic = sg.has_public || false
+
+                  return (
+                    <button
+                      key={sg.sg_id || sg.role_name}
+                      onClick={() => analyzeRole(sg.role_name)}
+                      className="w-full text-left rounded-lg border p-5 transition-all hover:bg-white/5"
+                      style={{ background: "var(--bg-primary)", borderColor: hasPublic ? "#ef444440" : "var(--border-subtle)" }}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Shield className="w-4 h-4" style={{ color: "#ef4444" }} />
+                          <div>
+                            <div className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                              {sg.role_name}
+                            </div>
+                            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                              Shared Security Group {sg.sg_id ? `(${sg.sg_id})` : ""}
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-5 h-5 mt-1" style={{ color: "var(--text-muted)" }} />
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-3 mb-3">
+                        <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+                          <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{totalRules}</div>
+                          <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Inbound Rules</div>
+                        </div>
+                        <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+                          <div className="text-lg font-bold" style={{ color: "#f97316" }}>{sg.resources.length}</div>
+                          <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Resources</div>
+                        </div>
+                        <div className="rounded-lg p-2 border text-center" style={{ borderColor: activePorts > 0 ? "#22c55e40" : "#ef444440", background: activePorts > 0 ? "#22c55e10" : "#ef444410" }}>
+                          <div className="text-lg font-bold" style={{ color: activePorts > 0 ? "#22c55e" : "#ef4444" }}>{activePorts}</div>
+                          <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Active Ports</div>
+                        </div>
+                        <div className="rounded-lg p-2 border text-center" style={{ borderColor: hasPublic ? "#ef444440" : "#f9731640", background: hasPublic ? "#ef444410" : "#f9731610" }}>
+                          <div className="text-xs font-bold" style={{ color: hasPublic ? "#ef4444" : "#f97316" }}>
+                            {hasPublic ? "PUBLIC" : "SHARED"}
+                          </div>
+                          <div className="text-[10px] uppercase mt-1" style={{ color: "var(--text-muted)" }}>
+                            {hasPublic ? "Internet exposed" : "Multi-resource"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {sg.resources.length > 1 && (
+                        <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+                          {sg.resources.length} resources share this SG — a rule change affects all of them. Consider per-resource SGs for isolation.
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {sg.resources.map((r) => {
+                          const color = getTypeColor(r.resource_type)
+                          const label = getTypeLabel(r.resource_type)
+                          return (
+                            <span
+                              key={r.resource_id}
+                              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium"
+                              style={{ background: `${color}15`, color, borderColor: `${color}40` }}
+                            >
+                              <span className="text-[10px] uppercase opacity-75 font-semibold">{label}</span>
+                              <span className="font-bold">{r.resource_name}</span>
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </button>
+                  )
+                })}
+              </>
+            )}
           </div>
-        )}
+          )
+        })()}
       </div>
 
-      {/* ──────────── ANALYSIS SECTION ──────────── */}
-      {analysisData && stage !== "scan" && (
+      {/* ──────────── SG ANALYSIS SECTION ──────────── */}
+      {selectedIsSG && selectedSGData && stage !== "scan" && (
+        <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>Shared Security Group Analysis</h3>
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4" style={{ color: "#ef4444" }} />
+              <span className="text-sm font-bold font-mono px-3 py-1 rounded-lg border" style={{ color: "#ef4444", background: "#ef444410", borderColor: "#ef444440" }}>
+                {selectedSGData.role_name}
+              </span>
+            </div>
+          </div>
+
+          {/* Summary stats */}
+          <div className="grid grid-cols-4 gap-3 mb-5">
+            <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+              <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{selectedSGData.total_permissions}</div>
+              <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Inbound Rules</div>
+            </div>
+            <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
+              <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{selectedSGData.resources.length}</div>
+              <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Attached Resources</div>
+            </div>
+            <div className="rounded-lg p-3 border text-center" style={{ borderColor: (selectedSGData.active_ports || 0) > 0 ? "#22c55e40" : "#ef444440", background: (selectedSGData.active_ports || 0) > 0 ? "#22c55e10" : "#ef444410" }}>
+              <div className="text-2xl font-bold" style={{ color: (selectedSGData.active_ports || 0) > 0 ? "#22c55e" : "#ef4444" }}>{selectedSGData.active_ports || 0}</div>
+              <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Active Ports</div>
+            </div>
+            <div className="rounded-lg p-3 border text-center" style={{ borderColor: selectedSGData.has_public ? "#ef444440" : "#22c55e40", background: selectedSGData.has_public ? "#ef444410" : "#22c55e10" }}>
+              <div className="text-sm font-bold" style={{ color: selectedSGData.has_public ? "#ef4444" : "#22c55e" }}>
+                {selectedSGData.has_public ? "PUBLIC" : "PRIVATE"}
+              </div>
+              <div className="text-[10px] uppercase mt-1" style={{ color: "var(--text-muted)" }}>Ingress Type</div>
+            </div>
+          </div>
+
+          {/* Problem explanation */}
+          <div className="text-sm mb-5 px-4 py-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+            <strong>Blast radius risk:</strong> This SG is attached to {selectedSGData.resources.length} resources.
+            Any rule change (opening a port, widening a CIDR) affects all of them. Per-resource SGs would allow
+            fine-grained control — each resource only exposes ports it actually needs.
+          </div>
+
+          {/* Attached resources */}
+          <div className="mb-5">
+            <h4 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Attached Resources</h4>
+            <div className="space-y-2">
+              {selectedSGData.resources.map((r) => {
+                const color = getTypeColor(r.resource_type)
+                const label = getTypeLabel(r.resource_type)
+                return (
+                  <div key={r.resource_id} className="flex items-center gap-3 p-3 rounded-lg border" style={{ borderColor: "var(--border-subtle)" }}>
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium"
+                      style={{ background: `${color}15`, color, borderColor: `${color}40` }}>
+                      {label}
+                    </span>
+                    <span className="font-mono text-sm font-bold" style={{ color: "var(--text-primary)" }}>{r.resource_name}</span>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{r.resource_id}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Active ports from traffic */}
+          {selectedSGData.all_permissions && selectedSGData.all_permissions.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Observed Traffic (Active Ports)</h4>
+              <div className="flex flex-wrap gap-2">
+                {selectedSGData.all_permissions.map((perm) => (
+                  <span key={perm} className="inline-flex items-center text-xs px-3 py-1.5 rounded-lg border font-mono font-medium"
+                    style={{ background: "#22c55e10", color: "#22c55e", borderColor: "#22c55e40" }}>
+                    <Activity className="w-3 h-3 mr-1.5" />
+                    {perm.replace("port:", "")}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommendation */}
+          <div className="mt-5 p-4 rounded-lg border" style={{ background: "#8b5cf610", borderColor: "#8b5cf640" }}>
+            <div className="flex items-start gap-3">
+              <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#8b5cf6" }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "#8b5cf6" }}>Recommendation: Split into per-resource SGs</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                  Create a dedicated SG for each resource, with only the ports that resource actually uses.
+                  This limits blast radius — compromising one resource doesn&apos;t expose others&apos; ports.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ──────────── ANALYSIS SECTION (IAM) ──────────── */}
+      {analysisData && !selectedIsSG && stage !== "scan" && (
         <div className="rounded-lg border p-6" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
