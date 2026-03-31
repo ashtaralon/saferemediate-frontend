@@ -517,9 +517,25 @@ export function IAMPermissionAnalysisModal({
       }
     } else {
       // We have CloudTrail data - base confidence on that
-      // Reduce score if there are high-risk unused permissions
       const highRiskCount = gapData.high_risk_unused?.length ?? 0
-      score -= highRiskCount * 2
+
+      // Scale penalty by evidence strength: more events = less penalty per high-risk perm
+      // With 100K+ events, we have strong evidence — cap penalty at 3 points total
+      // With <1K events, apply up to 8 points total penalty
+      let highRiskPenalty = 0
+      if (highRiskCount > 0) {
+        if (cloudtrailEvents > 100000) {
+          highRiskPenalty = Math.min(3, highRiskCount)
+        } else if (cloudtrailEvents > 10000) {
+          highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
+        } else if (cloudtrailEvents > 1000) {
+          highRiskPenalty = Math.min(8, highRiskCount)
+        } else {
+          highRiskPenalty = Math.min(12, highRiskCount * 2)
+        }
+      }
+      score -= highRiskPenalty
+
       // Reduce score if low CloudTrail events (but not zero)
       if (cloudtrailEvents > 0 && cloudtrailEvents < 10) score -= 5
     }
