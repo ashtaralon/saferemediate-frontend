@@ -673,6 +673,11 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                             <Database className="w-4 h-4" style={{ color: "#3b82f6" }} />
                                             <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{instance}</span>
                                             <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--bg-primary)", color: "var(--text-muted)" }}>RDS</span>
+                                            {(tables as any[])[0]?.viaDbUser && (
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded font-mono" style={{ background: "#3b82f610", color: "#3b82f6" }}>
+                                                via db_user: {(tables as any[])[0].viaDbUser}
+                                              </span>
+                                            )}
                                           </div>
                                           <div className="space-y-2">
                                             {(tables as any[]).map((t: any, idx: number) => {

@@ -176,12 +176,12 @@ export async function GET(
 
     // 3b. Query table-level DATA_ACCESS relationships from Neo4j (from RDS query log collector)
     const tableAccessData = await runNeo4jQuery(
-      `MATCH (u)-[r:DATA_ACCESS]->(t:DatabaseTable) WHERE u.name = '${name.replace(/'/g, "\\'")}' OR u.name CONTAINS '${name.replace(/'/g, "\\'").split('/').pop()}' RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg`
+      `MATCH (u)-[r:DATA_ACCESS]->(t:DatabaseTable) WHERE u.name = '${name.replace(/'/g, "\\'")}' OR u.name CONTAINS '${name.replace(/'/g, "\\'").split('/').pop()}' RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg, r.via_db_user AS via_db_user`
     )
 
-    // Also try matching by database user linked to this identity
+    // Also try matching by database user linked to this identity via USES_DB_USER
     const dbUserTableAccess = await runNeo4jQuery(
-      `MATCH (role:Resource {name: '${name.replace(/'/g, "\\'")}'})-[:ASSUMES|USES|CONNECTS_TO*1..3]-(u:DatabaseUser)-[r:DATA_ACCESS]->(t:DatabaseTable) RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg`
+      `MATCH (role:Resource {name: '${name.replace(/'/g, "\\'")}'})-[:USES_DB_USER]->(u:DatabaseUser)-[r:DATA_ACCESS]->(t:DatabaseTable) RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg, u.name AS via_db_user`
     )
 
     // Merge table access results
@@ -195,6 +195,7 @@ export async function GET(
       accessCount: number
       lastSeen: string | null
       dailyAvg: number
+      viaDbUser: string | null
     }
     const tableAccessMap = new Map<string, TableAccess>()
     for (const row of allTableAccess) {
@@ -209,6 +210,7 @@ export async function GET(
           accessCount: row.row?.[5] || 0,
           lastSeen: row.row?.[6] || null,
           dailyAvg: row.row?.[7] || 0,
+          viaDbUser: row.row?.[8] || null,
         })
       }
     }
