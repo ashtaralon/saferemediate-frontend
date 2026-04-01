@@ -147,7 +147,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
               "BUSINESS CRITICAL": { score: 4, label: "BUSINESS CRITICAL" },
               "HIGH": { score: 4, label: "BUSINESS CRITICAL" },
               "IMPORTANT": { score: 3, label: "IMPORTANT" },
-              "MEDIUM": { score: 3, label: "MEDIUM" },
+              "MEDIUM": { score: 3, label: "IMPORTANT" },
               "STANDARD": { score: 2, label: "STANDARD" },
               "LOW": { score: 2, label: "STANDARD" },
             }
