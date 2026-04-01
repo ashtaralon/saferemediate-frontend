@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import {
   Database, HardDrive, Key, Lock, Eye, PenTool, Trash2,
-  CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronRight, Workflow,
+  CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronRight, Workflow, AlertTriangle,
 } from "lucide-react"
 
 interface DataPlaneProps {
@@ -31,6 +31,9 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
   const [applying, setApplying] = useState(false)
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
+  const [snapshotId, setSnapshotId] = useState<string | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
+  const [rollbackDone, setRollbackDone] = useState(false)
 
   useEffect(() => {
     fetchDataAccess()
@@ -79,11 +82,36 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
           create_checkpoint: true,
         }),
       })
-      if (res.ok) onRemediate(await res.json())
+      if (res.ok) {
+        const result = await res.json()
+        if (result.checkpoint_id) setSnapshotId(result.checkpoint_id)
+        onRemediate(result)
+      }
     } catch (err) {
       console.error("S3 remediation failed:", err)
     } finally {
       setApplying(false)
+    }
+  }
+
+  const handleRollback = async () => {
+    if (!snapshotId) return
+    setRollingBack(true)
+    try {
+      const s3Store = dataAccess?.dataStores?.find((s: any) => s.type === 'S3')
+      const res = await fetch("/api/proxy/s3-buckets/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkpoint_id: snapshotId, bucket_name: s3Store?.name || '' }),
+      })
+      if (res.ok) {
+        setRollbackDone(true)
+        fetchDataAccess()
+      }
+    } catch (err) {
+      console.error("S3 rollback failed:", err)
+    } finally {
+      setRollingBack(false)
     }
   }
 
@@ -273,6 +301,34 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
                   <pre className="text-xs font-mono overflow-auto max-h-[150px]" style={{ color: "var(--text-primary, #334155)" }}>
                     {JSON.stringify(simulationResult, null, 2)}
                   </pre>
+                </div>
+              )}
+
+              {/* Snapshot & Rollback Banner */}
+              {snapshotId && !rollbackDone && (
+                <div className="rounded-lg p-3 border flex items-center justify-between" style={{ background: "#22c55e08", borderColor: "#22c55e30" }}>
+                  <div>
+                    <h4 className="text-xs font-semibold flex items-center gap-1" style={{ color: "#22c55e" }}>
+                      <CheckCircle className="w-3.5 h-3.5" /> Data Remediation Applied — Checkpoint Saved
+                    </h4>
+                    <p className="text-xs font-mono mt-0.5" style={{ color: "var(--text-secondary, #64748b)" }}>{snapshotId}</p>
+                  </div>
+                  <button
+                    onClick={handleRollback}
+                    disabled={rollingBack}
+                    className="px-4 py-2 rounded-lg text-xs font-medium border transition-opacity hover:opacity-80 disabled:opacity-50"
+                    style={{ borderColor: "#ef444440", color: "#ef4444" }}
+                  >
+                    {rollingBack ? "Rolling back..." : "Rollback Data Policy"}
+                  </button>
+                </div>
+              )}
+              {rollbackDone && (
+                <div className="rounded-lg p-3 border" style={{ background: "#f59e0b08", borderColor: "#f59e0b30" }}>
+                  <h4 className="text-xs font-semibold flex items-center gap-1" style={{ color: "#f59e0b" }}>
+                    <AlertTriangle className="w-3.5 h-3.5" /> Data Policy Rolled Back Successfully
+                  </h4>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary, #64748b)" }}>S3 bucket policy restored from checkpoint {snapshotId}</p>
                 </div>
               )}
             </>

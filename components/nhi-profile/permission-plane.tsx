@@ -23,6 +23,9 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
   const [applying, setApplying] = useState(false)
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
+  const [snapshotId, setSnapshotId] = useState<string | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
+  const [rollbackDone, setRollbackDone] = useState(false)
 
   useEffect(() => {
     fetchGapAnalysis()
@@ -63,24 +66,54 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
   const handleApply = async () => {
     setApplying(true)
     try {
+      // Step 1: Create pre-remediation snapshot
+      const snapRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(identityName)}/snapshot`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+      })
+      if (snapRes.ok) {
+        const snapResult = await snapRes.json()
+        if (snapResult.snapshot_id) setSnapshotId(snapResult.snapshot_id)
+      }
+
+      // Step 2: Apply remediation
       const res = await fetch("/api/proxy/cyntro/remediate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           role_name: identityName,
           dry_run: false,
+          create_snapshot: true,
           detach_managed_policies: true,
           detach_all_managed_policies: true,
         }),
       })
       if (res.ok) {
         const result = await res.json()
+        if (result.snapshot_id) setSnapshotId(result.snapshot_id)
         onRemediate(result)
       }
     } catch (err) {
       console.error("Remediation failed:", err)
     } finally {
       setApplying(false)
+    }
+  }
+
+  const handleRollback = async () => {
+    if (!snapshotId) return
+    setRollingBack(true)
+    try {
+      const res = await fetch(`/api/proxy/iam-snapshots/${encodeURIComponent(snapshotId)}/rollback`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+      })
+      if (res.ok) {
+        setRollbackDone(true)
+        fetchGapAnalysis() // Refresh data
+      }
+    } catch (err) {
+      console.error("Rollback failed:", err)
+    } finally {
+      setRollingBack(false)
     }
   }
 
@@ -268,6 +301,34 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
                   <pre className="text-xs font-mono overflow-auto max-h-[150px]" style={{ color: "var(--text-primary, #334155)" }}>
                     {JSON.stringify(simulationResult, null, 2)}
                   </pre>
+                </div>
+              )}
+
+              {/* Snapshot & Rollback Banner */}
+              {snapshotId && !rollbackDone && (
+                <div className="rounded-lg p-3 border flex items-center justify-between" style={{ background: "#22c55e08", borderColor: "#22c55e30" }}>
+                  <div>
+                    <h4 className="text-xs font-semibold flex items-center gap-1" style={{ color: "#22c55e" }}>
+                      <CheckCircle className="w-3.5 h-3.5" /> Remediation Applied — Snapshot Saved
+                    </h4>
+                    <p className="text-xs font-mono mt-0.5" style={{ color: "var(--text-secondary, #64748b)" }}>{snapshotId}</p>
+                  </div>
+                  <button
+                    onClick={handleRollback}
+                    disabled={rollingBack}
+                    className="px-4 py-2 rounded-lg text-xs font-medium border transition-opacity hover:opacity-80 disabled:opacity-50"
+                    style={{ borderColor: "#ef444440", color: "#ef4444" }}
+                  >
+                    {rollingBack ? "Rolling back..." : "Rollback to Pre-Remediation"}
+                  </button>
+                </div>
+              )}
+              {rollbackDone && (
+                <div className="rounded-lg p-3 border" style={{ background: "#f59e0b08", borderColor: "#f59e0b30" }}>
+                  <h4 className="text-xs font-semibold flex items-center gap-1" style={{ color: "#f59e0b" }}>
+                    <AlertTriangle className="w-3.5 h-3.5" /> Rolled Back Successfully
+                  </h4>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary, #64748b)" }}>Permissions restored to pre-remediation state from snapshot {snapshotId}</p>
                 </div>
               )}
             </>

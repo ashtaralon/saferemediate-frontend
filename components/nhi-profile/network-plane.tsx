@@ -28,6 +28,9 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
   const [applying, setApplying] = useState(false)
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
+  const [snapshotId, setSnapshotId] = useState<string | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
+  const [rollbackDone, setRollbackDone] = useState(false)
 
   useEffect(() => {
     fetchNetworkData()
@@ -119,6 +122,16 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
       const sgId = typeof sgs[0] === 'string' ? sgs[0] : sgs[0].group_id || sgs[0].name
       const unusedRules = (sgAnalysis.rules || []).filter((r: any) => r.recommendation === 'DELETE' || r.status === 'UNUSED')
 
+      // Step 1: Create pre-remediation snapshot
+      const snapRes = await fetch(`/api/proxy/sg-least-privilege/${encodeURIComponent(sgId)}/snapshots`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+      })
+      if (snapRes.ok) {
+        const snapResult = await snapRes.json()
+        if (snapResult.snapshot_id) setSnapshotId(snapResult.snapshot_id)
+      }
+
+      // Step 2: Apply remediation
       const res = await fetch(`/api/proxy/sg-least-privilege/${encodeURIComponent(sgId)}/remediate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -134,11 +147,37 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
           dry_run: false,
         }),
       })
-      if (res.ok) onRemediate(await res.json())
+      if (res.ok) {
+        const result = await res.json()
+        if (result.snapshot_id) setSnapshotId(result.snapshot_id)
+        onRemediate(result)
+      }
     } catch (err) {
       console.error("SG remediation failed:", err)
     } finally {
       setApplying(false)
+    }
+  }
+
+  const handleRollback = async () => {
+    if (!snapshotId) return
+    const sgs = detail?.network_reachability?.security_groups || []
+    if (sgs.length === 0) return
+    setRollingBack(true)
+    try {
+      const sgId = typeof sgs[0] === 'string' ? sgs[0] : sgs[0].group_id || sgs[0].name
+      const res = await fetch(`/api/proxy/sg-least-privilege/${encodeURIComponent(sgId)}/rollback`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot_id: snapshotId }),
+      })
+      if (res.ok) {
+        setRollbackDone(true)
+        fetchNetworkData()
+      }
+    } catch (err) {
+      console.error("SG rollback failed:", err)
+    } finally {
+      setRollingBack(false)
     }
   }
 
@@ -330,6 +369,34 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
               <pre className="text-xs font-mono overflow-auto max-h-[150px]" style={{ color: "var(--text-primary, #334155)" }}>
                 {JSON.stringify(simulationResult, null, 2)}
               </pre>
+            </div>
+          )}
+
+          {/* Snapshot & Rollback Banner */}
+          {snapshotId && !rollbackDone && (
+            <div className="rounded-lg p-3 border flex items-center justify-between" style={{ background: "#22c55e08", borderColor: "#22c55e30" }}>
+              <div>
+                <h4 className="text-xs font-semibold flex items-center gap-1" style={{ color: "#22c55e" }}>
+                  <CheckCircle className="w-3.5 h-3.5" /> Network Remediation Applied — Snapshot Saved
+                </h4>
+                <p className="text-xs font-mono mt-0.5" style={{ color: "var(--text-secondary, #64748b)" }}>{snapshotId}</p>
+              </div>
+              <button
+                onClick={handleRollback}
+                disabled={rollingBack}
+                className="px-4 py-2 rounded-lg text-xs font-medium border transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ borderColor: "#ef444440", color: "#ef4444" }}
+              >
+                {rollingBack ? "Rolling back..." : "Rollback SG Rules"}
+              </button>
+            </div>
+          )}
+          {rollbackDone && (
+            <div className="rounded-lg p-3 border" style={{ background: "#f59e0b08", borderColor: "#f59e0b30" }}>
+              <h4 className="text-xs font-semibold flex items-center gap-1" style={{ color: "#f59e0b" }}>
+                <AlertTriangle className="w-3.5 h-3.5" /> SG Rules Rolled Back Successfully
+              </h4>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary, #64748b)" }}>Security group rules restored from snapshot {snapshotId}</p>
             </div>
           )}
         </div>
