@@ -118,6 +118,8 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
   const [dataAccessLoading, setDataAccessLoading] = useState(false)
   const [trafficData, setTrafficData] = useState<any>(null)
   const [trafficLoading, setTrafficLoading] = useState(false)
+  const [connectionsData, setConnectionsData] = useState<any>(null)
+  const [connectionsLoading, setConnectionsLoading] = useState(false)
 
   useEffect(() => {
     fetchNHIs()
@@ -143,6 +145,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
     setDetailData(null)
     setDataAccess(null)
     setTrafficData(null)
+    setConnectionsData(null)
     setDetailTab('permissions')
     try {
       const res = await fetch(`/api/proxy/identities/detail/${encodeURIComponent(name)}`)
@@ -178,6 +181,54 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
       console.error("Error fetching traffic:", err)
     } finally {
       setTrafficLoading(false)
+    }
+  }, [])
+
+  const fetchConnections = useCallback(async (resourceId: string) => {
+    setConnectionsLoading(true)
+    setConnectionsData(null)
+    try {
+      const res = await fetch(`/api/proxy/resource-view/${encodeURIComponent(resourceId)}/connections`)
+      if (res.ok) {
+        const data = await res.json()
+        const connections = data.connections || {}
+        const inbound = (connections.inbound || []).map((c: any) => ({
+          source: c.source?.name || c.source?.id || 'Unknown',
+          sourceType: c.source?.type || '',
+          target: c.target?.name || c.target?.id || resourceId,
+          port: c.relationship?.port || '',
+          protocol: c.relationship?.protocol || '',
+          bytes: c.relationship?.bytes_transferred || c.relationship?.bytes || 0,
+          hitCount: c.relationship?.hit_count || c.relationship?.connection_count || 0,
+          edgeType: c.relationship?.type || c.relationship?.relationship_type || '',
+          direction: 'inbound' as const,
+        }))
+        const outbound = (connections.outbound || []).map((c: any) => ({
+          source: resourceId,
+          sourceType: '',
+          target: c.target?.name || c.target?.id || 'Unknown',
+          targetType: c.target?.type || '',
+          port: c.relationship?.port || '',
+          protocol: c.relationship?.protocol || '',
+          bytes: c.relationship?.bytes_transferred || c.relationship?.bytes || 0,
+          hitCount: c.relationship?.hit_count || c.relationship?.connection_count || 0,
+          edgeType: c.relationship?.type || c.relationship?.relationship_type || '',
+          direction: 'outbound' as const,
+        }))
+        const allConns = [...inbound, ...outbound]
+        const totalBytes = allConns.reduce((sum: number, c: any) => sum + (c.bytes || 0), 0)
+        setConnectionsData({
+          connections: allConns,
+          inbound,
+          outbound,
+          totalBytes,
+          totalConnections: allConns.length,
+        })
+      }
+    } catch (err) {
+      console.error("Error fetching connections:", err)
+    } finally {
+      setConnectionsLoading(false)
     }
   }, [])
 
@@ -444,7 +495,10 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                   e.stopPropagation()
                                   setDetailTab(tab.id)
                                   if (tab.id === 'data-access' && !dataAccess && !dataAccessLoading) fetchDataAccess(nhi.name)
-                                  if (tab.id === 'network' && !trafficData && !trafficLoading) fetchTrafficData(nhi.name)
+                                  if (tab.id === 'network' && !connectionsData && !connectionsLoading) {
+                                    fetchConnections(nhi.name)
+                                    if (!trafficData && !trafficLoading) fetchTrafficData(nhi.name)
+                                  }
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors -mb-px"
                                 style={{
@@ -727,93 +781,136 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                             {/* ===== NETWORK TAB ===== */}
                             {detailTab === 'network' && (
                               <div className="space-y-4">
-                                {/* Internet Reachability Banner */}
-                                {detailData.network_reachability && (
-                                  <div className="flex items-center gap-4 p-3 rounded-lg border" style={{
-                                    background: detailData.network_reachability.is_internet_reachable ? "#ef444408" : "#22c55e08",
-                                    borderColor: detailData.network_reachability.is_internet_reachable ? "#ef444430" : "#22c55e30",
-                                  }}>
-                                    <Globe className="w-5 h-5" style={{ color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e" }} />
-                                    <div>
-                                      <div className="text-sm font-medium" style={{ color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e" }}>
+                                {/* Summary Stats Bar */}
+                                <div className="flex items-center gap-3">
+                                  {detailData.network_reachability && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border" style={{
+                                      background: detailData.network_reachability.is_internet_reachable ? "#ef444408" : "#22c55e08",
+                                      borderColor: detailData.network_reachability.is_internet_reachable ? "#ef444430" : "#22c55e30",
+                                    }}>
+                                      <Globe className="w-3.5 h-3.5" style={{ color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e" }} />
+                                      <span className="text-xs font-medium" style={{ color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e" }}>
                                         {detailData.network_reachability.is_internet_reachable ? "Internet Reachable" : "Internal Only"}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {connectionsData && (
+                                    <>
+                                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
+                                        <Network className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
+                                        <span style={{ color: "var(--text-primary)" }}>{connectionsData.totalConnections} connections</span>
                                       </div>
-                                      {detailData.network_reachability.open_ports?.length > 0 && (
-                                        <div className="text-xs mt-0.5" style={{ color: "#ef4444" }}>Open ports: {detailData.network_reachability.open_ports.join(", ")}</div>
+                                      {connectionsData.totalBytes > 0 && (
+                                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
+                                          <ArrowRightLeft className="w-3.5 h-3.5" style={{ color: "#22c55e" }} />
+                                          <span style={{ color: "#22c55e" }}>
+                                            {connectionsData.totalBytes >= 1073741824 ? `${(connectionsData.totalBytes / 1073741824).toFixed(1)} GB`
+                                              : connectionsData.totalBytes >= 1048576 ? `${(connectionsData.totalBytes / 1048576).toFixed(1)} MB`
+                                              : connectionsData.totalBytes >= 1024 ? `${(connectionsData.totalBytes / 1024).toFixed(1)} KB`
+                                              : `${connectionsData.totalBytes} B`}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+
+                                {/* Active Connections (from resource-view API — same as Dependency Map popup) */}
+                                {connectionsLoading ? (
+                                  <div className="flex items-center justify-center py-8">
+                                    <RefreshCw className="w-5 h-5 animate-spin" style={{ color: "#8b5cf6" }} />
+                                    <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>Loading connections...</span>
+                                  </div>
+                                ) : connectionsData?.connections?.length > 0 ? (
+                                  <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border-subtle)" }}>
+                                    <div className="px-4 py-2.5 flex items-center justify-between" style={{ background: "var(--bg-secondary)" }}>
+                                      <h4 className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                        <Network className="w-3.5 h-3.5" /> Active Connections ({connectionsData.connections.length})
+                                      </h4>
+                                    </div>
+                                    <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+                                      {connectionsData.connections.slice(0, 10).map((conn: any, i: number) => {
+                                        const formatBytes = (b: number) => {
+                                          if (b >= 1073741824) return `${(b / 1073741824).toFixed(1)} GB`
+                                          if (b >= 1048576) return `${(b / 1048576).toFixed(1)} MB`
+                                          if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`
+                                          return `${b} B`
+                                        }
+                                        const TYPE_COLORS: Record<string, string> = {
+                                          ACTUAL_TRAFFIC: '#8b5cf6', ACTUAL_API_CALL: '#3b82f6', CALLS: '#22c55e',
+                                        }
+                                        const target = conn.direction === 'outbound' ? conn.target : conn.source
+                                        const targetType = conn.direction === 'outbound' ? (conn.targetType || '') : (conn.sourceType || '')
+                                        return (
+                                          <div key={i} className="flex items-center justify-between px-4 py-2.5 hover:opacity-80" style={{ background: "var(--bg-primary)" }}>
+                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
+                                                background: conn.direction === 'outbound' ? '#f9731615' : '#3b82f615',
+                                                color: conn.direction === 'outbound' ? '#f97316' : '#3b82f6',
+                                              }}>{conn.direction === 'outbound' ? '→ OUT' : '← IN'}</span>
+                                              {conn.edgeType && (
+                                                <span className="text-[9px] px-1 py-0.5 rounded" style={{
+                                                  background: `${TYPE_COLORS[conn.edgeType] || '#6b7280'}15`,
+                                                  color: TYPE_COLORS[conn.edgeType] || '#6b7280',
+                                                }}>{conn.edgeType.replace('ACTUAL_', '')}</span>
+                                              )}
+                                              <span className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>{target}</span>
+                                              {targetType && (
+                                                <span className="text-[10px] px-1 py-0.5 rounded" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>{targetType}</span>
+                                              )}
+                                              {conn.port && (
+                                                <span className="text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>:{conn.port}{conn.protocol ? `/${conn.protocol}` : ''}</span>
+                                              )}
+                                            </div>
+                                            {conn.bytes > 0 && (
+                                              <span className="text-xs font-mono font-medium ml-2" style={{ color: "#22c55e" }}>{formatBytes(conn.bytes)}</span>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
+                                      {connectionsData.connections.length > 10 && (
+                                        <div className="px-4 py-2 text-center text-xs" style={{ color: "var(--text-muted)", background: "var(--bg-secondary)" }}>
+                                          +{connectionsData.connections.length - 10} more connections
+                                        </div>
                                       )}
                                     </div>
                                   </div>
+                                ) : (
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                          <Server className="w-3.5 h-3.5" /> Attached Resources
+                                        </h4>
+                                        {detailData.network_reachability?.attached_instances?.length > 0 ? (
+                                          <div className="space-y-1">
+                                            {detailData.network_reachability.attached_instances.map((inst: any, i: number) => (
+                                              <div key={i} className="text-xs font-mono flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                                                <Server className="w-3 h-3" style={{ color: "#3b82f6" }} />
+                                                {typeof inst === 'string' ? inst : inst.instance_id || inst.name || JSON.stringify(inst)}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No attached instances</p>}
+                                      </div>
+                                      <div>
+                                        <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                          <Shield className="w-3.5 h-3.5" /> Security Groups
+                                        </h4>
+                                        {detailData.network_reachability?.security_groups?.length > 0 ? (
+                                          <div className="space-y-1">
+                                            {detailData.network_reachability.security_groups.map((sg: any, i: number) => (
+                                              <div key={i} className="text-xs font-mono flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                                                <Shield className="w-3 h-3" style={{ color: "#f59e0b" }} />
+                                                {typeof sg === 'string' ? sg : sg.group_id || sg.name || JSON.stringify(sg)}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No security groups</p>}
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
-
-                                <div className="grid grid-cols-2 gap-4">
-                                  {/* Attached Instances & Security Groups */}
-                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                      <Server className="w-3.5 h-3.5" /> Attached Resources
-                                    </h4>
-                                    {detailData.network_reachability?.attached_instances?.length > 0 ? (
-                                      <div className="space-y-1">
-                                        {detailData.network_reachability.attached_instances.map((inst: any, i: number) => (
-                                          <div key={i} className="text-xs font-mono flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
-                                            <Server className="w-3 h-3" style={{ color: "#3b82f6" }} />
-                                            {typeof inst === 'string' ? inst : inst.instance_id || inst.name || JSON.stringify(inst)}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No attached instances</p>}
-
-                                    {detailData.network_reachability?.security_groups?.length > 0 && (
-                                      <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
-                                        <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Security Groups</span>
-                                        {detailData.network_reachability.security_groups.map((sg: any, i: number) => (
-                                          <div key={i} className="text-xs font-mono flex items-center gap-1.5 mt-1" style={{ color: "var(--text-primary)" }}>
-                                            <Shield className="w-3 h-3" style={{ color: "#f59e0b" }} />
-                                            {typeof sg === 'string' ? sg : sg.group_id || sg.name || JSON.stringify(sg)}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Traffic Flows */}
-                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                      <ArrowRightLeft className="w-3.5 h-3.5" /> Observed Traffic
-                                    </h4>
-                                    {trafficLoading ? (
-                                      <div className="flex items-center gap-2 py-4">
-                                        <RefreshCw className="w-4 h-4 animate-spin" style={{ color: "#8b5cf6" }} />
-                                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Loading flows...</span>
-                                      </div>
-                                    ) : trafficData?.observed_ports?.ports?.length > 0 ? (
-                                      <div className="space-y-2">
-                                        <div className="flex items-center justify-between mb-2">
-                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Active ports</span>
-                                          <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{trafficData.observed_ports.totalPorts}</span>
-                                        </div>
-                                        {trafficData.observed_ports.ports.slice(0, 6).map((port: any, i: number) => (
-                                          <div key={i} className="flex items-center justify-between text-xs">
-                                            <div className="flex items-center gap-1.5 font-mono" style={{ color: "var(--text-primary)" }}>
-                                              <Wifi className="w-3 h-3" style={{ color: "#3b82f6" }} />
-                                              :{typeof port === 'object' ? port.port : port}
-                                              {typeof port === 'object' && port.protocol && <span style={{ color: "var(--text-muted)" }}>/{port.protocol}</span>}
-                                            </div>
-                                            {typeof port === 'object' && port.count && (
-                                              <span style={{ color: "var(--text-secondary)" }}>{port.count} flows</span>
-                                            )}
-                                          </div>
-                                        ))}
-                                        {trafficData.observed_ports.ports.length > 6 && (
-                                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>+{trafficData.observed_ports.ports.length - 6} more ports</div>
-                                        )}
-                                      </div>
-                                    ) : trafficData?.has_traffic_data === false ? (
-                                      <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>No traffic data observed. VPC Flow Logs may not be enabled.</p>
-                                    ) : (
-                                      <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>No observed network traffic</p>
-                                    )}
-                                  </div>
-                                </div>
 
                                 {/* Network Recommendations */}
                                 {detailData.network_reachability?.is_internet_reachable && (
