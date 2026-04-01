@@ -651,6 +651,64 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                       )
                                     })}
                                   </>
+                                ) : dataAccess?.tableAccess?.length > 0 ? (
+                                  /* Table-level access from RDS query logs */
+                                  <div className="space-y-3">
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
+                                      <Database className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
+                                      <span style={{ color: "var(--text-primary)" }}>{dataAccess.tableAccess.length} table(s) accessed</span>
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#22c55e15", color: "#22c55e" }}>From RDS Query Logs</span>
+                                    </div>
+                                    {/* Group tables by RDS instance */}
+                                    {(() => {
+                                      const byInstance: Record<string, any[]> = {}
+                                      for (const t of dataAccess.tableAccess) {
+                                        const key = t.rdsInstance || 'Unknown'
+                                        if (!byInstance[key]) byInstance[key] = []
+                                        byInstance[key].push(t)
+                                      }
+                                      return Object.entries(byInstance).map(([instance, tables]) => (
+                                        <div key={instance} className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                          <div className="flex items-center gap-2 mb-3">
+                                            <Database className="w-4 h-4" style={{ color: "#3b82f6" }} />
+                                            <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{instance}</span>
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--bg-primary)", color: "var(--text-muted)" }}>RDS</span>
+                                          </div>
+                                          <div className="space-y-2">
+                                            {(tables as any[]).map((t: any, idx: number) => {
+                                              const OP_COLORS: Record<string, string> = { SELECT: '#22c55e', INSERT: '#3b82f6', UPDATE: '#f97316', DELETE: '#ef4444', CREATE: '#a855f7', DROP: '#ef4444', ALTER: '#f97316', TRUNCATE: '#ef4444' }
+                                              return (
+                                                <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded" style={{ background: "var(--bg-primary)" }}>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-mono font-medium" style={{ color: "var(--text-primary)" }}>
+                                                      {t.schema !== 'public' ? `${t.schema}.` : ''}{t.tableName}
+                                                    </span>
+                                                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>({t.database})</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="flex gap-1">
+                                                      {(t.operations || []).map((op: string) => (
+                                                        <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
+                                                          background: `${OP_COLORS[op] || '#6b7280'}15`,
+                                                          color: OP_COLORS[op] || '#6b7280',
+                                                        }}>{op}</span>
+                                                      ))}
+                                                    </div>
+                                                    {t.accessCount > 0 && (
+                                                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>{t.accessCount.toLocaleString()} calls</span>
+                                                    )}
+                                                    {t.dailyAvg > 0 && (
+                                                      <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>~{t.dailyAvg}/day</span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              )
+                                            })}
+                                          </div>
+                                        </div>
+                                      ))
+                                    })()}
+                                  </div>
                                 ) : (
                                   <div className="text-center py-8">
                                     <Database className="w-8 h-8 mx-auto mb-2 opacity-30" style={{ color: "var(--text-muted)" }} />

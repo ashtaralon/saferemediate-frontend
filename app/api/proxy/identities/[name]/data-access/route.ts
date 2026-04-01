@@ -174,6 +174,46 @@ export async function GET(
       servicePermissions['DynamoDB'] = { allowed: ['READ', 'WRITE', 'DELETE'], used: [], unused: ['READ', 'WRITE', 'DELETE'] }
     }
 
+    // 3b. Query table-level DATA_ACCESS relationships from Neo4j (from RDS query log collector)
+    const tableAccessData = await runNeo4jQuery(
+      `MATCH (u)-[r:DATA_ACCESS]->(t:DatabaseTable) WHERE u.name = '${name.replace(/'/g, "\\'")}' OR u.name CONTAINS '${name.replace(/'/g, "\\'").split('/').pop()}' RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg`
+    )
+
+    // Also try matching by database user linked to this identity
+    const dbUserTableAccess = await runNeo4jQuery(
+      `MATCH (role:Resource {name: '${name.replace(/'/g, "\\'")}'})-[:ASSUMES|USES|CONNECTS_TO*1..3]-(u:DatabaseUser)-[r:DATA_ACCESS]->(t:DatabaseTable) RETURN t.name AS table_name, t.database AS database, t.rds_instance AS rds_instance, t.schema AS schema, r.operations AS operations, r.access_count AS count, r.last_seen AS last_seen, r.daily_avg AS daily_avg`
+    )
+
+    // Merge table access results
+    const allTableAccess = [...tableAccessData, ...dbUserTableAccess]
+    interface TableAccess {
+      tableName: string
+      database: string
+      rdsInstance: string
+      schema: string
+      operations: string[]
+      accessCount: number
+      lastSeen: string | null
+      dailyAvg: number
+    }
+    const tableAccessMap = new Map<string, TableAccess>()
+    for (const row of allTableAccess) {
+      const key = `${row.row?.[2] || ''}:${row.row?.[1] || ''}:${row.row?.[0] || ''}`
+      if (!tableAccessMap.has(key)) {
+        tableAccessMap.set(key, {
+          tableName: row.row?.[0] || 'Unknown',
+          database: row.row?.[1] || 'Unknown',
+          rdsInstance: row.row?.[2] || 'Unknown',
+          schema: row.row?.[3] || 'public',
+          operations: row.row?.[4] || [],
+          accessCount: row.row?.[5] || 0,
+          lastSeen: row.row?.[6] || null,
+          dailyAvg: row.row?.[7] || 0,
+        })
+      }
+    }
+    const tableAccess = Array.from(tableAccessMap.values())
+
     // 4. Build data store access profiles
     const dataStores: DataStoreAccess[] = []
 
@@ -225,7 +265,7 @@ export async function GET(
       overallAccessLevel: classifyAccessLevel(dataStores.flatMap(d => d.allowedOperations)),
     }
 
-    return NextResponse.json({ dataStores, summary, servicePermissions })
+    return NextResponse.json({ dataStores, tableAccess, summary, servicePermissions })
 
   } catch (error: any) {
     return NextResponse.json(
