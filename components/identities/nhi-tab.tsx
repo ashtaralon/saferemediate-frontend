@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import {
   Bot,
   Search,
@@ -103,6 +104,7 @@ const DAMAGE_COLORS: Record<string, string> = {
 }
 
 export function NHITab({ onRequestRemediation }: NHITabProps) {
+  const router = useRouter()
   const [identities, setIdentities] = useState<NHIdentity[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -475,7 +477,12 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         color: getRiskColor(nhi.risk_level),
                       }}>{nhi.risk_level}</span>
                     </div>
-                    <div className="text-center">
+                    <div className="text-center flex items-center gap-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); router.push(`/nhi-profile/${encodeURIComponent(nhi.name)}`) }}
+                        className="px-3 py-1 rounded-lg text-xs font-medium transition-all hover:opacity-90 border"
+                        style={{ borderColor: "#8b5cf640", color: "#8b5cf6" }}
+                      >Profile</button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReviewFix(nhi) }}
                         className="px-3 py-1 rounded-lg text-xs font-medium text-white transition-all hover:opacity-90"
