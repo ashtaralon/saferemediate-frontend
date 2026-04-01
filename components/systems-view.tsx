@@ -139,20 +139,25 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
             const systemName = sys.SystemName || sys.name || "Unknown"  // Only SystemName format
             const resourceCount = sys.resourceCount || sys.resource_count || sys.resources?.length || 0
             
-            // Determine criticality based on system name or environment
-            const isProd = systemName.toLowerCase().includes("prod") || 
-                          systemName.toLowerCase().includes("production") ||
-                          sys.environment?.toLowerCase().includes("prod")
-            
-            const isMissionCritical = systemName.toLowerCase().includes("payment") ||
-                                     systemName.toLowerCase().includes("alon") ||
-                                     isProd
-            
+            // Use criticality and environment from backend (Neo4j source of truth)
+            const rawCriticality = sys.criticality || "STANDARD"
+            const criticalityMap: Record<string, { score: number; label: string }> = {
+              "MISSION CRITICAL": { score: 5, label: "MISSION CRITICAL" },
+              "CRITICAL": { score: 5, label: "MISSION CRITICAL" },
+              "BUSINESS CRITICAL": { score: 4, label: "BUSINESS CRITICAL" },
+              "HIGH": { score: 4, label: "BUSINESS CRITICAL" },
+              "IMPORTANT": { score: 3, label: "IMPORTANT" },
+              "MEDIUM": { score: 3, label: "MEDIUM" },
+              "STANDARD": { score: 2, label: "STANDARD" },
+              "LOW": { score: 2, label: "STANDARD" },
+            }
+            const critInfo = criticalityMap[rawCriticality] || { score: 3, label: rawCriticality }
+
             return {
               name: systemName,
-              criticality: isMissionCritical ? 5 : 3,
-              criticalityLabel: isMissionCritical ? "MISSION CRITICAL" : "3 - Medium",
-              environment: sys.environment || (isProd ? "Production" : "Development"),
+              criticality: critInfo.score,
+              criticalityLabel: critInfo.label,
+              environment: sys.environment || "Production",
               // Use real data from backend, no hardcoded fallbacks
               health: sys.health_score ?? sys.healthScore ?? 0,
               critical: sys.critical_count ?? sys.criticalIssues ?? 0,
@@ -496,10 +501,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       : 0
 
   const getCriticalityColor = (criticality: number) => {
-    if (criticality >= 5) return "bg-[#ef444410]0"
-    if (criticality >= 4) return "bg-[#f9731610]0"
-    if (criticality >= 3) return "bg-[#eab30810]0"
-    return "bg-[#22c55e10]0"
+    if (criticality >= 5) return "bg-[#ef4444]"
+    if (criticality >= 4) return "bg-[#f97316]"
+    if (criticality >= 3) return "bg-[#eab308]"
+    return "bg-[#22c55e]"
   }
 
   const getHealthColor = (health: number) => {
