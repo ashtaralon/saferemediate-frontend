@@ -32,6 +32,7 @@ import {
   ExternalLink,
   Wrench,
   Bug,
+  Unplug,
 } from "lucide-react"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -144,6 +145,19 @@ const AllServicesTab = dynamic(
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
         <span className="ml-3 text-slate-600">טוען רשימת שירותים...</span>
+      </div>
+    ),
+  }
+)
+
+const OrphanServicesTab = dynamic(
+  () => import("./orphan-services-tab").then((mod) => ({ default: mod.OrphanServicesTab })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-[#8b5cf6] animate-spin" />
+        <span className="ml-3 text-slate-600">Scanning for orphan services...</span>
       </div>
     ),
   }
@@ -264,6 +278,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [highlightPath, setHighlightPath] = useState<{ source: string; target: string; port?: string } | null>(null)
   const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>('architectural')
   const [issues, setIssues] = useState<CriticalIssue[]>([])
+
+  // System metadata (criticality + environment) from backend
+  const [systemMeta, setSystemMeta] = useState<{ criticality: string; environment: string }>({
+    criticality: "",
+    environment: "",
+  })
 
   // Initialize severityCounts with default values
   const [severityCounts, setSeverityCounts] = useState({
@@ -643,11 +663,33 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }
   }
 
+  const fetchSystemMeta = async () => {
+    try {
+      const res = await fetch("/api/proxy/systems/available")
+      if (res.ok) {
+        const data = await res.json()
+        const match = (data.systems || []).find(
+          (s: any) => (s.SystemName || s.name || s.systemName) === systemName
+        )
+        if (match) {
+          setSystemMeta({
+            criticality: match.criticality || "",
+            environment: match.environment || "",
+          })
+        }
+      }
+    } catch (e) {
+      console.error("[v0] Error fetching system metadata:", e)
+    }
+  }
+
   const fetchAllData = async () => {
     await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary()])
   }
 
   useEffect(() => {
+    // Fetch system metadata once on mount
+    fetchSystemMeta()
     // Fetch on mount
     fetchAllData()
 
@@ -960,6 +1002,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
+    { id: "orphan-services", label: "Orphan Services", icon: Unplug },
     { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
@@ -1026,12 +1069,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl font-bold text-[var(--foreground,#111827)]">{systemName}</h1>
-                  <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">PRODUCTION</span>{" "}
-                  {/* Simplified span */}
-                  <span className="px-2 py-1 bg-[#3b82f620] text-[#3b82f6] text-xs font-medium rounded">
-                    MISSION CRITICAL
-                  </span>{" "}
-                  {/* Simplified span */}
+                  {systemMeta.environment && (
+                    <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">
+                      {systemMeta.environment.toUpperCase()}
+                    </span>
+                  )}
+                  {systemMeta.criticality && (
+                    <span className={`px-2 py-1 text-xs font-medium rounded ${
+                      systemMeta.criticality === "MISSION CRITICAL" ? "bg-[#ef444420] text-[#ef4444]" :
+                      systemMeta.criticality === "BUSINESS CRITICAL" ? "bg-[#f9731620] text-[#f97316]" :
+                      systemMeta.criticality === "IMPORTANT" ? "bg-[#eab30820] text-[#eab308]" :
+                      "bg-[#3b82f620] text-[#3b82f6]"
+                    }`}>
+                      {systemMeta.criticality}
+                    </span>
+                  )}
                   {severityCounts.critical > 0 && ( // Conditionally render critical alert
                     <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
@@ -1040,9 +1092,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   )}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                  AWS eu-west-1 • Production environment • Last scan: 2 min ago
-                </p>{" "}
-                {/* Hardcoded for now */}
+                  AWS eu-west-1 • {systemMeta.environment || "Production"} environment • Last scan: 2 min ago
+                </p>
               </div>
             </div>
 
@@ -1776,6 +1827,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "all-services" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <AllServicesTab systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "orphan-services" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <OrphanServicesTab systemName={systemName} />
         </div>
       )}
 
