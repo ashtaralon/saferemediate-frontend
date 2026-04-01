@@ -126,6 +126,15 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+function nameFromArn(arn: string | undefined | null): string | null {
+  if (!arn) return null;
+  const parts = arn.split(':');
+  if (parts.length < 6) return null;
+  const resourcePart = parts.slice(5).join(':');
+  const name = resourcePart.split('/').pop() || resourcePart.split(':').pop() || resourcePart;
+  return name || null;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(1)} GB`;
   if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
@@ -871,7 +880,7 @@ function ServiceDetailsPopup({
           // For compute: services this compute connects to would be affected
           // Filter out external IPs and unknown external traffic
           affectedResources.forEach((r: any) => {
-            const name = r.name || r.id || 'Unknown';
+            const name = r.name || r.id || nameFromArn(r.arn) || 'Unknown';
             const type = r.type || 'Unknown';
             const arn = r.arn || '';
             // Skip external IPs and unknown external traffic
@@ -1392,9 +1401,11 @@ function ServiceDetailsPopup({
                       // Show API badge for resources that have API calls (based on traffic)
                       const targetType = (target?.type || '').toLowerCase();
                       const hasApiCalls = targetType === 'database' || targetType === 'storage' || targetType === 'dynamodb';
+                      const sourceName = (source?.shortName && source.shortName !== 'Unknown') ? source.shortName : (source?.name && source.name !== 'Unknown') ? shortName(source.name) : shortName(flow.sourceId.slice(-12));
+                      const targetName = (target?.shortName && target.shortName !== 'Unknown') ? target.shortName : (target?.name && target.name !== 'Unknown') ? shortName(target.name) : shortName(flow.targetId.slice(-12));
                       return (
                         <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 text-sm">
-                          <span className="text-blue-400 font-medium">{source?.shortName || flow.sourceId.slice(-12)}</span>
+                          <span className="text-blue-400 font-medium">{sourceName}</span>
                           <ArrowRight className="w-3 h-3 text-slate-500" />
                           {sg && (
                             <>
@@ -1414,7 +1425,7 @@ function ServiceDetailsPopup({
                               <ArrowRight className="w-3 h-3 text-slate-500" />
                             </>
                           )}
-                          <span className="text-purple-400 font-medium">{target?.shortName || flow.targetId.slice(-12)}</span>
+                          <span className="text-purple-400 font-medium">{targetName}</span>
                           <span className="ml-auto text-emerald-400 font-mono text-xs">{formatBytes(flow.bytes)}</span>
                         </div>
                       );
@@ -2542,10 +2553,25 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
 
     nodes.forEach(n => {
       const instanceId = extractInstanceId(n.id);
-      if (instanceId.startsWith('i-')) nodeByInstanceId.set(instanceId, n);
+      if (instanceId.startsWith('i-')) {
+        // Prefer actual EC2/Lambda nodes over CloudTrailPrincipal nodes that share the same instance ID
+        const existing = nodeByInstanceId.get(instanceId);
+        const nType = (n.type || '').toLowerCase();
+        const isRealCompute = nType.includes('ec2') || nType.includes('lambda');
+        if (!existing || isRealCompute) {
+          nodeByInstanceId.set(instanceId, n);
+        }
+      }
       const resourceName = extractResourceName(n.id);
-      nodeByResourceName.set(resourceName, n);
-      nodeByResourceName.set(n.name || n.id, n);
+      const existingByName = nodeByResourceName.get(resourceName);
+      const nType = (n.type || '').toLowerCase();
+      const isRealResource = !nType.includes('cloudtrailprincipal') && !nType.includes('principal');
+      if (!existingByName || isRealResource) {
+        nodeByResourceName.set(resourceName, n);
+      }
+      if (!nodeByResourceName.has(n.name || n.id) || isRealResource) {
+        nodeByResourceName.set(n.name || n.id, n);
+      }
     });
 
     const computeToSG = new Map<string, string>();
@@ -2778,10 +2804,11 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       seenCompute.add(canonicalId);
       const node = nodeByInstanceId.get(canonicalId);
       if (!node) return;
+      const computeName = (node.name && node.name !== 'Unknown') ? node.name : node.id || canonicalId;
       computeServices.push({
         id: canonicalId,
-        name: node.name || node.id,
-        shortName: shortName(node.name || node.id),
+        name: computeName,
+        shortName: shortName(computeName),
         type: mapNodeType(node.type || 'compute'),
         instanceId: canonicalId.substring(0, 12),
       });
@@ -2796,10 +2823,11 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       seenResources.add(resourceName);
       const node = nodeMap.get(id) || nodeByResourceName.get(resourceName);
       if (!node) return;
+      const resName = (node.name && node.name !== 'Unknown') ? node.name : node.id || id;
       resources.push({
         id: id,
-        name: node.name || node.id,
-        shortName: shortName(node.name || node.id),
+        name: resName,
+        shortName: shortName(resName),
         type: mapNodeType(node.type || 'storage'),
       });
     });
@@ -2811,10 +2839,11 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         const rName = extractResourceName(node.id);
         if (!seenResources.has(rName)) {
           seenResources.add(rName);
+          const dynName = (node.name && node.name !== 'Unknown') ? node.name : node.id;
           resources.push({
             id: node.id,
-            name: node.name || node.id,
-            shortName: shortName(node.name || node.id),
+            name: dynName,
+            shortName: shortName(dynName),
             type: nType,
           });
           // Create flows from all compute to this resource

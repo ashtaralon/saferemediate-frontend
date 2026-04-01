@@ -25,6 +25,18 @@ interface ConnectionsSectionProps {
   resourceName: string
 }
 
+function nameFromArn(arn: string | undefined | null): string | null {
+  if (!arn) return null
+  // ARN format: arn:aws:service:region:account:resource-type/resource-name
+  // or arn:aws:service:region:account:resource-type:resource-name
+  const parts = arn.split(":")
+  if (parts.length < 6) return null
+  const resourcePart = parts.slice(5).join(":")
+  // Extract the last segment after / or : which is typically the resource name
+  const name = resourcePart.split("/").pop() || resourcePart.split(":").pop() || resourcePart
+  return name || null
+}
+
 function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProps) {
   const [connections, setConnections] = useState<Connection[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,7 +98,7 @@ function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProp
           if (relType === "ACTUAL_TRAFFIC") {
             processedConnections.push({
               source_id: source.id || source.arn || "",
-              source_name: source.name || source.id || "Unknown",
+              source_name: source.name || source.id || nameFromArn(source.arn) || "Unknown",
               target_id: resourceId,
               target_name: resourceName,
               port: parseInt(rel.port) || 0,
@@ -118,7 +130,7 @@ function ConnectionsSection({ resourceId, resourceName }: ConnectionsSectionProp
               source_id: resourceId,
               source_name: resourceName,
               target_id: target.id || target.arn || "",
-              target_name: target.name || target.id || "Unknown",
+              target_name: target.name || target.id || nameFromArn(target.arn) || "Unknown",
               port: parseInt(rel.port) || 0,
               protocol: (rel.protocol || "TCP").toUpperCase(),
               direction: "outbound",
