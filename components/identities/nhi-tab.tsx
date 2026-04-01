@@ -27,6 +27,10 @@ import {
   PenTool,
   Network,
   Target,
+  HardDrive,
+  ArrowRightLeft,
+  Wifi,
+  BarChart3,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "../iam-permission-analysis-modal"
 
@@ -109,6 +113,11 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
   const [showPermissionModal, setShowPermissionModal] = useState(false)
   const [detailData, setDetailData] = useState<IdentityDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailTab, setDetailTab] = useState<'permissions' | 'data-access' | 'network' | 'behavioral'>('permissions')
+  const [dataAccess, setDataAccess] = useState<any>(null)
+  const [dataAccessLoading, setDataAccessLoading] = useState(false)
+  const [trafficData, setTrafficData] = useState<any>(null)
+  const [trafficLoading, setTrafficLoading] = useState(false)
 
   useEffect(() => {
     fetchNHIs()
@@ -132,6 +141,9 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
   const fetchDetail = useCallback(async (name: string) => {
     setDetailLoading(true)
     setDetailData(null)
+    setDataAccess(null)
+    setTrafficData(null)
+    setDetailTab('permissions')
     try {
       const res = await fetch(`/api/proxy/identities/detail/${encodeURIComponent(name)}`)
       if (res.ok) {
@@ -142,6 +154,30 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
       console.error("Error fetching identity detail:", err)
     } finally {
       setDetailLoading(false)
+    }
+  }, [])
+
+  const fetchDataAccess = useCallback(async (name: string) => {
+    setDataAccessLoading(true)
+    try {
+      const res = await fetch(`/api/proxy/identities/${encodeURIComponent(name)}/data-access`)
+      if (res.ok) setDataAccess(await res.json())
+    } catch (err) {
+      console.error("Error fetching data access:", err)
+    } finally {
+      setDataAccessLoading(false)
+    }
+  }, [])
+
+  const fetchTrafficData = useCallback(async (resourceId: string) => {
+    setTrafficLoading(true)
+    try {
+      const res = await fetch(`/api/proxy/traffic-data?resource_id=${encodeURIComponent(resourceId)}`)
+      if (res.ok) setTrafficData(await res.json())
+    } catch (err) {
+      console.error("Error fetching traffic:", err)
+    } finally {
+      setTrafficLoading(false)
     }
   }, [])
 
@@ -385,258 +421,456 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                           <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>Loading behavioral analysis...</span>
                         </div>
                       ) : detailData ? (
-                        <div className="space-y-5">
-                          {/* Recommendations Banner */}
-                          {detailData.recommendations && detailData.recommendations.length > 0 && (
-                            <div className="rounded-lg p-4 border" style={{ background: "#f59e0b08", borderColor: "#f59e0b40" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 flex items-center gap-1" style={{ color: "#f59e0b" }}>
-                                <Zap className="w-3.5 h-3.5" /> Recommendations
-                              </h4>
-                              <div className="space-y-1">
-                                {detailData.recommendations.map((rec: string, i: number) => (
-                                  <div key={i} className="text-sm flex items-start gap-2" style={{ color: "var(--text-primary)" }}>
-                                    <span style={{ color: "#f59e0b" }}>-</span> {rec}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                        <div className="space-y-4">
+                          {/* Badges Row */}
+                          <div className="flex items-center gap-3">
+                            {nhi.is_admin && <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>Admin Access</span>}
+                            {nhi.has_wildcard && <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard Permissions</span>}
+                            {nhi.is_cross_account && <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#06b6d420", color: "#06b6d4" }}>Cross-Account</span>}
+                            <span className="text-xs" style={{ color: "var(--text-muted)" }}>{nhi.observation_days} days observed | {nhi.confidence}% confidence</span>
+                          </div>
 
-                          <div className="grid grid-cols-3 gap-5">
-                            {/* Damage Classification */}
-                            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                <Target className="w-3.5 h-3.5" /> Damage Potential
-                              </h4>
-                              {detailData.damage_classification ? (
-                                <>
-                                  <div className="flex items-center justify-between mb-3">
-                                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Damage Score</span>
-                                    <span className="text-xl font-bold" style={{
-                                      color: detailData.damage_classification.damage_score >= 70 ? "#ef4444"
-                                        : detailData.damage_classification.damage_score >= 40 ? "#f97316" : "#22c55e"
-                                    }}>
-                                      {detailData.damage_classification.damage_score}/100
-                                    </span>
+                          {/* Detail Tabs */}
+                          <div className="flex items-center gap-1 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                            {([
+                              { id: 'permissions' as const, label: 'Permissions', icon: Key },
+                              { id: 'data-access' as const, label: 'Data Access', icon: Database },
+                              { id: 'network' as const, label: 'Network', icon: Wifi },
+                              { id: 'behavioral' as const, label: 'Behavioral', icon: Activity },
+                            ]).map(tab => (
+                              <button
+                                key={tab.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDetailTab(tab.id)
+                                  if (tab.id === 'data-access' && !dataAccess && !dataAccessLoading) fetchDataAccess(nhi.name)
+                                  if (tab.id === 'network' && !trafficData && !trafficLoading) fetchTrafficData(nhi.name)
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors -mb-px"
+                                style={{
+                                  borderColor: detailTab === tab.id ? '#8b5cf6' : 'transparent',
+                                  color: detailTab === tab.id ? '#8b5cf6' : 'var(--text-secondary)',
+                                }}
+                              >
+                                <tab.icon className="w-3.5 h-3.5" />
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Tab Content */}
+                          <div className="min-h-[200px]">
+
+                            {/* ===== PERMISSIONS TAB ===== */}
+                            {detailTab === 'permissions' && (
+                              <div className="space-y-4">
+                                {/* LP Gap Summary */}
+                                <div className="flex items-center gap-6">
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Used: {nhi.used_permissions_count}</span>
+                                      <span className="text-xs" style={{ color: "#ef4444" }}>Unused: {nhi.unused_permissions_count}</span>
+                                    </div>
+                                    <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                                      <div className="h-full rounded-full" style={{
+                                        width: `${nhi.permissions_count > 0 ? (nhi.used_permissions_count / nhi.permissions_count) * 100 : 0}%`,
+                                        background: "#22c55e",
+                                      }} />
+                                    </div>
+                                    <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                                      {nhi.gap_percentage.toFixed(0)}% permissions can be removed
+                                    </div>
                                   </div>
-                                  <div className="space-y-2">
-                                    {Object.entries(detailData.damage_classification.details || {}).map(([cat, actions]) => {
-                                      const actList = actions as string[]
-                                      if (!actList || actList.length === 0) return null
-                                      const DIcon = DAMAGE_ICONS[cat] || AlertTriangle
-                                      const color = DAMAGE_COLORS[cat] || "#64748b"
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                  {/* Damage Potential */}
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                      <Target className="w-3.5 h-3.5" /> Damage Potential
+                                    </h4>
+                                    {detailData.damage_classification ? (
+                                      <>
+                                        <div className="flex items-center justify-between mb-3">
+                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Damage Score</span>
+                                          <span className="text-xl font-bold" style={{
+                                            color: detailData.damage_classification.damage_score >= 70 ? "#ef4444"
+                                              : detailData.damage_classification.damage_score >= 40 ? "#f97316" : "#22c55e"
+                                          }}>{detailData.damage_classification.damage_score}/100</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                          {Object.entries(detailData.damage_classification.details || {}).map(([cat, actions]) => {
+                                            const actList = actions as string[]
+                                            if (!actList || actList.length === 0) return null
+                                            const DIcon = DAMAGE_ICONS[cat] || AlertTriangle
+                                            const color = DAMAGE_COLORS[cat] || "#64748b"
+                                            return (
+                                              <div key={cat} className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2"><DIcon className="w-3.5 h-3.5" style={{ color }} /><span className="text-xs" style={{ color }}>{cat}</span></div>
+                                                <span className="text-xs font-bold" style={{ color }}>{actList.length} unused</span>
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      </>
+                                    ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No damage data</p>}
+                                  </div>
+
+                                  {/* Trust & Policies */}
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                      <Lock className="w-3.5 h-3.5" /> Trust & Policies
+                                    </h4>
+                                    {detailData.trust_principals?.length > 0 && (
+                                      <div className="mb-3">
+                                        <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Who Can Assume</span>
+                                        {detailData.trust_principals.map((p: string, i: number) => (
+                                          <div key={i} className="text-xs font-mono truncate mt-0.5" style={{ color: "var(--text-primary)" }}>{p}</div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {detailData.policies?.length > 0 && (
+                                      <div>
+                                        <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Attached Policies ({detailData.policies.length})</span>
+                                        {detailData.policies.slice(0, 5).map((p: string, i: number) => (
+                                          <div key={i} className="text-xs font-mono truncate mt-0.5" style={{ color: "var(--text-primary)" }}>{p}</div>
+                                        ))}
+                                        {detailData.policies.length > 5 && <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>+{detailData.policies.length - 5} more</div>}
+                                      </div>
+                                    )}
+                                    {!detailData.trust_principals?.length && !detailData.policies?.length && (
+                                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>No trust/policy data</p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Recommendations */}
+                                {detailData.recommendations?.length > 0 && (
+                                  <div className="rounded-lg p-3 border" style={{ background: "#f59e0b08", borderColor: "#f59e0b40" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 flex items-center gap-1" style={{ color: "#f59e0b" }}>
+                                      <Zap className="w-3.5 h-3.5" /> Recommendations
+                                    </h4>
+                                    {detailData.recommendations.map((rec: string, i: number) => (
+                                      <div key={i} className="text-xs flex items-start gap-2 mt-1" style={{ color: "var(--text-primary)" }}>
+                                        <span style={{ color: "#f59e0b" }}>-</span> {rec}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* ===== DATA ACCESS TAB ===== */}
+                            {detailTab === 'data-access' && (
+                              <div className="space-y-4">
+                                {dataAccessLoading ? (
+                                  <div className="flex items-center justify-center py-8">
+                                    <RefreshCw className="w-5 h-5 animate-spin" style={{ color: "#8b5cf6" }} />
+                                    <span className="ml-2 text-sm" style={{ color: "var(--text-secondary)" }}>Analyzing data access...</span>
+                                  </div>
+                                ) : dataAccess?.dataStores?.length > 0 ? (
+                                  <>
+                                    {/* Summary */}
+                                    <div className="flex items-center gap-4">
+                                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
+                                        <Database className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
+                                        <span style={{ color: "var(--text-primary)" }}>{dataAccess.summary.totalDataStores} data store(s)</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
+                                        <span style={{ color: "#22c55e" }}>{dataAccess.summary.totalObservedOps} observed</span>
+                                        <span style={{ color: "var(--text-muted)" }}>/</span>
+                                        <span style={{ color: "var(--text-primary)" }}>{dataAccess.summary.totalAllowedOps} allowed ops</span>
+                                      </div>
+                                      {dataAccess.summary.hasDestructiveAccess && (
+                                        <span className="px-2 py-1 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>Has Destructive Access</span>
+                                      )}
+                                    </div>
+
+                                    {/* Data Store Cards */}
+                                    {dataAccess.dataStores.map((store: any, idx: number) => {
+                                      const ACCESS_LEVEL_COLORS: Record<string, string> = { FULL: '#ef4444', WRITE: '#f97316', READ: '#22c55e', NONE: '#6b7280' }
+                                      const OP_COLORS: Record<string, string> = { READ: '#22c55e', LIST: '#3b82f6', WRITE: '#f97316', DELETE: '#ef4444', EXECUTE: '#a855f7', MODIFY: '#ef4444', ENCRYPT: '#a855f7', DECRYPT: '#3b82f6', INVOKE: '#06b6d4', SNAPSHOT: '#3b82f6', READ_METADATA: '#6b7280', READ_POLICY: '#6b7280', WRITE_POLICY: '#f97316', START: '#22c55e', STOP: '#ef4444' }
+                                      const TYPE_ICONS: Record<string, any> = { S3: HardDrive, RDS: Database, DynamoDB: Database, Lambda: Workflow, KMS: Lock, SecretsManager: Key }
+                                      const StoreIcon = TYPE_ICONS[store.type] || Database
                                       return (
-                                        <div key={cat} className="flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <DIcon className="w-3.5 h-3.5" style={{ color }} />
-                                            <span className="text-xs" style={{ color }}>{cat}</span>
+                                        <div key={idx} className="rounded-lg border p-4" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                          <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                              <StoreIcon className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+                                              <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{store.name}</span>
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--bg-primary)", color: "var(--text-muted)" }}>{store.type}</span>
+                                            </div>
+                                            <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{
+                                              background: `${ACCESS_LEVEL_COLORS[store.accessLevel] || '#6b7280'}20`,
+                                              color: ACCESS_LEVEL_COLORS[store.accessLevel] || '#6b7280',
+                                            }}>{store.accessLevel} ACCESS</span>
                                           </div>
-                                          <span className="text-xs font-bold" style={{ color }}>{actList.length} unused</span>
+
+                                          {/* Operations Grid */}
+                                          <div className="grid grid-cols-2 gap-3 mb-3">
+                                            <div>
+                                              <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Allowed Operations</span>
+                                              <div className="flex flex-wrap gap-1 mt-1">
+                                                {store.allowedOperations.length > 0 ? store.allowedOperations.map((op: string) => (
+                                                  <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
+                                                    background: `${OP_COLORS[op] || '#6b7280'}15`,
+                                                    color: OP_COLORS[op] || '#6b7280',
+                                                  }}>{op}</span>
+                                                )) : <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>None</span>}
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Observed (Used)</span>
+                                              <div className="flex flex-wrap gap-1 mt-1">
+                                                {store.observedOperations.length > 0 ? store.observedOperations.map((op: string) => (
+                                                  <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
+                                                    background: `${OP_COLORS[op] || '#6b7280'}15`,
+                                                    color: OP_COLORS[op] || '#6b7280',
+                                                    border: `1px solid ${OP_COLORS[op] || '#6b7280'}40`,
+                                                  }}>{op}</span>
+                                                )) : <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>No observed access</span>}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Unused + Recommendation */}
+                                          {store.unusedOperations.length > 0 && (
+                                            <div className="flex flex-wrap gap-1 mb-2">
+                                              <span className="text-[10px]" style={{ color: "#ef4444" }}>Unused:</span>
+                                              {store.unusedOperations.map((op: string) => (
+                                                <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium line-through" style={{
+                                                  background: "#ef444410", color: "#ef4444",
+                                                }}>{op}</span>
+                                              ))}
+                                            </div>
+                                          )}
+                                          <div className="text-xs p-2 rounded" style={{ background: "#f59e0b08", color: "#f59e0b" }}>
+                                            {store.recommendation}
+                                          </div>
                                         </div>
                                       )
                                     })}
+                                  </>
+                                ) : (
+                                  <div className="text-center py-8">
+                                    <Database className="w-8 h-8 mx-auto mb-2 opacity-30" style={{ color: "var(--text-muted)" }} />
+                                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>No data store access detected for this identity</p>
+                                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>This identity may not have data-service permissions (S3, RDS, DynamoDB)</p>
                                   </div>
-                                  {detailData.damage_classification.damage_score >= 50 && (
-                                    <div className="mt-3 text-xs p-2 rounded" style={{ background: "#ef444410", color: "#ef4444" }}>
-                                      Contains irreversible operations (DELETE/ADMIN)
-                                    </div>
-                                  )}
-                                </>
-                              ) : (
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No permission data</p>
-                              )}
-                            </div>
+                                )}
+                              </div>
+                            )}
 
-                            {/* Network Reachability */}
-                            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                <Network className="w-3.5 h-3.5" /> Network Reachability
-                              </h4>
-                              {detailData.network_reachability ? (
-                                <div className="space-y-3">
-                                  <div className="flex items-center gap-2">
-                                    <Globe className="w-4 h-4" style={{
-                                      color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e"
-                                    }} />
-                                    <span className="text-sm font-medium" style={{
-                                      color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e"
-                                    }}>
-                                      {detailData.network_reachability.is_internet_reachable ? "Internet Reachable" : "Internal Only"}
-                                    </span>
-                                  </div>
-                                  {detailData.network_reachability.attached_instances?.length > 0 && (
+                            {/* ===== NETWORK TAB ===== */}
+                            {detailTab === 'network' && (
+                              <div className="space-y-4">
+                                {/* Internet Reachability Banner */}
+                                {detailData.network_reachability && (
+                                  <div className="flex items-center gap-4 p-3 rounded-lg border" style={{
+                                    background: detailData.network_reachability.is_internet_reachable ? "#ef444408" : "#22c55e08",
+                                    borderColor: detailData.network_reachability.is_internet_reachable ? "#ef444430" : "#22c55e30",
+                                  }}>
+                                    <Globe className="w-5 h-5" style={{ color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e" }} />
                                     <div>
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Attached Instances:</span>
-                                      {detailData.network_reachability.attached_instances.map((inst: any, i: number) => (
-                                        <div key={i} className="text-xs font-mono mt-1" style={{ color: "var(--text-primary)" }}>
-                                          <Server className="w-3 h-3 inline mr-1" /> {typeof inst === 'string' ? inst : inst.instance_id || inst.name || JSON.stringify(inst)}
-                                        </div>
-                                      ))}
+                                      <div className="text-sm font-medium" style={{ color: detailData.network_reachability.is_internet_reachable ? "#ef4444" : "#22c55e" }}>
+                                        {detailData.network_reachability.is_internet_reachable ? "Internet Reachable" : "Internal Only"}
+                                      </div>
+                                      {detailData.network_reachability.open_ports?.length > 0 && (
+                                        <div className="text-xs mt-0.5" style={{ color: "#ef4444" }}>Open ports: {detailData.network_reachability.open_ports.join(", ")}</div>
+                                      )}
                                     </div>
-                                  )}
-                                  {detailData.network_reachability.security_groups?.length > 0 && (
-                                    <div>
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Security Groups:</span>
-                                      {detailData.network_reachability.security_groups.map((sg: any, i: number) => (
-                                        <div key={i} className="text-xs font-mono mt-1" style={{ color: "var(--text-primary)" }}>
-                                          <Shield className="w-3 h-3 inline mr-1" /> {typeof sg === 'string' ? sg : sg.group_id || sg.name || JSON.stringify(sg)}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {detailData.network_reachability.open_ports?.length > 0 && (
-                                    <div className="text-xs p-2 rounded" style={{ background: "#ef444410", color: "#ef4444" }}>
-                                      Open ports: {detailData.network_reachability.open_ports.join(", ")}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No network data available</p>
-                              )}
-                            </div>
-
-                            {/* Blast Radius */}
-                            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                <Database className="w-3.5 h-3.5" /> Blast Radius
-                              </h4>
-                              {detailData.blast_radius ? (
-                                <div className="space-y-3">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Accessible Resources</span>
-                                    <span className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-                                      {detailData.blast_radius.accessible_resources}
-                                    </span>
                                   </div>
-                                  {detailData.blast_radius.resource_types && Object.entries(detailData.blast_radius.resource_types).length > 0 && (
-                                    <div className="space-y-1.5">
-                                      {Object.entries(detailData.blast_radius.resource_types).map(([type, count]) => (
-                                        <div key={type} className="flex items-center justify-between">
-                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{type}</span>
-                                          <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{count as number}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {detailData.blast_radius.attack_path_hops !== undefined && detailData.blast_radius.attack_path_hops >= 0 && (
-                                    <div className="flex items-center gap-2 mt-2">
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Attack path:</span>
-                                      <span className="text-xs font-medium" style={{ color: detailData.blast_radius.attack_path_hops <= 2 ? "#ef4444" : "#eab308" }}>
-                                        {detailData.blast_radius.attack_path_hops} hops from internet
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(detailData.blast_radius.attack_path_hops === undefined || detailData.blast_radius.attack_path_hops < 0) && (
-                                    <div className="flex items-center gap-2 mt-2">
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Attack path:</span>
-                                      <span className="text-xs font-medium" style={{ color: "#22c55e" }}>
-                                        No known attack path
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No resource data available</p>
-                              )}
-                            </div>
-                          </div>
+                                )}
 
-                          {/* Second row: Temporal + Trust + Policies */}
-                          <div className="grid grid-cols-3 gap-5">
-                            {/* Temporal Activity */}
-                            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                <Activity className="w-3.5 h-3.5" /> Activity Pattern
-                              </h4>
-                              {detailData.temporal_activity ? (
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Status</span>
-                                    <span className="text-xs font-medium" style={{
-                                      color: detailData.temporal_activity.is_dormant ? "#ef4444" : "#22c55e"
-                                    }}>
-                                      {detailData.temporal_activity.is_dormant ? "Dormant" : "Active"}
-                                    </span>
+                                <div className="grid grid-cols-2 gap-4">
+                                  {/* Attached Instances & Security Groups */}
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                      <Server className="w-3.5 h-3.5" /> Attached Resources
+                                    </h4>
+                                    {detailData.network_reachability?.attached_instances?.length > 0 ? (
+                                      <div className="space-y-1">
+                                        {detailData.network_reachability.attached_instances.map((inst: any, i: number) => (
+                                          <div key={i} className="text-xs font-mono flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                                            <Server className="w-3 h-3" style={{ color: "#3b82f6" }} />
+                                            {typeof inst === 'string' ? inst : inst.instance_id || inst.name || JSON.stringify(inst)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No attached instances</p>}
+
+                                    {detailData.network_reachability?.security_groups?.length > 0 && (
+                                      <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                                        <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Security Groups</span>
+                                        {detailData.network_reachability.security_groups.map((sg: any, i: number) => (
+                                          <div key={i} className="text-xs font-mono flex items-center gap-1.5 mt-1" style={{ color: "var(--text-primary)" }}>
+                                            <Shield className="w-3 h-3" style={{ color: "#f59e0b" }} />
+                                            {typeof sg === 'string' ? sg : sg.group_id || sg.name || JSON.stringify(sg)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
-                                  {detailData.temporal_activity.last_activity_date && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Last Activity</span>
-                                      <span className="text-xs" style={{ color: "var(--text-primary)" }}>
-                                        {detailData.temporal_activity.days_since_last_activity != null
-                                          ? `${detailData.temporal_activity.days_since_last_activity}d ago`
-                                          : detailData.temporal_activity.last_activity_date}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {detailData.temporal_activity.total_events != null && detailData.temporal_activity.total_events > 0 && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Total Events</span>
-                                      <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                                        {detailData.temporal_activity.total_events.toLocaleString()}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {detailData.temporal_activity.peak_hours && detailData.temporal_activity.peak_hours.length > 0 && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Peak Hours (UTC)</span>
-                                      <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                                        {detailData.temporal_activity.peak_hours.map((h: number) => `${h}:00`).join(", ")}
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No activity data</p>
-                              )}
-                            </div>
 
-                            {/* Trust Principals */}
-                            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                <Lock className="w-3.5 h-3.5" /> Trust / Who Can Assume
-                              </h4>
-                              {detailData.trust_principals && detailData.trust_principals.length > 0 ? (
-                                <div className="space-y-1">
-                                  {detailData.trust_principals.map((p: string, i: number) => (
-                                    <div key={i} className="text-xs font-mono truncate" style={{ color: "var(--text-primary)" }}>{p}</div>
-                                  ))}
+                                  {/* Traffic Flows */}
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                      <ArrowRightLeft className="w-3.5 h-3.5" /> Observed Traffic
+                                    </h4>
+                                    {trafficLoading ? (
+                                      <div className="flex items-center gap-2 py-4">
+                                        <RefreshCw className="w-4 h-4 animate-spin" style={{ color: "#8b5cf6" }} />
+                                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Loading flows...</span>
+                                      </div>
+                                    ) : trafficData?.observed_ports?.ports?.length > 0 ? (
+                                      <div className="space-y-2">
+                                        <div className="flex items-center justify-between mb-2">
+                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Active ports</span>
+                                          <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{trafficData.observed_ports.totalPorts}</span>
+                                        </div>
+                                        {trafficData.observed_ports.ports.slice(0, 6).map((port: any, i: number) => (
+                                          <div key={i} className="flex items-center justify-between text-xs">
+                                            <div className="flex items-center gap-1.5 font-mono" style={{ color: "var(--text-primary)" }}>
+                                              <Wifi className="w-3 h-3" style={{ color: "#3b82f6" }} />
+                                              :{typeof port === 'object' ? port.port : port}
+                                              {typeof port === 'object' && port.protocol && <span style={{ color: "var(--text-muted)" }}>/{port.protocol}</span>}
+                                            </div>
+                                            {typeof port === 'object' && port.count && (
+                                              <span style={{ color: "var(--text-secondary)" }}>{port.count} flows</span>
+                                            )}
+                                          </div>
+                                        ))}
+                                        {trafficData.observed_ports.ports.length > 6 && (
+                                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>+{trafficData.observed_ports.ports.length - 6} more ports</div>
+                                        )}
+                                      </div>
+                                    ) : trafficData?.has_traffic_data === false ? (
+                                      <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>No traffic data observed. VPC Flow Logs may not be enabled.</p>
+                                    ) : (
+                                      <p className="text-xs py-2" style={{ color: "var(--text-muted)" }}>No observed network traffic</p>
+                                    )}
+                                  </div>
                                 </div>
-                              ) : (
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No trust principals</p>
-                              )}
-                            </div>
 
-                            {/* Policies */}
-                            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-                              <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
-                                <FileKey2 className="w-3.5 h-3.5" /> Attached Policies
-                              </h4>
-                              {detailData.policies && detailData.policies.length > 0 ? (
-                                <div className="space-y-1">
-                                  {detailData.policies.map((p: string, i: number) => (
-                                    <div key={i} className="text-xs font-mono truncate" style={{ color: "var(--text-primary)" }}>{p}</div>
-                                  ))}
+                                {/* Network Recommendations */}
+                                {detailData.network_reachability?.is_internet_reachable && (
+                                  <div className="rounded-lg p-3 border" style={{ background: "#ef444408", borderColor: "#ef444430" }}>
+                                    <div className="text-xs flex items-start gap-2" style={{ color: "#ef4444" }}>
+                                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                      <span>This identity is attached to internet-reachable resources. Review security group rules and restrict inbound access to necessary ports only.</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* ===== BEHAVIORAL TAB ===== */}
+                            {detailTab === 'behavioral' && (
+                              <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  {/* Activity Pattern */}
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                      <Activity className="w-3.5 h-3.5" /> Activity Pattern
+                                    </h4>
+                                    {detailData.temporal_activity ? (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Status</span>
+                                          <span className="text-sm font-semibold" style={{
+                                            color: detailData.temporal_activity.is_dormant ? "#ef4444" : "#22c55e"
+                                          }}>{detailData.temporal_activity.is_dormant ? "Dormant" : "Active"}</span>
+                                        </div>
+                                        {detailData.temporal_activity.last_activity_date && (
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Last Activity</span>
+                                            <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+                                              {detailData.temporal_activity.days_since_last_activity != null
+                                                ? `${detailData.temporal_activity.days_since_last_activity}d ago`
+                                                : detailData.temporal_activity.last_activity_date}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {detailData.temporal_activity.total_events != null && (
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Total Events (90d)</span>
+                                            <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{detailData.temporal_activity.total_events.toLocaleString()}</span>
+                                          </div>
+                                        )}
+                                        {/* Peak Hours Heatmap */}
+                                        {detailData.temporal_activity.peak_hours?.length > 0 && (
+                                          <div>
+                                            <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Peak Hours (UTC)</span>
+                                            <div className="flex gap-0.5 mt-1">
+                                              {Array.from({ length: 24 }, (_, h) => {
+                                                const isPeak = detailData.temporal_activity.peak_hours.includes(h)
+                                                return (
+                                                  <div key={h} className="flex-1 h-4 rounded-sm" title={`${h}:00 UTC`} style={{
+                                                    background: isPeak ? "#8b5cf6" : "var(--bg-primary)",
+                                                    opacity: isPeak ? 1 : 0.3,
+                                                  }} />
+                                                )
+                                              })}
+                                            </div>
+                                            <div className="flex justify-between mt-0.5">
+                                              <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>0h</span>
+                                              <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>12h</span>
+                                              <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>23h</span>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No activity data available</p>}
+                                  </div>
+
+                                  {/* Blast Radius */}
+                                  <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                                    <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                                      <Target className="w-3.5 h-3.5" /> Blast Radius
+                                    </h4>
+                                    {detailData.blast_radius ? (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Accessible Resources</span>
+                                          <span className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>{detailData.blast_radius.accessible_resources}</span>
+                                        </div>
+                                        {detailData.blast_radius.resource_types && Object.entries(detailData.blast_radius.resource_types).length > 0 && (
+                                          <div className="space-y-1.5">
+                                            {Object.entries(detailData.blast_radius.resource_types).map(([type, count]) => (
+                                              <div key={type} className="flex items-center justify-between">
+                                                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{type}</span>
+                                                <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{count as number}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                        <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Attack path:</span>
+                                          {detailData.blast_radius.attack_path_hops != null && detailData.blast_radius.attack_path_hops >= 0 ? (
+                                            <span className="text-xs font-medium" style={{ color: detailData.blast_radius.attack_path_hops <= 2 ? "#ef4444" : "#eab308" }}>
+                                              {detailData.blast_radius.attack_path_hops} hops from internet
+                                            </span>
+                                          ) : (
+                                            <span className="text-xs font-medium" style={{ color: "#22c55e" }}>No known attack path</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No blast radius data</p>}
+                                  </div>
                                 </div>
-                              ) : (
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No policies</p>
-                              )}
-                            </div>
-                          </div>
 
-                          {/* Badges */}
-                          <div className="flex items-center gap-3">
-                            {nhi.is_admin && (
-                              <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>Admin Access</span>
+                                {/* Dormant Warning */}
+                                {detailData.temporal_activity?.is_dormant && (
+                                  <div className="rounded-lg p-3 border" style={{ background: "#ef444408", borderColor: "#ef444430" }}>
+                                    <div className="text-xs flex items-start gap-2" style={{ color: "#ef4444" }}>
+                                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                                      <span>This identity is dormant — no API activity detected in the observation window. Consider disabling or deleting if no longer needed.</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             )}
-                            {nhi.has_wildcard && (
-                              <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard Permissions</span>
-                            )}
-                            {nhi.is_cross_account && (
-                              <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#06b6d420", color: "#06b6d4" }}>Cross-Account</span>
-                            )}
-                            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              {nhi.observation_days} days observed | {nhi.confidence}% confidence
-                            </span>
+
                           </div>
                         </div>
                       ) : (
