@@ -29,6 +29,8 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(true)
   const [applying, setApplying] = useState(false)
+  const [simulating, setSimulating] = useState(false)
+  const [simulationResult, setSimulationResult] = useState<any>(null)
 
   useEffect(() => {
     fetchDataAccess()
@@ -43,6 +45,26 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
       console.error("Error fetching data access:", err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSimulateS3Fix = async (bucketName: string) => {
+    setSimulating(true)
+    try {
+      const res = await fetch("/api/proxy/s3-buckets/remediate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bucket_name: bucketName,
+          create_checkpoint: true,
+          dry_run: true,
+        }),
+      })
+      if (res.ok) setSimulationResult(await res.json())
+    } catch (err) {
+      console.error("S3 simulation failed:", err)
+    } finally {
+      setSimulating(false)
     }
   }
 
@@ -217,17 +239,40 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
                       {dataStores.reduce((s: number, d: any) => s + (d.unusedOperations?.length || 0), 0)}
                     </span> unused data operation(s) can be restricted
                   </div>
-                  <button
-                    onClick={() => {
-                      const s3Store = dataStores.find((s: any) => s.type === 'S3')
-                      if (s3Store) handleApplyS3Fix(s3Store.name)
-                    }}
-                    disabled={applying}
-                    className="px-4 py-2 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
-                    style={{ background: "#22c55e" }}
-                  >
-                    {applying ? "Applying..." : "Apply Data Fix"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const s3Store = dataStores.find((s: any) => s.type === 'S3')
+                        if (s3Store) handleSimulateS3Fix(s3Store.name)
+                      }}
+                      disabled={simulating}
+                      className="px-4 py-2 rounded-lg text-xs font-medium border transition-opacity hover:opacity-80 disabled:opacity-50"
+                      style={{ borderColor: "#22c55e40", color: "#22c55e" }}
+                    >
+                      {simulating ? "Simulating..." : "Simulate Fix"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const s3Store = dataStores.find((s: any) => s.type === 'S3')
+                        if (s3Store) handleApplyS3Fix(s3Store.name)
+                      }}
+                      disabled={applying}
+                      className="px-4 py-2 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                      style={{ background: "#22c55e" }}
+                    >
+                      {applying ? "Applying..." : "Apply Data Fix"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Simulation Result */}
+              {simulationResult && (
+                <div className="rounded-lg p-3 border" style={{ background: "#22c55e08", borderColor: "#22c55e30" }}>
+                  <h4 className="text-xs font-semibold mb-1" style={{ color: "#22c55e" }}>Data Simulation Result (Dry Run)</h4>
+                  <pre className="text-xs font-mono overflow-auto max-h-[150px]" style={{ color: "var(--text-primary, #334155)" }}>
+                    {JSON.stringify(simulationResult, null, 2)}
+                  </pre>
                 </div>
               )}
             </>

@@ -114,19 +114,19 @@ export function NHIProfilePage({ identityName }: NHIProfilePageProps) {
               </div>
             </div>
 
-            {/* Summary Stats */}
+            {/* Summary Stats — use detail endpoint's accurate expanded counts */}
             <div className="flex items-center gap-4">
               <div className="text-center px-4">
-                <div className="text-2xl font-bold" style={{ color: "var(--text-primary, #0f172a)" }}>{identity?.permissions_count || 0}</div>
+                <div className="text-2xl font-bold" style={{ color: "var(--text-primary, #0f172a)" }}>{detail?.permission_analysis?.allowed_count || identity?.permissions_count || 0}</div>
                 <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Permissions</div>
               </div>
               <div className="text-center px-4">
-                <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{identity?.unused_permissions_count || 0}</div>
+                <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{detail?.permission_analysis?.unused_count || identity?.unused_permissions_count || 0}</div>
                 <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Unused</div>
               </div>
               <div className="text-center px-4">
-                <div className="text-2xl font-bold" style={{ color: identity?.gap_percentage >= 70 ? '#ef4444' : identity?.gap_percentage >= 40 ? '#f97316' : '#22c55e' }}>
-                  {identity?.gap_percentage?.toFixed(0) || 0}%
+                <div className="text-2xl font-bold" style={{ color: (detail?.permission_analysis?.gap_percentage || identity?.gap_percentage || 0) >= 70 ? '#ef4444' : (detail?.permission_analysis?.gap_percentage || identity?.gap_percentage || 0) >= 40 ? '#f97316' : '#22c55e' }}>
+                  {(detail?.permission_analysis?.gap_percentage ?? identity?.gap_percentage ?? 0).toFixed?.(0) || Math.round(detail?.permission_analysis?.gap_percentage || identity?.gap_percentage || 0)}%
                 </div>
                 <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Gap</div>
               </div>

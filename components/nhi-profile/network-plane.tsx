@@ -26,6 +26,8 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(true)
   const [applying, setApplying] = useState(false)
+  const [simulating, setSimulating] = useState(false)
+  const [simulationResult, setSimulationResult] = useState<any>(null)
 
   useEffect(() => {
     fetchNetworkData()
@@ -81,6 +83,30 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
       console.error("Error fetching network data:", err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSimulateSGFix = async () => {
+    const sgs = detail?.network_reachability?.security_groups || []
+    if (sgs.length === 0 || !sgAnalysis) return
+    setSimulating(true)
+    try {
+      const sgId = typeof sgs[0] === 'string' ? sgs[0] : sgs[0].group_id || sgs[0].name
+      const unusedRules = (sgAnalysis.rules || []).filter((r: any) => r.recommendation === 'DELETE' || r.status === 'UNUSED')
+      const res = await fetch(`/api/proxy/sg-least-privilege/${encodeURIComponent(sgId)}/remediate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules: unusedRules.map((r: any) => ({ rule_id: r.rule_id || r.id, direction: r.direction || 'ingress', port: r.port, protocol: r.protocol, source: r.source || r.cidr })),
+          create_snapshot: true,
+          dry_run: true,
+        }),
+      })
+      if (res.ok) setSimulationResult(await res.json())
+    } catch (err) {
+      console.error("SG simulation failed:", err)
+    } finally {
+      setSimulating(false)
     }
   }
 
@@ -276,14 +302,34 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
                   {sgAnalysis.rules.filter((r: any) => r.recommendation === 'DELETE' || r.status === 'UNUSED').length}
                 </span> unused SG rule(s) can be removed
               </div>
-              <button
-                onClick={handleApplySGFix}
-                disabled={applying}
-                className="px-4 py-2 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
-                style={{ background: "#3b82f6" }}
-              >
-                {applying ? "Applying..." : "Apply Network Fix"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSimulateSGFix}
+                  disabled={simulating}
+                  className="px-4 py-2 rounded-lg text-xs font-medium border transition-opacity hover:opacity-80 disabled:opacity-50"
+                  style={{ borderColor: "#3b82f640", color: "#3b82f6" }}
+                >
+                  {simulating ? "Simulating..." : "Simulate Fix"}
+                </button>
+                <button
+                  onClick={handleApplySGFix}
+                  disabled={applying}
+                  className="px-4 py-2 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                  style={{ background: "#3b82f6" }}
+                >
+                  {applying ? "Applying..." : "Apply Network Fix"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Simulation Result */}
+          {simulationResult && (
+            <div className="rounded-lg p-3 border" style={{ background: "#3b82f608", borderColor: "#3b82f630" }}>
+              <h4 className="text-xs font-semibold mb-1" style={{ color: "#3b82f6" }}>Network Simulation Result (Dry Run)</h4>
+              <pre className="text-xs font-mono overflow-auto max-h-[150px]" style={{ color: "var(--text-primary, #334155)" }}>
+                {JSON.stringify(simulationResult, null, 2)}
+              </pre>
             </div>
           )}
         </div>

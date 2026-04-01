@@ -86,9 +86,23 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
 
   const permAnalysis = detail?.permission_analysis || gapData
   const damage = detail?.damage_classification
-  const allowedActions = permAnalysis?.allowed_actions || permAnalysis?.permissions_analysis || []
-  const usedActions = new Set(permAnalysis?.used_actions || permAnalysis?.used_permissions || [])
-  const unusedActions = permAnalysis?.unused_actions || permAnalysis?.unused_permissions || []
+  // Prefer gap analysis data (has full expanded permissions list) over identity detail (only has short list)
+  const gapPermissions = gapData?.permissions_analysis || []
+  const gapUsed = gapData?.used_permissions || gapData?.summary?.used_permissions || []
+  const gapUnused = gapData?.unused_permissions || gapData?.summary?.unused_permissions || []
+  // Build full permission list: prefer gap analysis (expanded), fall back to detail
+  const allowedActions = gapPermissions.length > 0
+    ? gapPermissions
+    : permAnalysis?.allowed_actions || []
+  const usedActions = new Set(
+    gapUsed.length > 0 ? gapUsed
+    : permAnalysis?.used_actions || permAnalysis?.used_permissions || []
+  )
+  const unusedActions = gapUnused.length > 0 ? gapUnused
+    : permAnalysis?.unused_actions || permAnalysis?.unused_permissions || []
+  const totalCount = gapData?.summary?.total_permissions || permAnalysis?.allowed_count || allowedActions.length
+  const unusedCount = gapData?.summary?.unused_count || permAnalysis?.unused_count || unusedActions.length
+  const usedCount = gapData?.summary?.used_count || permAnalysis?.used_count || usedActions.size
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border, #e2e8f0)" }}>
@@ -111,11 +125,11 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
             </span>
           )}
           <span style={{ color: "var(--text-secondary, #64748b)" }}>
-            {usedActions.size} used / {allowedActions.length || identity?.permissions_count || 0} total
+            {usedCount} used / {totalCount} total
           </span>
-          {unusedActions.length > 0 && (
+          {unusedCount > 0 && (
             <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>
-              {unusedActions.length} unused
+              {unusedCount} unused
             </span>
           )}
         </div>
@@ -221,10 +235,10 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
               </div>
 
               {/* Action Bar */}
-              {unusedActions.length > 0 && (
+              {unusedCount > 0 && (
                 <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--border, #e2e8f0)" }}>
                   <div className="text-sm" style={{ color: "var(--text-secondary, #64748b)" }}>
-                    <span className="font-medium" style={{ color: "#ef4444" }}>{unusedActions.length}</span> unused permission(s) can be removed
+                    <span className="font-medium" style={{ color: "#ef4444" }}>{unusedCount}</span> unused permission(s) can be removed
                   </div>
                   <div className="flex items-center gap-2">
                     <button
