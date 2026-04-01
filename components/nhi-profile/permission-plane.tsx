@@ -119,23 +119,47 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
 
   const permAnalysis = detail?.permission_analysis || gapData
   const damage = detail?.damage_classification
-  // Prefer gap analysis data (has full expanded permissions list) over identity detail (only has short list)
-  const gapPermissions = gapData?.permissions_analysis || []
-  const gapUsed = gapData?.used_permissions || gapData?.summary?.used_permissions || []
-  const gapUnused = gapData?.unused_permissions || gapData?.summary?.unused_permissions || []
-  // Build full permission list: prefer gap analysis (expanded), fall back to detail
-  const allowedActions = gapPermissions.length > 0
-    ? gapPermissions
-    : permAnalysis?.allowed_actions || []
-  const usedActions = new Set(
-    gapUsed.length > 0 ? gapUsed
-    : permAnalysis?.used_actions || permAnalysis?.used_permissions || []
-  )
-  const unusedActions = gapUnused.length > 0 ? gapUnused
-    : permAnalysis?.unused_actions || permAnalysis?.unused_permissions || []
-  const totalCount = gapData?.summary?.total_permissions || permAnalysis?.allowed_count || allowedActions.length
-  const unusedCount = gapData?.summary?.unused_count || permAnalysis?.unused_count || unusedActions.length
-  const usedCount = gapData?.summary?.used_count || permAnalysis?.used_count || usedActions.size
+
+  // Helper: ensure we have a proper string array (filter out char-by-char broken data)
+  const ensureStringArray = (val: any): string[] => {
+    if (!val) return []
+    if (typeof val === 'string') {
+      try { const parsed = JSON.parse(val); return Array.isArray(parsed) ? parsed.filter((s: any) => typeof s === 'string' && s.length > 1) : [] } catch { return [] }
+    }
+    if (Array.isArray(val)) {
+      return val
+        .map((item: any) => {
+          if (typeof item === 'string') return item
+          if (typeof item === 'object' && item) return item.permission || item.action || item.name || ''
+          return ''
+        })
+        .filter((s: string) => s.length > 2 && s.includes(':')) // Valid IAM permissions contain ":" like "s3:GetObject"
+    }
+    return []
+  }
+
+  // Use identity detail's allowed_actions (always correct format: ["s3:GetObject", ...])
+  // The gap analysis permissions_analysis is broken (character-by-character) — avoid it
+  const detailAllowed = ensureStringArray(permAnalysis?.allowed_actions)
+
+  // For used/unused: the backend returns broken char arrays for these too
+  // So use the COUNTS from the backend + the allowed_actions list to determine status
+  const backendUsedCount = gapData?.summary?.used_count ?? permAnalysis?.used_count ?? 0
+  const backendUnusedCount = gapData?.summary?.unused_count ?? permAnalysis?.unused_count ?? 0
+  const backendTotal = gapData?.summary?.total_permissions ?? permAnalysis?.allowed_count ?? 0
+
+  // Try to get proper used permission names from event_count or CloudTrail data
+  const usedFromEvents = ensureStringArray(permAnalysis?.used_actions)
+
+  // The allowed_actions list is the short explicit list (4 items)
+  // The total count includes expanded managed policy actions (68)
+  // Show the explicit list + indicate how many more from managed policies
+  const allowedActions = detailAllowed
+  const usedActions = new Set(usedFromEvents)
+  const totalCount = backendTotal || allowedActions.length
+  const unusedCount = backendUnusedCount || (totalCount - usedActions.size)
+  const usedCount = backendUsedCount || usedActions.size
+  const managedPolicyExpanded = totalCount > allowedActions.length ? totalCount - allowedActions.length : 0
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border, #e2e8f0)" }}>
@@ -185,7 +209,7 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
                     <Shield className="w-3.5 h-3.5" /> Configured (IAM Policy)
                   </h4>
                   <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                    {(typeof allowedActions[0] === 'string' ? allowedActions : allowedActions.map((a: any) => a.permission || a.action || a)).map((action: string, i: number) => {
+                    {allowedActions.map((action: string, i: number) => {
                       const isUsed = usedActions.has(action)
                       return (
                         <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded text-sm" style={{ background: "var(--bg-secondary, #f8fafc)" }}>
@@ -202,6 +226,11 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
                         </div>
                       )
                     })}
+                    {managedPolicyExpanded > 0 && (
+                      <div className="py-2 px-3 rounded text-xs" style={{ background: "#8b5cf608", color: "#8b5cf6" }}>
+                        + {managedPolicyExpanded} more permissions from managed policy expansion ({totalCount} total)
+                      </div>
+                    )}
                     {allowedActions.length === 0 && (
                       <p className="text-xs py-2" style={{ color: "var(--text-muted, #94a3b8)" }}>No permission data available</p>
                     )}
