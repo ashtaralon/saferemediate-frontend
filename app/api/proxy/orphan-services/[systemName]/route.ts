@@ -8,16 +8,50 @@ const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || process.env.NEXT_PUBLIC_NEO
 const ORPHAN_THRESHOLD_DAYS = 30
 const SEASONAL_LOOKBACK_DAYS = 365
 
-// Only analyze actual AWS service types — exclude traffic/network artifacts
+// Only analyze actual AWS workload resources that cost money or pose security risk
+// Exclude: networking infra (VPC/Subnet/IGW), AWS-managed policies, permission strings
 const ORPHAN_ELIGIBLE_TYPES = new Set([
   'EC2', 'Lambda', 'LambdaFunction', 'RDS', 'S3', 'DynamoDB',
   'ECS', 'EKS', 'LoadBalancer', 'ALB', 'NLB',
   'IAMRole', 'IAMPolicy', 'IAMUser', 'SecurityGroup',
   'ElasticIP', 'NAT', 'NATGateway',
-  'VPC', 'Subnet', 'InternetGateway',
-  'CloudTrail', 'CloudWatch', 'KMS', 'Secret', 'SecretsManager',
-  'CloudWatchLogGroup',
 ])
+
+// AWS-managed IAM policy prefixes — these exist in every account, never orphans
+const AWS_MANAGED_PREFIXES = [
+  'AWS', 'Amazon', 'CloudWatch', 'CloudFront', 'CloudSearch',
+  'AutoScaling', 'IAMFull', 'IAMRead', 'PowerUser', 'ReadOnly',
+  'Administrator', 'SecurityAudit', 'SimpleWorkflow', 'ResourceGroups',
+  'RDSCloud', 'APIGateway', 'DataPipeline',
+]
+
+// Service-linked role prefixes — AWS creates these automatically
+const SERVICE_LINKED_PREFIXES = ['AWSServiceRoleFor']
+
+// Exact names of known AWS-managed policies/roles that don't match prefixes
+const AWS_MANAGED_EXACT = new Set([
+  'flowlogs', // CloudWatch log group auto-created by VPC Flow Logs
+])
+
+function isAWSManagedResource(name: string, type: string): boolean {
+  // Filter out known AWS-managed exact names
+  if (AWS_MANAGED_EXACT.has(name)) return true
+  // Filter out AWS-managed IAM policies (exist in every account)
+  if (type === 'IAMPolicy') {
+    if (AWS_MANAGED_PREFIXES.some(prefix => name.startsWith(prefix))) return true
+  }
+  // Filter out AWS service-linked roles (auto-created by AWS services)
+  if (type === 'IAMRole') {
+    if (SERVICE_LINKED_PREFIXES.some(prefix => name.startsWith(prefix))) return true
+    // Also filter roles with AWS managed prefix
+    if (AWS_MANAGED_PREFIXES.some(prefix => name.startsWith(prefix))) return true
+  }
+  // Filter out IAM permission strings stored as nodes (e.g., "ec2:CreateNetworkInterface")
+  if (name.includes(':') && /^[a-z0-9]+:[A-Z]/.test(name)) return true
+  // Filter out resources named "function" or "default" (generic placeholders)
+  if (name === 'function' || name === 'default') return true
+  return false
+}
 
 // Estimated monthly cost by resource type (USD)
 const COST_ESTIMATES: Record<string, number> = {
@@ -241,6 +275,10 @@ export async function GET(
       // Skip non-service types (NetworkEndpoints, IPs, traffic artifacts)
       const resourceType = r.type || ''
       if (!ORPHAN_ELIGIBLE_TYPES.has(resourceType)) continue
+
+      // Skip AWS-managed resources, service-linked roles, and permission string nodes
+      const resourceName = r.name || ''
+      if (isAWSManagedResource(resourceName, resourceType)) continue
 
       const lastSeenDate = r.lastSeen || r.last_seen || r.properties?.lastSeen
       const lastSeen = lastSeenDate ? new Date(lastSeenDate) : null
