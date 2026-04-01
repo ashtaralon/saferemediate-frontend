@@ -215,14 +215,35 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
           edgeType: c.relationship?.type || c.relationship?.relationship_type || '',
           direction: 'outbound' as const,
         }))
-        const allConns = [...inbound, ...outbound]
+        // Only keep behavioral/traffic connections — filter out structural relationships
+        const BEHAVIORAL_EDGE_TYPES = new Set([
+          'ACTUAL_TRAFFIC', 'ACTUAL_API_CALL', 'CALLS', 'ACTUAL_S3_ACCESS',
+          'DATA_ACCESS', 'USES_DB_USER', 'CONNECTS_TO',
+        ])
+        const STRUCTURAL_EDGE_TYPES = new Set([
+          'HAS_POLICY', 'HAS_ROLE', 'HAS_REMEDIATION', 'ASSUMES', 'ATTACHED_TO',
+          'BELONGS_TO', 'MEMBER_OF', 'HAS_TAG', 'IN_VPC', 'IN_SUBNET',
+          'HAS_SECURITY_GROUP', 'TAGGED', 'PART_OF', 'MANAGED_BY',
+          'CONFIG_RELATIONSHIP', 'HAS_NACL', 'APPLIES_TO',
+        ])
+        const allRaw = [...inbound, ...outbound]
+        const allConns = allRaw.filter((c: any) => {
+          if (!c.edgeType) return false
+          if (STRUCTURAL_EDGE_TYPES.has(c.edgeType)) return false
+          // If we have a known behavioral type, keep it
+          if (BEHAVIORAL_EDGE_TYPES.has(c.edgeType)) return true
+          // For unknown types, keep if they have traffic data (bytes or port)
+          return c.bytes > 0 || c.port
+        })
         const totalBytes = allConns.reduce((sum: number, c: any) => sum + (c.bytes || 0), 0)
         setConnectionsData({
           connections: allConns,
-          inbound,
-          outbound,
+          inbound: allConns.filter((c: any) => c.direction === 'inbound'),
+          outbound: allConns.filter((c: any) => c.direction === 'outbound'),
           totalBytes,
           totalConnections: allConns.length,
+          // Also store the structural connections count for reference
+          structuralCount: allRaw.length - allConns.length,
         })
       }
     } catch (err) {
