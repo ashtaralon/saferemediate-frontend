@@ -966,9 +966,19 @@ export function RemediationTimeline({
           snapshotEvents.push(...iamList.map((s: any) => convertSnapshotToEvent({ ...s, type: 'IAMRole' })))
         }
 
-        // Merge: Add snapshot events not already in Neo4j (by snapshot_id)
+        // Merge: Add snapshot events not already in Neo4j
+        // Deduplicate by snapshot_id, and also skip SG/resource snapshots that already have RemediationEvent entries
         const neo4jSnapshotIds = new Set(allEvents.map(e => e.snapshot_id).filter(Boolean))
-        const uniqueSnapshotEvents = snapshotEvents.filter(e => !neo4jSnapshotIds.has(e.snapshot_id))
+        const neo4jResourceIds = new Set(allEvents.map(e => `${e.resource_type}:${e.resource_id}`))
+        const uniqueSnapshotEvents = snapshotEvents.filter(e => {
+          // Skip if snapshot_id already in Neo4j events
+          if (e.snapshot_id && neo4jSnapshotIds.has(e.snapshot_id)) return false
+          // Skip SG snapshots with null IDs if we already have RemediationEvent entries for that SG
+          if (!e.snapshot_id && e.resource_type === 'SecurityGroup' && neo4jResourceIds.has(`SecurityGroup:${e.resource_id}`)) return false
+          // Skip IAM snapshots if we already have events for that role (avoid duplicate "checkpoint" entries)
+          if (e.resource_type === 'IAMRole' && neo4jResourceIds.has(`IAMRole:${e.resource_id}`)) return false
+          return true
+        })
         allEvents.push(...uniqueSnapshotEvents)
 
         // Filter by date range
