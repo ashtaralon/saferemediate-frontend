@@ -967,15 +967,23 @@ export function RemediationTimeline({
         }
 
         // Merge: Add snapshot events not already in Neo4j
-        // Deduplicate by snapshot_id, and also skip SG/resource snapshots that already have RemediationEvent entries
+        // Deduplicate by snapshot_id, resource_id, sg_id/sg_name
         const neo4jSnapshotIds = new Set(allEvents.map(e => e.snapshot_id).filter(Boolean))
         const neo4jResourceIds = new Set(allEvents.map(e => `${e.resource_type}:${e.resource_id}`))
+        // Also track SG IDs and names from events for cross-matching (events use sg_id, snapshots use sg_name)
+        const neo4jSgIds = new Set(allEvents.filter(e => e.resource_type === 'SecurityGroup').map(e => e.resource_id))
+        const neo4jSgNames = new Set(allEvents.filter(e => e.resource_type === 'SecurityGroup' && e.sg_name).map(e => e.sg_name))
         const uniqueSnapshotEvents = snapshotEvents.filter(e => {
           // Skip if snapshot_id already in Neo4j events
           if (e.snapshot_id && neo4jSnapshotIds.has(e.snapshot_id)) return false
-          // Skip SG snapshots with null IDs if we already have RemediationEvent entries for that SG
-          if (!e.snapshot_id && e.resource_type === 'SecurityGroup' && neo4jResourceIds.has(`SecurityGroup:${e.resource_id}`)) return false
-          // Skip IAM snapshots if we already have events for that role (avoid duplicate "checkpoint" entries)
+          // Skip SG snapshots if we already have RemediationEvent entries for that SG (match by ID or name)
+          if (e.resource_type === 'SecurityGroup') {
+            if (neo4jSgIds.has(e.resource_id) || neo4jSgIds.has(e.sg_id)) return false
+            if (neo4jSgNames.has(e.resource_id) || neo4jSgNames.has(e.sg_name)) return false
+            // Also check if any snapshot_id in kept events contains this SG ID
+            if (e.sg_id && [...neo4jSnapshotIds].some(sid => sid.includes(e.sg_id))) return false
+          }
+          // Skip IAM snapshots if we already have events for that role
           if (e.resource_type === 'IAMRole' && neo4jResourceIds.has(`IAMRole:${e.resource_id}`)) return false
           return true
         })
