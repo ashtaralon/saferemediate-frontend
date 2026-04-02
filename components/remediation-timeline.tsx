@@ -274,28 +274,45 @@ function getRestorableItems(event: RemediationEvent): { id: string; label: strin
       items.push({ id: arn, label: policyName, category: 'Managed Policy' })
     }
   } else if (event.resource_type === 'SecurityGroup') {
-    // SG rules that were removed
-    const beforeRules = event.before_state?.rules || event.before_state?.removed_rules || []
-    if (Array.isArray(beforeRules)) {
-      for (let i = 0; i < beforeRules.length; i++) {
-        const rule = beforeRules[i]
-        const direction = rule.direction || 'ingress'
+    // SG rules that were removed — prefer removed_rules (only removed) over rules (all original)
+    const removedRules = event.before_state?.removed_rules || []
+    // Also get the after_state removed_details for cross-reference
+    const removedDetails = event.after_state?.removed_details || []
+
+    if (Array.isArray(removedRules) && removedRules.length > 0) {
+      // New format: removed_rules contains only the actually removed rules
+      for (let i = 0; i < removedRules.length; i++) {
+        const rule = removedRules[i]
+        const direction = rule.direction || 'inbound'
         const protocol = rule.IpProtocol || rule.protocol || 'all'
         const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
-        const cidr = rule.CidrIpv4 || rule.cidr || rule.ip_permission?.IpRanges?.[0]?.CidrIp || '*'
+        const cidr = rule.CidrIpv4 || rule.cidr || rule.source || '*'
         const label = `${direction} ${protocol} port ${port} from ${cidr}`
         items.push({ id: `rule-${i}`, label, category: 'Rule' })
       }
-    }
-    // Also try ingress/egress from snapshot structure
-    const ingressRules = event.before_state?.IpPermissions || []
-    if (items.length === 0 && Array.isArray(ingressRules)) {
-      for (let i = 0; i < ingressRules.length; i++) {
-        const rule = ingressRules[i]
-        const protocol = rule.IpProtocol || 'all'
-        const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
-        const ranges = (rule.IpRanges || []).map((r: any) => r.CidrIp).join(', ') || '*'
-        items.push({ id: `rule-${i}`, label: `ingress ${protocol} port ${port} from ${ranges}`, category: 'Rule' })
+    } else if (removedDetails.length > 0) {
+      // Use after_state.removed_details if available
+      for (let i = 0; i < removedDetails.length; i++) {
+        const detail = removedDetails[i]
+        const protocol = detail.protocol || 'all'
+        const port = detail.port || 'all'
+        const source = detail.source || '*'
+        items.push({ id: `rule-${i}`, label: `inbound ${protocol} port ${port} from ${source}`, category: 'Rule' })
+      }
+    } else {
+      // Old format fallback: before_state.rules has ALL original rules (not just removed)
+      // Try IpPermissions format with full CIDR details
+      const allRules = event.before_state?.rules || event.before_state?.IpPermissions || []
+      if (Array.isArray(allRules)) {
+        for (let i = 0; i < allRules.length; i++) {
+          const rule = allRules[i]
+          const protocol = rule.IpProtocol || rule.protocol || 'all'
+          const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
+          const ranges = (rule.IpRanges || []).map((r: any) => r.CidrIp).join(', ')
+          const sgPairs = (rule.UserIdGroupPairs || []).map((p: any) => p.GroupId).join(', ')
+          const sources = [ranges, sgPairs].filter(Boolean).join(', ') || rule.cidr || '*'
+          items.push({ id: `rule-${i}`, label: `ingress ${protocol} port ${port} from ${sources}`, category: 'Rule' })
+        }
       }
     }
   } else if (event.resource_type === 'S3Bucket') {
