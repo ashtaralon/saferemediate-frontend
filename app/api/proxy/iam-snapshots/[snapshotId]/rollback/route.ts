@@ -9,7 +9,10 @@ export async function POST(
   try {
     const { snapshotId } = await params;
 
-    console.log(`[IAM-ROLLBACK] Rolling back IAM snapshot: ${snapshotId}`);
+    // Forward request body (may contain selected_items for partial restore)
+    const body = await req.json().catch(() => ({}));
+
+    console.log(`[IAM-ROLLBACK] Rolling back IAM snapshot: ${snapshotId}`, body.selected_items ? `(partial: ${body.selected_items.length} items)` : '(full)');
 
     // Use the generic snapshots rollback endpoint which handles SNAP-* format
     const response = await fetch(
@@ -17,7 +20,7 @@ export async function POST(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify(body)
       }
     );
 

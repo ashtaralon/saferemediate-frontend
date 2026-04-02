@@ -235,13 +235,95 @@ interface EventDetailModalProps {
   event: RemediationEvent | null
   isOpen: boolean
   onClose: () => void
-  onRollback: (eventId: string) => void
+  onRollback: (eventId: string, selectedItems?: string[]) => void
+}
+
+/**
+ * Extract restorable items from an event based on resource type.
+ * Returns a list of { id, label, category } for checkbox rendering.
+ */
+function getRestorableItems(event: RemediationEvent): { id: string; label: string; category: string }[] {
+  const items: { id: string; label: string; category: string }[] = []
+
+  if (event.resource_type === 'IAMRole') {
+    // Permissions that were removed
+    const removedPerms = event.metadata?.removed_permissions || []
+    if (removedPerms.length > 0) {
+      for (const perm of removedPerms) {
+        // Skip descriptive strings like "Removed 24 unused permissions"
+        if (perm.includes(':') && !perm.startsWith('Removed ') && !perm.startsWith('Original:') && !perm.startsWith('New:')) {
+          items.push({ id: perm, label: perm, category: 'Permission' })
+        }
+      }
+    }
+    // Also check before_state for allowed_actions
+    const beforeActions = event.before_state?.allowed_actions || []
+    const afterActions = event.after_state?.allowed_actions || []
+    if (items.length === 0 && beforeActions.length > 0) {
+      const afterSet = new Set(afterActions)
+      for (const action of beforeActions) {
+        if (!afterSet.has(action)) {
+          items.push({ id: action, label: action, category: 'Permission' })
+        }
+      }
+    }
+    // Detached managed policies
+    const detachedPolicies = event.metadata?.detached_managed_policies || event.before_state?.detached_managed_policies || []
+    for (const arn of detachedPolicies) {
+      const policyName = arn.split('/').pop() || arn
+      items.push({ id: arn, label: policyName, category: 'Managed Policy' })
+    }
+  } else if (event.resource_type === 'SecurityGroup') {
+    // SG rules that were removed
+    const beforeRules = event.before_state?.rules || event.before_state?.removed_rules || []
+    if (Array.isArray(beforeRules)) {
+      for (let i = 0; i < beforeRules.length; i++) {
+        const rule = beforeRules[i]
+        const direction = rule.direction || 'ingress'
+        const protocol = rule.IpProtocol || rule.protocol || 'all'
+        const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
+        const cidr = rule.CidrIpv4 || rule.cidr || rule.ip_permission?.IpRanges?.[0]?.CidrIp || '*'
+        const label = `${direction} ${protocol} port ${port} from ${cidr}`
+        items.push({ id: `rule-${i}`, label, category: 'Rule' })
+      }
+    }
+    // Also try ingress/egress from snapshot structure
+    const ingressRules = event.before_state?.IpPermissions || []
+    if (items.length === 0 && Array.isArray(ingressRules)) {
+      for (let i = 0; i < ingressRules.length; i++) {
+        const rule = ingressRules[i]
+        const protocol = rule.IpProtocol || 'all'
+        const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
+        const ranges = (rule.IpRanges || []).map((r: any) => r.CidrIp).join(', ') || '*'
+        items.push({ id: `rule-${i}`, label: `ingress ${protocol} port ${port} from ${ranges}`, category: 'Rule' })
+      }
+    }
+  } else if (event.resource_type === 'S3Bucket') {
+    // S3 policy statements that were removed
+    const removedStatements = event.before_state?.removed_statements || event.before_state?.policy?.Statement || []
+    if (Array.isArray(removedStatements)) {
+      for (let i = 0; i < removedStatements.length; i++) {
+        const stmt = removedStatements[i]
+        const sid = stmt.Sid || `Statement ${i + 1}`
+        const effect = stmt.Effect || 'Allow'
+        const actions = Array.isArray(stmt.Action) ? stmt.Action.join(', ') : (stmt.Action || '*')
+        items.push({ id: `stmt-${i}`, label: `${sid}: ${effect} ${actions}`, category: 'Policy Statement' })
+      }
+    }
+  }
+
+  return items
 }
 
 const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailModalProps) => {
   const [showDiff, setShowDiff] = useState(false)
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [showSelectiveRestore, setShowSelectiveRestore] = useState(false)
 
   if (!isOpen || !event) return null
+
+  const restorableItems = getRestorableItems(event)
+  const hasSelectableItems = restorableItems.length > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -473,6 +555,83 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               </div>
             </div>
           )}
+
+          {/* Selective Restore Section */}
+          {event.rollback_available && event.status === "completed" && hasSelectableItems && (
+            <div className="rounded-lg border" style={{ background: "#252538", borderColor: "#3d3d5c" }}>
+              <button
+                onClick={() => {
+                  setShowSelectiveRestore(!showSelectiveRestore)
+                  if (!showSelectiveRestore && selectedItems.size === 0) {
+                    // Select all by default when opening
+                    setSelectedItems(new Set(restorableItems.map(i => i.id)))
+                  }
+                }}
+                className="flex items-center justify-between w-full p-3 text-sm font-medium text-orange-400 hover:bg-white/5 rounded-lg transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <RotateCcw className="w-4 h-4" />
+                  Select Items to Restore ({restorableItems.length} available)
+                </span>
+                {showSelectiveRestore ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              </button>
+
+              {showSelectiveRestore && (
+                <div className="px-3 pb-3 space-y-2">
+                  {/* Select All / None */}
+                  <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: "#3d3d5c" }}>
+                    <span className="text-xs text-gray-400">
+                      {selectedItems.size} of {restorableItems.length} selected
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSelectedItems(new Set(restorableItems.map(i => i.id)))}
+                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-gray-600">|</span>
+                      <button
+                        onClick={() => setSelectedItems(new Set())}
+                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Items list with checkboxes */}
+                  <div className="max-h-[200px] overflow-y-auto space-y-1">
+                    {restorableItems.map((item) => (
+                      <label
+                        key={item.id}
+                        className="flex items-start gap-2 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedItems.has(item.id)}
+                          onChange={(e) => {
+                            const next = new Set(selectedItems)
+                            if (e.target.checked) {
+                              next.add(item.id)
+                            } else {
+                              next.delete(item.id)
+                            }
+                            setSelectedItems(next)
+                          }}
+                          className="mt-0.5 w-4 h-4 rounded border-gray-500 text-orange-500 focus:ring-orange-500 bg-gray-700 flex-shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <span className="text-xs font-mono text-gray-300 break-all">{item.label}</span>
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">{item.category}</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -503,14 +662,26 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
               Close
             </button>
             {event.rollback_available && event.status === "completed" && (
-              <button
-                onClick={() => onRollback(event.event_id)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90"
-                style={{ background: "#F59E0B" }}
-              >
-                <RotateCcw className="w-4 h-4" />
-                Rollback
-              </button>
+              hasSelectableItems && showSelectiveRestore ? (
+                <button
+                  onClick={() => onRollback(event.event_id, Array.from(selectedItems))}
+                  disabled={selectedItems.size === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: "#F59E0B" }}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Restore {selectedItems.size === restorableItems.length ? 'All' : `${selectedItems.size}`} {selectedItems.size === 1 ? 'Item' : 'Items'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => onRollback(event.event_id)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-all hover:opacity-90"
+                  style={{ background: "#F59E0B" }}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Restore All
+                </button>
+              )
             )}
           </div>
         </div>
@@ -539,7 +710,19 @@ export function RemediationTimeline({
   const [selectedEvent, setSelectedEvent] = useState<RemediationEvent | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
+  const [eventFilter, setEventFilter] = useState<"actionable" | "all">("actionable")
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Filter events based on selected filter
+  const filteredEvents = useMemo(() => {
+    if (eventFilter === "all") return events
+    // Actionable: only completed remediations with rollback available (not rollback events, not already rolled back)
+    return events.filter(e =>
+      e.action_type !== "ROLLBACK" &&
+      e.status === "completed" &&
+      e.rollback_available
+    )
+  }, [events, eventFilter])
 
   // Manual refresh function
   const refreshTimeline = () => {
@@ -837,7 +1020,7 @@ export function RemediationTimeline({
   }, [selectedPeriod, systemId, resourceId, apiBaseUrl, refreshKey])
 
   // Handle rollback - uses correct endpoint based on source and resource type
-  const handleRollback = async (eventId: string) => {
+  const handleRollback = async (eventId: string, selectedItems?: string[]) => {
     const event = events.find(e => e.event_id === eventId)
     if (!event) {
       alert("Event not found")
@@ -850,7 +1033,13 @@ export function RemediationTimeline({
       : (event.resource_id || 'Unknown Resource')
     const resourceType = event.resource_type
 
-    let confirmMessage = `⚠️ Restore ${resourceType} to previous state?\n\nResource: ${resourceName}\n\nThis will undo the remediation. Continue?`
+    const isPartial = selectedItems && selectedItems.length > 0
+    const totalItems = getRestorableItems(event).length
+    const restoreLabel = isPartial && selectedItems.length < totalItems
+      ? `${selectedItems.length} of ${totalItems} items`
+      : 'all items'
+
+    let confirmMessage = `⚠️ Restore ${resourceType} (${restoreLabel})?\n\nResource: ${resourceName}\n\nThis will undo the selected remediation. Continue?`
 
     if (!confirm(confirmMessage)) {
       return
@@ -864,25 +1053,36 @@ export function RemediationTimeline({
       // If it's a Neo4j event, use the timeline rollback API (via proxy)
       if (event.source === 'neo4j') {
         endpoint = `/api/proxy/remediation-history/events/${eventId}/rollback`
-        bodyContent = { approved_by: "user@cyntro.io" }
+        bodyContent = {
+          approved_by: "user@cyntro.io",
+          ...(isPartial && { selected_items: selectedItems })
+        }
       }
       // Otherwise, use the snapshot-specific endpoints
       else if (resourceType === 'IAMRole') {
         endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
+        bodyContent = {
+          ...(isPartial && { selected_items: selectedItems })
+        }
       } else if (resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
         bodyContent = {
           checkpoint_id: snapshotId,
-          bucket_name: event.bucket_name || event.resource_id || ''
+          bucket_name: event.bucket_name || event.resource_id || '',
+          ...(isPartial && { selected_items: selectedItems })
         }
       } else {
         const isSgLpSnapshot = snapshotId?.startsWith('sg-snap-')
         if (isSgLpSnapshot) {
           const sgId = event.sg_id || event.resource_id || ''
           endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
-          bodyContent = { snapshot_id: snapshotId }
+          bodyContent = {
+            snapshot_id: snapshotId,
+            ...(isPartial && { selected_items: selectedItems })
+          }
         } else {
           endpoint = `/api/proxy/remediation/rollback/${snapshotId}`
+          bodyContent = isPartial ? { selected_items: selectedItems } : undefined
         }
       }
 
@@ -900,7 +1100,8 @@ export function RemediationTimeline({
       const result = await response.json()
 
       if (result.success !== false) {
-        alert(`✅ Restored Successfully!\n\n${resourceType}: ${resourceName}\n\nThe resource has been restored to its previous state.`)
+        const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || (isPartial ? selectedItems.length : 'all')
+        alert(`✅ Restored Successfully!\n\n${resourceType}: ${resourceName}\nRestored: ${restoredCount} items\n\nThe selected items have been restored.`)
       } else {
         throw new Error(result.error || 'Rollback failed')
       }
@@ -1091,11 +1292,35 @@ export function RemediationTimeline({
       {/* Events List */}
       <div className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
         <div className="p-4">
-          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>
-            Remediation Events ({events.length})
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+              Remediation Events ({filteredEvents.length}{eventFilter === "actionable" && events.length !== filteredEvents.length ? ` of ${events.length}` : ''})
+            </h3>
+            <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5">
+              <button
+                onClick={() => setEventFilter("actionable")}
+                className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                style={{
+                  background: eventFilter === "actionable" ? "var(--action-primary)" : "transparent",
+                  color: eventFilter === "actionable" ? "white" : "var(--text-secondary)",
+                }}
+              >
+                Actionable
+              </button>
+              <button
+                onClick={() => setEventFilter("all")}
+                className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
+                style={{
+                  background: eventFilter === "all" ? "var(--action-primary)" : "transparent",
+                  color: eventFilter === "all" ? "white" : "var(--text-secondary)",
+                }}
+              >
+                All Events
+              </button>
+            </div>
+          </div>
 
-          {events.length === 0 ? (
+          {filteredEvents.length === 0 ? (
             <div className="text-center py-8">
               <Calendar className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--text-secondary)" }} />
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -1107,7 +1332,7 @@ export function RemediationTimeline({
             </div>
           ) : (
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
-              {events.map((event) => (
+              {filteredEvents.map((event) => (
                 <div
                   key={event.event_id}
                   className="flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer hover:border-opacity-70"

@@ -527,7 +527,7 @@ export default function DependencyMapTab({
                 onClick={() => handleGraphEngineChange('neo4j')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   graphEngine === 'neo4j'
-                    ? 'bg-white text-white shadow-sm'
+                    ? 'bg-cyan-600 text-white shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
                 title="System Map - Real-time animated data flows with live traffic visualization"

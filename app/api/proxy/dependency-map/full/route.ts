@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const systemName = url.searchParams.get("systemName") ?? "alon-prod";
   const includeUnused = url.searchParams.get("includeUnused") ?? "true";
-  const maxNodes = url.searchParams.get("maxNodes") ?? "500";
+  const maxNodes = url.searchParams.get("maxNodes") ?? url.searchParams.get("max_nodes") ?? "500";
   const cacheKey = "dependency-map-full-" + systemName;
 
   // Check cache first
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
     const params = new URLSearchParams({
       systemName: systemName,
       includeUnused: includeUnused,
-      maxNodes: maxNodes
+      max_nodes: maxNodes
     });
     const backendUrl = BACKEND_URL + "/api/dependency-map/full?" + params.toString();
     
