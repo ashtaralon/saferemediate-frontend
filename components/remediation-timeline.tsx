@@ -1358,9 +1358,22 @@ export function RemediationTimeline({
                       {getResourceIcon(event.resource_type)}
                     </div>
                     <div>
-                      <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                        {event.summary}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                          {event.summary}
+                        </p>
+                        <span className={`text-xs px-2 py-0.5 rounded-md font-bold whitespace-nowrap ${
+                          event.resource_type === 'IAMRole' ? 'bg-purple-600 text-white' :
+                          event.resource_type === 'SecurityGroup' ? 'bg-blue-600 text-white' :
+                          event.resource_type === 'S3Bucket' ? 'bg-emerald-600 text-white' :
+                          'bg-gray-600 text-white'
+                        }`}>
+                          {event.resource_type === 'IAMRole' ? 'IAM Role' :
+                           event.resource_type === 'SecurityGroup' ? 'Security Group' :
+                           event.resource_type === 'S3Bucket' ? 'S3 Bucket' :
+                           event.resource_type}
+                        </span>
+                      </div>
                       <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
                         {formatDateTime(event.timestamp)} • {event.approved_by}
                         {event.source === 'neo4j' && (
