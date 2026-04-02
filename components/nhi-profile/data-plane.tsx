@@ -38,7 +38,7 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
   const fetchDataAccess = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/proxy/identities/${encodeURIComponent(identityName)}/data-access`)
+      const res = await fetch(`/api/proxy/identities/data-access/${encodeURIComponent(identityName)}`)
       if (res.ok) setDataAccess(await res.json())
     } catch (err) {
       console.error("Error fetching data access:", err)

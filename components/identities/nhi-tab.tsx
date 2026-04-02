@@ -165,7 +165,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
   const fetchDataAccess = useCallback(async (name: string) => {
     setDataAccessLoading(true)
     try {
-      const res = await fetch(`/api/proxy/identities/${encodeURIComponent(name)}/data-access`)
+      const res = await fetch(`/api/proxy/identities/data-access/${encodeURIComponent(name)}`)
       if (res.ok) setDataAccess(await res.json())
     } catch (err) {
       console.error("Error fetching data access:", err)
