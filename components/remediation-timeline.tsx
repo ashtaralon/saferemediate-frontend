@@ -766,33 +766,45 @@ export function RemediationTimeline({
       resourceType = 'IAMRole'
       actionType = 'PERMISSION_REMOVAL'
 
+      // Parse before_state/after_state from snapshot (may be JSON strings from Neo4j)
+      let parsedBefore: Record<string, any> = {}
+      let parsedAfter: Record<string, any> = {}
+      try {
+        parsedBefore = typeof snapshot.before_state === 'string'
+          ? JSON.parse(snapshot.before_state)
+          : (snapshot.before_state || {})
+      } catch { parsedBefore = {} }
+      try {
+        parsedAfter = typeof snapshot.after_state === 'string'
+          ? JSON.parse(snapshot.after_state)
+          : (snapshot.after_state || {})
+      } catch { parsedAfter = {} }
+
       if (isNewLPFormat) {
-        // NEW format: SNAP-* with original_role and new_role
+        // NEW format: SNAP-* with original_role and new_role (created a new least-privilege role)
         const originalRole = snapshot.original_role
         const newRole = snapshot.new_role
         resourceId = originalRole
 
-        // For least-privilege remediation, set meaningful before/after states
-        // The original role typically has ~30 permissions, new role has ~6 (only used permissions)
-        const originalPermCount = snapshot.original_permissions_count || 30
-        const usedPermCount = snapshot.used_permissions_count || 6
-        permissionsRemoved = originalPermCount - usedPermCount
+        // Use actual data from before/after states when available
+        const originalPermCount = parsedBefore.total_permissions || parsedBefore.allowed_actions?.length || snapshot.original_permissions_count || 30
+        const usedPermCount = parsedAfter.total_permissions || parsedAfter.allowed_actions?.length || snapshot.used_permissions_count || 6
+        permissionsRemoved = snapshot.permissions_removed || (originalPermCount - usedPermCount)
 
-        beforeState = {
+        beforeState = Object.keys(parsedBefore).length > 0 ? parsedBefore : {
           role_name: originalRole,
           permissions_count: originalPermCount,
           description: "Original role with all attached permissions",
           status: "over-privileged"
         }
 
-        afterState = {
+        afterState = Object.keys(parsedAfter).length > 0 ? parsedAfter : {
           role_name: newRole,
           permissions_count: usedPermCount,
           description: "New least-privilege role with only used permissions",
           status: "least-privilege"
         }
 
-        // Create a descriptive list of changes
         removedPermissionsList = [
           `Removed ${permissionsRemoved} unused permissions`,
           `Original: ${originalRole} (${originalPermCount} permissions)`,
@@ -801,17 +813,29 @@ export function RemediationTimeline({
 
         summary = `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
       } else {
-        // OLD format: IAMRole-* with current_state, or SNAP-* with only original_role (no new_role)
-        let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name
+        // Same-role remediation or older format (SNAP-* with original_role but no new_role, or IAMRole-*)
+        let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name || parsedBefore.role_name
         if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
           const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
           parts.pop()
           roleName = parts.join('-') || 'Unknown Role'
         }
         resourceId = roleName || 'Unknown Role'
-        permissionsRemoved = snapshot.removed_permissions?.length || snapshot.permissions_count || 0
+
+        // Use permissions_removed count from snapshot, or calculate from before/after states
+        permissionsRemoved = snapshot.permissions_removed
+          || snapshot.removed_permissions?.length
+          || (parsedBefore.allowed_actions?.length && parsedAfter.allowed_actions?.length
+              ? parsedBefore.allowed_actions.length - parsedAfter.allowed_actions.length
+              : 0)
+          || snapshot.permissions_count
+          || 0
+
         removedPermissionsList = snapshot.removed_permissions || []
-        beforeState = snapshot.current_state || {}
+
+        // Use parsed before/after states from Neo4j, fall back to current_state
+        beforeState = Object.keys(parsedBefore).length > 0 ? parsedBefore : (snapshot.current_state || {})
+        afterState = Object.keys(parsedAfter).length > 0 ? parsedAfter : {}
 
         if (permissionsRemoved > 0) {
           summary = `Removed ${permissionsRemoved} permissions from ${resourceId}`
