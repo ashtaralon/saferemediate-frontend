@@ -34,6 +34,28 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
   const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
   const [rollbackDone, setRollbackDone] = useState(false)
+  const [selectedOps, setSelectedOps] = useState<Set<string>>(new Set())
+
+  const toggleOp = (key: string) => {
+    setSelectedOps(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) { next.delete(key) } else { next.add(key) }
+      return next
+    })
+  }
+
+  // Pre-select unused operations when data loads
+  useEffect(() => {
+    if (dataAccess?.dataStores) {
+      const unused = new Set<string>()
+      dataAccess.dataStores.forEach((store: any) => {
+        (store.unusedOperations || []).forEach((op: string) => {
+          unused.add(`${store.name}:${op}`)
+        })
+      })
+      setSelectedOps(unused)
+    }
+  }, [dataAccess])
 
   useEffect(() => {
     fetchDataAccess()
@@ -173,33 +195,27 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
                       }}>{store.accessLevel} ACCESS</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 p-4">
-                      {/* Configured */}
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Allowed Operations</span>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {store.allowedOperations?.length > 0 ? store.allowedOperations.map((op: string) => (
-                            <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
-                              background: `${OP_COLORS[op] || '#6b7280'}15`,
-                              color: OP_COLORS[op] || '#6b7280',
-                            }}>{op}</span>
-                          )) : <span className="text-[10px]" style={{ color: "var(--text-muted, #94a3b8)" }}>None</span>}
-                        </div>
-                      </div>
-
-                      {/* Observed */}
-                      <div>
-                        <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Observed (Used)</span>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {store.observedOperations?.length > 0 ? store.observedOperations.map((op: string) => (
-                            <span key={op} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{
-                              background: `${OP_COLORS[op] || '#6b7280'}15`,
-                              color: OP_COLORS[op] || '#6b7280',
-                              border: `1px solid ${OP_COLORS[op] || '#6b7280'}40`,
-                            }}>{op}</span>
-                          )) : <span className="text-[10px]" style={{ color: "var(--text-muted, #94a3b8)" }}>No observed access</span>}
-                        </div>
-                      </div>
+                    <div className="p-4 space-y-1">
+                      <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted, #94a3b8)" }}>Operations — select unused to remove</span>
+                      {store.allowedOperations?.map((op: string) => {
+                        const isUsed = store.observedOperations?.includes(op)
+                        const opKey = `${store.name}:${op}`
+                        const isSelected = selectedOps.has(opKey)
+                        return (
+                          <label key={op} className="flex items-center gap-3 py-1 px-3 rounded text-sm cursor-pointer transition-colors" style={{ background: isSelected ? "#ef444410" : "var(--bg-secondary, #f8fafc)" }}>
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleOp(opKey)} className="rounded border-gray-300 text-red-500 focus:ring-red-500" />
+                            <span className="text-xs font-medium flex-1" style={{ color: isSelected ? "#ef4444" : OP_COLORS[op] || '#6b7280', textDecoration: isSelected ? 'line-through' : 'none' }}>{op}</span>
+                            {isUsed ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#22c55e15", color: "#22c55e" }}>Observed</span>
+                            ) : (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#ef444415", color: "#ef4444" }}>Unused</span>
+                            )}
+                          </label>
+                        )
+                      })}
+                      {(!store.allowedOperations || store.allowedOperations.length === 0) && (
+                        <span className="text-[10px]" style={{ color: "var(--text-muted, #94a3b8)" }}>No operations detected</span>
+                      )}
                     </div>
 
                     {/* Unused + Recommendation */}
@@ -260,12 +276,12 @@ export function DataPlane({ identityName, detail, identity, onRemediate }: DataP
               )}
 
               {/* Data Remediation Action */}
-              {dataStores.some((s: any) => s.unusedOperations?.length > 0) && (
+              {selectedOps.size > 0 && (
                 <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--border, #e2e8f0)" }}>
                   <div className="text-sm" style={{ color: "var(--text-secondary, #64748b)" }}>
                     <span className="font-medium" style={{ color: "#ef4444" }}>
-                      {dataStores.reduce((s: number, d: any) => s + (d.unusedOperations?.length || 0), 0)}
-                    </span> unused data operation(s) can be restricted
+                      {selectedOps.size}
+                    </span> data operation(s) selected for removal
                   </div>
                   <div className="flex items-center gap-2">
                     <button

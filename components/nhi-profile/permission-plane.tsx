@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   Key, Shield, Eye, PenTool, Trash2, Lock, AlertTriangle,
   CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronRight, Target,
@@ -26,6 +26,16 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
   const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
   const [rollbackDone, setRollbackDone] = useState(false)
+  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set())
+  const [selectionInitialized, setSelectionInitialized] = useState(false)
+
+  const togglePermission = useCallback((perm: string) => {
+    setSelectedToRemove(prev => {
+      const next = new Set(prev)
+      if (next.has(perm)) { next.delete(perm) } else { next.add(perm) }
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     fetchGapAnalysis()
@@ -53,6 +63,7 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
           role_name: identityName,
           dry_run: true,
           detach_managed_policies: true,
+          permissions_to_remove: Array.from(selectedToRemove),
         }),
       })
       if (res.ok) setSimulationResult(await res.json())
@@ -84,7 +95,7 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
           dry_run: false,
           create_snapshot: true,
           detach_managed_policies: true,
-          detach_all_managed_policies: true,
+          permissions_to_remove: Array.from(selectedToRemove),
         }),
       })
       if (res.ok) {
@@ -161,6 +172,20 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
   const usedCount = backendUsedCount || usedActions.size
   const managedPolicyExpanded = totalCount > allowedActions.length ? totalCount - allowedActions.length : 0
 
+  // Pre-select unused permissions when detail data loads
+  useEffect(() => {
+    if (detail?.permission_analysis?.allowed_actions && !selectionInitialized) {
+      const parsed = ensureStringArray(detail.permission_analysis.allowed_actions)
+      const used = new Set(ensureStringArray(detail.permission_analysis.used_actions))
+      const unused = new Set<string>()
+      parsed.forEach((a: string) => { if (!used.has(a)) unused.add(a) })
+      if (unused.size > 0 || parsed.length > 0) {
+        setSelectedToRemove(unused)
+        setSelectionInitialized(true)
+      }
+    }
+  }, [detail, selectionInitialized])
+
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border, #e2e8f0)" }}>
       {/* Plane Header */}
@@ -205,25 +230,42 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
               <div className="grid grid-cols-2 gap-6">
                 {/* Configured */}
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-muted, #94a3b8)" }}>
-                    <Shield className="w-3.5 h-3.5" /> Configured (IAM Policy)
-                  </h4>
-                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider flex items-center gap-2" style={{ color: "var(--text-muted, #94a3b8)" }}>
+                      <Shield className="w-3.5 h-3.5" /> Configured (IAM Policy)
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => { const u = new Set<string>(); allowedActions.forEach((a: string) => { if (!usedActions.has(a)) u.add(a) }); setSelectedToRemove(u) }} className="text-[10px] px-2 py-0.5 rounded hover:opacity-80" style={{ background: "#ef444415", color: "#ef4444" }}>Select All Unused</button>
+                      <button onClick={() => setSelectedToRemove(new Set())} className="text-[10px] px-2 py-0.5 rounded hover:opacity-80" style={{ background: "var(--bg-secondary, #f1f5f9)", color: "var(--text-muted, #94a3b8)" }}>Deselect All</button>
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
                     {allowedActions.map((action: string, i: number) => {
                       const isUsed = usedActions.has(action)
+                      const isSelected = selectedToRemove.has(action)
                       return (
-                        <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded text-sm" style={{ background: "var(--bg-secondary, #f8fafc)" }}>
-                          <code className="text-xs font-mono" style={{ color: "var(--text-primary, #334155)" }}>{action}</code>
+                        <label
+                          key={i}
+                          className="flex items-center gap-3 py-1.5 px-3 rounded text-sm cursor-pointer transition-colors"
+                          style={{ background: isSelected ? "#ef444410" : "var(--bg-secondary, #f8fafc)" }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => togglePermission(action)}
+                            className="rounded border-gray-300 text-red-500 focus:ring-red-500"
+                          />
+                          <code className="text-xs font-mono flex-1" style={{ color: isSelected ? "#ef4444" : "var(--text-primary, #334155)", textDecoration: isSelected ? 'line-through' : 'none' }}>{action}</code>
                           {isUsed ? (
-                            <span className="flex items-center gap-1 text-xs" style={{ color: "#22c55e" }}>
+                            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#22c55e15", color: "#22c55e" }}>
                               <CheckCircle className="w-3 h-3" /> Used
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 text-xs" style={{ color: "#ef4444" }}>
+                            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#ef444415", color: "#ef4444" }}>
                               <XCircle className="w-3 h-3" /> Unused
                             </span>
                           )}
-                        </div>
+                        </label>
                       )
                     })}
                     {managedPolicyExpanded > 0 && (
@@ -297,10 +339,10 @@ export function PermissionPlane({ identityName, detail, identity, onRemediate }:
               </div>
 
               {/* Action Bar */}
-              {unusedCount > 0 && (
+              {(unusedCount > 0 || selectedToRemove.size > 0) && (
                 <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--border, #e2e8f0)" }}>
                   <div className="text-sm" style={{ color: "var(--text-secondary, #64748b)" }}>
-                    <span className="font-medium" style={{ color: "#ef4444" }}>{unusedCount}</span> unused permission(s) can be removed
+                    <span className="font-medium" style={{ color: "#ef4444" }}>{selectedToRemove.size}</span> of {allowedActions.length} selected for removal
                   </div>
                   <div className="flex items-center gap-2">
                     <button

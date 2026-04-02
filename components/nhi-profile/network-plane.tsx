@@ -31,6 +31,27 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
   const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
   const [rollbackDone, setRollbackDone] = useState(false)
+  const [selectedRules, setSelectedRules] = useState<Set<string>>(new Set())
+
+  const toggleRule = (ruleKey: string) => {
+    setSelectedRules(prev => {
+      const next = new Set(prev)
+      if (next.has(ruleKey)) { next.delete(ruleKey) } else { next.add(ruleKey) }
+      return next
+    })
+  }
+
+  // Pre-select unused rules when SG analysis loads
+  useEffect(() => {
+    if (sgAnalysis?.rules) {
+      const unused = new Set<string>()
+      sgAnalysis.rules.forEach((r: any, i: number) => {
+        const key = `${r.direction || 'ingress'}-${r.port || '*'}-${r.protocol || 'tcp'}-${i}`
+        if (r.status === 'UNUSED' || r.recommendation === 'DELETE') unused.add(key)
+      })
+      setSelectedRules(unused)
+    }
+  }, [sgAnalysis])
 
   useEffect(() => {
     fetchNetworkData()
@@ -231,31 +252,34 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
                   <Shield className="w-3.5 h-3.5" /> Configured (Security Groups)
                 </h4>
                 {sgAnalysis?.rules?.length > 0 ? (
-                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
                     {sgAnalysis.rules.map((rule: any, i: number) => {
                       const isUsed = rule.status === 'USED' || rule.recommendation === 'KEEP'
+                      const ruleKey = `${rule.direction || 'ingress'}-${rule.port || '*'}-${rule.protocol || 'tcp'}-${i}`
+                      const isSelected = selectedRules.has(ruleKey)
                       return (
-                        <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded text-sm" style={{ background: "var(--bg-secondary, #f8fafc)" }}>
-                          <div className="flex items-center gap-2">
+                        <label key={i} className="flex items-center gap-3 py-1.5 px-3 rounded text-sm cursor-pointer transition-colors" style={{ background: isSelected ? "#ef444410" : "var(--bg-secondary, #f8fafc)" }}>
+                          <input type="checkbox" checked={isSelected} onChange={() => toggleRule(ruleKey)} className="rounded border-gray-300 text-red-500 focus:ring-red-500" />
+                          <div className="flex items-center gap-2 flex-1">
                             <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
                               background: rule.direction === 'ingress' ? '#3b82f610' : '#f9731610',
                               color: rule.direction === 'ingress' ? '#3b82f6' : '#f97316',
                             }}>{rule.direction === 'ingress' ? 'IN' : 'OUT'}</span>
-                            <code className="text-xs font-mono" style={{ color: "var(--text-primary, #334155)" }}>
+                            <code className="text-xs font-mono" style={{ color: isSelected ? "#ef4444" : "var(--text-primary, #334155)", textDecoration: isSelected ? 'line-through' : 'none' }}>
                               :{rule.port || '*'}/{rule.protocol || 'tcp'}
                             </code>
                             <span className="text-[10px]" style={{ color: "var(--text-muted, #94a3b8)" }}>{rule.source || rule.cidr || '*'}</span>
                           </div>
                           {isUsed ? (
-                            <span className="flex items-center gap-1 text-xs" style={{ color: "#22c55e" }}>
+                            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#22c55e15", color: "#22c55e" }}>
                               <CheckCircle className="w-3 h-3" /> Traffic
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 text-xs" style={{ color: "#ef4444" }}>
+                            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#ef444415", color: "#ef4444" }}>
                               <XCircle className="w-3 h-3" /> No Traffic
                             </span>
                           )}
-                        </div>
+                        </label>
                       )
                     })}
                   </div>
@@ -334,12 +358,12 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
           )}
 
           {/* SG Remediation Action */}
-          {sgAnalysis?.rules?.some((r: any) => r.recommendation === 'DELETE' || r.status === 'UNUSED') && (
+          {(sgAnalysis?.rules?.length > 0 || selectedRules.size > 0) && selectedRules.size > 0 && (
             <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: "var(--border, #e2e8f0)" }}>
               <div className="text-sm" style={{ color: "var(--text-secondary, #64748b)" }}>
                 <span className="font-medium" style={{ color: "#ef4444" }}>
-                  {sgAnalysis.rules.filter((r: any) => r.recommendation === 'DELETE' || r.status === 'UNUSED').length}
-                </span> unused SG rule(s) can be removed
+                  {selectedRules.size}
+                </span> of {sgAnalysis?.rules?.length || 0} SG rule(s) selected for removal
               </div>
               <div className="flex items-center gap-2">
                 <button
