@@ -274,45 +274,63 @@ function getRestorableItems(event: RemediationEvent): { id: string; label: strin
       items.push({ id: arn, label: policyName, category: 'Managed Policy' })
     }
   } else if (event.resource_type === 'SecurityGroup') {
-    // SG rules that were removed — prefer removed_rules (only removed) over rules (all original)
-    const removedRules = event.before_state?.removed_rules || []
-    // Also get the after_state removed_details for cross-reference
-    const removedDetails = event.after_state?.removed_details || []
+    // Helper to format an IpPermission rule into display items
+    const formatIpPermission = (rule: any, index: number) => {
+      const protocol = rule.IpProtocol || rule.protocol || 'all'
+      const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
+      const ranges = (rule.IpRanges || []).map((r: any) => r.CidrIp).join(', ')
+      const sgPairs = (rule.UserIdGroupPairs || []).map((p: any) => p.GroupId).join(', ')
+      const sources = [ranges, sgPairs].filter(Boolean).join(', ') || rule.cidr || rule.source || '*'
+      return { id: `rule-${index}`, label: `ingress ${protocol} port ${port} from ${sources}`, category: 'Rule' as const }
+    }
 
+    // Helper to format a simplified rule entry
+    const formatSimpleRule = (rule: any, index: number) => {
+      const direction = rule.direction || 'inbound'
+      const protocol = rule.IpProtocol || rule.protocol || 'all'
+      const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
+      const cidr = rule.CidrIpv4 || rule.cidr || rule.source || '*'
+      return { id: `rule-${index}`, label: `${direction} ${protocol} port ${port} from ${cidr}`, category: 'Rule' as const }
+    }
+
+    // 1. Best: explicit removed_rules field (new format)
+    const removedRules = event.before_state?.removed_rules || []
     if (Array.isArray(removedRules) && removedRules.length > 0) {
-      // New format: removed_rules contains only the actually removed rules
-      for (let i = 0; i < removedRules.length; i++) {
-        const rule = removedRules[i]
-        const direction = rule.direction || 'inbound'
-        const protocol = rule.IpProtocol || rule.protocol || 'all'
-        const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
-        const cidr = rule.CidrIpv4 || rule.cidr || rule.source || '*'
-        const label = `${direction} ${protocol} port ${port} from ${cidr}`
-        items.push({ id: `rule-${i}`, label, category: 'Rule' })
-      }
-    } else if (removedDetails.length > 0) {
-      // Use after_state.removed_details if available
-      for (let i = 0; i < removedDetails.length; i++) {
-        const detail = removedDetails[i]
-        const protocol = detail.protocol || 'all'
-        const port = detail.port || 'all'
-        const source = detail.source || '*'
-        items.push({ id: `rule-${i}`, label: `inbound ${protocol} port ${port} from ${source}`, category: 'Rule' })
-      }
-    } else {
-      // Old format fallback: before_state.rules has ALL original rules (not just removed)
-      // Try IpPermissions format with full CIDR details
-      const allRules = event.before_state?.rules || event.before_state?.IpPermissions || []
-      if (Array.isArray(allRules)) {
-        for (let i = 0; i < allRules.length; i++) {
-          const rule = allRules[i]
-          const protocol = rule.IpProtocol || rule.protocol || 'all'
-          const port = rule.FromPort ? (rule.FromPort === rule.ToPort ? `${rule.FromPort}` : `${rule.FromPort}-${rule.ToPort}`) : 'all'
-          const ranges = (rule.IpRanges || []).map((r: any) => r.CidrIp).join(', ')
-          const sgPairs = (rule.UserIdGroupPairs || []).map((p: any) => p.GroupId).join(', ')
-          const sources = [ranges, sgPairs].filter(Boolean).join(', ') || rule.cidr || '*'
-          items.push({ id: `rule-${i}`, label: `ingress ${protocol} port ${port} from ${sources}`, category: 'Rule' })
+      removedRules.forEach((rule: any, i: number) => {
+        items.push(rule.IpRanges || rule.UserIdGroupPairs ? formatIpPermission(rule, i) : formatSimpleRule(rule, i))
+      })
+    }
+
+    // 2. If no removed_rules, compute diff between before and after rules
+    if (items.length === 0) {
+      const beforeRules: any[] = event.before_state?.rules || event.before_state?.IpPermissions || []
+      const afterRules: any[] = event.after_state?.rules || []
+
+      if (Array.isArray(beforeRules) && beforeRules.length > 0 && Array.isArray(afterRules)) {
+        // Build a fingerprint set of after rules to find which before rules were removed
+        const fingerprint = (r: any) => {
+          const proto = r.IpProtocol || ''
+          const from = r.FromPort ?? ''
+          const to = r.ToPort ?? ''
+          const cidrs = (r.IpRanges || []).map((x: any) => x.CidrIp).sort().join(',')
+          const sgs = (r.UserIdGroupPairs || []).map((x: any) => x.GroupId).sort().join(',')
+          return `${proto}|${from}|${to}|${cidrs}|${sgs}`
         }
+        const afterFingerprints = new Set(afterRules.map(fingerprint))
+
+        let idx = 0
+        for (const rule of beforeRules) {
+          if (!afterFingerprints.has(fingerprint(rule))) {
+            items.push(formatIpPermission(rule, idx++))
+          }
+        }
+      }
+
+      // 3. If after_state has no rules array (oldest format), show all before rules as fallback
+      if (items.length === 0 && Array.isArray(beforeRules) && beforeRules.length > 0 && afterRules.length === 0 && !event.after_state?.rules) {
+        beforeRules.forEach((rule: any, i: number) => {
+          items.push(formatIpPermission(rule, i))
+        })
       }
     }
   } else if (event.resource_type === 'S3Bucket') {
