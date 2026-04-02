@@ -501,7 +501,7 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                 {/* Standard metadata display */}
                 <div className="space-y-1">
                   {Object.entries(event.metadata)
-                    .filter(([k]) => !['rules_count', 'removed_permissions', 'original_role', 'new_role'].includes(k))
+                    .filter(([k]) => !['rules_count', 'removed_permissions', 'original_role', 'new_role', 'rules_removed', 'rules_failed'].includes(k))
                     .map(([key, value]) => (
                     <div key={key} className="flex justify-between text-sm">
                       <span className="text-[var(--muted-foreground,#9ca3af)]">
