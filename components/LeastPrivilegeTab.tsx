@@ -804,7 +804,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             const arr = Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || [])
             console.log('[Rollback] Found', arr.length, 'IAM snapshots, searching for:', resourceName)
             const match = arr.find((s: any) =>
-              !s.rolled_back &&
+              s.rollback_available !== false &&
+              !s.rolled_back_at &&
               s.status !== 'restored' &&
               (s.original_role === resourceName ||
                s.resource_id === resourceName ||
