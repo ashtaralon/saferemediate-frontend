@@ -12,9 +12,14 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get("end_date")
     const limit = searchParams.get("limit") || "200"
 
+    const resourceId = searchParams.get("resource_id")
+    const resourceType = searchParams.get("resource_type")
+
     const queryParams = new URLSearchParams()
     if (startDate) queryParams.set("start_date", startDate)
     if (endDate) queryParams.set("end_date", endDate)
+    if (resourceId) queryParams.set("resource_id", resourceId)
+    if (resourceType) queryParams.set("resource_type", resourceType)
     queryParams.set("limit", limit)
 
     const url = `${BACKEND_URL}/api/remediation-history/timeline?${queryParams.toString()}`

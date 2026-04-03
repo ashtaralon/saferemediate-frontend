@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
@@ -176,6 +176,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [activeTab, setActiveTab] = useState<'active' | 'remediated'>('active')
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
+  const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
   const { toast } = useToast()
 
   // Traffic Simulator state
@@ -776,6 +777,105 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
     // Re-fetch data to get updated LP values from backend
     fetchGaps(true, true)
+  }
+
+  // ---------- Rollback from remediated tab ----------
+  const handleRollbackFromRemediatedTab = async (resource: GapResource) => {
+    const resourceKey = resource.id || resource.resourceName
+    setRollingBack(resourceKey)
+
+    try {
+      // Step 1: Find the most recent remediation event for this resource
+      const resourceId = resource.resourceType === 'SecurityGroup'
+        ? (resource.id?.startsWith('sg-') ? resource.id : resource.resourceName)
+        : resource.resourceName
+
+      const historyRes = await fetch(`/api/proxy/remediation-history/timeline?resource_id=${encodeURIComponent(resourceId)}&limit=10`)
+      let snapshotId: string | null = null
+      let eventId: string | null = null
+      let eventSource: string | null = null
+
+      if (historyRes.ok) {
+        const historyData = await historyRes.json()
+        const events = historyData.events || historyData || []
+        // Find the most recent completed remediation (not a rollback)
+        const remEvent = events.find((e: any) =>
+          e.status === 'completed' &&
+          e.action_type !== 'ROLLBACK' &&
+          e.rollback_available !== false
+        )
+        if (remEvent) {
+          snapshotId = remEvent.snapshot_id || null
+          eventId = remEvent.event_id || null
+          eventSource = remEvent.source || 'neo4j'
+        }
+      }
+
+      if (!snapshotId && !eventId) {
+        toast({
+          title: "No rollback available",
+          description: `No remediation snapshot found for ${resource.resourceName}. The resource may have been remediated before snapshot tracking was enabled.`,
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Step 2: Confirm with user
+      const confirmed = window.confirm(
+        `Are you sure you want to rollback ${resource.resourceName}?\n\nThis will restore the resource to its pre-remediation state, re-adding all previously removed permissions/rules.`
+      )
+      if (!confirmed) return
+
+      // Step 3: Call the appropriate rollback endpoint (same as remediation-timeline.tsx)
+      let endpoint: string
+      let bodyContent: any = undefined
+
+      if (eventId && eventSource === 'neo4j') {
+        // Use timeline rollback API
+        endpoint = `/api/proxy/remediation-history/events/${eventId}/rollback`
+        bodyContent = { approved_by: "user@cyntro.io" }
+      } else if (resource.resourceType === 'IAMRole' && snapshotId) {
+        endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
+        bodyContent = {}
+      } else if (resource.resourceType === 'SecurityGroup') {
+        const sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
+        endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
+        bodyContent = { snapshot_id: snapshotId }
+      } else if (resource.resourceType === 'S3Bucket') {
+        endpoint = `/api/proxy/s3-buckets/rollback`
+        bodyContent = { checkpoint_id: snapshotId, bucket_name: resource.resourceName }
+      } else {
+        endpoint = `/api/proxy/remediation/rollback/${snapshotId}`
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        ...(bodyContent && { body: JSON.stringify(bodyContent) })
+      })
+
+      const result = await response.json()
+
+      if (result.success !== false) {
+        const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || 'all'
+        toast({
+          title: "Rollback Successful",
+          description: `${resource.resourceName}: Restored ${restoredCount} items to pre-remediation state.`,
+        })
+        // Trigger the same cleanup as handleRollbackSuccess
+        handleRollbackSuccess(resource.resourceName)
+      } else {
+        throw new Error(result.error || result.detail || 'Rollback failed')
+      }
+    } catch (err: any) {
+      toast({
+        title: "Rollback Failed",
+        description: err.message || `Failed to rollback ${resource.resourceName}`,
+        variant: "destructive"
+      })
+    } finally {
+      setRollingBack(null)
+    }
   }
 
   // Get default region from resources or use default
@@ -1420,6 +1520,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             >
                               <Eye className="w-3.5 h-3.5" />
                               View Full Analysis
+                            </button>
+                            <button
+                              onClick={() => handleRollbackFromRemediatedTab(resource)}
+                              disabled={rollingBack === (resource.id || resource.resourceName)}
+                              className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ color: "#F59E0B", borderColor: "#F59E0B40", background: "#F59E0B08" }}
+                            >
+                              {rollingBack === (resource.id || resource.resourceName)
+                                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Rolling Back...</>
+                                : <><RotateCcw className="w-3.5 h-3.5" /> Rollback</>
+                              }
                             </button>
                             <button
                               onClick={() => {
