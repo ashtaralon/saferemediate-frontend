@@ -806,9 +806,16 @@ export function PerResourceAnalysis() {
 
           {/* Verdict */}
           {(() => {
-            const unusedPerms = analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions
+            const totalPermsV = analysisData.aggregated.total_permissions
+            const usedPermsV = Math.min(analysisData.aggregated.used_permissions, totalPermsV)
+            const unusedPerms = Math.max(totalPermsV - usedPermsV, 0)
             const resourceCount = analysisData.analyses.length
-            if (unusedPerms === 0 && resourceCount <= 1) {
+            const isLeastPrivilege = unusedPerms === 0
+            const isShared = resourceCount > 1
+            const isHighBlastRadius = isShared && totalPermsV > 5
+
+            if (isLeastPrivilege && !isShared) {
+              // Perfect: no waste, not shared
               return (
                 <div className="mb-5 p-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
                   <span className="text-sm font-medium" style={{ color: "#22c55e" }}>
@@ -817,17 +824,30 @@ export function PerResourceAnalysis() {
                 </div>
               )
             }
+            if (isLeastPrivilege && isShared && !isHighBlastRadius) {
+              // Clean but shared with low permission count — low risk
+              return (
+                <div className="mb-5 p-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#22c55e" }} />
+                    <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                      <strong style={{ color: "#22c55e" }}>Least privilege achieved.</strong> All {totalPermsV} permission{totalPermsV !== 1 ? "s are" : " is"} in use. {resourceCount} resources share this role, but with only {totalPermsV} low-risk permission{totalPermsV !== 1 ? "s" : ""} the blast radius is minimal.
+                    </div>
+                  </div>
+                </div>
+              )
+            }
             return (
-              <div className="mb-5 p-3 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
+              <div className="mb-5 p-3 rounded-lg border" style={{ background: unusedPerms > 0 ? "#ef444410" : "#f9731610", borderColor: unusedPerms > 0 ? "#ef444440" : "#f9731640" }}>
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#ef4444" }} />
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: unusedPerms > 0 ? "#ef4444" : "#f97316" }} />
                   <div className="text-sm" style={{ color: "var(--text-primary)" }}>
-                    {unusedPerms > 0 && resourceCount > 1 ? (
-                      <><strong style={{ color: "#ef4444" }}>Over-permissioned shared role.</strong> {resourceCount} resources share {analysisData.aggregated.total_permissions} permissions but only use {analysisData.aggregated.used_permissions}. If any resource is compromised, the attacker gets all {unusedPerms} unused permissions across every resource.</>
+                    {unusedPerms > 0 && isShared ? (
+                      <><strong style={{ color: "#ef4444" }}>Over-permissioned shared role.</strong> {resourceCount} resources share {totalPermsV} permissions but only use {usedPermsV}. If any resource is compromised, the attacker gets all {unusedPerms} unused permissions across every resource.</>
                     ) : unusedPerms > 0 ? (
                       <><strong style={{ color: "#ef4444" }}>{unusedPerms} unused permissions detected.</strong> This role has more permissions than needed. Remove unused permissions to reduce attack surface.</>
                     ) : (
-                      <><strong style={{ color: "#f97316" }}>Shared role risk.</strong> All permissions are in use, but {resourceCount} resources share the same role. If one is compromised, all are affected. Consider splitting into per-resource roles.</>
+                      <><strong style={{ color: "#f97316" }}>Shared role — blast radius risk.</strong> All {totalPermsV} permissions are in use, but {resourceCount} resources share the same role with {totalPermsV} permissions each. Splitting into per-resource roles would limit exposure if any single resource is compromised.</>
                     )}
                   </div>
                 </div>
