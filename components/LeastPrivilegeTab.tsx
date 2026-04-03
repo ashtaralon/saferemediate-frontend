@@ -502,7 +502,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       // The Neo4j endpoint returns graph nodes without LP analysis, causing "0 used / 0 unused" display
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=90${refreshParam}`)
+      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`)
       if (!response.ok) throw new Error(`Failed: ${response.status}`)
       const result = await response.json()
       
@@ -757,6 +757,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const { [resourceName]: _, ...rest } = prev
       return rest
     })
+  }
+
+  // Handle successful rollback - remove resource from remediated list and re-fetch
+  const handleRollbackSuccess = (resourceName: string) => {
+    console.log('[LeastPrivilegeTab] Rollback successful for:', resourceName)
+
+    // Remove from remediated localStorage list
+    try {
+      const remediatedKey = `remediated_roles_${systemName}`
+      const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
+      const updated = existing.filter((name: string) => name !== resourceName)
+      localStorage.setItem(remediatedKey, JSON.stringify(updated))
+      console.log('[LeastPrivilegeTab] Removed rolled-back role from localStorage:', resourceName)
+    } catch (e) {
+      console.warn('[LeastPrivilegeTab] Failed to update localStorage after rollback:', e)
+    }
+
+    // Re-fetch data to get updated LP values from backend
+    fetchGaps(true, true)
   }
 
   // Get default region from resources or use default
@@ -1874,6 +1893,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           console.log('[IAM] Apply fix requested:', data)
         }}
         onRemediationSuccess={handleRemediationSuccess}
+        onRollbackSuccess={handleRollbackSuccess}
       />
 
       {/* S3 Policy Analysis Modal */}

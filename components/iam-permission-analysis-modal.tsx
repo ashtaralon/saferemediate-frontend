@@ -12,7 +12,7 @@ interface PermissionAnalysis {
   status: "USED" | "UNUSED"
   risk_level: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
   recommendation: string
-  usage_count: number
+  usage_count: number | null
   last_used?: string
 }
 
@@ -62,6 +62,7 @@ interface IAMPermissionAnalysisModalProps {
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
   onRemediationSuccess?: (roleName: string) => void
+  onRollbackSuccess?: (roleName: string) => void
 }
 
 // Service role analysis from backend (trust policy based)
@@ -112,7 +113,8 @@ export function IAMPermissionAnalysisModal({
   systemName,
   onApplyFix,
   onSuccess,
-  onRemediationSuccess
+  onRemediationSuccess,
+  onRollbackSuccess
 }: IAMPermissionAnalysisModalProps) {
   console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
@@ -227,7 +229,7 @@ export function IAMPermissionAnalysisModal({
               status: 'USED' as const,
               risk_level: 'LOW' as const,
               recommendation: 'Keep this permission',
-              usage_count: 1
+              usage_count: null  // No hardcoded count — will display "Active" instead of "1 API calls"
             })),
             ...actualUnusedPerms.map((p: string) => ({
               permission: p,
@@ -803,9 +805,14 @@ export function IAMPermissionAnalysisModal({
                         <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
                           perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
                           perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                          perm.risk_level === 'MEDIUM' ? 'bg-[#eab30820] text-[#ca8a04]' :
                           'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
                         }`}>
-                          {perm.risk_level}
+                          {(perm as any).damage_tier === 'IRREVERSIBLE' ? '⚠ IRREVERSIBLE' :
+                           (perm as any).damage_tier === 'ADMIN' ? '🔑 ADMIN' :
+                           (perm as any).damage_tier === 'DESTRUCTIVE' ? '🗑 DELETE' :
+                           (perm as any).damage_tier === 'WRITE' ? '✏ WRITE' :
+                           perm.risk_level}
                         </span>
                       </label>
                     ))}
@@ -846,7 +853,7 @@ export function IAMPermissionAnalysisModal({
                       <div key={i} className="flex items-center gap-2">
                         <Check className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
                         <span className="font-mono text-sm " style={{ color: "var(--foreground, #111827)" }}>{perm.permission}</span>
-                        <span className="text-[#22c55e] text-sm">{perm.usage_count || 0} API calls</span>
+                        <span className="text-[#22c55e] text-sm">{perm.usage_count && perm.usage_count > 1 ? `${perm.usage_count.toLocaleString()} API calls` : 'Active'}</span>
                       </div>
                     ))}
                   </div>
@@ -1431,7 +1438,7 @@ export function IAMPermissionAnalysisModal({
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <span className="text-[#22c55e]">✓</span>
                     <span className="font-mono text-[var(--foreground,#1f2937)]">{perm.permission}</span>
-                    <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>- {perm.usage_count || 0} API calls</span>
+                    <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>- {perm.usage_count && perm.usage_count > 1 ? `${perm.usage_count.toLocaleString()} API calls` : 'Active'}</span>
                   </div>
                 )) : usedCount > 0 ? (
                   <div className="p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
@@ -1461,12 +1468,35 @@ export function IAMPermissionAnalysisModal({
               </div>
               {unusedPermissions.length > 0 ? (
                 <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                  {unusedPermissions.map((perm, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <X className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
-                      <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
-                    </div>
-                  ))}
+                  {unusedPermissions.map((perm, i) => {
+                    const tierColors: Record<string, string> = {
+                      'CRITICAL': '#ef4444',
+                      'HIGH': '#f97316',
+                      'MEDIUM': '#eab308',
+                      'LOW': '#6b7280',
+                    }
+                    const tierColor = tierColors[(perm as any).risk_level] || '#ef4444'
+                    const damageTier = (perm as any).damage_tier || ''
+                    const damageLabel = (perm as any).damage_label || ''
+                    return (
+                      <div key={i} className="flex items-center gap-2 text-sm" title={damageLabel}>
+                        <X className="w-4 h-4 flex-shrink-0" style={{ color: tierColor }} />
+                        <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
+                        {damageTier && damageTier !== 'READ' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{
+                            color: tierColor,
+                            background: `${tierColor}15`,
+                            border: `1px solid ${tierColor}30`
+                          }}>
+                            {damageTier === 'IRREVERSIBLE' ? '⚠ IRREVERSIBLE' :
+                             damageTier === 'ADMIN' ? '🔑 ADMIN' :
+                             damageTier === 'DESTRUCTIVE' ? '🗑 DELETE' :
+                             damageTier === 'WRITE' ? '✏ WRITE' : damageTier}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : unusedCount > 0 ? (
                 <div className="mt-3 p-3 rounded-lg bg-[#ef444408]">
@@ -1518,7 +1548,7 @@ export function IAMPermissionAnalysisModal({
                         if (res.ok) {
                           toast({ title: "Rollback Successful", description: `Restored ${roleName} to pre-remediation state`, variant: "default" })
                           fetchGapAnalysis(true)
-                          onRemediationSuccess?.(roleName)
+                          onRollbackSuccess?.(roleName)
                         } else {
                           toast({ title: "Rollback Failed", description: result.detail || 'Could not rollback', variant: "destructive" })
                         }
