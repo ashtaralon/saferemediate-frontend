@@ -785,36 +785,81 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     setRollingBack(resourceKey)
 
     try {
-      // Step 1: Find the most recent remediation event for this resource
-      const resourceId = resource.resourceType === 'SecurityGroup'
-        ? (resource.id?.startsWith('sg-') ? resource.id : resource.resourceName)
-        : resource.resourceName
+      const resourceName = resource.resourceName
+      const resourceId = resource.id || resource.resourceName
+      console.log('[Rollback] Starting for:', resourceName, 'type:', resource.resourceType)
 
-      const historyRes = await fetch(`/api/proxy/remediation-history/timeline?resource_id=${encodeURIComponent(resourceId)}&limit=10`)
+      // Step 1: Find snapshot/event for this resource using multiple strategies
       let snapshotId: string | null = null
       let eventId: string | null = null
       let eventSource: string | null = null
+      let sgId: string | null = null
 
-      if (historyRes.ok) {
-        const historyData = await historyRes.json()
-        const events = historyData.events || historyData || []
-        // Find the most recent completed remediation (not a rollback)
-        const remEvent = events.find((e: any) =>
-          e.status === 'completed' &&
-          e.action_type !== 'ROLLBACK' &&
-          e.rollback_available !== false
-        )
-        if (remEvent) {
-          snapshotId = remEvent.snapshot_id || null
-          eventId = remEvent.event_id || null
-          eventSource = remEvent.source || 'neo4j'
+      if (resource.resourceType === 'IAMRole') {
+        // Strategy A: Fetch all IAM snapshots, find matching one
+        try {
+          const snapRes = await fetch('/api/proxy/iam-snapshots')
+          if (snapRes.ok) {
+            const snapshots = await snapRes.json()
+            const arr = Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || [])
+            console.log('[Rollback] Found', arr.length, 'IAM snapshots, searching for:', resourceName)
+            const match = arr.find((s: any) =>
+              !s.rolled_back &&
+              s.status !== 'restored' &&
+              (s.original_role === resourceName ||
+               s.resource_id === resourceName ||
+               s.role_name === resourceName ||
+               s.original_role === resourceId)
+            )
+            if (match) {
+              snapshotId = match.snapshot_id || match.id
+              console.log('[Rollback] Found IAM snapshot:', snapshotId)
+            }
+          }
+        } catch (e) {
+          console.warn('[Rollback] IAM snapshots fetch failed:', e)
+        }
+      } else if (resource.resourceType === 'SecurityGroup') {
+        sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
+      }
+
+      // Strategy B: Query remediation timeline for this resource
+      if (!snapshotId) {
+        try {
+          // Try multiple resource ID formats
+          const idsToTry = [resourceName, resourceId, resource.resourceArn].filter(Boolean)
+          for (const tryId of idsToTry) {
+            const historyRes = await fetch(`/api/proxy/remediation-history/timeline?resource_id=${encodeURIComponent(tryId)}&limit=20`)
+            if (historyRes.ok) {
+              const historyData = await historyRes.json()
+              const events = historyData.events || []
+              console.log('[Rollback] Timeline query for', tryId, '→', events.length, 'events')
+              const remEvent = events.find((e: any) =>
+                e.status === 'completed' &&
+                e.action_type !== 'ROLLBACK' &&
+                e.rollback_available !== false
+              )
+              if (remEvent) {
+                snapshotId = remEvent.snapshot_id || null
+                eventId = remEvent.event_id || null
+                eventSource = remEvent.source || 'neo4j'
+                console.log('[Rollback] Found event:', eventId, 'snapshot:', snapshotId)
+                break
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[Rollback] Timeline query failed:', e)
         }
       }
 
-      if (!snapshotId && !eventId) {
+      // Strategy C: For SG, the rollback endpoint can work without snapshot if we have sg_id
+      const canRollback = snapshotId || eventId || (resource.resourceType === 'SecurityGroup' && sgId)
+
+      if (!canRollback) {
         toast({
           title: "No rollback available",
-          description: `No remediation snapshot found for ${resource.resourceName}. The resource may have been remediated before snapshot tracking was enabled.`,
+          description: `No remediation snapshot found for ${resourceName}. The resource may have been remediated before snapshot tracking was enabled.`,
           variant: "destructive"
         })
         return
@@ -822,31 +867,35 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
       // Step 2: Confirm with user
       const confirmed = window.confirm(
-        `Are you sure you want to rollback ${resource.resourceName}?\n\nThis will restore the resource to its pre-remediation state, re-adding all previously removed permissions/rules.`
+        `Are you sure you want to rollback "${resourceName}"?\n\nThis will restore the resource to its pre-remediation state, re-adding all previously removed permissions/rules.`
       )
       if (!confirmed) return
 
-      // Step 3: Call the appropriate rollback endpoint (same as remediation-timeline.tsx)
+      // Step 3: Call the appropriate rollback endpoint (same logic as remediation-timeline.tsx)
       let endpoint: string
       let bodyContent: any = undefined
 
       if (eventId && eventSource === 'neo4j') {
-        // Use timeline rollback API
         endpoint = `/api/proxy/remediation-history/events/${eventId}/rollback`
         bodyContent = { approved_by: "user@cyntro.io" }
       } else if (resource.resourceType === 'IAMRole' && snapshotId) {
         endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
         bodyContent = {}
-      } else if (resource.resourceType === 'SecurityGroup') {
-        const sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
+      } else if (resource.resourceType === 'SecurityGroup' && sgId) {
         endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
-        bodyContent = { snapshot_id: snapshotId }
+        bodyContent = { snapshot_id: snapshotId || undefined }
       } else if (resource.resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
-        bodyContent = { checkpoint_id: snapshotId, bucket_name: resource.resourceName }
+        bodyContent = { checkpoint_id: snapshotId, bucket_name: resourceName }
+      } else if (snapshotId) {
+        endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
+        bodyContent = {}
       } else {
-        endpoint = `/api/proxy/remediation/rollback/${snapshotId}`
+        toast({ title: "Rollback Failed", description: "Could not determine rollback endpoint", variant: "destructive" })
+        return
       }
+
+      console.log('[Rollback] Calling:', endpoint, bodyContent)
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -855,19 +904,20 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       })
 
       const result = await response.json()
+      console.log('[Rollback] Response:', result)
 
-      if (result.success !== false) {
+      if (response.ok && result.success !== false) {
         const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || 'all'
         toast({
           title: "Rollback Successful",
-          description: `${resource.resourceName}: Restored ${restoredCount} items to pre-remediation state.`,
+          description: `${resourceName}: Restored ${restoredCount} items to pre-remediation state.`,
         })
-        // Trigger the same cleanup as handleRollbackSuccess
-        handleRollbackSuccess(resource.resourceName)
+        handleRollbackSuccess(resourceName)
       } else {
-        throw new Error(result.error || result.detail || 'Rollback failed')
+        throw new Error(result.error || result.detail || result.message || 'Rollback failed')
       }
     } catch (err: any) {
+      console.error('[Rollback] Error:', err)
       toast({
         title: "Rollback Failed",
         description: err.message || `Failed to rollback ${resource.resourceName}`,
@@ -1522,17 +1572,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               View Full Analysis
                             </button>
                             <button
-                              onClick={() => handleRollbackFromRemediatedTab(resource)}
-                              disabled={rollingBack === (resource.id || resource.resourceName)}
-                              className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ color: "#F59E0B", borderColor: "#F59E0B40", background: "#F59E0B08" }}
-                            >
-                              {rollingBack === (resource.id || resource.resourceName)
-                                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Rolling Back...</>
-                                : <><RotateCcw className="w-3.5 h-3.5" /> Rollback</>
-                              }
-                            </button>
-                            <button
                               onClick={() => {
                                 setDeletedResources(prev => {
                                   const next = new Set(prev)
@@ -1554,6 +1593,19 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               <Trash2 className="w-3.5 h-3.5" />
                               Dismiss from List
                             </button>
+                            <div className="pt-1 mt-1 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                              <button
+                                onClick={() => handleRollbackFromRemediatedTab(resource)}
+                                disabled={rollingBack === (resource.id || resource.resourceName)}
+                                className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ color: "#F59E0B", borderColor: "#F59E0B40", background: "#F59E0B08" }}
+                              >
+                                {rollingBack === (resource.id || resource.resourceName)
+                                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Rolling Back...</>
+                                  : <><RotateCcw className="w-3.5 h-3.5" /> Rollback to Pre-Remediation</>
+                                }
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
