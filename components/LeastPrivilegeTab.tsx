@@ -821,6 +821,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }
       } else if (resource.resourceType === 'SecurityGroup') {
         sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
+        // Strategy A for SG: Fetch SG snapshots
+        try {
+          const sgSnapRes = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`)
+          if (sgSnapRes.ok) {
+            const sgSnapData = await sgSnapRes.json()
+            const sgSnaps = sgSnapData.snapshots || []
+            console.log('[Rollback] Found', sgSnaps.length, 'SG snapshots for:', sgId)
+            const sgMatch = sgSnaps.find((s: any) => !s.rolled_back)
+            if (sgMatch) {
+              snapshotId = sgMatch.id || sgMatch.snapshot_id
+              console.log('[Rollback] Found SG snapshot:', snapshotId)
+            }
+          }
+        } catch (e) {
+          console.warn('[Rollback] SG snapshots fetch failed:', e)
+        }
       }
 
       // Strategy B: Query remediation timeline for this resource
@@ -853,8 +869,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }
       }
 
-      // Strategy C: For SG, the rollback endpoint can work without snapshot if we have sg_id
-      const canRollback = snapshotId || eventId || (resource.resourceType === 'SecurityGroup' && sgId)
+      const canRollback = snapshotId || eventId
 
       if (!canRollback) {
         toast({
@@ -881,9 +896,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       } else if (resource.resourceType === 'IAMRole' && snapshotId) {
         endpoint = `/api/proxy/iam-snapshots/${snapshotId}/rollback`
         bodyContent = {}
-      } else if (resource.resourceType === 'SecurityGroup' && sgId) {
+      } else if (resource.resourceType === 'SecurityGroup' && sgId && snapshotId) {
         endpoint = `/api/proxy/sg-least-privilege/${sgId}/rollback`
-        bodyContent = { snapshot_id: snapshotId || undefined }
+        bodyContent = { snapshot_id: snapshotId }
       } else if (resource.resourceType === 'S3Bucket') {
         endpoint = `/api/proxy/s3-buckets/rollback`
         bodyContent = { checkpoint_id: snapshotId, bucket_name: resourceName }
@@ -903,8 +918,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         ...(bodyContent && { body: JSON.stringify(bodyContent) })
       })
 
-      const result = await response.json()
-      console.log('[Rollback] Response:', result)
+      const result = await response.json().catch(() => ({ success: false, error: `Server returned ${response.status}` }))
+      console.log('[Rollback] Response:', response.status, result)
 
       if (response.ok && result.success !== false) {
         const restoredCount = result.items_restored || result.permissions_restored || result.rules_restored || result.restored_rules || 'all'
