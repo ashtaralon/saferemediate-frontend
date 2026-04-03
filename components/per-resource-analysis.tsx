@@ -812,7 +812,11 @@ export function PerResourceAnalysis() {
             const resourceCount = analysisData.analyses.length
             const isLeastPrivilege = unusedPerms === 0
             const isShared = resourceCount > 1
-            const isHighBlastRadius = isShared && totalPermsV > 5
+
+            // Check if resources are functionally diverse (different names = different purposes)
+            const resourceNames = analysisData.analyses.map(a => a.resource_name)
+            const uniquePrefixes = new Set(resourceNames.map(n => n.replace(/[-_]\d+$/, "").toLowerCase()))
+            const isDiverse = uniquePrefixes.size > 1
 
             if (isLeastPrivilege && !isShared) {
               // Perfect: no waste, not shared
@@ -824,14 +828,14 @@ export function PerResourceAnalysis() {
                 </div>
               )
             }
-            if (isLeastPrivilege && isShared && !isHighBlastRadius) {
-              // Clean but shared with low permission count — low risk
+            if (isLeastPrivilege && isShared && !isDiverse) {
+              // All resources are similar (e.g., worker-1, worker-2) — sharing is fine
               return (
                 <div className="mb-5 p-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#22c55e" }} />
                     <div className="text-sm" style={{ color: "var(--text-primary)" }}>
-                      <strong style={{ color: "#22c55e" }}>Least privilege achieved.</strong> All {totalPermsV} permission{totalPermsV !== 1 ? "s are" : " is"} in use. {resourceCount} resources share this role, but with only {totalPermsV} low-risk permission{totalPermsV !== 1 ? "s" : ""} the blast radius is minimal.
+                      <strong style={{ color: "#22c55e" }}>Least privilege achieved.</strong> All {totalPermsV} permission{totalPermsV !== 1 ? "s are" : " is"} in use. {resourceCount} identical resources share this role — this is expected for homogeneous workloads.
                     </div>
                   </div>
                 </div>
@@ -847,7 +851,7 @@ export function PerResourceAnalysis() {
                     ) : unusedPerms > 0 ? (
                       <><strong style={{ color: "#ef4444" }}>{unusedPerms} unused permissions detected.</strong> This role has more permissions than needed. Remove unused permissions to reduce attack surface.</>
                     ) : (
-                      <><strong style={{ color: "#f97316" }}>Shared role — blast radius risk.</strong> All {totalPermsV} permissions are in use, but {resourceCount} resources share the same role with {totalPermsV} permissions each. Splitting into per-resource roles would limit exposure if any single resource is compromised.</>
+                      <><strong style={{ color: "#f97316" }}>Functionally different resources sharing one role.</strong> {resourceCount} resources with different purposes share the same role. Today only {totalPermsV} permission{totalPermsV !== 1 ? "s" : ""}, but as each resource&apos;s needs grow, every permission added for one resource is exposed to all {resourceCount}. Split into per-resource roles now — before the blast radius compounds.</>
                     )}
                   </div>
                 </div>
