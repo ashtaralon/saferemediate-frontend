@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye } from 'lucide-react'
+import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
@@ -457,7 +457,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     
     try {
       console.log('[IAM] Fetching gap analysis for:', roleName)
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
       if (!response.ok) {
         console.error('[IAM] Gap analysis fetch failed:', response.status)
         return null
@@ -1166,18 +1166,32 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       {/* Resources Table */}
       <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         {/* Table Header */}
-        <div
-          className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
-          style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
-        >
-          <span>Resource</span>
-          <span>Type</span>
-          <span className="text-center">Over-Privileged</span>
-          <span className="text-center">Used</span>
-          <span className="text-center">To Remove</span>
-          <span className="text-center">Severity</span>
-          <span className="text-center">Action</span>
-        </div>
+        {activeTab === 'remediated' ? (
+          <div
+            className="grid grid-cols-[2fr_120px_140px_120px_100px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
+          >
+            <span>Resource</span>
+            <span>Type</span>
+            <span className="text-center">Status</span>
+            <span className="text-center">Remediated</span>
+            <span className="text-center">Permissions</span>
+            <span className="text-center">Action</span>
+          </div>
+        ) : (
+          <div
+            className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
+          >
+            <span>Resource</span>
+            <span>Type</span>
+            <span className="text-center">Over-Privileged</span>
+            <span className="text-center">Used</span>
+            <span className="text-center">To Remove</span>
+            <span className="text-center">Severity</span>
+            <span className="text-center">Action</span>
+          </div>
+        )}
 
         {filteredResources.length === 0 ? (
           <div className="text-center py-12">
@@ -1198,71 +1212,243 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               return (
                 <div key={rowKey}>
                   {/* Row */}
-                  <div
-                    className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
-                    onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
-                  >
-                    {/* Resource */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      {isExpanded
-                        ? <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
-                        : <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
-                      }
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${typeColor}20` }}>
-                        <TypeIcon className="w-4 h-4" style={{ color: typeColor }} />
+                  {activeTab === 'remediated' ? (
+                    /* ===== REMEDIATED ROW — different layout ===== */
+                    <div
+                      className="grid grid-cols-[2fr_120px_140px_120px_100px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
+                    >
+                      {/* Resource */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        {isExpanded
+                          ? <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                          : <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                        }
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "#10b98120" }}>
+                          <CheckCircle2 className="w-4 h-4" style={{ color: "#10b981" }} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                          <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                            {resource.systemName || systemName}
+                          </div>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
-                        <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
-                          {activeTab === 'remediated' && resource.remediatedAt
-                            ? `Remediated ${new Date(resource.remediatedAt).toLocaleDateString()}${resource.remediatedBy ? ` by ${resource.remediatedBy}` : ''}`
-                            : (resource.systemName || systemName)}
+
+                      {/* Type */}
+                      <span className="px-2 py-0.5 rounded text-xs font-medium text-center" style={{ background: `${typeColor}15`, color: typeColor }}>
+                        {getResourceTypeLabel(resource.resourceType)}
+                      </span>
+
+                      {/* Status badge */}
+                      <div className="text-center">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "#10b98120", color: "#10b981" }}>
+                          <CheckCircle2 className="w-3 h-3" />
+                          {metrics.gapPct === 0 ? 'Least Privilege' : 'Partially Fixed'}
+                        </span>
+                      </div>
+
+                      {/* Remediated date */}
+                      <div className="text-center text-xs" style={{ color: "var(--text-secondary)" }}>
+                        {resource.remediatedAt
+                          ? new Date(resource.remediatedAt).toLocaleDateString()
+                          : 'N/A'}
+                      </div>
+
+                      {/* Permissions (current count) */}
+                      <div className="text-center text-sm font-medium" style={{ color: "#10b981" }}>
+                        {metrics.usedCount} active
+                      </div>
+
+                      {/* Action — Rollback */}
+                      <div className="text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleResourceClick(resource) }}
+                          className="px-3 py-1 rounded-lg text-xs font-medium hover:opacity-90 transition-all border"
+                          style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+                        >
+                          Details
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ===== ACTIVE ROW — original layout ===== */
+                    <div
+                      className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
+                    >
+                      {/* Resource */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        {isExpanded
+                          ? <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                          : <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                        }
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${typeColor}20` }}>
+                          <TypeIcon className="w-4 h-4" style={{ color: typeColor }} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{resource.resourceName}</div>
+                          <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                            {resource.systemName || systemName}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Type */}
+                      <span className="px-2 py-0.5 rounded text-xs font-medium text-center" style={{ background: `${typeColor}15`, color: typeColor }}>
+                        {getResourceTypeLabel(resource.resourceType)}
+                      </span>
+
+                      {/* Gap bar */}
+                      <div className="flex items-center justify-center gap-1.5">
+                        <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(metrics.gapPct, 100)}%`, background: sevColor }} />
+                        </div>
+                        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{metrics.gapPct}%</span>
+                      </div>
+
+                      {/* Used */}
+                      <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{metrics.usedCount}</div>
+
+                      {/* Unused */}
+                      <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
+                        {metrics.unusedCount}
+                      </div>
+
+                      {/* Severity */}
+                      <div className="text-center">
+                        <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${sevColor}20`, color: sevColor }}>
+                          {sevLabel}
+                        </span>
+                      </div>
+
+                      {/* Action */}
+                      <div className="text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleResourceClick(resource) }}
+                          className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90 transition-all"
+                          style={{ background: "#8b5cf6" }}
+                        >
+                          Review
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Expanded Detail */}
+                  {isExpanded && activeTab === 'remediated' ? (
+                    /* ===== REMEDIATED EXPANDED — success summary ===== */
+                    <div className="px-6 py-5 border-t" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
+                      <div className="grid grid-cols-3 gap-5">
+                        {/* Column 1: Remediation Status */}
+                        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "#10b98130" }}>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "#10b981" }}>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Remediation Complete
+                          </h4>
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-3xl font-bold" style={{ color: "#10b981" }}>
+                              {metrics.gapPct === 0 ? '100%' : `${100 - metrics.gapPct}%`}
+                            </span>
+                            <span className="text-xs font-medium" style={{ color: "#10b981" }}>Compliant</span>
+                          </div>
+                          <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
+                            {metrics.total === 0
+                              ? <>All excess permissions removed. Role has no inline/attached policies.</>
+                              : metrics.gapPct === 0
+                                ? <>Least privilege achieved. All {metrics.total} permissions are actively used.</>
+                                : <>{metrics.usedCount} of {metrics.total} permissions in use. {metrics.unusedCount} may need further review.</>
+                            }
+                          </p>
+                          {/* Full green bar */}
+                          <div className="h-3 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+                            <div className="h-full rounded-full" style={{ width: '100%', background: '#10b981' }} />
+                          </div>
+                          <div className="flex justify-between mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                            <span>{metrics.usedCount} active permissions</span>
+                            <span>{metrics.unusedCount} removed</span>
+                          </div>
+                        </div>
+
+                        {/* Column 2: Timeline */}
+                        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                            <Calendar className="w-3.5 h-3.5" />
+                            Remediation Details
+                          </h4>
+                          <div className="space-y-3">
+                            <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                              <span>Remediated On</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                                {resource.remediatedAt ? new Date(resource.remediatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
+                              </span>
+                            </div>
+                            {resource.remediatedBy && (
+                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span>Remediated By</span>
+                                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.remediatedBy}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                              <span>Resource Type</span>
+                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{getResourceTypeLabel(resource.resourceType)}</span>
+                            </div>
+                            <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                              <span>Current Permissions</span>
+                              <span className="font-medium" style={{ color: "#10b981" }}>{metrics.usedCount}</span>
+                            </div>
+                            {resource.region && (
+                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span>Region</span>
+                                <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.region}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Column 3: Actions */}
+                        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                            <Shield className="w-3.5 h-3.5" />
+                            Actions
+                          </h4>
+                          <div className="space-y-2">
+                            <button
+                              onClick={() => handleResourceClick(resource)}
+                              className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2"
+                              style={{ color: "var(--text-primary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              View Full Analysis
+                            </button>
+                            <button
+                              onClick={() => {
+                                setDeletedResources(prev => {
+                                  const next = new Set(prev)
+                                  if (resource.id) next.add(resource.id)
+                                  if (resource.resourceName) next.add(resource.resourceName)
+                                  try {
+                                    const k = `remediated_roles_${systemName}`
+                                    const ex = JSON.parse(localStorage.getItem(k) || '[]')
+                                    if (resource.resourceName && !ex.includes(resource.resourceName)) ex.push(resource.resourceName)
+                                    localStorage.setItem(k, JSON.stringify(ex))
+                                  } catch {}
+                                  return next
+                                })
+                                toast({ title: "Dismissed", description: `${resource.resourceName} removed from list.` })
+                              }}
+                              className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2"
+                              style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Dismiss from List
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-
-                    {/* Type */}
-                    <span className="px-2 py-0.5 rounded text-xs font-medium text-center" style={{ background: `${typeColor}15`, color: typeColor }}>
-                      {getResourceTypeLabel(resource.resourceType)}
-                    </span>
-
-                    {/* Gap bar */}
-                    <div className="flex items-center justify-center gap-1.5">
-                      <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(metrics.gapPct, 100)}%`, background: sevColor }} />
-                      </div>
-                      <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{metrics.gapPct}%</span>
-                    </div>
-
-                    {/* Used */}
-                    <div className="text-center text-sm font-medium" style={{ color: "var(--text-primary)" }}>{metrics.usedCount}</div>
-
-                    {/* Unused */}
-                    <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
-                      {metrics.unusedCount}
-                    </div>
-
-                    {/* Severity */}
-                    <div className="text-center">
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{ background: `${sevColor}20`, color: sevColor }}>
-                        {sevLabel}
-                      </span>
-                    </div>
-
-                    {/* Action */}
-                    <div className="text-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleResourceClick(resource) }}
-                        className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90 transition-all"
-                        style={{ background: "#8b5cf6" }}
-                      >
-                        Review
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Expanded Detail */}
-                  {isExpanded && (
+                  ) : isExpanded && (
+                    /* ===== ACTIVE EXPANDED — original analysis detail ===== */
                     <div className="px-6 py-5 border-t" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)" }}>
                       <div className="grid grid-cols-3 gap-5">
                         {/* Column 1: Over-Privilege Summary */}
@@ -2785,7 +2971,7 @@ function RulesTab({
           }
           
           // Direct fetch
-          const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+          const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
           if (res.ok) {
             const data = await res.json()
             console.log('[RulesTab] Got IAM data:', {

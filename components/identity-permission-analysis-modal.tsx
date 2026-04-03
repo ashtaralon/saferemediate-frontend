@@ -93,7 +93,7 @@ export function IdentityPermissionAnalysisModal({
       const roleName = identity.name
       console.log('[IAM-GAP] Fetching gap analysis for:', roleName)
       
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`)
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)

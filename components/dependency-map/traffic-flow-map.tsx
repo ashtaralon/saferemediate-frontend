@@ -3161,7 +3161,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
     lpScore: number;
   }> => {
     try {
-      const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`);
+      const res = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365`);
       if (!res.ok) {
         console.warn(`[IAM] Failed to fetch gap analysis for ${roleName}: ${res.status}`);
         return { usedCount: 0, totalCount: 0, gapCount: 0, lpScore: 0 };

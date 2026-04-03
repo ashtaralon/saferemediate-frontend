@@ -139,7 +139,7 @@ export function S3PolicyAnalysisModal({
     try {
       console.log('[S3-Modal] Fetching gap analysis for:', bucketName)
       
-      const response = await fetch(`/api/proxy/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=90`)
+      const response = await fetch(`/api/proxy/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=365`)
       
       if (response.ok) {
         const data = await response.json()

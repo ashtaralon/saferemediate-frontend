@@ -142,7 +142,7 @@ export function IAMPermissionAnalysisModal({
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90${refreshParam}`)
+      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`)
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -208,7 +208,7 @@ export function IAMPermissionAnalysisModal({
       const mappedData: GapAnalysisData = {
         role_name: rawData.role_name || roleName,
         role_arn: rawData.role_arn,
-        observation_days: rawData.observation_days || 90,
+        observation_days: rawData.observation_days || 365,
         summary: {
           // Always use backend counts — they come from Neo4j pre-computed data
           total_permissions: finalTotalCount,
@@ -419,7 +419,7 @@ export function IAMPermissionAnalysisModal({
         
         // 1. Clear frontend cache for this role (force refresh)
         try {
-          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90&force_refresh=true`)
+          await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365&force_refresh=true`)
           console.log('[IAM-Modal] Cleared role cache')
         } catch (e) {
           console.warn('[IAM-Modal] Failed to clear role cache:', e)
@@ -475,7 +475,7 @@ export function IAMPermissionAnalysisModal({
   if (!isOpen) return null
 
   // Calculate derived values
-  const observationDays = gapData?.observation_days ?? 90
+  const observationDays = gapData?.observation_days ?? 365
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
   const cloudtrailEvents = gapData?.summary?.cloudtrail_events ?? 0
 
