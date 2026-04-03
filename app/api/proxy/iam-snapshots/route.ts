@@ -6,8 +6,8 @@ export async function GET(req: NextRequest) {
   try {
     console.log(`[IAM-SNAPSHOTS] Fetching IAM snapshots`);
     
-    // New endpoint: /api/iam-roles/snapshots
-    const response = await fetch(`${BACKEND_URL}/api/iam-roles/snapshots`, {
+    // Snapshots endpoint
+    const response = await fetch(`${BACKEND_URL}/api/snapshots`, {
       cache: 'no-store'
     });
     
