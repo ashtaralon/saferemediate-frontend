@@ -38,6 +38,7 @@ interface ScannedRole {
   sg_id?: string
   has_public?: boolean
   active_ports?: number
+  inbound_rules?: number
 }
 
 interface PermissionUsed {
@@ -543,7 +544,7 @@ export function PerResourceAnalysis() {
 
                   {role.resources.length > 1 && (
                     <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
-                      If any of these {role.resources.length} {resourceTypes[0] || "resource"}s is compromised, the attacker gets all {role.total_permissions} permissions — affecting every resource on this role.
+                      If any of these {role.resources.length} resources is compromised, the attacker gets all {role.total_permissions} permissions — affecting every resource on this role.
                     </div>
                   )}
 
@@ -604,7 +605,7 @@ export function PerResourceAnalysis() {
 
                       <div className="grid grid-cols-4 gap-3 mb-3">
                         <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
-                          <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{totalRules}</div>
+                          <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{sg.inbound_rules || totalRules}</div>
                           <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Inbound Rules</div>
                         </div>
                         <div className="rounded-lg p-2 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
@@ -673,7 +674,7 @@ export function PerResourceAnalysis() {
           {/* Summary stats */}
           <div className="grid grid-cols-4 gap-3 mb-5">
             <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
-              <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{selectedSGData.total_permissions}</div>
+              <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{selectedSGData.inbound_rules || selectedSGData.total_permissions}</div>
               <div className="text-[10px] uppercase" style={{ color: "var(--text-muted)" }}>Inbound Rules</div>
             </div>
             <div className="rounded-lg p-3 border text-center" style={{ borderColor: "var(--border-subtle)" }}>
