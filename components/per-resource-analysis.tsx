@@ -542,11 +542,32 @@ export function PerResourceAnalysis() {
                     </div>
                   </div>
 
-                  {role.resources.length > 1 && (
-                    <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
-                      If any of these {role.resources.length} resources is compromised, the attacker gets all {role.total_permissions} permissions — affecting every resource on this role.
-                    </div>
-                  )}
+                  {role.resources.length > 1 && (() => {
+                    const names = role.resources.map(r => r.resource_name)
+                    const prefixes = new Set(names.map(n => n.replace(/[-_]\d+$/, "").toLowerCase()))
+                    const diverse = prefixes.size > 1
+                    const perms = role.total_permissions
+
+                    if (diverse && perms > 5) {
+                      return (
+                        <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440", color: "#ef4444" }}>
+                          {role.resources.length} functionally different resources share {perms} permissions. If any one is compromised, the attacker gets all {perms} permissions across every resource.
+                        </div>
+                      )
+                    }
+                    if (diverse) {
+                      return (
+                        <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+                          {role.resources.length} functionally different resources share this role. As permissions are added for each resource&apos;s needs, every resource gets every permission. Split before the blast radius grows.
+                        </div>
+                      )
+                    }
+                    return (
+                      <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40", color: "#22c55e" }}>
+                        {role.resources.length} identical resources share this role — expected for homogeneous workloads.
+                      </div>
+                    )
+                  })()}
 
                   <div className="flex flex-wrap gap-1.5">
                     {role.resources.map((r) => {
@@ -626,11 +647,36 @@ export function PerResourceAnalysis() {
                         </div>
                       </div>
 
-                      {sg.resources.length > 1 && (
-                        <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
-                          {sg.resources.length} resources share this SG — a rule change affects all of them. Consider per-resource SGs for isolation.
-                        </div>
-                      )}
+                      {sg.resources.length > 1 && (() => {
+                        const inbound = sg.inbound_rules || totalRules
+                        const ports = sg.active_ports || 0
+                        if (hasPublic) {
+                          return (
+                            <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440", color: "#ef4444" }}>
+                              Internet-exposed SG shared by {sg.resources.length} resources. A port opened for one resource exposes all {sg.resources.length} to the internet.
+                            </div>
+                          )
+                        }
+                        if (inbound > 0 && ports === 0) {
+                          return (
+                            <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440", color: "#ef4444" }}>
+                              {inbound} inbound rule{inbound !== 1 ? "s" : ""} but zero observed traffic — these rules may be unnecessary. {sg.resources.length} resources are exposed to ports none of them use.
+                            </div>
+                          )
+                        }
+                        if (ports > 0 && ports < inbound) {
+                          return (
+                            <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+                              {inbound} inbound rule{inbound !== 1 ? "s" : ""} but only {ports} port{ports !== 1 ? "s have" : " has"} traffic. {sg.resources.length} resources are exposed to {inbound - ports} unused port{inbound - ports !== 1 ? "s" : ""}.
+                            </div>
+                          )
+                        }
+                        return (
+                          <div className="text-xs mb-3 px-3 py-2 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+                            {sg.resources.length} resources share this SG — a rule change affects all of them. Consider per-resource SGs for isolation.
+                          </div>
+                        )
+                      })()}
 
                       <div className="flex flex-wrap gap-1.5">
                         {sg.resources.map((r) => {
@@ -693,12 +739,44 @@ export function PerResourceAnalysis() {
             </div>
           </div>
 
-          {/* Problem explanation */}
-          <div className="text-sm mb-5 px-4 py-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
-            <strong>Blast radius risk:</strong> This SG is attached to {selectedSGData.resources.length} resources.
-            Any rule change (opening a port, widening a CIDR) affects all of them. Per-resource SGs would allow
-            fine-grained control — each resource only exposes ports it actually needs.
-          </div>
+          {/* Problem explanation — context-aware verdict */}
+          {(() => {
+            const sgInbound = selectedSGData.inbound_rules || selectedSGData.total_permissions || 0
+            const sgPorts = selectedSGData.active_ports || 0
+            const sgResCount = selectedSGData.resources.length
+            const sgPublic = selectedSGData.has_public || false
+
+            if (sgPublic) {
+              return (
+                <div className="text-sm mb-5 px-4 py-3 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440", color: "#ef4444" }}>
+                  <strong>Critical: Internet-exposed shared SG.</strong> This SG allows traffic from 0.0.0.0/0 and is attached to {sgResCount} resources.
+                  A vulnerability in any one resource exposes all {sgResCount} to the internet. Split immediately — each resource should have its own public-facing SG with only its required ports.
+                </div>
+              )
+            }
+            if (sgInbound > 0 && sgPorts === 0) {
+              return (
+                <div className="text-sm mb-5 px-4 py-3 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440", color: "#ef4444" }}>
+                  <strong>Unused rules — zero observed traffic.</strong> This SG has {sgInbound} inbound rule{sgInbound !== 1 ? "s" : ""} but none of the {sgResCount} resources have observed traffic on any allowed port.
+                  These rules may be stale or unnecessary — {sgResCount} resources are exposed to ports none of them use.
+                </div>
+              )
+            }
+            if (sgPorts > 0 && sgPorts < sgInbound) {
+              return (
+                <div className="text-sm mb-5 px-4 py-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640", color: "#f97316" }}>
+                  <strong>Over-exposed — unused ports open.</strong> {sgInbound} inbound rule{sgInbound !== 1 ? "s" : ""} but only {sgPorts} port{sgPorts !== 1 ? "s have" : " has"} actual traffic.
+                  {sgResCount} resources are exposed to {sgInbound - sgPorts} port{sgInbound - sgPorts !== 1 ? "s" : ""} they don&apos;t use. Per-resource SGs would close unused ports per resource.
+                </div>
+              )
+            }
+            return (
+              <div className="text-sm mb-5 px-4 py-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40", color: "#22c55e" }}>
+                <strong>All rules have active traffic.</strong> {sgResCount} resources share this SG and all {sgInbound} inbound rule{sgInbound !== 1 ? "s" : ""} have observed traffic.
+                Consider per-resource SGs if these resources serve different functions — a port needed by one resource shouldn&apos;t be open for the others.
+              </div>
+            )
+          })()}
 
           {/* Attached resources */}
           <div className="mb-5">
@@ -738,18 +816,58 @@ export function PerResourceAnalysis() {
           )}
 
           {/* Recommendation */}
-          <div className="mt-5 p-4 rounded-lg border" style={{ background: "#8b5cf610", borderColor: "#8b5cf640" }}>
-            <div className="flex items-start gap-3">
-              <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#8b5cf6" }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "#8b5cf6" }}>Recommendation: Split into per-resource SGs</p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                  Create a dedicated SG for each resource, with only the ports that resource actually uses.
-                  This limits blast radius — compromising one resource doesn&apos;t expose others&apos; ports.
-                </p>
+          {(() => {
+            const recPorts = selectedSGData.active_ports || 0
+            const recInbound = selectedSGData.inbound_rules || selectedSGData.total_permissions || 0
+            const recPublic = selectedSGData.has_public || false
+            const recResCount = selectedSGData.resources.length
+
+            if (recPublic) {
+              return (
+                <div className="mt-5 p-4 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
+                  <div className="flex items-start gap-3">
+                    <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
+                    <div>
+                      <p className="text-sm font-semibold" style={{ color: "#ef4444" }}>Priority: Split public-facing SG immediately</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                        Each of the {recResCount} resources should have its own SG with only the public ports it actually needs.
+                        Sharing a public SG means a port opened for one service is accessible from the internet for all {recResCount}.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+            if (recInbound > 0 && recPorts === 0) {
+              return (
+                <div className="mt-5 p-4 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
+                  <div className="flex items-start gap-3">
+                    <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
+                    <div>
+                      <p className="text-sm font-semibold" style={{ color: "#f97316" }}>Recommendation: Review and remove unused rules</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                        No traffic observed on any port. Consider removing all {recInbound} inbound rule{recInbound !== 1 ? "s" : ""} or verifying these resources still need network access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div className="mt-5 p-4 rounded-lg border" style={{ background: "#8b5cf610", borderColor: "#8b5cf640" }}>
+                <div className="flex items-start gap-3">
+                  <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#8b5cf6" }} />
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: "#8b5cf6" }}>Recommendation: Split into per-resource SGs</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                      Create a dedicated SG for each resource, with only the ports that resource actually uses.
+                      This limits blast radius — a port needed by one resource won&apos;t be open for the others.
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )
+          })()}
         </div>
       )}
 
