@@ -770,11 +770,11 @@ export function PerResourceAnalysis() {
           {/* Summary Banner — answers "what's the problem?" */}
           {(() => {
             const totalPerms = analysisData.aggregated.total_permissions
-            const usedPerms = analysisData.aggregated.used_permissions
-            const unusedPerms = totalPerms - usedPerms
+            const usedPerms = Math.min(analysisData.aggregated.used_permissions, totalPerms)
+            const unusedPerms = Math.max(totalPerms - usedPerms, 0)
             const resourceCount = analysisData.analyses.length
             const totalExposure = totalPerms * resourceCount
-            const usagePct = totalPerms > 0 ? Math.round((usedPerms / totalPerms) * 100) : 0
+            const usagePct = totalPerms > 0 ? Math.min(Math.round((usedPerms / totalPerms) * 100), 100) : 0
             const isOverPermissioned = unusedPerms > 0
             const severityColor = unusedPerms > 20 ? "#ef4444" : unusedPerms > 5 ? "#f97316" : "#eab308"
 
@@ -873,38 +873,57 @@ export function PerResourceAnalysis() {
                       {analysisData.aggregated.total_permissions}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span style={{ color: "var(--text-secondary)" }}>Actually Used</span>
-                    <span className="font-mono font-bold" style={{ color: "#22c55e" }}>
-                      {analysisData.aggregated.used_permissions}{" "}
-                      <span style={{ color: "var(--text-muted)" }}>
-                        ({analysisData.aggregated.total_permissions > 0 ? Math.round((analysisData.aggregated.used_permissions / analysisData.aggregated.total_permissions) * 100) : 0}%)
-                      </span>
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span style={{ color: "var(--text-secondary)" }}>Unused</span>
-                    <span className="font-mono font-bold" style={{ color: "#ef4444" }}>
-                      {analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions}{" "}
-                      <span style={{ color: "var(--text-muted)" }}>
-                        ({analysisData.aggregated.total_permissions > 0 ? Math.round(((analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions) / analysisData.aggregated.total_permissions) * 100) : 0}%)
-                      </span>
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="w-full rounded-full h-2 mt-2" style={{ background: "var(--bg-secondary)" }}>
-                    <div className="h-2 rounded-full transition-all" style={{ background: "#22c55e", width: `${analysisData.aggregated.total_permissions > 0 ? Math.round((analysisData.aggregated.used_permissions / analysisData.aggregated.total_permissions) * 100) : 0}%` }} />
-                  </div>
-                  {/* Warning */}
-                  <div className="mt-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
-                      <span className="text-sm font-semibold" style={{ color: "#f97316" }}>OVER-PERMISSIONED</span>
-                    </div>
-                    <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                      Remove {analysisData.aggregated.total_permissions - analysisData.aggregated.used_permissions} unused permissions
-                    </p>
-                  </div>
+                  {(() => {
+                    const aggTotal = analysisData.aggregated.total_permissions
+                    const aggUsed = Math.min(analysisData.aggregated.used_permissions, aggTotal)
+                    const aggUnused = Math.max(aggTotal - aggUsed, 0)
+                    const aggUsedPct = aggTotal > 0 ? Math.min(Math.round((aggUsed / aggTotal) * 100), 100) : 0
+                    const aggUnusedPct = aggTotal > 0 ? Math.max(Math.round((aggUnused / aggTotal) * 100), 0) : 0
+                    return (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span style={{ color: "var(--text-secondary)" }}>Actually Used</span>
+                          <span className="font-mono font-bold" style={{ color: "#22c55e" }}>
+                            {aggUsed}{" "}
+                            <span style={{ color: "var(--text-muted)" }}>({aggUsedPct}%)</span>
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span style={{ color: "var(--text-secondary)" }}>Unused</span>
+                          <span className="font-mono font-bold" style={{ color: "#ef4444" }}>
+                            {aggUnused}{" "}
+                            <span style={{ color: "var(--text-muted)" }}>({aggUnusedPct}%)</span>
+                          </span>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="w-full rounded-full h-2 mt-2" style={{ background: "var(--bg-secondary)" }}>
+                          <div className="h-2 rounded-full transition-all" style={{ background: "#22c55e", width: `${aggUsedPct}%` }} />
+                        </div>
+                        {/* Warning */}
+                        {aggUnused > 0 ? (
+                          <div className="mt-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
+                              <span className="text-sm font-semibold" style={{ color: "#f97316" }}>OVER-PERMISSIONED</span>
+                            </div>
+                            <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                              Remove {aggUnused} unused permissions
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="mt-3 p-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e40" }}>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4" style={{ color: "#22c55e" }} />
+                              <span className="text-sm font-semibold" style={{ color: "#22c55e" }}>LEAST PRIVILEGE</span>
+                            </div>
+                            <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                              All permissions are in use. Consider splitting into per-resource roles to reduce blast radius.
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                   <div className="flex gap-2 mt-4">
                     <button onClick={() => setAggApplied(true)} className="text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors hover:opacity-90" style={{ background: "#8b5cf6" }}>
                       Apply Aggregated Fix
