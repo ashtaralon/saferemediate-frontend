@@ -212,7 +212,12 @@ export function HumanIdentitiesTab({ onRequestRemediation }: { onRequestRemediat
                         <User className="w-4 h-4" style={{ color: "#8b5cf6" }} />
                       </div>
                       <div className="min-w-0">
-                        <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{identity.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{identity.name}</span>
+                          {identity.is_admin && <span className="px-1.5 py-0 rounded text-[10px] font-semibold flex-shrink-0" style={{ background: "#ef444420", color: "#ef4444" }}>Admin</span>}
+                          {identity.has_wildcard && <span className="px-1.5 py-0 rounded text-[10px] font-semibold flex-shrink-0" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard</span>}
+                          {identity.is_cross_account && <span className="px-1.5 py-0 rounded text-[10px] font-semibold flex-shrink-0" style={{ background: "#06b6d420", color: "#06b6d4" }}>Cross-Acct</span>}
+                        </div>
                         <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{identity.arn}</div>
                       </div>
                     </div>
@@ -233,7 +238,7 @@ export function HumanIdentitiesTab({ onRequestRemediation }: { onRequestRemediat
                         className="px-3 py-1 rounded-lg text-xs font-medium text-white hover:opacity-90"
                         style={{ background: "#8b5cf6" }}
                       >
-                        Review
+                        Fix
                       </button>
                     </div>
                   </div>
@@ -245,21 +250,19 @@ export function HumanIdentitiesTab({ onRequestRemediation }: { onRequestRemediat
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Trust Principals</h4>
                           {identity.trust_principals.length > 0 ? identity.trust_principals.map((p, i) => (
                             <div key={i} className="text-xs font-mono truncate" style={{ color: "var(--text-primary)" }}>{p}</div>
-                          )) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>None</p>}
+                          )) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>—</p>}
                         </div>
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Policies</h4>
                           {identity.policies.length > 0 ? identity.policies.map((p, i) => (
                             <div key={i} className="text-xs font-mono truncate" style={{ color: "var(--text-primary)" }}>{p}</div>
-                          )) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>None</p>}
+                          )) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>—</p>}
                         </div>
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-secondary)" }}>Details</h4>
                           <div className="space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                            <div>Gap: {identity.gap_percentage.toFixed(1)}%</div>
-                            <div>Observed: {identity.observation_days} days</div>
+                            <div>Gap: {identity.gap_percentage.toFixed(1)}% · {identity.observation_days}d observed · {identity.confidence || "—"}% confidence</div>
                             <div>Last Active: {identity.last_activity || "Unknown"}</div>
-                            {identity.is_admin && <span className="inline-block px-2 py-0.5 rounded mt-1" style={{ background: "#ef444420", color: "#ef4444" }}>Admin</span>}
                           </div>
                         </div>
                       </div>

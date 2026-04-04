@@ -446,7 +446,12 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         </div>
                       </div>
                       <div className="min-w-0">
-                        <div className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{nhi.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-sm truncate" style={{ color: "var(--text-primary)" }}>{nhi.name}</span>
+                          {nhi.is_admin && <span className="px-1.5 py-0 rounded text-[10px] font-semibold flex-shrink-0" style={{ background: "#ef444420", color: "#ef4444" }}>Admin</span>}
+                          {nhi.has_wildcard && <span className="px-1.5 py-0 rounded text-[10px] font-semibold flex-shrink-0" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard</span>}
+                          {nhi.is_cross_account && <span className="px-1.5 py-0 rounded text-[10px] font-semibold flex-shrink-0" style={{ background: "#06b6d420", color: "#06b6d4" }}>Cross-Acct</span>}
+                        </div>
                         <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{nhi.arn}</div>
                       </div>
                     </div>
@@ -470,6 +475,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         </div>
                         <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>{nhi.gap_percentage.toFixed(0)}%</span>
                       </div>
+                      <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>{nhi.observation_days}d · {nhi.confidence}%</div>
                     </div>
                     <div className="text-center">
                       <span className="px-2 py-0.5 rounded text-xs font-semibold" style={{
@@ -482,12 +488,12 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         onClick={(e) => { e.stopPropagation(); router.push(`/nhi-profile/${encodeURIComponent(nhi.name)}`) }}
                         className="px-3 py-1 rounded-lg text-xs font-medium transition-all hover:opacity-90 border"
                         style={{ borderColor: "#8b5cf640", color: "#8b5cf6" }}
-                      >Profile</button>
+                      >Investigate</button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReviewFix(nhi) }}
                         className="px-3 py-1 rounded-lg text-xs font-medium text-white transition-all hover:opacity-90"
                         style={{ background: "#8b5cf6" }}
-                      >Review</button>
+                      >Fix</button>
                     </div>
                   </div>
 
@@ -501,11 +507,8 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         </div>
                       ) : detailData ? (
                         <div className="space-y-4">
-                          {/* Badges Row */}
+                          {/* Badges Row - badges now shown on card row, keep observation summary here */}
                           <div className="flex items-center gap-3">
-                            {nhi.is_admin && <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#ef444420", color: "#ef4444" }}>Admin Access</span>}
-                            {nhi.has_wildcard && <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#f9731620", color: "#f97316" }}>Wildcard Permissions</span>}
-                            {nhi.is_cross_account && <span className="px-2 py-0.5 rounded text-xs font-medium" style={{ background: "#06b6d420", color: "#06b6d4" }}>Cross-Account</span>}
                             <span className="text-xs" style={{ color: "var(--text-muted)" }}>{nhi.observation_days} days observed | {nhi.confidence}% confidence</span>
                           </div>
 
@@ -822,7 +825,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                       </span>
                                     </div>
                                   )}
-                                  {connectionsData && (
+                                  {connectionsData && connectionsData.totalConnections > 0 && (
                                     <>
                                       <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "var(--bg-secondary)" }}>
                                         <Network className="w-3.5 h-3.5" style={{ color: "#8b5cf6" }} />
@@ -919,13 +922,13 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                               </div>
                                             ))}
                                           </div>
-                                        ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No attached instances</p>}
+                                        ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>—</p>}
                                       </div>
+                                      {detailData.network_reachability?.security_groups?.length > 0 && (
                                       <div>
                                         <h4 className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
                                           <Shield className="w-3.5 h-3.5" /> Security Groups
                                         </h4>
-                                        {detailData.network_reachability?.security_groups?.length > 0 ? (
                                           <div className="space-y-1">
                                             {detailData.network_reachability.security_groups.map((sg: any, i: number) => (
                                               <div key={i} className="text-xs font-mono flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
@@ -934,8 +937,8 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                               </div>
                                             ))}
                                           </div>
-                                        ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No security groups</p>}
                                       </div>
+                                      )}
                                     </div>
                                   </div>
                                 )}
@@ -1086,7 +1089,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                                   <div key={i} className="text-xs font-mono truncate" style={{ color: "var(--text-primary)" }}>{r}</div>
                                 ))}
                               </div>
-                            ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>No attached resources</p>}
+                            ) : <p className="text-xs" style={{ color: "var(--text-muted)" }}>—</p>}
                           </div>
                           <div>
                             <h4 className="text-xs font-semibold uppercase tracking-wider mb-2 flex items-center gap-1" style={{ color: "var(--text-secondary)" }}>
