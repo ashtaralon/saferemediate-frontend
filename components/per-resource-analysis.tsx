@@ -1193,19 +1193,91 @@ export function PerResourceAnalysis() {
                   <Shield className="w-5 h-5" style={{ color: "#8b5cf6" }} />
                   <span className="text-base font-semibold" style={{ color: "#8b5cf6" }}>CYNTRO RECOMMENDATION</span>
                 </div>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-                  Split into {analysisData.analyses.length} least-privilege roles:
-                </p>
-                <div className="space-y-1 mb-4">
-                  {analysisData.analyses.map((a) => (
-                    <div key={a.resource_id} className="text-sm">
-                      <span style={{ color: "var(--text-muted)" }}>&bull; </span>
-                      <span className="font-mono" style={{ color: "#8b5cf6" }}>role-{a.resource_name}</span>:{" "}
-                      <span className="font-bold" style={{ color: "var(--text-primary)" }}>{a.used_count}</span>{" "}
-                      <span style={{ color: "var(--text-muted)" }}>permission{a.used_count !== 1 ? "s" : ""}</span>
-                    </div>
-                  ))}
-                </div>
+                {(() => {
+                  const zeroUsage = analysisData.analyses.filter(a => a.used_count === 0)
+                  const partialUsage = analysisData.analyses.filter(a => a.used_count > 0 && a.unused_permissions.length > 0)
+                  const fullUsage = analysisData.analyses.filter(a => a.used_count > 0 && a.unused_permissions.length === 0)
+                  return (
+                    <>
+                      <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                        Split into {analysisData.analyses.length} least-privilege roles:
+                      </p>
+
+                      {/* Resources with ZERO usage — recommend removing access */}
+                      {zeroUsage.length > 0 && (
+                        <div className="mb-3 p-3 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444430" }}>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <XCircle className="w-4 h-4" style={{ color: "#ef4444" }} />
+                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#ef4444" }}>Remove access entirely ({zeroUsage.length} resource{zeroUsage.length !== 1 ? "s" : ""})</span>
+                          </div>
+                          <p className="text-xs mb-2" style={{ color: "var(--text-secondary)" }}>
+                            These resources never used any permissions — detach the role or assign an empty role:
+                          </p>
+                          <div className="space-y-1">
+                            {zeroUsage.map((a) => (
+                              <div key={a.resource_id} className="flex items-center gap-2 text-xs">
+                                <span style={{ color: "var(--text-muted)" }}>&bull;</span>
+                                <span className="font-mono" style={{ color: "#ef4444" }}>{a.resource_name}</span>
+                                <span style={{ color: "var(--text-muted)" }}>— 0 of {a.permissions_granted} used</span>
+                                {a.unused_permissions.length > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>
+                                    remove: {a.unused_permissions.slice(0, 3).join(", ")}{a.unused_permissions.length > 3 ? ` +${a.unused_permissions.length - 3} more` : ""}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Resources with PARTIAL usage — recommend removing unused */}
+                      {partialUsage.length > 0 && (
+                        <div className="mb-3 p-3 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731630" }}>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
+                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#f97316" }}>Remove unused permissions ({partialUsage.length} resource{partialUsage.length !== 1 ? "s" : ""})</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {partialUsage.map((a) => (
+                              <div key={a.resource_id} className="text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span style={{ color: "var(--text-muted)" }}>&bull;</span>
+                                  <span className="font-mono" style={{ color: "#f97316" }}>{a.resource_name}</span>
+                                  <span style={{ color: "var(--text-muted)" }}>— keep {a.used_count}, remove {a.unused_permissions.length}</span>
+                                </div>
+                                <div className="ml-4 mt-0.5 flex flex-wrap gap-1">
+                                  {a.unused_permissions.slice(0, 4).map((p, i) => (
+                                    <span key={i} className="px-1.5 py-0.5 rounded font-mono" style={{ background: "#ef444415", color: "#ef4444", fontSize: "10px" }}>{p}</span>
+                                  ))}
+                                  {a.unused_permissions.length > 4 && <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>+{a.unused_permissions.length - 4} more</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Resources at full usage — already least privilege */}
+                      {fullUsage.length > 0 && (
+                        <div className="mb-3 p-3 rounded-lg border" style={{ background: "#22c55e10", borderColor: "#22c55e30" }}>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <CheckCircle2 className="w-4 h-4" style={{ color: "#22c55e" }} />
+                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#22c55e" }}>Least privilege ({fullUsage.length} resource{fullUsage.length !== 1 ? "s" : ""})</span>
+                          </div>
+                          <div className="space-y-1">
+                            {fullUsage.map((a) => (
+                              <div key={a.resource_id} className="flex items-center gap-2 text-xs">
+                                <span style={{ color: "var(--text-muted)" }}>&bull;</span>
+                                <span className="font-mono" style={{ color: "#22c55e" }}>{a.resource_name}</span>
+                                <span style={{ color: "var(--text-muted)" }}>— {a.used_count} permission{a.used_count !== 1 ? "s" : ""} (all used)</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
                 <div className="flex flex-wrap gap-3">
                   <button onClick={showComparison} disabled={loading} className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors" style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}>
                     Compare Approaches
