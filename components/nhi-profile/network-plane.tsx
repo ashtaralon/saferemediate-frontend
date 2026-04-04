@@ -38,33 +38,30 @@ export function NetworkPlane({ identityName, detail, identity, onRemediate }: Ne
   const fetchNetworkData = async () => {
     setLoading(true)
     try {
-      const connRes = await fetch(`/api/proxy/resource-view/${encodeURIComponent(identityName)}/connections`)
-      if (connRes.ok) {
-        const data = await connRes.json()
-        const conns = data.connections || {}
+      // Use observed_traffic from identity detail (backend traverses role→instances→ACTUAL_TRAFFIC)
+      const observedTraffic = detail?.network_reachability?.observed_traffic || []
 
-        const STRUCTURAL = new Set(['HAS_POLICY', 'HAS_ROLE', 'HAS_REMEDIATION', 'ASSUMES', 'ATTACHED_TO', 'BELONGS_TO', 'MEMBER_OF', 'HAS_TAG', 'IN_VPC', 'IN_SUBNET', 'HAS_SECURITY_GROUP', 'TAGGED', 'PART_OF', 'MANAGED_BY', 'CONFIG_RELATIONSHIP', 'HAS_NACL', 'APPLIES_TO'])
+      const allConns = observedTraffic.map((t: any) => ({
+        source: t.direction === 'inbound' ? (t.peer || 'Unknown') : (t.instance || identityName),
+        target: t.direction === 'outbound' ? (t.peer || 'Unknown') : (t.instance || identityName),
+        targetType: t.peer_type || 'NetworkEndpoint',
+        port: t.port || '',
+        protocol: t.protocol || '',
+        bytes: t.bytes || 0,
+        edgeType: 'ACTUAL_TRAFFIC',
+        direction: t.direction || 'outbound',
+      }))
 
-        const processConn = (c: any, direction: 'inbound' | 'outbound') => ({
-          source: direction === 'inbound' ? (c.source?.name || c.source?.id || 'Unknown') : identityName,
-          target: direction === 'outbound' ? (c.target?.name || c.target?.id || 'Unknown') : identityName,
-          targetType: direction === 'outbound' ? (c.target?.type || '') : (c.source?.type || ''),
-          port: c.relationship?.port || '',
-          protocol: c.relationship?.protocol || '',
-          bytes: c.relationship?.bytes_transferred || c.relationship?.bytes || 0,
-          edgeType: c.relationship?.type || c.relationship?.relationship_type || '',
-          direction,
-        })
+      // Deduplicate by source+target+port+protocol
+      const seen = new Set<string>()
+      const deduped = allConns.filter((c: any) => {
+        const key = `${c.source}|${c.target}|${c.port}|${c.protocol}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
 
-        const inbound = (conns.inbound || []).map((c: any) => processConn(c, 'inbound'))
-        const outbound = (conns.outbound || []).map((c: any) => processConn(c, 'outbound'))
-        const all = [...inbound, ...outbound].filter(c => {
-          if (STRUCTURAL.has(c.edgeType)) return false
-          return c.edgeType.includes('ACTUAL') || c.edgeType.includes('CALLS') || c.edgeType.includes('ACCESS') || c.edgeType.includes('CONNECTS') || c.bytes > 0 || c.port
-        })
-
-        setConnections({ all, totalBytes: all.reduce((s: number, c: any) => s + (c.bytes || 0), 0) })
-      }
+      setConnections({ all: deduped, totalBytes: deduped.reduce((s: number, c: any) => s + (c.bytes || 0), 0) })
 
       // Find SG ID for the remediate modal
       const sgs = detail?.network_reachability?.security_groups || []
