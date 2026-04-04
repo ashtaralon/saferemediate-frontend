@@ -399,7 +399,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
       {/* Table */}
       <div className="rounded-lg border overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
         <div
-          className="grid grid-cols-[2fr_1fr_1fr_100px_100px_100px_80px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+          className="grid grid-cols-[2fr_1fr_1fr_100px_100px_100px_80px_160px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
           style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
         >
           <span>Identity</span>
@@ -431,7 +431,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                 <div key={nhi.arn}>
                   {/* Row */}
                   <div
-                    className="grid grid-cols-[2fr_1fr_1fr_100px_100px_100px_80px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                    className="grid grid-cols-[2fr_1fr_1fr_100px_100px_100px_80px_160px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
                     onClick={() => handleExpand(nhi)}
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -490,7 +490,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         style={{ borderColor: "#8b5cf640", color: "#8b5cf6" }}
                       >Investigate</button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleReviewFix(nhi) }}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/nhi-profile/${encodeURIComponent(nhi.name)}?action=remediate`) }}
                         className="px-3 py-1 rounded-lg text-xs font-medium text-white transition-all hover:opacity-90"
                         style={{ background: "#8b5cf6" }}
                       >Fix</button>
