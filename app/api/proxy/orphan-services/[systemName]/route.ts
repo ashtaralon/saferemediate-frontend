@@ -5,8 +5,39 @@ const NEO4J_URI = process.env.NEO4J_URI || process.env.NEXT_PUBLIC_NEO4J_URI || 
 const NEO4J_USERNAME = process.env.NEO4J_USERNAME || process.env.NEXT_PUBLIC_NEO4J_USERNAME || 'neo4j'
 const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || process.env.NEXT_PUBLIC_NEO4J_PASSWORD || ''
 
-const ORPHAN_THRESHOLD_DAYS = 30
 const SEASONAL_LOOKBACK_DAYS = 365
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ORPHAN DETECTION TIMELINE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// A resource is ONLY considered an orphan candidate when we have EVIDENCE:
+//   - A real last_activity timestamp from CloudTrail / Flow Logs / Access Advisor
+//   - OR zero relationships across ALL evidence planes (truly isolated)
+//
+// Timeline (based on idle days since last observed activity):
+//
+//   0–29 days   → NOT an orphan. Still within normal operational window.
+//
+//  30–59 days   → REVIEW. Flag only if isolated (≤1 relationship).
+//                  Confidence: LOW. Recommendation: REVIEW.
+//                  "Idle for X days with minimal connections — investigate."
+//
+//  60–89 days   → DECOMMISSION candidate. Flag if ≤2 relationships.
+//                  Confidence: MEDIUM. Recommendation: DECOMMISSION.
+//                  "Inactive for X days — schedule decommission after verification."
+//
+//  90+ days     → DELETE candidate (if isolated) or DECOMMISSION (if few rels).
+//                  Confidence: HIGH (0 rels) or MEDIUM (1-2 rels).
+//                  Recommendation: DELETE (0 rels) or DECOMMISSION (1-2 rels).
+//
+//  No timestamp + 0 rels + 0 hits → Treated as 90 days (completely unknown).
+//  No timestamp + any evidence    → Treated as 0 days (can't prove idle).
+//
+// ═══════════════════════════════════════════════════════════════════════════
+const ORPHAN_THRESHOLD_DAYS = 30      // Minimum idle days to consider
+const DECOMMISSION_THRESHOLD_DAYS = 60 // Escalate to DECOMMISSION
+const DELETE_THRESHOLD_DAYS = 90       // Escalate to DELETE (if isolated)
 
 // Only analyze actual AWS workload resources that cost money or pose security risk
 // Use VARIANT types (EC2Instance, S3Bucket, etc.) — base types (EC2, S3, RDS) are
@@ -159,36 +190,49 @@ function classifyOrphan(
   const type = (resource.type || '').replace(/Function$/i, '')
   const estimatedMonthlyCost = COST_ESTIMATES[resource.type] || COST_ESTIMATES[type] || 0
 
+  // ── Risk Level ──
+  // Based on blast radius: internet-facing + idle = dangerous, isolated = moderate
   let riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (isInternetFacing && idleDays >= 60) riskLevel = 'HIGH'
-  else if (idleDays >= 60 || (isInternetFacing && idleDays >= 30)) riskLevel = 'MEDIUM'
-  else if (edgeCount === 0 && idleDays >= 30) riskLevel = 'MEDIUM'
+  if (isInternetFacing && idleDays >= DECOMMISSION_THRESHOLD_DAYS) riskLevel = 'HIGH'
+  else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) riskLevel = 'HIGH'
+  else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
+  else if (edgeCount === 0 && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
 
+  // ── Confidence ──
+  // How sure are we this is actually an orphan?
   let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (idleDays >= 90 && edgeCount === 0) confidence = 'HIGH'
-  else if (idleDays >= 60 || (idleDays >= 30 && edgeCount === 0)) confidence = 'MEDIUM'
+  if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) confidence = 'HIGH'        // 90+ days, 0 rels → very sure
+  else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS && edgeCount <= 1) confidence = 'HIGH' // 60+ days, ≤1 rel → sure
+  else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) confidence = 'MEDIUM'              // 60+ days, few rels → fairly sure
+  else if (idleDays >= ORPHAN_THRESHOLD_DAYS && edgeCount === 0) confidence = 'MEDIUM'  // 30+ days, isolated → probable
 
+  // ── Recommendation ──
+  // Follows the timeline: REVIEW → DECOMMISSION → DELETE
   let recommendation: 'DELETE' | 'DECOMMISSION' | 'REVIEW' | 'ARCHIVE' = 'REVIEW'
   let recommendationReason = ''
 
   if (seasonalInfo.isSeasonal) {
     recommendation = 'REVIEW'
     recommendationReason = `Detected ${seasonalInfo.pattern} usage pattern. Next expected activity: ${seasonalInfo.nextRun ? new Date(seasonalInfo.nextRun).toLocaleDateString() : 'unknown'}. Verify this is intentional.`
-  } else if (isStopped && idleDays >= 90) {
+  } else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) {
+    // 90+ days, completely isolated → safe to delete
     recommendation = 'DELETE'
-    recommendationReason = `Stopped for ${idleDays} days with no activity. Safe to terminate and clean up associated resources.`
-  } else if (edgeCount === 0 && idleDays >= 90) {
+    recommendationReason = `No activity for ${idleDays} days and zero connections across all evidence planes (CloudTrail, flow logs, IAM). Completely isolated — safe to remove.`
+  } else if (isStopped && idleDays >= DELETE_THRESHOLD_DAYS) {
     recommendation = 'DELETE'
-    recommendationReason = `No connections to any service and idle for ${idleDays} days. Completely isolated — safe to remove.`
-  } else if (idleDays >= 60) {
+    recommendationReason = `Stopped for ${idleDays} days with no observed activity. Safe to terminate and clean up.`
+  } else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) {
+    // 60–89 days → schedule decommission
     recommendation = 'DECOMMISSION'
-    recommendationReason = `Inactive for ${idleDays} days. Schedule decommission after verifying no downstream dependencies.`
+    recommendationReason = `No activity for ${idleDays} days with only ${edgeCount} connection(s). Schedule decommission after verifying no downstream dependencies.`
   } else if (edgeCount === 0) {
+    // 30–59 days, isolated → archive/snapshot first
     recommendation = 'ARCHIVE'
-    recommendationReason = `Isolated from other services. Consider archiving or snapshotting before removal.`
+    recommendationReason = `Isolated (zero connections) and idle for ${idleDays} days. Consider archiving or snapshotting before removal.`
   } else {
+    // 30–59 days, has some connections → just review
     recommendation = 'REVIEW'
-    recommendationReason = `Idle for ${idleDays} days but still has ${edgeCount} connection(s). Investigate if connections are stale.`
+    recommendationReason = `Idle for ${idleDays} days but still has ${edgeCount} connection(s). Investigate whether connections are stale.`
   }
 
   return {
@@ -297,22 +341,30 @@ export async function GET(
 
       const isStopped = r.instanceState === 'stopped' || r.status === 'stopped'
 
-      // Skip resources with recent activity
+      // Skip resources with recent activity (< 30 days)
       if (idleDays < ORPHAN_THRESHOLD_DAYS) continue
 
-      // Skip resources with significant activity evidence even if "old"
-      // (e.g. CloudTrail trail bucket that gets 1000s of writes but lastSeen was a while ago)
-      if (totalHits > 10 && idleDays < 90) continue
+      // Skip resources with significant ongoing activity evidence
+      if (totalHits > 10 && idleDays < DELETE_THRESHOLD_DAYS) continue
 
-      // Must meet at least one orphan criteria:
-      // - Idle beyond threshold with no/few relationships
-      // - Completely isolated (0 total relationships)
-      // - Stopped
-      const isOrphanCandidate = (
-        (idleDays >= ORPHAN_THRESHOLD_DAYS && totalRels <= 2) ||
-        totalRels === 0 ||
-        isStopped
-      )
+      // ── Graduated orphan criteria based on timeline ──
+      // The longer a resource is idle, the more connections we tolerate and still flag it.
+      //
+      //  30–59 days: only flag if truly isolated (0 connections)
+      //  60–89 days: flag if ≤2 connections (stale refs likely)
+      //  90+ days:   flag if ≤2 connections OR stopped
+      //
+      let isOrphanCandidate = false
+      if (idleDays >= DELETE_THRESHOLD_DAYS) {
+        // 90+ days idle → flag if isolated or near-isolated
+        isOrphanCandidate = totalRels <= 2 || isStopped
+      } else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) {
+        // 60–89 days idle → flag if ≤2 connections
+        isOrphanCandidate = totalRels <= 2
+      } else {
+        // 30–59 days idle → only flag if completely isolated
+        isOrphanCandidate = totalRels === 0
+      }
 
       if (!isOrphanCandidate) continue
 
