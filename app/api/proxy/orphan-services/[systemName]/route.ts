@@ -335,12 +335,10 @@ export async function GET(
 
     // Fetch evidence and security risks sequentially to avoid Next.js fetch issues
     try {
-      const evidenceUrl = `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`
-      const evidenceResp = await fetch(evidenceUrl, {
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
-        cache: 'no-store',
-      })
+      const evidenceResp = await fetch(
+        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`,
+        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000), cache: 'no-store' }
+      )
       if (evidenceResp.ok) {
         const evidenceJson = await evidenceResp.json()
         evidence = evidenceJson.evidence || {}
@@ -350,12 +348,10 @@ export async function GET(
     }
 
     try {
-      const securityUrl = `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/security-risk-factors`
-      const securityResp = await fetch(securityUrl, {
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
-        cache: 'no-store',
-      })
+      const securityResp = await fetch(
+        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/security-risk-factors`,
+        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000), cache: 'no-store' }
+      )
       if (securityResp.ok) {
         const securityJson = await securityResp.json()
         securityRisks = securityJson.security_risks || {}
@@ -363,8 +359,6 @@ export async function GET(
     } catch (e: any) {
       console.warn('[orphan-services] Security risks fetch error:', e.message)
     }
-
-    console.log('[orphan-services] Evidence:', Object.keys(evidence).length, 'Security:', Object.keys(securityRisks).length)
 
     // Build lastUsedBy map from system-resources data
     const lastUsedByMap: Record<string, string> = {}
