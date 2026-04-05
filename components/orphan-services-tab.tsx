@@ -568,7 +568,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--muted-foreground,#6b7280)]">
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : '~90d idle (est.)'}</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : `${orphan.idleDays}d idle (no activity ever)`}</span>
                             <span>{orphan.region}</span>
                             {orphan.lastUsedBy && <span>Last used by: {orphan.lastUsedBy}</span>}
                           </div>
@@ -614,7 +614,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Confidence</div>
-                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {orphan.idleDays >= 90 ? `${Math.floor(orphan.idleDays / 30)}+ months observed` : orphan.idleDays >= 30 ? `${orphan.idleDays} days observed` : `${orphan.idleDays} days (limited data)`}</div>
+                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {orphan.idleDays >= 180 ? `${Math.floor(orphan.idleDays / 30)}+ months with no activity` : `${orphan.idleDays} days since last activity`}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Connections</div>
