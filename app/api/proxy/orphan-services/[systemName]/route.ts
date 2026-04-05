@@ -316,7 +316,7 @@ export async function GET(
     // 1. Fetch all resources for this system
     const resourcesResponse = await fetch(
       `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}`,
-      { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000) }
+      { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000), cache: 'no-store' }
     )
 
     let resources: any[] = []
@@ -333,22 +333,38 @@ export async function GET(
     let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null }> = {}
     let securityRisks: Record<string, { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }> = {}
 
-    const [evidenceResult, securityResult] = await Promise.allSettled([
-      fetch(
-        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`,
-        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000) }
-      ).then(async r => r.ok ? (await r.json()).evidence || {} : {}),
-      fetch(
-        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/security-risk-factors`,
-        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000) }
-      ).then(async r => r.ok ? (await r.json()).security_risks || {} : {}),
-    ])
+    // Fetch evidence and security risks sequentially to avoid Next.js fetch issues
+    try {
+      const evidenceUrl = `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`
+      const evidenceResp = await fetch(evidenceUrl, {
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(25000),
+        cache: 'no-store',
+      })
+      if (evidenceResp.ok) {
+        const evidenceJson = await evidenceResp.json()
+        evidence = evidenceJson.evidence || {}
+      }
+    } catch (e: any) {
+      console.warn('[orphan-services] Evidence fetch error:', e.message)
+    }
 
-    if (evidenceResult.status === 'fulfilled') evidence = evidenceResult.value
-    else console.warn('[orphan-services] Could not fetch activity evidence, falling back to connection counts')
+    try {
+      const securityUrl = `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/security-risk-factors`
+      const securityResp = await fetch(securityUrl, {
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(25000),
+        cache: 'no-store',
+      })
+      if (securityResp.ok) {
+        const securityJson = await securityResp.json()
+        securityRisks = securityJson.security_risks || {}
+      }
+    } catch (e: any) {
+      console.warn('[orphan-services] Security risks fetch error:', e.message)
+    }
 
-    if (securityResult.status === 'fulfilled') securityRisks = securityResult.value
-    else console.warn('[orphan-services] Could not fetch security risk factors')
+    console.log('[orphan-services] Evidence:', Object.keys(evidence).length, 'Security:', Object.keys(securityRisks).length)
 
     // Build lastUsedBy map from system-resources data
     const lastUsedByMap: Record<string, string> = {}
