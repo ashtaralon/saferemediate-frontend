@@ -22,12 +22,19 @@ interface SyncStatus {
 
 const STEP_LABELS: Record<string, string> = {
   starting: "Starting...",
+  resource_collectors: "Discovering AWS resources",
   tag_sync: "Syncing AWS tags",
   flow_logs: "Ingesting VPC Flow Logs",
   cloudtrail: "Ingesting CloudTrail events",
   iam_analyzer: "Analyzing IAM permissions",
+  iam_permissions: "Syncing IAM role permissions",
   aws_config: "Processing AWS Config",
   xray: "Collecting X-Ray traces",
+  security_groups: "Ingesting Security Groups",
+  nacls: "Ingesting Network ACLs",
+  s3_access_logs: "Ingesting S3 Access Logs",
+  rds_query_logs: "Ingesting RDS Query Logs",
+  behavioral_sync: "Running behavioral sync (traffic + permissions)",
   auto_tagger: "Running auto-tagger",
 }
 
@@ -98,7 +105,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               status: "running",
               current_step: 0,
               current_step_name: "processing",
-              total_steps: 7,
+              total_steps: 13,
               progress_percent: 0,
             }),
             message: "Sync in progress (status temporarily unavailable)...",
@@ -161,7 +168,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
           status: "running",
           current_step: 0,
           current_step_name: "starting",
-          total_steps: 7,
+          total_steps: 13,
           message: "Starting sync...",
           progress_percent: 0,
         })
@@ -173,7 +180,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
           status: "running",
           current_step: data.current_step || 0,
           current_step_name: "",
-          total_steps: 7,
+          total_steps: 13,
           message: data.message || "Sync in progress...",
           progress_percent: Math.round(((data.current_step || 0) / 7) * 100),
         })
@@ -285,6 +292,26 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
                 {(result.results.xray?.calls_relationships || 0) +
                  (result.results.xray?.traffic_relationships || 0)}{" "}
                 traces
+              </div>
+              <div>
+                Security Groups:{" "}
+                {result.results.security_groups?.security_groups_processed || result.results.security_groups?.total || 0} groups
+              </div>
+              <div>
+                NACLs:{" "}
+                {result.results.nacls?.nacls_processed || result.results.nacls?.total || 0} ACLs
+              </div>
+              <div>
+                S3 Access Logs:{" "}
+                {result.results.s3_access_logs?.relationships_created || 0} access patterns
+              </div>
+              <div>
+                RDS Query Logs:{" "}
+                {result.results.rds_query_logs?.relationships_created || 0} query patterns
+              </div>
+              <div>
+                Behavioral Sync:{" "}
+                {result.results.behavioral_sync?.total_relationships || result.results.behavioral_sync?.steps_completed || 0} patterns
               </div>
               <div>
                 Auto-Tagger:{" "}
