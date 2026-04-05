@@ -229,22 +229,32 @@ export async function GET(
       return NextResponse.json({ orphans: [], seasonal: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } })
     }
 
-    // 2. Build edge counts and lastUsedBy from the resources data
-    //    (backend already provides these via Neo4j Bolt — the HTTP tx API is blocked by Neo4j Aura)
-    const edgeCounts: Record<string, number> = {}
-    const lastUsedByMap: Record<string, string> = {}
-    for (const r of resources) {
-      if (r.name) {
-        edgeCounts[r.name] = r.connections || 0
-        if (r.lastUsedBy) lastUsedByMap[r.name] = r.lastUsedBy
+    // 2. Fetch REAL activity evidence from the backend
+    //    This queries ALL relationships (not just within-system), including:
+    //    - CloudTrail ACCESSES_RESOURCE / PERFORMED_ACTION
+    //    - VPC Flow Logs SENDS_TRAFFIC / RECEIVES_TRAFFIC
+    //    - IAM Access Advisor HAS_PERMISSION_USAGE
+    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null }> = {}
+    try {
+      const evidenceResponse = await fetch(
+        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`,
+        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000) }
+      )
+      if (evidenceResponse.ok) {
+        const evidenceData = await evidenceResponse.json()
+        evidence = evidenceData.evidence || {}
       }
+    } catch (e) {
+      console.warn('[orphan-services] Could not fetch activity evidence, falling back to connection counts')
     }
 
-    // 3. Activity history — seasonal detection relies on future backend enrichment
-    //    (Neo4j Aura blocks HTTP transaction API, so direct queries don't work)
-    const activityHistory: Record<string, string[]> = {}
+    // Build lastUsedBy map from system-resources data
+    const lastUsedByMap: Record<string, string> = {}
+    for (const r of resources) {
+      if (r.name && r.lastUsedBy) lastUsedByMap[r.name] = r.lastUsedBy
+    }
 
-    // 4. Classify each resource
+    // 3. Classify each resource using real evidence
     const now = Date.now()
     const orphans: OrphanResource[] = []
     const seasonal: OrphanResource[] = []
@@ -258,29 +268,51 @@ export async function GET(
       const resourceName = r.name || ''
       if (isAWSManagedResource(resourceName, resourceType)) continue
 
-      const lastSeenDate = r.lastSeen || r.last_seen || r.properties?.lastSeen
-      const lastSeen = lastSeenDate ? new Date(lastSeenDate) : null
-      // If no valid lastSeen or it's before 2020, treat as "unknown"
-      const hasValidDate = lastSeen && lastSeen.getTime() > new Date('2020-01-01').getTime()
-      const idleDays = hasValidDate ? Math.floor((now - lastSeen!.getTime()) / (1000 * 60 * 60 * 24)) : -1
+      // Get evidence for this resource
+      const ev = evidence[resourceName]
+      const totalRels = ev?.total_relationships ?? (r.connections || 0)
+      const cloudtrailEvents = ev?.cloudtrail_events ?? 0
+      const totalHits = ev?.total_hits ?? 0
+      const advisorServices = ev?.access_advisor_services ?? 0
 
-      const isStopped = r.instanceState === 'stopped' || r.status === 'stopped'
-      const edges = edgeCounts[r.name] || 0
+      // Determine last activity from evidence (authoritative) or node property (fallback)
+      const evidenceLastActivity = ev?.last_activity
+      const nodeLastSeen = r.lastSeen || r.last_seen || r.properties?.lastSeen
+      const bestLastSeen = evidenceLastActivity || nodeLastSeen
+      const lastSeen = bestLastSeen ? new Date(bestLastSeen) : null
+      const hasValidDate = lastSeen && !isNaN(lastSeen.getTime()) && lastSeen.getTime() > new Date('2020-01-01').getTime()
 
-      // If we don't have a real lastSeen date, we can only rely on connection count:
-      // - 0 connections → truly isolated, treat as orphan (90 days idle)
-      // - 1+ connections → we have no evidence it's idle, don't assume orphan
-      let effectiveIdleDays = idleDays
-      if (idleDays === -1) {
-        if (edges === 0) effectiveIdleDays = 90
-        else effectiveIdleDays = 0  // Without proof of idleness, don't flag connected resources
+      // Calculate idle days from the best available timestamp
+      let idleDays: number
+      if (hasValidDate) {
+        idleDays = Math.floor((now - lastSeen!.getTime()) / (1000 * 60 * 60 * 24))
+      } else {
+        // No timestamp at all — check if it has ANY evidence of being alive
+        if (totalRels > 0 || cloudtrailEvents > 0 || totalHits > 0 || advisorServices > 0) {
+          idleDays = 0  // Has evidence of use but no timestamp — NOT an orphan
+        } else {
+          idleDays = 90  // Truly no evidence of any activity
+        }
       }
 
-      // Skip resources active within threshold that have connections
-      if (effectiveIdleDays < ORPHAN_THRESHOLD_DAYS && edges > 0) continue
+      const isStopped = r.instanceState === 'stopped' || r.status === 'stopped'
 
-      // Must meet at least one orphan criteria
-      const isOrphanCandidate = effectiveIdleDays >= ORPHAN_THRESHOLD_DAYS || edges === 0 || isStopped
+      // Skip resources with recent activity
+      if (idleDays < ORPHAN_THRESHOLD_DAYS) continue
+
+      // Skip resources with significant activity evidence even if "old"
+      // (e.g. CloudTrail trail bucket that gets 1000s of writes but lastSeen was a while ago)
+      if (totalHits > 10 && idleDays < 90) continue
+
+      // Must meet at least one orphan criteria:
+      // - Idle beyond threshold with no/few relationships
+      // - Completely isolated (0 total relationships)
+      // - Stopped
+      const isOrphanCandidate = (
+        (idleDays >= ORPHAN_THRESHOLD_DAYS && totalRels <= 2) ||
+        totalRels === 0 ||
+        isStopped
+      )
 
       if (!isOrphanCandidate) continue
 
@@ -289,17 +321,17 @@ export async function GET(
       if (tags['schedule'] || tags['Schedule'] || tags['keep'] || tags['Keep']) continue
 
       // Detect seasonal patterns
-      const history = activityHistory[r.name] || []
-      const seasonalInfo = detectSeasonalPattern(history)
+      const activityHistory: string[] = []
+      const seasonalInfo = detectSeasonalPattern(activityHistory)
 
-      const classification = classifyOrphan(r, edges, effectiveIdleDays, seasonalInfo)
+      const classification = classifyOrphan(r, totalRels, idleDays, seasonalInfo)
 
       const orphanResource: OrphanResource = {
         id: r.id || r.name || Math.random().toString(),
         name: r.name || 'Unknown',
         type: r.type || 'Unknown',
         region: r.region || r.properties?.region || 'eu-west-1',
-        status: isStopped ? 'stopped' : (effectiveIdleDays >= ORPHAN_THRESHOLD_DAYS ? 'idle' : 'isolated'),
+        status: isStopped ? 'stopped' : (idleDays >= ORPHAN_THRESHOLD_DAYS ? 'idle' : 'isolated'),
         lastSeen: hasValidDate ? lastSeen!.toISOString() : '',
         properties: r.properties || {},
         lastUsedBy: classification.lastUsedBy || lastUsedByMap[r.name] || null,
