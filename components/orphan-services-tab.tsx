@@ -25,12 +25,10 @@ import {
   Archive,
   AlertTriangle,
   Clock,
-  DollarSign,
   Calendar,
   XCircle,
   BellOff,
   Filter,
-  TrendingDown,
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
@@ -183,7 +181,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // Quarantine state
   const [quarantineRecords, setQuarantineRecords] = useState<QuarantineRecord[]>([])
-  const [preCheckModal, setPreCheckModal] = useState<{ orphan: OrphanResource; safetyScore: SafetyScore | null; loading: boolean } | null>(null)
+  const [preCheckModal, setPreCheckModal] = useState<{ orphan: OrphanResource; safetyScore: SafetyScore | null; loading: boolean; error: string | null } | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null) // record ID or orphan ID being acted on
   const [activityModal, setActivityModal] = useState<{ recordId: string; activity: any[]; loading: boolean } | null>(null)
 
@@ -230,7 +228,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   // --- Pre-check ---
   const runPreCheck = async (orphan: OrphanResource) => {
-    setPreCheckModal({ orphan, safetyScore: null, loading: true })
+    setPreCheckModal({ orphan, safetyScore: null, loading: true, error: null })
     try {
       const response = await fetch('/api/proxy/quarantine/pre-check', {
         method: 'POST',
@@ -245,19 +243,29 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
           recentFlowLogHits: 0,
         }),
       })
-      if (!response.ok) throw new Error(`Pre-check failed: ${response.status}`)
+      if (!response.ok) {
+        const errBody = await response.text()
+        let errMsg = `Server error (${response.status})`
+        try {
+          const parsed = JSON.parse(errBody)
+          errMsg = parsed.error || parsed.detail || errMsg
+        } catch { /* use default */ }
+        throw new Error(errMsg)
+      }
       const data = await response.json()
+      if (data.error) throw new Error(data.error)
       setPreCheckModal({
         orphan,
         safetyScore: data.safetyScore,
         loading: false,
+        error: null,
       })
       // Store the record ID on the orphan for subsequent actions
       ;(orphan as any)._quarantineRecordId = data.recordId
       await fetchQuarantineRecords()
     } catch (err: any) {
       console.error("[PreCheck] Error:", err)
-      setPreCheckModal({ orphan, safetyScore: null, loading: false })
+      setPreCheckModal({ orphan, safetyScore: null, loading: false, error: err.message || "Unknown error" })
     }
   }
 
@@ -439,10 +447,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             <div className="text-lg font-bold text-[var(--foreground,#111827)]">{summary.total}</div>
             <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Orphans</div>
           </div>
-          <div className="flex-1 bg-white rounded-lg p-3 border border-[#22c55e40] text-center">
-            <DollarSign className="w-4 h-4 mx-auto mb-1 text-[#22c55e]" />
-            <div className="text-lg font-bold text-[#22c55e]">${summary.estimatedMonthlySavings}</div>
-            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Monthly Savings</div>
+          <div className="flex-1 bg-white rounded-lg p-3 border border-[#f9731640] text-center">
+            <ShieldOff className="w-4 h-4 mx-auto mb-1 text-[#f97316]" />
+            <div className="text-lg font-bold text-[#f97316]">{summary.mediumRisk}</div>
+            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Medium Risk</div>
           </div>
           <div className="flex-1 bg-white rounded-lg p-3 border border-[#ef444440] text-center">
             <AlertTriangle className="w-4 h-4 mx-auto mb-1 text-[#ef4444]" />
@@ -513,8 +521,8 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             <span className="text-sm text-[var(--muted-foreground,#6b7280)]">({filteredOrphans.length})</span>
           </div>
           <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-            <TrendingDown className="w-4 h-4 text-[#22c55e]" />
-            Save ${summary.estimatedMonthlySavings}/mo
+            <ShieldAlert className="w-4 h-4 text-[#f97316]" />
+            {summary.highRisk} high · {summary.mediumRisk} medium · {summary.lowRisk} low risk
           </div>
         </button>
 
@@ -609,8 +617,8 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                 <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {orphan.idleDays >= 90 ? `${Math.floor(orphan.idleDays / 30)}+ months observed` : orphan.idleDays >= 30 ? `${orphan.idleDays} days observed` : `${orphan.idleDays} days (limited data)`}</div>
                               </div>
                               <div>
-                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Est. Monthly Cost</div>
-                                <div className="font-medium text-[#22c55e]">${orphan.estimatedMonthlyCost}</div>
+                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Connections</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.attachedResources} {orphan.attachedResources === 1 ? 'resource' : 'resources'}</div>
                               </div>
                             </div>
 
@@ -870,8 +878,20 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                 </>
               ) : (
                 <div className="text-center py-8">
-                  <AlertTriangle className="w-10 h-10 text-[#f97316] mx-auto mb-3" />
-                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">Safety check failed. Please try again.</p>
+                  <AlertTriangle className="w-10 h-10 text-[#ef4444] mx-auto mb-3" />
+                  <p className="text-sm font-medium text-[#ef4444] mb-2">Safety check failed</p>
+                  {preCheckModal.error && (
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-4 px-4 py-2 bg-[#ef444410] rounded-lg mx-4">
+                      {preCheckModal.error}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => runPreCheck(preCheckModal.orphan)}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
                 </div>
               )}
             </div>

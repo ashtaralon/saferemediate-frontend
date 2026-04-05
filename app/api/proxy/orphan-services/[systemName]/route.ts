@@ -57,33 +57,9 @@ function isAWSManagedResource(name: string, type: string): boolean {
 }
 
 // Estimated monthly cost by resource type (USD)
-const COST_ESTIMATES: Record<string, number> = {
-  EC2: 30,
-  EC2Instance: 30,
-  RDS: 50,
-  RDSInstance: 50,
-  Lambda: 5,
-  LambdaFunction: 5,
-  S3: 3,
-  S3Bucket: 3,
-  DynamoDB: 10,
-  DynamoDBTable: 10,
-  ECS: 25,
-  EKS: 75,
-  LoadBalancer: 18,
-  ALB: 18,
-  NLB: 18,
-  ElasticIP: 4,
-  NAT: 32,
-  NATGateway: 32,
-  SecurityGroup: 0,
-  IAMRole: 0,
-  IAMPolicy: 0,
-  IAMUser: 0,
-  SQSQueue: 5,
-  StepFunction: 10,
-  EventBridge: 2,
-}
+// Cost estimates removed — we don't have real AWS Cost Explorer data yet.
+// All costs are 0 until we integrate with ce:GetCostAndUsage.
+const COST_ESTIMATES: Record<string, number> = {}
 
 interface OrphanResource {
   id: string
