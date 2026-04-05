@@ -42,6 +42,12 @@ import {
   History,
 } from "lucide-react"
 
+interface SecurityFactor {
+  factor: string
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  detail: string
+}
+
 interface OrphanResource {
   id: string
   name: string
@@ -61,6 +67,11 @@ interface OrphanResource {
   seasonalPattern: string | null
   nextExpectedRun: string | null
   properties: Record<string, any>
+  securityRiskScore: number
+  securityFactors: SecurityFactor[]
+  isInternetFacing: boolean
+  hasEncryption: boolean | null
+  totalPermissions: number
 }
 
 interface OrphanSummary {
@@ -574,6 +585,16 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {orphan.isInternetFacing && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#ef444415] text-[#ef4444] border border-[#ef444430] flex items-center gap-1">
+                              <Network className="w-3 h-3" />Internet
+                            </span>
+                          )}
+                          {orphan.securityFactors?.some(f => f.severity === 'CRITICAL') && (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#ef444415] text-[#ef4444] border border-[#ef444430] flex items-center gap-1">
+                              <ShieldOff className="w-3 h-3" />Critical
+                            </span>
+                          )}
                           {orphan.estimatedMonthlyCost > 0 && (
                             <span className="text-xs font-medium text-[#22c55e] bg-[#22c55e10] px-2 py-1 rounded">
                               ${orphan.estimatedMonthlyCost}/mo
@@ -617,6 +638,64 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                 <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {!orphan.lastSeen ? 'No activity across any evidence plane' : orphan.idleDays >= 180 ? `${Math.floor(orphan.idleDays / 30)}+ months since last activity` : `${orphan.idleDays} days since last observed activity`}</div>
                               </div>
                             </div>
+
+                            {/* Security Risk Factors */}
+                            {orphan.securityFactors && orphan.securityFactors.length > 0 && (
+                              <div className="bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)]">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide flex items-center gap-1.5">
+                                    <ShieldAlert className="w-3.5 h-3.5" />
+                                    Security Risk Factors
+                                  </h4>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                    orphan.securityRiskScore >= 50 ? 'bg-[#ef444420] text-[#ef4444]' :
+                                    orphan.securityRiskScore >= 25 ? 'bg-[#f9731620] text-[#f97316]' :
+                                    'bg-[#eab30820] text-[#eab308]'
+                                  }`}>
+                                    Risk Score: {orphan.securityRiskScore}/100
+                                  </span>
+                                </div>
+                                <div className="space-y-1.5">
+                                  {orphan.securityFactors.map((factor, i) => (
+                                    <div key={i} className={`flex items-start gap-2 text-xs p-1.5 rounded ${
+                                      factor.severity === 'CRITICAL' ? 'bg-[#ef444408]' :
+                                      factor.severity === 'HIGH' ? 'bg-[#f9731608]' :
+                                      'bg-[#eab30808]'
+                                    }`}>
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                        factor.severity === 'CRITICAL' ? 'bg-[#ef4444] text-white' :
+                                        factor.severity === 'HIGH' ? 'bg-[#f97316] text-white' :
+                                        'bg-[#eab308] text-white'
+                                      }`}>{factor.severity}</span>
+                                      <span className="text-[var(--foreground,#111827)]">{factor.detail}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                {orphan.hasEncryption === false && (
+                                  <div className="mt-2 flex items-center gap-1.5 text-xs text-[#f97316]">
+                                    <ShieldOff className="w-3 h-3" />
+                                    No encryption at rest detected
+                                  </div>
+                                )}
+                                {orphan.hasEncryption === true && (
+                                  <div className="mt-2 flex items-center gap-1.5 text-xs text-[#22c55e]">
+                                    <ShieldCheck className="w-3 h-3" />
+                                    Encryption at rest enabled
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* No security factors - show clean status */}
+                            {(!orphan.securityFactors || orphan.securityFactors.length === 0) && orphan.securityRiskScore === 0 && (
+                              <div className="bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)]">
+                                <div className="flex items-center gap-2 text-xs text-[#22c55e]">
+                                  <ShieldCheck className="w-4 h-4" />
+                                  <span className="font-medium">No security exposure detected</span>
+                                  <span className="text-[var(--muted-foreground,#6b7280)]">— not internet-facing, no public SGs, permissions within bounds</span>
+                                </div>
+                              </div>
+                            )}
 
                             {/* Recommendation */}
                             <div className="bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)]">

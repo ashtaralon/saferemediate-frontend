@@ -95,6 +95,12 @@ function isAWSManagedResource(name: string, type: string): boolean {
 // All costs are 0 until we integrate with ce:GetCostAndUsage.
 const COST_ESTIMATES: Record<string, number> = {}
 
+interface SecurityFactor {
+  factor: string
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+  detail: string
+}
+
 interface OrphanResource {
   id: string
   name: string
@@ -114,6 +120,12 @@ interface OrphanResource {
   seasonalPattern: string | null
   nextExpectedRun: string | null
   properties: Record<string, any>
+  // Security risk fields
+  securityRiskScore: number
+  securityFactors: SecurityFactor[]
+  isInternetFacing: boolean
+  hasEncryption: boolean | null
+  totalPermissions: number
 }
 
 async function runNeo4jQuery(cypher: string): Promise<any[]> {
@@ -184,29 +196,38 @@ function classifyOrphan(
   resource: any,
   edgeCount: number,
   idleDays: number,
-  seasonalInfo: { isSeasonal: boolean; pattern: string | null; nextRun: string | null }
+  seasonalInfo: { isSeasonal: boolean; pattern: string | null; nextRun: string | null },
+  securityRisk?: { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }
 ): Omit<OrphanResource, 'id' | 'name' | 'type' | 'region' | 'status' | 'lastSeen' | 'properties'> {
-  const isInternetFacing = resource.is_internet_facing || resource.properties?.is_internet_facing
+  const isInternetFacing = securityRisk?.is_internet_facing || resource.is_internet_facing || resource.properties?.is_internet_facing
   const isStopped = resource.instanceState === 'stopped' || resource.status === 'stopped'
   const type = (resource.type || '').replace(/Function$/i, '')
   const estimatedMonthlyCost = COST_ESTIMATES[resource.type] || COST_ESTIMATES[type] || 0
+  const secRiskScore = securityRisk?.risk_score ?? 0
+  const secFactors = securityRisk?.factors ?? []
+  const hasCriticalFactor = secFactors.some(f => f.severity === 'CRITICAL')
+  const hasHighFactor = secFactors.some(f => f.severity === 'HIGH')
 
   // ── Risk Level ──
-  // "What's the security/cost risk of leaving this resource idle?"
+  // Combines idle duration + real security risk factors from Neo4j.
   //
-  //  HIGH   = Internet-facing OR completely isolated (0 connections) for 180+ days
-  //           → Unmonitored attack surface or dead cost with zero value
+  //  HIGH   = Internet-facing, or critical security factors (0.0.0.0/0, admin policy,
+  //           publicly accessible), or completely isolated 180+ days
   //
-  //  MEDIUM = Idle 100+ days with ≤2 connections, or isolated for 100–179 days
-  //           → Likely unused but has some references that need verification
+  //  MEDIUM = High security factors, or idle 150+ days, or isolated 100+ days
   //
-  //  LOW    = Meets orphan criteria but has some mitigating factors
-  //           → Worth reviewing but not urgent
+  //  LOW    = Meets orphan criteria but no critical security exposure
   //
   let riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (isInternetFacing && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'HIGH'
+  // Security-driven escalation: critical factors or high risk score → HIGH regardless of idle time
+  if (hasCriticalFactor && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'HIGH'
+  else if (isInternetFacing && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'HIGH'
+  else if (secRiskScore >= 50 && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'HIGH'
   else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) riskLevel = 'HIGH'
   else if (isStopped && idleDays >= DELETE_THRESHOLD_DAYS) riskLevel = 'HIGH'
+  // Medium escalation
+  else if (hasHighFactor && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
+  else if (secRiskScore >= 25 && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
   else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
   else if (edgeCount === 0 && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
 
@@ -254,6 +275,17 @@ function classifyOrphan(
     recommendationReason = `Idle for ${idleDays} days${edgeCount === 0 ? ' with zero connections' : ` but still has ${edgeCount} connection(s)`}. Investigate before taking action.`
   }
 
+  // Append security context to recommendation reason
+  if (secFactors.length > 0) {
+    const criticalFactors = secFactors.filter(f => f.severity === 'CRITICAL')
+    const highFactors = secFactors.filter(f => f.severity === 'HIGH')
+    if (criticalFactors.length > 0) {
+      recommendationReason += ` CRITICAL: ${criticalFactors.map(f => f.detail).join('; ')}.`
+    } else if (highFactors.length > 0) {
+      recommendationReason += ` Security concerns: ${highFactors.map(f => f.detail).join('; ')}.`
+    }
+  }
+
   return {
     lastUsedBy: resource.lastUsedBy || resource.lastAccessedBy || resource.properties?.lastAccessedBy || null,
     idleDays,
@@ -266,6 +298,11 @@ function classifyOrphan(
     isSeasonal: seasonalInfo.isSeasonal,
     seasonalPattern: seasonalInfo.pattern,
     nextExpectedRun: seasonalInfo.nextRun,
+    securityRiskScore: secRiskScore,
+    securityFactors: secFactors,
+    isInternetFacing: !!isInternetFacing,
+    hasEncryption: securityRisk?.has_encryption ?? null,
+    totalPermissions: securityRisk?.total_permissions ?? 0,
   }
 }
 
@@ -292,24 +329,26 @@ export async function GET(
       return NextResponse.json({ orphans: [], seasonal: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } })
     }
 
-    // 2. Fetch REAL activity evidence from the backend
-    //    This queries ALL relationships (not just within-system), including:
-    //    - CloudTrail ACCESSES_RESOURCE / PERFORMED_ACTION
-    //    - VPC Flow Logs SENDS_TRAFFIC / RECEIVES_TRAFFIC
-    //    - IAM Access Advisor HAS_PERMISSION_USAGE
+    // 2. Fetch REAL activity evidence AND security risk factors in parallel
     let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null }> = {}
-    try {
-      const evidenceResponse = await fetch(
+    let securityRisks: Record<string, { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }> = {}
+
+    const [evidenceResult, securityResult] = await Promise.allSettled([
+      fetch(
         `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`,
         { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000) }
-      )
-      if (evidenceResponse.ok) {
-        const evidenceData = await evidenceResponse.json()
-        evidence = evidenceData.evidence || {}
-      }
-    } catch (e) {
-      console.warn('[orphan-services] Could not fetch activity evidence, falling back to connection counts')
-    }
+      ).then(async r => r.ok ? (await r.json()).evidence || {} : {}),
+      fetch(
+        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/security-risk-factors`,
+        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(25000) }
+      ).then(async r => r.ok ? (await r.json()).security_risks || {} : {}),
+    ])
+
+    if (evidenceResult.status === 'fulfilled') evidence = evidenceResult.value
+    else console.warn('[orphan-services] Could not fetch activity evidence, falling back to connection counts')
+
+    if (securityResult.status === 'fulfilled') securityRisks = securityResult.value
+    else console.warn('[orphan-services] Could not fetch security risk factors')
 
     // Build lastUsedBy map from system-resources data
     const lastUsedByMap: Record<string, string> = {}
@@ -395,7 +434,9 @@ export async function GET(
       const activityHistory: string[] = []
       const seasonalInfo = detectSeasonalPattern(activityHistory)
 
-      const classification = classifyOrphan(r, totalRels, idleDays, seasonalInfo)
+      // Get security risk data for this resource
+      const secRisk = securityRisks[resourceName]
+      const classification = classifyOrphan(r, totalRels, idleDays, seasonalInfo, secRisk)
 
       const orphanResource: OrphanResource = {
         id: r.id || r.name || Math.random().toString(),
