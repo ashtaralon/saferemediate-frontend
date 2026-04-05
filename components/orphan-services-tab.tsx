@@ -331,10 +331,15 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const openChecklist = (orphan: OrphanResource) => {
     const state = remediationStates[orphan.id]
     setActiveModal({ orphan, phase: "checklist", safetyScore: state?.safetyScore || null, error: null })
-    if (state && state.status === "assessed") {
-      const newStates = { ...remediationStates, [orphan.id]: { ...state, status: "remediating" as const } }
-      saveRemediationState(newStates)
+    // Initialize or transition state
+    const newStates = { ...remediationStates }
+    if (!state) {
+      // First time opening checklist — create state
+      newStates[orphan.id] = { safetyScore: null, checkedSteps: new Set(), status: "remediating" }
+    } else if (state.status !== "done") {
+      newStates[orphan.id] = { ...state, status: "remediating" }
     }
+    saveRemediationState(newStates)
   }
 
   // --- Toggle a checklist step ---
@@ -870,7 +875,14 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
               <div className="flex items-center gap-2">
                 {activeModal.phase === "assessment" && activeModal.safetyScore && (
                   <button
-                    onClick={() => setActiveModal({ ...activeModal, phase: "checklist" })}
+                    onClick={() => {
+                      setActiveModal({ ...activeModal, phase: "checklist" })
+                      // Transition to remediating
+                      const state = remediationStates[activeModal.orphan.id]
+                      if (state && state.status !== "done") {
+                        saveRemediationState({ ...remediationStates, [activeModal.orphan.id]: { ...state, status: "remediating" } })
+                      }
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
                   >
                     <ClipboardList className="w-3 h-3" />
