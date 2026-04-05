@@ -598,27 +598,23 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             <div className="grid grid-cols-3 gap-4 text-sm">
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Last Active</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{formatDate(orphan.lastSeen)}</div>
+                                <div className={`font-medium ${orphan.lastSeen ? 'text-[var(--foreground,#111827)]' : 'text-[#ef4444]'}`}>{orphan.lastSeen ? formatDate(orphan.lastSeen) : 'No activity detected'}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Idle Duration</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.idleDays} days</div>
-                              </div>
-                              <div>
-                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Connected Resources</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.attachedResources}</div>
-                              </div>
-                              <div>
-                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Last Used By</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastUsedBy || (orphan.attachedResources === 0 ? "None (isolated)" : "Unknown")}</div>
-                              </div>
-                              <div>
-                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Confidence</div>
-                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {orphan.idleDays >= 180 ? `${Math.floor(orphan.idleDays / 30)}+ months with no activity` : `${orphan.idleDays} days since last activity`}</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? `${orphan.idleDays} days since last activity` : 'No activity ever recorded'}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Connections</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.attachedResources} {orphan.attachedResources === 1 ? 'resource' : 'resources'}</div>
+                                <div className={`font-medium ${orphan.attachedResources === 0 ? 'text-[#ef4444]' : 'text-[var(--foreground,#111827)]'}`}>{orphan.attachedResources === 0 ? 'None — completely isolated' : `${orphan.attachedResources} ${orphan.attachedResources === 1 ? 'resource' : 'resources'}`}</div>
+                              </div>
+                              <div>
+                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Evidence Sources</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastSeen ? 'CloudTrail · Flow Logs · Access Advisor' : 'No evidence found in any source'}</div>
+                              </div>
+                              <div>
+                                <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Confidence</div>
+                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {!orphan.lastSeen ? 'No activity across any evidence plane' : orphan.idleDays >= 180 ? `${Math.floor(orphan.idleDays / 30)}+ months since last activity` : `${orphan.idleDays} days since last observed activity`}</div>
                               </div>
                             </div>
 
