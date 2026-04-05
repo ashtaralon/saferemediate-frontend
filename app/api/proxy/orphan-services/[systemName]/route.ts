@@ -192,23 +192,48 @@ function classifyOrphan(
   const estimatedMonthlyCost = COST_ESTIMATES[resource.type] || COST_ESTIMATES[type] || 0
 
   // ── Risk Level ──
-  // Based on blast radius: internet-facing + idle = dangerous, isolated = moderate
+  // "What's the security/cost risk of leaving this resource idle?"
+  //
+  //  HIGH   = Internet-facing OR completely isolated (0 connections) for 180+ days
+  //           → Unmonitored attack surface or dead cost with zero value
+  //
+  //  MEDIUM = Idle 100+ days with ≤2 connections, or isolated for 100–179 days
+  //           → Likely unused but has some references that need verification
+  //
+  //  LOW    = Meets orphan criteria but has some mitigating factors
+  //           → Worth reviewing but not urgent
+  //
   let riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (isInternetFacing && idleDays >= DECOMMISSION_THRESHOLD_DAYS) riskLevel = 'HIGH'
+  if (isInternetFacing && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'HIGH'
   else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) riskLevel = 'HIGH'
+  else if (isStopped && idleDays >= DELETE_THRESHOLD_DAYS) riskLevel = 'HIGH'
   else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
   else if (edgeCount === 0 && idleDays >= ORPHAN_THRESHOLD_DAYS) riskLevel = 'MEDIUM'
 
   // ── Confidence ──
-  // How sure are we this is actually an orphan?
+  // "How sure are we this is actually an orphan?"
+  //
+  //  HIGH   = 180+ days idle AND 0 connections across ALL evidence planes
+  //           → No CloudTrail, no flow logs, no Access Advisor, nothing. Certain.
+  //
+  //  MEDIUM = 150+ days idle, or 100+ days idle with 0 connections
+  //           → Strong evidence, but less history or a few stale refs remain
+  //
+  //  LOW    = 100–149 days idle with 1-2 connections
+  //           → Meets threshold but connections need manual verification
+  //
   let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) confidence = 'HIGH'        // 90+ days, 0 rels → very sure
-  else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS && edgeCount <= 1) confidence = 'HIGH' // 60+ days, ≤1 rel → sure
-  else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) confidence = 'MEDIUM'              // 60+ days, few rels → fairly sure
-  else if (idleDays >= ORPHAN_THRESHOLD_DAYS && edgeCount === 0) confidence = 'MEDIUM'  // 30+ days, isolated → probable
+  if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) confidence = 'HIGH'
+  else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) confidence = 'MEDIUM'
+  else if (idleDays >= ORPHAN_THRESHOLD_DAYS && edgeCount === 0) confidence = 'MEDIUM'
 
   // ── Recommendation ──
-  // Follows the timeline: REVIEW → DECOMMISSION → DELETE
+  // "What should you do about it?"
+  //
+  //  DELETE       = 180+ days, 0 connections → safe to remove
+  //  DECOMMISSION = 150+ days → schedule removal after dependency check
+  //  REVIEW       = 100–149 days → investigate, don't act yet
+  //
   let recommendation: 'DELETE' | 'DECOMMISSION' | 'REVIEW' | 'ARCHIVE' = 'REVIEW'
   let recommendationReason = ''
 
@@ -216,24 +241,17 @@ function classifyOrphan(
     recommendation = 'REVIEW'
     recommendationReason = `Detected ${seasonalInfo.pattern} usage pattern. Next expected activity: ${seasonalInfo.nextRun ? new Date(seasonalInfo.nextRun).toLocaleDateString() : 'unknown'}. Verify this is intentional.`
   } else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) {
-    // 90+ days, completely isolated → safe to delete
     recommendation = 'DELETE'
-    recommendationReason = `No activity for ${idleDays} days and zero connections across all evidence planes (CloudTrail, flow logs, IAM). Completely isolated — safe to remove.`
+    recommendationReason = `No activity for ${idleDays} days and zero connections across all evidence planes (CloudTrail, flow logs, IAM Access Advisor). Completely isolated — safe to remove.`
   } else if (isStopped && idleDays >= DELETE_THRESHOLD_DAYS) {
     recommendation = 'DELETE'
-    recommendationReason = `Stopped for ${idleDays} days with no observed activity. Safe to terminate and clean up.`
+    recommendationReason = `Stopped for ${idleDays} days with no observed activity. Safe to terminate and clean up associated resources.`
   } else if (idleDays >= DECOMMISSION_THRESHOLD_DAYS) {
-    // 60–89 days → schedule decommission
     recommendation = 'DECOMMISSION'
     recommendationReason = `No activity for ${idleDays} days with only ${edgeCount} connection(s). Schedule decommission after verifying no downstream dependencies.`
-  } else if (edgeCount === 0) {
-    // 30–59 days, isolated → archive/snapshot first
-    recommendation = 'ARCHIVE'
-    recommendationReason = `Isolated (zero connections) and idle for ${idleDays} days. Consider archiving or snapshotting before removal.`
   } else {
-    // 30–59 days, has some connections → just review
     recommendation = 'REVIEW'
-    recommendationReason = `Idle for ${idleDays} days but still has ${edgeCount} connection(s). Investigate whether connections are stale.`
+    recommendationReason = `Idle for ${idleDays} days${edgeCount === 0 ? ' with zero connections' : ` but still has ${edgeCount} connection(s)`}. Investigate before taking action.`
   }
 
   return {
