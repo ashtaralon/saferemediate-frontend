@@ -9,15 +9,17 @@ const ORPHAN_THRESHOLD_DAYS = 30
 const SEASONAL_LOOKBACK_DAYS = 365
 
 // Only analyze actual AWS workload resources that cost money or pose security risk
+// Use VARIANT types (EC2Instance, S3Bucket, etc.) — base types (EC2, S3, RDS) are
+// polluted with IAM permission strings and service descriptors in Neo4j.
 // Exclude: networking infra (VPC/Subnet/IGW), AWS-managed policies, permission strings
 const ORPHAN_ELIGIBLE_TYPES = new Set([
-  'EC2', 'EC2Instance', 'Lambda', 'LambdaFunction',
-  'RDS', 'RDSInstance', 'S3', 'S3Bucket',
-  'DynamoDB', 'DynamoDBTable',
+  'EC2Instance', 'LambdaFunction',
+  'RDSInstance', 'S3Bucket',
+  'DynamoDBTable',
   'ECS', 'EKS', 'LoadBalancer', 'ALB', 'NLB',
   'IAMRole', 'IAMPolicy', 'IAMUser', 'SecurityGroup',
   'ElasticIP', 'NAT', 'NATGateway',
-  'SQSQueue', 'StepFunction', 'EventBridge',
+  'SQSQueue', 'StepFunction',
 ])
 
 // AWS-managed IAM policy prefixes — these exist in every account, never orphans
@@ -258,18 +260,27 @@ export async function GET(
 
       const lastSeenDate = r.lastSeen || r.last_seen || r.properties?.lastSeen
       const lastSeen = lastSeenDate ? new Date(lastSeenDate) : null
-      // If no valid lastSeen or it's before 2020, treat as "unknown" — use 90 days as default
+      // If no valid lastSeen or it's before 2020, treat as "unknown"
       const hasValidDate = lastSeen && lastSeen.getTime() > new Date('2020-01-01').getTime()
-      const idleDays = hasValidDate ? Math.floor((now - lastSeen!.getTime()) / (1000 * 60 * 60 * 24)) : 90
-
-      // Skip resources active within threshold
-      if (idleDays < ORPHAN_THRESHOLD_DAYS && (edgeCounts[r.name] || 0) > 0) continue
+      const idleDays = hasValidDate ? Math.floor((now - lastSeen!.getTime()) / (1000 * 60 * 60 * 24)) : -1
 
       const isStopped = r.instanceState === 'stopped' || r.status === 'stopped'
       const edges = edgeCounts[r.name] || 0
 
+      // If we don't have a real lastSeen date, we can only rely on connection count:
+      // - 0 connections → truly isolated, treat as orphan (90 days idle)
+      // - 1+ connections → we have no evidence it's idle, don't assume orphan
+      let effectiveIdleDays = idleDays
+      if (idleDays === -1) {
+        if (edges === 0) effectiveIdleDays = 90
+        else effectiveIdleDays = 0  // Without proof of idleness, don't flag connected resources
+      }
+
+      // Skip resources active within threshold that have connections
+      if (effectiveIdleDays < ORPHAN_THRESHOLD_DAYS && edges > 0) continue
+
       // Must meet at least one orphan criteria
-      const isOrphanCandidate = idleDays >= ORPHAN_THRESHOLD_DAYS || edges === 0 || isStopped
+      const isOrphanCandidate = effectiveIdleDays >= ORPHAN_THRESHOLD_DAYS || edges === 0 || isStopped
 
       if (!isOrphanCandidate) continue
 
@@ -281,14 +292,14 @@ export async function GET(
       const history = activityHistory[r.name] || []
       const seasonalInfo = detectSeasonalPattern(history)
 
-      const classification = classifyOrphan(r, edges, idleDays, seasonalInfo)
+      const classification = classifyOrphan(r, edges, effectiveIdleDays, seasonalInfo)
 
       const orphanResource: OrphanResource = {
         id: r.id || r.name || Math.random().toString(),
         name: r.name || 'Unknown',
         type: r.type || 'Unknown',
         region: r.region || r.properties?.region || 'eu-west-1',
-        status: isStopped ? 'stopped' : (idleDays >= ORPHAN_THRESHOLD_DAYS ? 'idle' : 'isolated'),
+        status: isStopped ? 'stopped' : (effectiveIdleDays >= ORPHAN_THRESHOLD_DAYS ? 'idle' : 'isolated'),
         lastSeen: hasValidDate ? lastSeen!.toISOString() : '',
         properties: r.properties || {},
         lastUsedBy: classification.lastUsedBy || lastUsedByMap[r.name] || null,
