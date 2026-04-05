@@ -34,6 +34,7 @@ import {
   Bug,
   Unplug,
 } from "lucide-react"
+import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
@@ -329,6 +330,10 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [autoTaggerLoading, setAutoTaggerLoading] = useState(false)
   const [showAutoTaggerResult, setShowAutoTaggerResult] = useState(false)
   const [autoTaggerDiagnostic, setAutoTaggerDiagnostic] = useState<any>(null)
+
+  // Global sync / refresh state
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
 
   // =============================================================================
   // TAG ALL STATE
@@ -1092,15 +1097,35 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   )}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                  AWS eu-west-1 • {systemMeta.environment || "Production"} environment • Last scan: 2 min ago
+                  AWS eu-west-1 • {systemMeta.environment || "Production"} environment{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
+              {/* 1. Sync from AWS → Neo4j */}
+              <SyncFromAWSButton
+                onSyncComplete={() => {
+                  setLastSyncedAt(new Date().toISOString())
+                  setRefreshKey((k) => k + 1)
+                }}
+                className="flex-shrink-0"
+              />
+
+              {/* 2. Refresh from Neo4j (re-read existing data) */}
+              <button
+                onClick={() => {
+                  setRefreshKey((k) => k + 1)
+                }}
+                className="flex items-center gap-2 px-4 py-2 border border-[var(--border,#e5e7eb)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+
               <button
                 onClick={() => setShowTagModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium" // Changed button style to match original
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
               >
                 <Tag className="w-4 h-4" />
                 Tag All Resources
@@ -1808,37 +1833,38 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {/* Render the LeastPrivilegeTab component */}
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <LeastPrivilegeTab systemName={systemName} />
+          <LeastPrivilegeTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
       {activeTab === "vulnerabilities" && (
         <div className="max-w-[1800px] mx-auto px-8 py-3">
-          <VulnerabilitiesSection systemName={systemName} />
+          <VulnerabilitiesSection key={refreshKey} systemName={systemName} />
         </div>
       )}
 
       {activeTab === "cloud-graph" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <CloudGraphTab systemName={systemName} />
+          <CloudGraphTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
       {activeTab === "all-services" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <AllServicesTab systemName={systemName} />
+          <AllServicesTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
       {activeTab === "orphan-services" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <OrphanServicesTab systemName={systemName} />
+          <OrphanServicesTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab 
+          <DependencyMapTab
+            key={refreshKey}
             systemName={systemName}
             highlightPath={highlightPath || undefined}
             defaultGraphEngine={graphEngine}
@@ -1850,13 +1876,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "behavioral" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6 bg-slate-950 min-h-[600px]">
-          <BehavioralIntelligence systemName={systemName} />
+          <BehavioralIntelligence key={refreshKey} systemName={systemName} />
         </div>
       )}
 
       {activeTab === "snapshots" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SnapshotsRecoveryTab systemName={systemName} />
+          <SnapshotsRecoveryTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
