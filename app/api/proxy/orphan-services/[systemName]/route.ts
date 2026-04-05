@@ -17,27 +17,28 @@ const SEASONAL_LOOKBACK_DAYS = 365
 //
 // Timeline (based on idle days since last observed activity):
 //
-//   0–29 days   → NOT an orphan. Still within normal operational window.
+//   0–99 days   → NOT an orphan. Normal operational window.
+//                  No resource gets flagged before 100 days of inactivity.
 //
-//  30–59 days   → REVIEW. Flag only if isolated (≤1 relationship).
+// 100–149 days  → REVIEW. Flag only if isolated (0 connections).
 //                  Confidence: LOW. Recommendation: REVIEW.
-//                  "Idle for X days with minimal connections — investigate."
+//                  "Idle for X days with zero connections — investigate."
 //
-//  60–89 days   → DECOMMISSION candidate. Flag if ≤2 relationships.
+// 150–179 days  → DECOMMISSION candidate. Flag if ≤2 relationships.
 //                  Confidence: MEDIUM. Recommendation: DECOMMISSION.
 //                  "Inactive for X days — schedule decommission after verification."
 //
-//  90+ days     → DELETE candidate (if isolated) or DECOMMISSION (if few rels).
+// 180+ days     → DELETE candidate (if isolated) or DECOMMISSION (if few rels).
 //                  Confidence: HIGH (0 rels) or MEDIUM (1-2 rels).
 //                  Recommendation: DELETE (0 rels) or DECOMMISSION (1-2 rels).
 //
-//  No timestamp + 0 rels + 0 hits → Treated as 90 days (completely unknown).
+//  No timestamp + 0 rels + 0 hits → Treated as 180 days (completely unknown).
 //  No timestamp + any evidence    → Treated as 0 days (can't prove idle).
 //
 // ═══════════════════════════════════════════════════════════════════════════
-const ORPHAN_THRESHOLD_DAYS = 30      // Minimum idle days to consider
-const DECOMMISSION_THRESHOLD_DAYS = 60 // Escalate to DECOMMISSION
-const DELETE_THRESHOLD_DAYS = 90       // Escalate to DELETE (if isolated)
+const ORPHAN_THRESHOLD_DAYS = 100      // Minimum idle days to flag at all
+const DECOMMISSION_THRESHOLD_DAYS = 150 // Escalate to DECOMMISSION
+const DELETE_THRESHOLD_DAYS = 180       // Escalate to DELETE (if isolated)
 
 // Only analyze actual AWS workload resources that cost money or pose security risk
 // Use VARIANT types (EC2Instance, S3Bucket, etc.) — base types (EC2, S3, RDS) are
@@ -335,7 +336,7 @@ export async function GET(
         if (totalRels > 0 || cloudtrailEvents > 0 || totalHits > 0 || advisorServices > 0) {
           idleDays = 0  // Has evidence of use but no timestamp — NOT an orphan
         } else {
-          idleDays = 90  // Truly no evidence of any activity
+          idleDays = 180  // Truly no evidence of any activity anywhere
         }
       }
 
