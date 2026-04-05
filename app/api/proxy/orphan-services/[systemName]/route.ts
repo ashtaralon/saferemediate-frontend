@@ -172,13 +172,13 @@ function classifyOrphan(
   const estimatedMonthlyCost = COST_ESTIMATES[resource.type] || COST_ESTIMATES[type] || 0
 
   let riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (isInternetFacing && idleDays > 60) riskLevel = 'HIGH'
-  else if (idleDays > 60 || (isInternetFacing && idleDays > 30)) riskLevel = 'MEDIUM'
-  else if (edgeCount === 0 && idleDays > 30) riskLevel = 'MEDIUM'
+  if (isInternetFacing && idleDays >= 60) riskLevel = 'HIGH'
+  else if (idleDays >= 60 || (isInternetFacing && idleDays >= 30)) riskLevel = 'MEDIUM'
+  else if (edgeCount === 0 && idleDays >= 30) riskLevel = 'MEDIUM'
 
   let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW'
-  if (idleDays > 90 && edgeCount === 0) confidence = 'HIGH'
-  else if (idleDays > 60 || (idleDays > 30 && edgeCount === 0)) confidence = 'MEDIUM'
+  if (idleDays >= 90 && edgeCount === 0) confidence = 'HIGH'
+  else if (idleDays >= 60 || (idleDays >= 30 && edgeCount === 0)) confidence = 'MEDIUM'
 
   let recommendation: 'DELETE' | 'DECOMMISSION' | 'REVIEW' | 'ARCHIVE' = 'REVIEW'
   let recommendationReason = ''
@@ -186,13 +186,13 @@ function classifyOrphan(
   if (seasonalInfo.isSeasonal) {
     recommendation = 'REVIEW'
     recommendationReason = `Detected ${seasonalInfo.pattern} usage pattern. Next expected activity: ${seasonalInfo.nextRun ? new Date(seasonalInfo.nextRun).toLocaleDateString() : 'unknown'}. Verify this is intentional.`
-  } else if (isStopped && idleDays > 90) {
+  } else if (isStopped && idleDays >= 90) {
     recommendation = 'DELETE'
     recommendationReason = `Stopped for ${idleDays} days with no activity. Safe to terminate and clean up associated resources.`
-  } else if (edgeCount === 0 && idleDays > 90) {
+  } else if (edgeCount === 0 && idleDays >= 90) {
     recommendation = 'DELETE'
     recommendationReason = `No connections to any service and idle for ${idleDays} days. Completely isolated — safe to remove.`
-  } else if (idleDays > 60) {
+  } else if (idleDays >= 60) {
     recommendation = 'DECOMMISSION'
     recommendationReason = `Inactive for ${idleDays} days. Schedule decommission after verifying no downstream dependencies.`
   } else if (edgeCount === 0) {
@@ -204,7 +204,7 @@ function classifyOrphan(
   }
 
   return {
-    lastUsedBy: resource.lastAccessedBy || resource.properties?.lastAccessedBy || null,
+    lastUsedBy: resource.lastUsedBy || resource.lastAccessedBy || resource.properties?.lastAccessedBy || null,
     idleDays,
     attachedResources: edgeCount,
     riskLevel,
@@ -241,30 +241,20 @@ export async function GET(
       return NextResponse.json({ orphans: [], seasonal: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } })
     }
 
-    // 2. Fetch topology edges to detect isolated nodes
+    // 2. Build edge counts and lastUsedBy from the resources data
+    //    (backend already provides these via Neo4j Bolt — the HTTP tx API is blocked by Neo4j Aura)
     const edgeCounts: Record<string, number> = {}
     const lastUsedByMap: Record<string, string> = {}
-    const edgeData = await runNeo4jQuery(
-      `MATCH (n)-[r]-(m) WHERE n.systemName = '${systemName}' RETURN n.name AS name, count(r) AS edges, collect(DISTINCT m.name)[0] AS connectedTo`
-    )
-    for (const row of edgeData) {
-      const name = row.row?.[0]
-      if (name) {
-        edgeCounts[name] = row.row[1] || 0
-        if (row.row[2]) lastUsedByMap[name] = row.row[2]
+    for (const r of resources) {
+      if (r.name) {
+        edgeCounts[r.name] = r.connections || 0
+        if (r.lastUsedBy) lastUsedByMap[r.name] = r.lastUsedBy
       }
     }
 
-    // 3. Fetch activity history for seasonal pattern detection (12-month lookback)
+    // 3. Activity history — seasonal detection relies on future backend enrichment
+    //    (Neo4j Aura blocks HTTP transaction API, so direct queries don't work)
     const activityHistory: Record<string, string[]> = {}
-    const activityData = await runNeo4jQuery(
-      `MATCH (n {systemName: '${systemName}'})-[r]-() WHERE r.timestamp IS NOT NULL AND r.timestamp > datetime() - duration({days: ${SEASONAL_LOOKBACK_DAYS}}) RETURN n.name AS name, collect(DISTINCT toString(r.timestamp)) AS dates`
-    )
-    for (const row of activityData) {
-      const name = row.row?.[0]
-      const dates = row.row?.[1]
-      if (name && dates) activityHistory[name] = dates
-    }
 
     // 4. Classify each resource
     const now = Date.now()
