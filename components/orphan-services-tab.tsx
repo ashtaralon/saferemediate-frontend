@@ -32,14 +32,14 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldOff,
+  Play,
+  Pause,
+  RotateCcw,
   X,
   CheckCircle2,
+  Info,
   Loader2,
-  Copy,
-  Terminal,
-  CheckSquare,
-  Square,
-  ClipboardList,
+  History,
 } from "lucide-react"
 
 interface SecurityFactor {
@@ -83,76 +83,30 @@ interface OrphanSummary {
   lowRisk: number
 }
 
+interface QuarantineRecord {
+  id: string
+  resourceName: string
+  resourceType: string
+  systemName: string
+  phase: string
+  safetyScore: number
+  safetyBreakdown: any
+  configBackup: any
+  initiatedBy: string
+  createdAt: string
+  updatedAt: string
+  monitorStartedAt: string
+  quarantinedAt: string
+  deletedAt: string
+  restoredAt: string
+  history: Array<{ phase: string; timestamp: string; actor: string; note: string }>
+}
+
 interface SafetyScore {
   score: number
   breakdown: Record<string, { value: any; score: number; weight: number }>
   recommendation: "SAFE" | "CAUTION" | "RISKY"
   warnings: string[]
-}
-
-interface RemediationStep {
-  id: string
-  title: string
-  cli: string
-  consoleSteps: string
-}
-
-interface RemediationState {
-  safetyScore: SafetyScore | null
-  checkedSteps: Set<string>
-  status: "idle" | "assessed" | "remediating" | "done" | "dismissed"
-}
-
-// ═══════════════════════════════════════════════════════════════
-// REMEDIATION STEPS PER RESOURCE TYPE
-// Real AWS CLI commands — user executes these manually
-// ═══════════════════════════════════════════════════════════════
-const REMEDIATION_STEPS: Record<string, (name: string) => RemediationStep[]> = {
-  EC2Instance: (name) => [
-    { id: "ec2-stop", title: "Stop the instance", cli: `aws ec2 stop-instances --instance-ids $(aws ec2 describe-instances --filters "Name=tag:Name,Values=${name}" --query "Reservations[].Instances[].InstanceId" --output text)`, consoleSteps: "EC2 > Instances > Select instance > Instance State > Stop" },
-    { id: "ec2-sg", title: "Remove security group access", cli: `# Get instance SG, then revoke all inbound rules\naws ec2 describe-instances --filters "Name=tag:Name,Values=${name}" --query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text`, consoleSteps: "EC2 > Instances > Select > Security > Security Groups > Edit inbound rules > Remove all" },
-    { id: "ec2-role", title: "Detach IAM instance profile", cli: `aws ec2 describe-iam-instance-profile-associations --filters "Name=instance-id,Values=<INSTANCE_ID>" --query "IamInstanceProfileAssociations[].AssociationId" --output text\n# Then: aws ec2 disassociate-iam-instance-profile --association-id <ASSOC_ID>`, consoleSteps: "EC2 > Instances > Select > Actions > Security > Modify IAM Role > Remove" },
-  ],
-  RDSInstance: (name) => [
-    { id: "rds-stop", title: "Stop the database instance", cli: `aws rds stop-db-instance --db-instance-identifier ${name.toLowerCase()}`, consoleSteps: "RDS > Databases > Select > Actions > Stop" },
-    { id: "rds-public", title: "Disable public accessibility", cli: `aws rds modify-db-instance --db-instance-identifier ${name.toLowerCase()} --no-publicly-accessible`, consoleSteps: "RDS > Databases > Select > Modify > Connectivity > Public access: No" },
-    { id: "rds-sg", title: "Remove security group access", cli: `# Move to a restrictive SG with no inbound rules\naws rds modify-db-instance --db-instance-identifier ${name.toLowerCase()} --vpc-security-group-ids <DENY_ALL_SG_ID>`, consoleSteps: "RDS > Databases > Select > Modify > Connectivity > VPC security group > Select deny-all SG" },
-  ],
-  S3Bucket: (name) => [
-    { id: "s3-public", title: "Block all public access", cli: `aws s3api put-public-access-block --bucket ${name} --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true`, consoleSteps: "S3 > Bucket > Permissions > Block Public Access > Edit > Block all" },
-    { id: "s3-policy", title: "Add deny-all bucket policy", cli: `aws s3api put-bucket-policy --bucket ${name} --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::${name}","arn:aws:s3:::${name}/*"],"Condition":{"StringNotEquals":{"aws:PrincipalAccount":"YOUR_ACCOUNT_ID"}}}]}'`, consoleSteps: "S3 > Bucket > Permissions > Bucket policy > Edit > Paste deny-all policy" },
-    { id: "s3-encrypt", title: "Enable default encryption", cli: `aws s3api put-bucket-encryption --bucket ${name} --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'`, consoleSteps: "S3 > Bucket > Properties > Default encryption > Edit > SSE-S3" },
-  ],
-  LambdaFunction: (name) => [
-    { id: "lambda-concurrency", title: "Set concurrency to 0 (disable invocations)", cli: `aws lambda put-function-concurrency --function-name ${name} --reserved-concurrent-executions 0`, consoleSteps: "Lambda > Functions > Select > Configuration > Concurrency > Edit > Set to 0" },
-    { id: "lambda-triggers", title: "Remove event triggers", cli: `aws lambda list-event-source-mappings --function-name ${name}\n# Then: aws lambda delete-event-source-mapping --uuid <UUID> for each`, consoleSteps: "Lambda > Functions > Select > Configuration > Triggers > Remove all triggers" },
-  ],
-  IAMRole: (name) => [
-    { id: "iam-deny", title: "Attach deny-all inline policy", cli: `aws iam put-role-policy --role-name ${name} --policy-name DenyAll-Quarantine --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}'`, consoleSteps: "IAM > Roles > Select > Permissions > Add inline policy > JSON > Deny */*" },
-    { id: "iam-detach", title: "Detach all managed policies", cli: `aws iam list-attached-role-policies --role-name ${name}\n# Then: aws iam detach-role-policy --role-name ${name} --policy-arn <ARN> for each`, consoleSteps: "IAM > Roles > Select > Permissions > Remove each managed policy" },
-  ],
-  IAMPolicy: (name) => [
-    { id: "policy-list", title: "List all policy attachments", cli: `aws iam list-entities-for-policy --policy-arn arn:aws:iam::YOUR_ACCOUNT:policy/${name}`, consoleSteps: "IAM > Policies > Select > Policy usage > See attached entities" },
-    { id: "policy-detach", title: "Detach from all roles/users/groups", cli: `# Detach from each entity listed above\naws iam detach-role-policy --role-name <ROLE> --policy-arn <ARN>\naws iam detach-user-policy --user-name <USER> --policy-arn <ARN>`, consoleSteps: "IAM > Policies > Select > Policy usage > Detach from each entity" },
-  ],
-  SecurityGroup: (name) => [
-    { id: "sg-backup", title: "Document current rules (backup)", cli: `aws ec2 describe-security-groups --filters "Name=group-name,Values=${name}" --output json > sg-backup-${name}.json`, consoleSteps: "EC2 > Security Groups > Select > Copy/screenshot all inbound & outbound rules" },
-    { id: "sg-revoke", title: "Remove all inbound rules", cli: `SG_ID=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=${name}" --query "SecurityGroups[0].GroupId" --output text)\naws ec2 revoke-security-group-ingress --group-id $SG_ID --security-group-rule-ids $(aws ec2 describe-security-group-rules --filter "Name=group-id,Values=$SG_ID" --query "SecurityGroupRules[?!IsEgress].SecurityGroupRuleId" --output text)`, consoleSteps: "EC2 > Security Groups > Select > Inbound rules > Edit > Remove all rules > Save" },
-  ],
-  SQSQueue: (name) => [
-    { id: "sqs-deny", title: "Add deny-all queue policy", cli: `aws sqs set-queue-attributes --queue-url $(aws sqs get-queue-url --queue-name ${name} --query QueueUrl --output text) --attributes '{"Policy":"{\\"Version\\":\\"2012-10-17\\",\\"Statement\\":[{\\"Effect\\":\\"Deny\\",\\"Principal\\":\\"*\\",\\"Action\\":\\"SQS:*\\",\\"Resource\\":\\"*\\"}]}"}'`, consoleSteps: "SQS > Select queue > Access policy > Edit > Add Deny * statement" },
-  ],
-  DynamoDBTable: (name) => [
-    { id: "dynamo-encrypt", title: "Enable encryption at rest", cli: `aws dynamodb update-table --table-name ${name} --sse-specification Enabled=true`, consoleSteps: "DynamoDB > Tables > Select > Additional settings > Encryption > Manage encryption > AWS owned key" },
-    { id: "dynamo-restrict", title: "Restrict IAM access to table", cli: `# Add deny policy on roles that access this table\n# Target ARN: arn:aws:dynamodb:REGION:ACCOUNT:table/${name}`, consoleSteps: "IAM > Find roles accessing this table > Add inline deny policy for this table ARN" },
-  ],
-}
-
-function getRemediationSteps(resourceType: string, resourceName: string): RemediationStep[] {
-  const fn = REMEDIATION_STEPS[resourceType]
-  if (fn) return fn(resourceName)
-  // Fallback for unknown types
-  return [{ id: "generic-review", title: "Review resource in AWS Console", cli: `# No specific CLI command — review ${resourceName} (${resourceType}) manually`, consoleSteps: "Open AWS Console > Navigate to the service > Find and review the resource" }]
 }
 
 interface OrphanServicesTabProps {
@@ -215,10 +169,12 @@ const RECOMMENDATION_CONFIG = {
   ARCHIVE: { icon: Archive, color: "bg-[#8b5cf6] text-white", label: "Archive" },
 }
 
-const REMEDIATION_STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType; bgColor: string }> = {
-  assessed: { label: "Assessed", color: "text-[#3b82f6]", icon: ShieldAlert, bgColor: "bg-[#3b82f610]" },
-  remediating: { label: "Remediating", color: "text-[#f97316]", icon: ClipboardList, bgColor: "bg-[#f9731610]" },
-  done: { label: "Remediated", color: "text-[#22c55e]", icon: CheckCircle2, bgColor: "bg-[#22c55e10]" },
+const PHASE_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType; bgColor: string }> = {
+  PRE_CHECK: { label: "Pre-Check", color: "text-[#3b82f6]", icon: ShieldAlert, bgColor: "bg-[#3b82f610]" },
+  MONITOR: { label: "Monitoring", color: "text-[#f97316]", icon: Eye, bgColor: "bg-[#f9731610]" },
+  QUARANTINE: { label: "Quarantined", color: "text-[#ef4444]", icon: ShieldOff, bgColor: "bg-[#ef444410]" },
+  DELETED: { label: "Deleted", color: "text-[#6b7280]", icon: Trash2, bgColor: "bg-[#6b728010]" },
+  RESTORED: { label: "Restored", color: "text-[#22c55e]", icon: CheckCircle2, bgColor: "bg-[#22c55e10]" },
 }
 
 export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
@@ -234,40 +190,15 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["orphans", "seasonal"]))
 
-  // Remediation state
-  const [remediationStates, setRemediationStates] = useState<Record<string, RemediationState>>({})
-  const [activeModal, setActiveModal] = useState<{ orphan: OrphanResource; phase: "loading" | "assessment" | "checklist"; safetyScore: SafetyScore | null; error: string | null } | null>(null)
-
-  // Load saved remediation state from localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(`remediation-${systemName}`)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        // Restore Set from array
-        const restored: Record<string, RemediationState> = {}
-        for (const [k, v] of Object.entries(parsed as Record<string, any>)) {
-          restored[k] = { ...v, checkedSteps: new Set(v.checkedSteps || []) }
-        }
-        setRemediationStates(restored)
-      }
-    } catch { /* ignore */ }
-  }, [systemName])
-
-  // Persist remediation state to localStorage
-  const saveRemediationState = (states: Record<string, RemediationState>) => {
-    setRemediationStates(states)
-    try {
-      const serializable: Record<string, any> = {}
-      for (const [k, v] of Object.entries(states)) {
-        serializable[k] = { ...v, checkedSteps: Array.from(v.checkedSteps) }
-      }
-      localStorage.setItem(`remediation-${systemName}`, JSON.stringify(serializable))
-    } catch { /* ignore */ }
-  }
+  // Quarantine state
+  const [quarantineRecords, setQuarantineRecords] = useState<QuarantineRecord[]>([])
+  const [preCheckModal, setPreCheckModal] = useState<{ orphan: OrphanResource; safetyScore: SafetyScore | null; loading: boolean; error: string | null } | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null) // record ID or orphan ID being acted on
+  const [activityModal, setActivityModal] = useState<{ recordId: string; activity: any[]; loading: boolean } | null>(null)
 
   useEffect(() => {
     fetchOrphanServices()
+    fetchQuarantineRecords()
   }, [systemName])
 
   const fetchOrphanServices = async () => {
@@ -288,9 +219,27 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     }
   }
 
-  // --- Risk Assessment (pre-check with real safety score) ---
-  const runAssessment = async (orphan: OrphanResource) => {
-    setActiveModal({ orphan, phase: "loading", safetyScore: null, error: null })
+  const fetchQuarantineRecords = async () => {
+    try {
+      const response = await fetch(`/api/proxy/quarantine/list/${encodeURIComponent(systemName)}`)
+      if (response.ok) {
+        const data = await response.json()
+        setQuarantineRecords(data.records || [])
+      }
+    } catch (err) {
+      console.error("[OrphanServices] Quarantine fetch error:", err)
+    }
+  }
+
+  const getQuarantineStatus = useCallback((resourceName: string): QuarantineRecord | null => {
+    return quarantineRecords.find(r =>
+      r.resourceName === resourceName && !["DELETED", "RESTORED"].includes(r.phase)
+    ) || null
+  }, [quarantineRecords])
+
+  // --- Pre-check ---
+  const runPreCheck = async (orphan: OrphanResource) => {
+    setPreCheckModal({ orphan, safetyScore: null, loading: true, error: null })
     try {
       const response = await fetch('/api/proxy/quarantine/pre-check', {
         method: 'POST',
@@ -308,62 +257,97 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       if (!response.ok) {
         const errBody = await response.text()
         let errMsg = `Server error (${response.status})`
-        try { errMsg = JSON.parse(errBody).error || JSON.parse(errBody).detail || errMsg } catch {}
+        try {
+          const parsed = JSON.parse(errBody)
+          errMsg = parsed.error || parsed.detail || errMsg
+        } catch { /* use default */ }
         throw new Error(errMsg)
       }
       const data = await response.json()
       if (data.error) throw new Error(data.error)
-      setActiveModal({ orphan, phase: "assessment", safetyScore: data.safetyScore, error: null })
-      // Update remediation state
-      const newStates = { ...remediationStates }
-      if (!newStates[orphan.id]) {
-        newStates[orphan.id] = { safetyScore: data.safetyScore, checkedSteps: new Set(), status: "assessed" }
-      } else {
-        newStates[orphan.id] = { ...newStates[orphan.id], safetyScore: data.safetyScore, status: newStates[orphan.id].status === "done" ? "done" : "assessed" }
-      }
-      saveRemediationState(newStates)
+      setPreCheckModal({
+        orphan,
+        safetyScore: data.safetyScore,
+        loading: false,
+        error: null,
+      })
+      // Store the record ID on the orphan for subsequent actions
+      ;(orphan as any)._quarantineRecordId = data.recordId
+      await fetchQuarantineRecords()
     } catch (err: any) {
-      setActiveModal({ orphan, phase: "assessment", safetyScore: null, error: err.message || "Unknown error" })
+      console.error("[PreCheck] Error:", err)
+      setPreCheckModal({ orphan, safetyScore: null, loading: false, error: err.message || "Unknown error" })
     }
   }
 
-  // --- Open remediation checklist ---
-  const openChecklist = (orphan: OrphanResource) => {
-    const state = remediationStates[orphan.id]
-    setActiveModal({ orphan, phase: "checklist", safetyScore: state?.safetyScore || null, error: null })
-    // Initialize or transition state
-    const newStates = { ...remediationStates }
-    if (!state) {
-      // First time opening checklist — create state
-      newStates[orphan.id] = { safetyScore: null, checkedSteps: new Set(), status: "remediating" }
-    } else if (state.status !== "done") {
-      newStates[orphan.id] = { ...state, status: "remediating" }
+  // --- Start Monitor ---
+  const startMonitor = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/start-monitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user' }),
+      })
+      if (!response.ok) throw new Error(`Start monitor failed: ${response.status}`)
+      await fetchQuarantineRecords()
+      setPreCheckModal(null)
+    } catch (err: any) {
+      console.error("[StartMonitor] Error:", err)
+    } finally {
+      setActionLoading(null)
     }
-    saveRemediationState(newStates)
   }
 
-  // --- Toggle a checklist step ---
-  const toggleStep = (orphanId: string, stepId: string) => {
-    const state = remediationStates[orphanId] || { safetyScore: null, checkedSteps: new Set<string>(), status: "remediating" as const }
-    const newChecked = new Set(state.checkedSteps)
-    if (newChecked.has(stepId)) newChecked.delete(stepId)
-    else newChecked.add(stepId)
-    const newStates = { ...remediationStates, [orphanId]: { ...state, checkedSteps: newChecked, status: "remediating" as const } }
-    saveRemediationState(newStates)
+  // --- Execute Quarantine ---
+  const executeQuarantine = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user' }),
+      })
+      if (!response.ok) throw new Error(`Execute quarantine failed: ${response.status}`)
+      await fetchQuarantineRecords()
+    } catch (err: any) {
+      console.error("[ExecuteQuarantine] Error:", err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  // --- Mark as fully remediated ---
-  const markDone = (orphanId: string) => {
-    const state = remediationStates[orphanId]
-    if (!state) return
-    const newStates = { ...remediationStates, [orphanId]: { ...state, status: "done" as const } }
-    saveRemediationState(newStates)
-    setActiveModal(null)
+  // --- Restore ---
+  const restoreResource = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user' }),
+      })
+      if (!response.ok) throw new Error(`Restore failed: ${response.status}`)
+      await fetchQuarantineRecords()
+    } catch (err: any) {
+      console.error("[Restore] Error:", err)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
-  // --- Copy to clipboard ---
-  const copyToClipboard = async (text: string) => {
-    try { await navigator.clipboard.writeText(text) } catch {}
+  // --- View Activity ---
+  const viewActivity = async (recordId: string) => {
+    setActivityModal({ recordId, activity: [], loading: true })
+    try {
+      const response = await fetch(`/api/proxy/quarantine/activity/${encodeURIComponent(recordId)}`)
+      if (response.ok) {
+        const data = await response.json()
+        setActivityModal({ recordId, activity: data.activity || [], loading: false })
+      }
+    } catch (err) {
+      console.error("[Activity] Error:", err)
+      setActivityModal({ recordId, activity: [], loading: false })
+    }
   }
 
   const filteredOrphans = useMemo(() => {
@@ -484,10 +468,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             <div className="text-lg font-bold text-[#ef4444]">{summary.highRisk}</div>
             <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">High Risk</div>
           </div>
-          <div className="flex-1 bg-white rounded-lg p-3 border border-[#22c55e40] text-center">
-            <CheckCircle2 className="w-4 h-4 mx-auto mb-1 text-[#22c55e]" />
-            <div className="text-lg font-bold text-[#22c55e]">{Object.values(remediationStates).filter(s => s.status === "done").length}</div>
-            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Remediated</div>
+          <div className="flex-1 bg-white rounded-lg p-3 border border-[#3b82f640] text-center">
+            <ShieldAlert className="w-4 h-4 mx-auto mb-1 text-[#3b82f6]" />
+            <div className="text-lg font-bold text-[#3b82f6]">{quarantineRecords.filter(r => r.phase === "QUARANTINE" || r.phase === "MONITOR").length}</div>
+            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">In Quarantine</div>
           </div>
         </div>
       </div>
@@ -570,9 +554,8 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                   const recConfig = RECOMMENDATION_CONFIG[orphan.recommendation]
                   const RecIcon = recConfig.icon
                   const isExpanded = expandedCards.has(orphan.id)
-                  const remState = remediationStates[orphan.id]
-                  const remStatus = remState?.status || "idle"
-                  const remConfig = REMEDIATION_STATUS_CONFIG[remStatus]
+                  const qRecord = getQuarantineStatus(orphan.name)
+                  const qPhase = qRecord ? PHASE_CONFIG[qRecord.phase] : null
 
                   return (
                     <div key={orphan.id} className="hover:bg-gray-50/50 transition-colors">
@@ -588,10 +571,10 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-[var(--foreground,#111827)] truncate">{orphan.name}</span>
                             <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-[var(--muted-foreground,#6b7280)]">{orphan.type}</span>
-                            {remConfig && (
-                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${remConfig.bgColor} ${remConfig.color} flex items-center gap-1`}>
-                                <remConfig.icon className="w-3 h-3" />
-                                {remConfig.label}
+                            {qPhase && (
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${qPhase.bgColor} ${qPhase.color} flex items-center gap-1`}>
+                                <qPhase.icon className="w-3 h-3" />
+                                {qPhase.label}
                               </span>
                             )}
                           </div>
@@ -704,7 +687,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             )}
 
                             {/* No security factors - show clean status */}
-                            {(!orphan.securityFactors || orphan.securityFactors.length === 0) && (
+                            {(!orphan.securityFactors || orphan.securityFactors.length === 0) && orphan.securityRiskScore === 0 && (
                               <div className="bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)]">
                                 <div className="flex items-center gap-2 text-xs text-[#22c55e]">
                                   <ShieldCheck className="w-4 h-4" />
@@ -725,43 +708,17 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                             </div>
 
-                            {/* Remediation Actions */}
+                            {/* Quarantine Actions — Phase-Aware */}
                             <div className="flex items-center gap-2 pt-1">
-                              {remStatus === "done" ? (
-                                <>
-                                  <span className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#22c55e10] text-[#22c55e] rounded-lg border border-[#22c55e30] font-medium">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    Remediated
-                                  </span>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openChecklist(orphan) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
-                                  >
-                                    <ClipboardList className="w-3 h-3" />
-                                    View Steps
-                                  </button>
-                                </>
-                              ) : remStatus === "remediating" ? (
+                              {!qRecord ? (
                                 <>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); openChecklist(orphan) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors"
+                                    onClick={(e) => { e.stopPropagation(); runPreCheck(orphan) }}
+                                    disabled={actionLoading === orphan.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
                                   >
-                                    <ClipboardList className="w-3 h-3" />
-                                    Continue Remediation
-                                  </button>
-                                  <span className="text-[10px] text-[var(--muted-foreground,#6b7280)]">
-                                    {remState?.checkedSteps.size || 0}/{getRemediationSteps(orphan.type, orphan.name).length} steps done
-                                  </span>
-                                </>
-                              ) : remStatus === "assessed" ? (
-                                <>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openChecklist(orphan) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
-                                  >
-                                    <ClipboardList className="w-3 h-3" />
-                                    View Remediation Plan
+                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldAlert className="w-3 h-3" />}
+                                    Start Quarantine
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
@@ -771,31 +728,69 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                     Dismiss
                                   </button>
                                 </>
-                              ) : (
+                              ) : qRecord.phase === "PRE_CHECK" ? (
                                 <>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); runAssessment(orphan) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
+                                    onClick={(e) => { e.stopPropagation(); startMonitor(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                                   >
-                                    <ShieldAlert className="w-3 h-3" />
-                                    Assess Risk
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                                    Start 7-Day Monitor
                                   </button>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); openChecklist(orphan) }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#8b5cf630] text-[#8b5cf6] rounded-lg hover:bg-[#8b5cf610] transition-colors"
-                                  >
-                                    <ClipboardList className="w-3 h-3" />
-                                    Remediation Plan
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
+                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
                                   >
-                                    <BellOff className="w-3 h-3" />
-                                    Dismiss
+                                    <RotateCcw className="w-3 h-3" />
+                                    Cancel
                                   </button>
                                 </>
-                              )}
+                              ) : qRecord.phase === "MONITOR" ? (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); executeQuarantine(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
+                                    Quarantine Now
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#22c55e40] text-[#22c55e] rounded-lg hover:bg-[#22c55e10] transition-colors"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    Restore
+                                  </button>
+                                  <span className="text-[10px] text-[var(--muted-foreground,#6b7280)] ml-1">
+                                    Monitoring since {formatDate(qRecord.monitorStartedAt)}
+                                  </span>
+                                </>
+                              ) : qRecord.phase === "QUARANTINE" ? (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#22c55e] text-white rounded-lg hover:bg-[#16a34a] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                    Restore
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); viewActivity(qRecord.id) }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                                  >
+                                    <History className="w-3 h-3" />
+                                    Activity Log
+                                  </button>
+                                  <span className="text-[10px] text-[#ef4444] ml-1">
+                                    Quarantined {formatDate(qRecord.quarantinedAt)} — config backed up
+                                  </span>
+                                </>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -857,94 +852,54 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
         </div>
       )}
 
-      {/* ======= ASSESSMENT + REMEDIATION MODAL ======= */}
-      {activeModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setActiveModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      {/* ======= PRE-CHECK MODAL ======= */}
+      {preCheckModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setPreCheckModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between p-5 border-b border-[var(--border,#e5e7eb)]">
               <div className="flex items-center gap-3">
-                {activeModal.phase === "checklist" ? <ClipboardList className="w-6 h-6 text-[#8b5cf6]" /> : <ShieldAlert className="w-6 h-6 text-[#8b5cf6]" />}
+                <ShieldAlert className="w-6 h-6 text-[#8b5cf6]" />
                 <div>
-                  <h3 className="font-semibold text-[var(--foreground,#111827)]">
-                    {activeModal.phase === "checklist" ? "Remediation Plan" : "Risk Assessment"}
-                  </h3>
-                  <p className="text-xs text-[var(--muted-foreground,#6b7280)]">{activeModal.orphan.name} ({activeModal.orphan.type})</p>
+                  <h3 className="font-semibold text-[var(--foreground,#111827)]">Quarantine Safety Check</h3>
+                  <p className="text-xs text-[var(--muted-foreground,#6b7280)]">{preCheckModal.orphan.name}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {activeModal.phase === "assessment" && activeModal.safetyScore && (
-                  <button
-                    onClick={() => {
-                      setActiveModal({ ...activeModal, phase: "checklist" })
-                      // Transition to remediating
-                      const state = remediationStates[activeModal.orphan.id]
-                      if (state && state.status !== "done") {
-                        saveRemediationState({ ...remediationStates, [activeModal.orphan.id]: { ...state, status: "remediating" } })
-                      }
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
-                  >
-                    <ClipboardList className="w-3 h-3" />
-                    View Plan
-                  </button>
-                )}
-                {activeModal.phase === "checklist" && activeModal.safetyScore && (
-                  <button
-                    onClick={() => setActiveModal({ ...activeModal, phase: "assessment" })}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-50 transition-colors text-[var(--muted-foreground,#6b7280)]"
-                  >
-                    <ShieldAlert className="w-3 h-3" />
-                    Assessment
-                  </button>
-                )}
-                <button onClick={() => setActiveModal(null)} className="p-1 hover:bg-gray-100 rounded-lg">
-                  <X className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />
-                </button>
-              </div>
+              <button onClick={() => setPreCheckModal(null)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />
+              </button>
             </div>
 
+            {/* Content */}
             <div className="p-5 space-y-5">
-              {/* Loading */}
-              {activeModal.phase === "loading" && (
+              {preCheckModal.loading ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <Loader2 className="w-10 h-10 text-[#8b5cf6] animate-spin mb-3" />
-                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">Running risk assessment...</p>
+                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">Running safety analysis...</p>
                 </div>
-              )}
-
-              {/* Error */}
-              {activeModal.phase === "assessment" && !activeModal.safetyScore && activeModal.error && (
-                <div className="text-center py-8">
-                  <AlertTriangle className="w-10 h-10 text-[#ef4444] mx-auto mb-3" />
-                  <p className="text-sm font-medium text-[#ef4444] mb-2">Assessment failed</p>
-                  <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-4 px-4 py-2 bg-[#ef444410] rounded-lg mx-4">{activeModal.error}</p>
-                  <button onClick={() => runAssessment(activeModal.orphan)} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed]">
-                    <RefreshCw className="w-3.5 h-3.5" /> Retry
-                  </button>
-                </div>
-              )}
-
-              {/* Assessment View */}
-              {activeModal.phase === "assessment" && activeModal.safetyScore && (
+              ) : preCheckModal.safetyScore ? (
                 <>
+                  {/* Safety Score Gauge */}
                   <div className="flex items-center justify-center py-4 relative">
-                    <SafetyGauge score={activeModal.safetyScore.score} />
+                    <SafetyGauge score={preCheckModal.safetyScore.score} />
                   </div>
+
                   <div className="text-center">
                     <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
-                      activeModal.safetyScore.recommendation === "SAFE" ? "bg-[#22c55e20] text-[#22c55e]" :
-                      activeModal.safetyScore.recommendation === "CAUTION" ? "bg-[#f9731620] text-[#f97316]" :
+                      preCheckModal.safetyScore.recommendation === "SAFE" ? "bg-[#22c55e20] text-[#22c55e]" :
+                      preCheckModal.safetyScore.recommendation === "CAUTION" ? "bg-[#f9731620] text-[#f97316]" :
                       "bg-[#ef444420] text-[#ef4444]"
                     }`}>
-                      {activeModal.safetyScore.recommendation === "SAFE" ? "Safe to Remediate" :
-                       activeModal.safetyScore.recommendation === "CAUTION" ? "Proceed with Caution" :
+                      {preCheckModal.safetyScore.recommendation === "SAFE" ? "Safe to Quarantine" :
+                       preCheckModal.safetyScore.recommendation === "CAUTION" ? "Proceed with Caution" :
                        "High Risk — Review Carefully"}
                     </span>
                   </div>
+
+                  {/* Score Breakdown */}
                   <div className="space-y-2">
                     <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Score Breakdown</h4>
-                    {Object.entries(activeModal.safetyScore.breakdown).map(([key, data]) => (
+                    {Object.entries(preCheckModal.safetyScore.breakdown).map(([key, data]) => (
                       <div key={key} className="flex items-center gap-3">
                         <div className="flex-1">
                           <div className="flex justify-between text-xs mb-1">
@@ -952,16 +907,23 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             <span className="text-[var(--muted-foreground,#6b7280)]">{data.score}/100 ({Math.round(data.weight * 100)}% weight)</span>
                           </div>
                           <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-500 ${data.score >= 70 ? "bg-[#22c55e]" : data.score >= 40 ? "bg-[#f97316]" : "bg-[#ef4444]"}`} style={{ width: `${data.score}%` }} />
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                data.score >= 70 ? "bg-[#22c55e]" : data.score >= 40 ? "bg-[#f97316]" : "bg-[#ef4444]"
+                              }`}
+                              style={{ width: `${data.score}%` }}
+                            />
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                  {activeModal.safetyScore.warnings.length > 0 && (
+
+                  {/* Warnings */}
+                  {preCheckModal.safetyScore.warnings.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Warnings</h4>
-                      {activeModal.safetyScore.warnings.map((warning, i) => (
+                      {preCheckModal.safetyScore.warnings.map((warning, i) => (
                         <div key={i} className="flex items-start gap-2 p-2 bg-[#f9731610] rounded-lg">
                           <AlertTriangle className="w-3.5 h-3.5 text-[#f97316] mt-0.5 shrink-0" />
                           <span className="text-xs text-[#f97316]">{warning}</span>
@@ -969,92 +931,115 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                       ))}
                     </div>
                   )}
+
+                  {/* Quarantine Flow Description */}
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <h4 className="text-xs font-semibold text-[var(--foreground,#111827)]">What happens next?</h4>
+                    <div className="space-y-1.5">
+                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#3b82f620] text-[#3b82f6] text-[10px] font-bold shrink-0">1</span>
+                        <span><strong>Monitor (7 days)</strong> — Resource is tagged, no blocking. Watch for any access attempts.</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#f9731620] text-[#f97316] text-[10px] font-bold shrink-0">2</span>
+                        <span><strong>Quarantine</strong> — Access blocked (EC2 stopped, IAM deny-all, SG rules revoked). Full config backed up.</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#ef444420] text-[#ef4444] text-[10px] font-bold shrink-0">3</span>
+                        <span><strong>Delete (after 30 days)</strong> — Permanently removed. Restore available at any point before deletion.</span>
+                      </div>
+                    </div>
+                  </div>
                 </>
+              ) : (
+                <div className="text-center py-8">
+                  <AlertTriangle className="w-10 h-10 text-[#ef4444] mx-auto mb-3" />
+                  <p className="text-sm font-medium text-[#ef4444] mb-2">Safety check failed</p>
+                  {preCheckModal.error && (
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mb-4 px-4 py-2 bg-[#ef444410] rounded-lg mx-4">
+                      {preCheckModal.error}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => runPreCheck(preCheckModal.orphan)}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
+                </div>
               )}
+            </div>
 
-              {/* Remediation Checklist View */}
-              {activeModal.phase === "checklist" && (() => {
-                const steps = getRemediationSteps(activeModal.orphan.type, activeModal.orphan.name)
-                const state = remediationStates[activeModal.orphan.id]
-                const checked = state?.checkedSteps || new Set<string>()
-                const allDone = steps.every(s => checked.has(s.id))
+            {/* Footer */}
+            {!preCheckModal.loading && preCheckModal.safetyScore && (
+              <div className="flex items-center justify-end gap-2 p-5 border-t border-[var(--border,#e5e7eb)]">
+                <button
+                  onClick={() => setPreCheckModal(null)}
+                  className="px-4 py-2 text-sm border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-50 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const qr = getQuarantineStatus(preCheckModal.orphan.name)
+                    if (qr) startMonitor(qr.id)
+                  }}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
+                >
+                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Start Monitoring Phase
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-                return (
-                  <>
-                    <div className="bg-[#8b5cf608] border border-[#8b5cf620] rounded-lg p-3">
-                      <div className="flex items-center gap-2 text-xs text-[#8b5cf6]">
-                        <Terminal className="w-4 h-4" />
-                        <span className="font-medium">Manual AWS actions required</span>
-                      </div>
-                      <p className="text-[11px] text-[var(--muted-foreground,#6b7280)] mt-1">
-                        Execute these steps in your AWS Console or CLI. Check each step as you complete it.
-                      </p>
-                    </div>
-
-                    {/* Progress */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#8b5cf6] rounded-full transition-all duration-300"
-                          style={{ width: `${steps.length > 0 ? (checked.size / steps.length) * 100 : 0}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-medium text-[var(--muted-foreground,#6b7280)]">{checked.size}/{steps.length}</span>
-                    </div>
-
-                    {/* Steps */}
-                    <div className="space-y-3">
-                      {steps.map((step, i) => {
-                        const isDone = checked.has(step.id)
-                        return (
-                          <div key={step.id} className={`rounded-lg border ${isDone ? 'border-[#22c55e30] bg-[#22c55e05]' : 'border-[var(--border,#e5e7eb)] bg-white'} overflow-hidden`}>
-                            <div
-                              className="flex items-start gap-3 p-3 cursor-pointer"
-                              onClick={() => toggleStep(activeModal.orphan.id, step.id)}
-                            >
-                              {isDone
-                                ? <CheckSquare className="w-5 h-5 text-[#22c55e] shrink-0 mt-0.5" />
-                                : <Square className="w-5 h-5 text-[var(--muted-foreground,#9ca3af)] shrink-0 mt-0.5" />
-                              }
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] font-bold text-[var(--muted-foreground,#6b7280)] bg-gray-100 w-5 h-5 rounded-full flex items-center justify-center">{i + 1}</span>
-                                  <span className={`text-sm font-medium ${isDone ? 'text-[#22c55e] line-through' : 'text-[var(--foreground,#111827)]'}`}>{step.title}</span>
-                                </div>
-                                <p className="text-[11px] text-[var(--muted-foreground,#6b7280)] mt-1">{step.consoleSteps}</p>
-                              </div>
-                            </div>
-                            {/* CLI command */}
-                            <div className="border-t border-[var(--border,#e5e7eb)] bg-[#1e1e2e] px-3 py-2">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] text-[#6b7280] font-medium flex items-center gap-1"><Terminal className="w-3 h-3" /> AWS CLI</span>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); copyToClipboard(step.cli) }}
-                                  className="text-[10px] text-[#6b7280] hover:text-white flex items-center gap-1 transition-colors"
-                                >
-                                  <Copy className="w-3 h-3" /> Copy
-                                </button>
-                              </div>
-                              <pre className="text-[11px] text-[#e2e8f0] font-mono whitespace-pre-wrap break-all leading-relaxed">{step.cli}</pre>
-                            </div>
+      {/* ======= ACTIVITY LOG MODAL ======= */}
+      {activityModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setActivityModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border,#e5e7eb)]">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-[#8b5cf6]" />
+                <h3 className="font-semibold text-[var(--foreground,#111827)]">Activity Log</h3>
+              </div>
+              <button onClick={() => setActivityModal(null)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />
+              </button>
+            </div>
+            <div className="p-5">
+              {activityModal.loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 text-[#8b5cf6] animate-spin" />
+                </div>
+              ) : activityModal.activity.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] text-center py-4">No activity recorded yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {activityModal.activity.map((entry, i) => {
+                    const pc = PHASE_CONFIG[entry.phase] || PHASE_CONFIG.PRE_CHECK
+                    const PhaseIcon = pc.icon
+                    return (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${pc.bgColor}`}>
+                          <PhaseIcon className={`w-3.5 h-3.5 ${pc.color}`} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-semibold ${pc.color}`}>{pc.label}</span>
+                            <span className="text-[10px] text-[var(--muted-foreground,#6b7280)]">{formatDateTime(entry.timestamp)}</span>
                           </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* Mark as Done */}
-                    {allDone && (
-                      <button
-                        onClick={() => markDone(activeModal.orphan.id)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm bg-[#22c55e] text-white rounded-lg hover:bg-[#16a34a] transition-colors font-medium"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Mark as Remediated
-                      </button>
-                    )}
-                  </>
-                )
-              })()}
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-0.5">{entry.note}</p>
+                          <p className="text-[10px] text-[var(--muted-foreground,#9ca3af)] mt-0.5">by {entry.actor}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
