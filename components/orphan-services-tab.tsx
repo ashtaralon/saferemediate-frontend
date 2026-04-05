@@ -687,7 +687,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                             )}
 
                             {/* No security factors - show clean status */}
-                            {(!orphan.securityFactors || orphan.securityFactors.length === 0) && orphan.securityRiskScore === 0 && (
+                            {(!orphan.securityFactors || orphan.securityFactors.length === 0) && (
                               <div className="bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)]">
                                 <div className="flex items-center gap-2 text-xs text-[#22c55e]">
                                   <ShieldCheck className="w-4 h-4" />
