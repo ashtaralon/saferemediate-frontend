@@ -335,6 +335,24 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     }
   }
 
+  // --- Delete Resource ---
+  const deleteNow = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user', force: true }),
+      })
+      if (!response.ok) throw new Error(`Delete failed: ${response.status}`)
+      await fetchQuarantineRecords()
+    } catch (err: any) {
+      console.error("[Delete] Error:", err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   // --- View Activity ---
   const viewActivity = async (recordId: string) => {
     setActivityModal({ recordId, activity: [], loading: true })
@@ -728,15 +746,23 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                     Dismiss
                                   </button>
                                 </>
-                              ) : qRecord.phase === "PRE_CHECK" ? (
+                              ) : qRecord.phase === "PRE_CHECK" || qRecord.phase === "MONITOR" ? (
                                 <>
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); startMonitor(qRecord.id) }}
+                                    onClick={(e) => { e.stopPropagation(); executeQuarantine(qRecord.id) }}
                                     disabled={actionLoading === qRecord.id}
                                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                                   >
-                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
-                                    Start 7-Day Monitor
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
+                                    Quarantine
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); deleteNow(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    Delete Now
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
@@ -747,28 +773,6 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                     Cancel
                                   </button>
                                 </>
-                              ) : qRecord.phase === "MONITOR" ? (
-                                <>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); executeQuarantine(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
-                                  >
-                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
-                                    Quarantine Now
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
-                                    disabled={actionLoading === qRecord.id}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#22c55e40] text-[#22c55e] rounded-lg hover:bg-[#22c55e10] transition-colors"
-                                  >
-                                    <RotateCcw className="w-3 h-3" />
-                                    Restore
-                                  </button>
-                                  <span className="text-[10px] text-[var(--muted-foreground,#6b7280)] ml-1">
-                                    Monitoring since {formatDate(qRecord.monitorStartedAt)}
-                                  </span>
-                                </>
                               ) : qRecord.phase === "QUARANTINE" ? (
                                 <>
                                   <button
@@ -778,6 +782,14 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                   >
                                     {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                                     Restore
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); deleteNow(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    Delete Now
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); viewActivity(qRecord.id) }}
@@ -932,21 +944,17 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                     </div>
                   )}
 
-                  {/* Quarantine Flow Description */}
+                  {/* Action Description */}
                   <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    <h4 className="text-xs font-semibold text-[var(--foreground,#111827)]">What happens next?</h4>
+                    <h4 className="text-xs font-semibold text-[var(--foreground,#111827)]">Choose an action</h4>
                     <div className="space-y-1.5">
                       <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#3b82f620] text-[#3b82f6] text-[10px] font-bold shrink-0">1</span>
-                        <span><strong>Monitor (7 days)</strong> — Resource is tagged, no blocking. Watch for any access attempts.</span>
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#f9731620] text-[#f97316] text-[10px] font-bold shrink-0">1</span>
+                        <span><strong>Quarantine</strong> — Access blocked (EC2 stopped, IAM deny-all, SG rules revoked). Config backed up. Restore available anytime.</span>
                       </div>
                       <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#f9731620] text-[#f97316] text-[10px] font-bold shrink-0">2</span>
-                        <span><strong>Quarantine</strong> — Access blocked (EC2 stopped, IAM deny-all, SG rules revoked). Full config backed up.</span>
-                      </div>
-                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#ef444420] text-[#ef4444] text-[10px] font-bold shrink-0">3</span>
-                        <span><strong>Delete (after 30 days)</strong> — Permanently removed. Restore available at any point before deletion.</span>
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#ef444420] text-[#ef4444] text-[10px] font-bold shrink-0">2</span>
+                        <span><strong>Delete Now</strong> — Permanently removed from AWS. This cannot be undone.</span>
                       </div>
                     </div>
                   </div>
@@ -983,13 +991,24 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                 <button
                   onClick={() => {
                     const qr = getQuarantineStatus(preCheckModal.orphan.name)
-                    if (qr) startMonitor(qr.id)
+                    if (qr) { executeQuarantine(qr.id); setPreCheckModal(null) }
                   }}
                   disabled={!!actionLoading}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
                 >
-                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Start Monitoring Phase
+                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldOff className="w-4 h-4" />}
+                  Quarantine
+                </button>
+                <button
+                  onClick={() => {
+                    const qr = getQuarantineStatus(preCheckModal.orphan.name)
+                    if (qr) { deleteNow(qr.id); setPreCheckModal(null) }
+                  }}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
+                >
+                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  Delete Now
                 </button>
               </div>
             )}
