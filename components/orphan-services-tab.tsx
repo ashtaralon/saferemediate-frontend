@@ -383,11 +383,11 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Last Used By</div>
-                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastUsedBy || "Unknown"}</div>
+                                <div className="font-medium text-[var(--foreground,#111827)]">{orphan.lastUsedBy || (orphan.attachedResources === 0 ? "None (isolated)" : "Unknown")}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Confidence</div>
-                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence}</div>
+                                <div className={`font-medium ${CONFIDENCE_COLORS[orphan.confidence]}`}>{orphan.confidence} — {orphan.idleDays >= 90 ? `${Math.floor(orphan.idleDays / 30)}+ months observed` : orphan.idleDays >= 30 ? `${orphan.idleDays} days observed` : `${orphan.idleDays} days (limited data)`}</div>
                               </div>
                               <div>
                                 <div className="text-[var(--muted-foreground,#6b7280)] text-xs">Est. Monthly Cost</div>
