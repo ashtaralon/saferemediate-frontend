@@ -105,26 +105,36 @@ interface OrphanServicesTabProps {
 }
 
 const SERVICE_ICONS: Record<string, React.ElementType> = {
-  EC2: Server, Lambda: Cloud, LambdaFunction: Cloud, S3: HardDrive, RDS: Database,
-  DynamoDB: Database, ECS: Box, EKS: Box, VPC: Network, Subnet: Network,
+  EC2: Server, EC2Instance: Server, Lambda: Cloud, LambdaFunction: Cloud,
+  S3: HardDrive, S3Bucket: HardDrive, RDS: Database, RDSInstance: Database,
+  DynamoDB: Database, DynamoDBTable: Database, ECS: Box, EKS: Box,
+  VPC: Network, Subnet: Network,
   LoadBalancer: Layers, ALB: Layers, NLB: Layers, IAMRole: Key, IAMPolicy: FileText,
   IAMUser: User, SecurityGroup: Shield, CloudTrail: Eye, CloudWatch: Activity,
+  SQSQueue: Layers, StepFunction: Activity, EventBridge: Activity,
   default: Box,
 }
 
 const SERVICE_COLORS: Record<string, string> = {
-  EC2: "bg-[#f9731620] text-[#f97316]", Lambda: "bg-[#f9731620] text-[#f97316]",
-  LambdaFunction: "bg-[#f9731620] text-[#f97316]", S3: "bg-[#22c55e20] text-[#22c55e]",
-  RDS: "bg-[#3b82f620] text-[#3b82f6]", DynamoDB: "bg-[#8b5cf615] text-[#7c3aed]",
+  EC2: "bg-[#f9731620] text-[#f97316]", EC2Instance: "bg-[#f9731620] text-[#f97316]",
+  Lambda: "bg-[#f9731620] text-[#f97316]", LambdaFunction: "bg-[#f9731620] text-[#f97316]",
+  S3: "bg-[#22c55e20] text-[#22c55e]", S3Bucket: "bg-[#22c55e20] text-[#22c55e]",
+  RDS: "bg-[#3b82f620] text-[#3b82f6]", RDSInstance: "bg-[#3b82f620] text-[#3b82f6]",
+  DynamoDB: "bg-[#8b5cf615] text-[#7c3aed]", DynamoDBTable: "bg-[#8b5cf615] text-[#7c3aed]",
   ECS: "bg-cyan-100 text-cyan-700", EKS: "bg-cyan-100 text-cyan-700",
   LoadBalancer: "bg-teal-100 text-teal-700", IAMRole: "bg-[#ef444420] text-[#ef4444]",
   IAMPolicy: "bg-[#ef444420] text-[#ef4444]", IAMUser: "bg-[#ef444420] text-[#ef4444]",
-  SecurityGroup: "bg-pink-100 text-pink-700", default: "bg-gray-100 text-[var(--foreground,#374151)]",
+  SecurityGroup: "bg-pink-100 text-pink-700",
+  SQSQueue: "bg-teal-100 text-teal-700", StepFunction: "bg-[#8b5cf615] text-[#7c3aed]",
+  EventBridge: "bg-[#f9731620] text-[#f97316]",
+  default: "bg-gray-100 text-[var(--foreground,#374151)]",
 }
 
 const COMPUTE_DATA_TYPES = [
-  "EC2", "Lambda", "LambdaFunction", "RDS", "S3", "DynamoDB",
+  "EC2", "EC2Instance", "Lambda", "LambdaFunction", "RDS", "RDSInstance",
+  "S3", "S3Bucket", "DynamoDB", "DynamoDBTable",
   "ECS", "EKS", "LoadBalancer", "ALB", "NLB", "ElasticIP", "NAT", "NATGateway",
+  "SQSQueue", "StepFunction", "EventBridge",
 ]
 
 const IDENTITY_SECURITY_TYPES = [

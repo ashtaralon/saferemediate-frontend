@@ -11,10 +11,13 @@ const SEASONAL_LOOKBACK_DAYS = 365
 // Only analyze actual AWS workload resources that cost money or pose security risk
 // Exclude: networking infra (VPC/Subnet/IGW), AWS-managed policies, permission strings
 const ORPHAN_ELIGIBLE_TYPES = new Set([
-  'EC2', 'Lambda', 'LambdaFunction', 'RDS', 'S3', 'DynamoDB',
+  'EC2', 'EC2Instance', 'Lambda', 'LambdaFunction',
+  'RDS', 'RDSInstance', 'S3', 'S3Bucket',
+  'DynamoDB', 'DynamoDBTable',
   'ECS', 'EKS', 'LoadBalancer', 'ALB', 'NLB',
   'IAMRole', 'IAMPolicy', 'IAMUser', 'SecurityGroup',
   'ElasticIP', 'NAT', 'NATGateway',
+  'SQSQueue', 'StepFunction', 'EventBridge',
 ])
 
 // AWS-managed IAM policy prefixes — these exist in every account, never orphans
@@ -56,11 +59,15 @@ function isAWSManagedResource(name: string, type: string): boolean {
 // Estimated monthly cost by resource type (USD)
 const COST_ESTIMATES: Record<string, number> = {
   EC2: 30,
+  EC2Instance: 30,
   RDS: 50,
+  RDSInstance: 50,
   Lambda: 5,
   LambdaFunction: 5,
   S3: 3,
+  S3Bucket: 3,
   DynamoDB: 10,
+  DynamoDBTable: 10,
   ECS: 25,
   EKS: 75,
   LoadBalancer: 18,
@@ -73,6 +80,9 @@ const COST_ESTIMATES: Record<string, number> = {
   IAMRole: 0,
   IAMPolicy: 0,
   IAMUser: 0,
+  SQSQueue: 5,
+  StepFunction: 10,
+  EventBridge: 2,
 }
 
 interface OrphanResource {
