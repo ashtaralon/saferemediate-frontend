@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import {
   Search,
   ChevronDown,
@@ -31,6 +31,17 @@ import {
   BellOff,
   Filter,
   TrendingDown,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldOff,
+  Play,
+  Pause,
+  RotateCcw,
+  X,
+  CheckCircle2,
+  Info,
+  Loader2,
+  History,
 } from "lucide-react"
 
 interface OrphanResource {
@@ -61,6 +72,32 @@ interface OrphanSummary {
   highRisk: number
   mediumRisk: number
   lowRisk: number
+}
+
+interface QuarantineRecord {
+  id: string
+  resourceName: string
+  resourceType: string
+  systemName: string
+  phase: string
+  safetyScore: number
+  safetyBreakdown: any
+  configBackup: any
+  initiatedBy: string
+  createdAt: string
+  updatedAt: string
+  monitorStartedAt: string
+  quarantinedAt: string
+  deletedAt: string
+  restoredAt: string
+  history: Array<{ phase: string; timestamp: string; actor: string; note: string }>
+}
+
+interface SafetyScore {
+  score: number
+  breakdown: Record<string, { value: any; score: number; weight: number }>
+  recommendation: "SAFE" | "CAUTION" | "RISKY"
+  warnings: string[]
 }
 
 interface OrphanServicesTabProps {
@@ -113,6 +150,14 @@ const RECOMMENDATION_CONFIG = {
   ARCHIVE: { icon: Archive, color: "bg-[#8b5cf6] text-white", label: "Archive" },
 }
 
+const PHASE_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType; bgColor: string }> = {
+  PRE_CHECK: { label: "Pre-Check", color: "text-[#3b82f6]", icon: ShieldAlert, bgColor: "bg-[#3b82f610]" },
+  MONITOR: { label: "Monitoring", color: "text-[#f97316]", icon: Eye, bgColor: "bg-[#f9731610]" },
+  QUARANTINE: { label: "Quarantined", color: "text-[#ef4444]", icon: ShieldOff, bgColor: "bg-[#ef444410]" },
+  DELETED: { label: "Deleted", color: "text-[#6b7280]", icon: Trash2, bgColor: "bg-[#6b728010]" },
+  RESTORED: { label: "Restored", color: "text-[#22c55e]", icon: CheckCircle2, bgColor: "bg-[#22c55e10]" },
+}
+
 export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [orphans, setOrphans] = useState<OrphanResource[]>([])
   const [seasonal, setSeasonal] = useState<OrphanResource[]>([])
@@ -124,11 +169,17 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [typeFilter, setTypeFilter] = useState<string>("ALL")
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
-  const [showSeasonal, setShowSeasonal] = useState(true)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["orphans", "seasonal"]))
+
+  // Quarantine state
+  const [quarantineRecords, setQuarantineRecords] = useState<QuarantineRecord[]>([])
+  const [preCheckModal, setPreCheckModal] = useState<{ orphan: OrphanResource; safetyScore: SafetyScore | null; loading: boolean } | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null) // record ID or orphan ID being acted on
+  const [activityModal, setActivityModal] = useState<{ recordId: string; activity: any[]; loading: boolean } | null>(null)
 
   useEffect(() => {
     fetchOrphanServices()
+    fetchQuarantineRecords()
   }, [systemName])
 
   const fetchOrphanServices = async () => {
@@ -146,6 +197,127 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchQuarantineRecords = async () => {
+    try {
+      const response = await fetch(`/api/proxy/quarantine/list/${encodeURIComponent(systemName)}`)
+      if (response.ok) {
+        const data = await response.json()
+        setQuarantineRecords(data.records || [])
+      }
+    } catch (err) {
+      console.error("[OrphanServices] Quarantine fetch error:", err)
+    }
+  }
+
+  const getQuarantineStatus = useCallback((resourceName: string): QuarantineRecord | null => {
+    return quarantineRecords.find(r =>
+      r.resourceName === resourceName && !["DELETED", "RESTORED"].includes(r.phase)
+    ) || null
+  }, [quarantineRecords])
+
+  // --- Pre-check ---
+  const runPreCheck = async (orphan: OrphanResource) => {
+    setPreCheckModal({ orphan, safetyScore: null, loading: true })
+    try {
+      const response = await fetch('/api/proxy/quarantine/pre-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resourceName: orphan.name,
+          resourceType: orphan.type,
+          systemName,
+          idleDays: orphan.idleDays,
+          connections: orphan.attachedResources,
+          recentCloudTrailEvents: 0,
+          recentFlowLogHits: 0,
+        }),
+      })
+      if (!response.ok) throw new Error(`Pre-check failed: ${response.status}`)
+      const data = await response.json()
+      setPreCheckModal({
+        orphan,
+        safetyScore: data.safetyScore,
+        loading: false,
+      })
+      // Store the record ID on the orphan for subsequent actions
+      ;(orphan as any)._quarantineRecordId = data.recordId
+      await fetchQuarantineRecords()
+    } catch (err: any) {
+      console.error("[PreCheck] Error:", err)
+      setPreCheckModal({ orphan, safetyScore: null, loading: false })
+    }
+  }
+
+  // --- Start Monitor ---
+  const startMonitor = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/start-monitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user' }),
+      })
+      if (!response.ok) throw new Error(`Start monitor failed: ${response.status}`)
+      await fetchQuarantineRecords()
+      setPreCheckModal(null)
+    } catch (err: any) {
+      console.error("[StartMonitor] Error:", err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // --- Execute Quarantine ---
+  const executeQuarantine = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user' }),
+      })
+      if (!response.ok) throw new Error(`Execute quarantine failed: ${response.status}`)
+      await fetchQuarantineRecords()
+    } catch (err: any) {
+      console.error("[ExecuteQuarantine] Error:", err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // --- Restore ---
+  const restoreResource = async (recordId: string) => {
+    setActionLoading(recordId)
+    try {
+      const response = await fetch('/api/proxy/quarantine/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, actor: 'user' }),
+      })
+      if (!response.ok) throw new Error(`Restore failed: ${response.status}`)
+      await fetchQuarantineRecords()
+    } catch (err: any) {
+      console.error("[Restore] Error:", err)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // --- View Activity ---
+  const viewActivity = async (recordId: string) => {
+    setActivityModal({ recordId, activity: [], loading: true })
+    try {
+      const response = await fetch(`/api/proxy/quarantine/activity/${encodeURIComponent(recordId)}`)
+      if (response.ok) {
+        const data = await response.json()
+        setActivityModal({ recordId, activity: data.activity || [], loading: false })
+      }
+    } catch (err) {
+      console.error("[Activity] Error:", err)
+      setActivityModal({ recordId, activity: [], loading: false })
     }
   }
 
@@ -193,8 +365,37 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
   }
 
+  const formatDateTime = (iso: string) => {
+    if (!iso) return "—"
+    return new Date(iso).toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+  }
+
   const getIcon = (type: string) => SERVICE_ICONS[type] || SERVICE_ICONS.default
   const getColor = (type: string) => SERVICE_COLORS[type] || SERVICE_COLORS.default
+
+  // --- Safety Score Gauge ---
+  const SafetyGauge = ({ score, size = "lg" }: { score: number; size?: "sm" | "lg" }) => {
+    const color = score >= 75 ? "#22c55e" : score >= 50 ? "#f97316" : "#ef4444"
+    const label = score >= 75 ? "Safe" : score >= 50 ? "Caution" : "Risky"
+    const radius = size === "lg" ? 45 : 20
+    const stroke = size === "lg" ? 8 : 4
+    const circumference = 2 * Math.PI * radius
+    const offset = circumference - (score / 100) * circumference
+    const viewSize = (radius + stroke) * 2
+
+    return (
+      <div className="flex flex-col items-center gap-1">
+        <svg width={viewSize} height={viewSize} className="transform -rotate-90">
+          <circle cx={radius + stroke} cy={radius + stroke} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={stroke} />
+          <circle cx={radius + stroke} cy={radius + stroke} r={radius} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-500" />
+        </svg>
+        <div className="absolute flex flex-col items-center" style={{ marginTop: size === "lg" ? radius - 8 : radius - 4 }}>
+          <span className={`${size === "lg" ? "text-2xl" : "text-sm"} font-bold`} style={{ color }}>{score}</span>
+        </div>
+        {size === "lg" && <span className="text-xs font-medium" style={{ color }}>{label}</span>}
+      </div>
+    )
+  }
 
   if (loading) {
     return (
@@ -220,7 +421,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Summary Stats Bar — 30% width */}
+      {/* Summary Stats Bar */}
       <div className="bg-gray-50 rounded-xl p-5 border border-[var(--border,#e5e7eb)]">
         <div className="flex gap-3 w-[30%] min-w-[420px]">
           <div className="flex-1 bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)] text-center">
@@ -239,9 +440,9 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">High Risk</div>
           </div>
           <div className="flex-1 bg-white rounded-lg p-3 border border-[#3b82f640] text-center">
-            <Calendar className="w-4 h-4 mx-auto mb-1 text-[#3b82f6]" />
-            <div className="text-lg font-bold text-[#3b82f6]">{summary.seasonalCount}</div>
-            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Seasonal</div>
+            <ShieldAlert className="w-4 h-4 mx-auto mb-1 text-[#3b82f6]" />
+            <div className="text-lg font-bold text-[#3b82f6]">{quarantineRecords.filter(r => r.phase === "QUARANTINE" || r.phase === "MONITOR").length}</div>
+            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">In Quarantine</div>
           </div>
         </div>
       </div>
@@ -281,7 +482,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
           </select>
         </div>
         <button
-          onClick={fetchOrphanServices}
+          onClick={() => { fetchOrphanServices(); fetchQuarantineRecords() }}
           className="flex items-center gap-2 px-3 py-2 text-sm border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-50 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
@@ -324,6 +525,8 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                   const recConfig = RECOMMENDATION_CONFIG[orphan.recommendation]
                   const RecIcon = recConfig.icon
                   const isExpanded = expandedCards.has(orphan.id)
+                  const qRecord = getQuarantineStatus(orphan.name)
+                  const qPhase = qRecord ? PHASE_CONFIG[qRecord.phase] : null
 
                   return (
                     <div key={orphan.id} className="hover:bg-gray-50/50 transition-colors">
@@ -339,6 +542,12 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-[var(--foreground,#111827)] truncate">{orphan.name}</span>
                             <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-[var(--muted-foreground,#6b7280)]">{orphan.type}</span>
+                            {qPhase && (
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${qPhase.bgColor} ${qPhase.color} flex items-center gap-1`}>
+                                <qPhase.icon className="w-3 h-3" />
+                                {qPhase.label}
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--muted-foreground,#6b7280)]">
                             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{orphan.lastSeen ? `${orphan.idleDays}d idle` : '~90d idle (est.)'}</span>
@@ -406,22 +615,89 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                               </div>
                             </div>
 
-                            {/* Actions */}
+                            {/* Quarantine Actions — Phase-Aware */}
                             <div className="flex items-center gap-2 pt-1">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
-                              >
-                                <BellOff className="w-3 h-3" />
-                                Dismiss
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
-                              >
-                                <Clock className="w-3 h-3" />
-                                Snooze 90d
-                              </button>
+                              {!qRecord ? (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); runPreCheck(orphan) }}
+                                    disabled={actionLoading === orphan.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === orphan.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldAlert className="w-3 h-3" />}
+                                    Start Quarantine
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); dismissOrphan(orphan.id) }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                                  >
+                                    <BellOff className="w-3 h-3" />
+                                    Dismiss
+                                  </button>
+                                </>
+                              ) : qRecord.phase === "PRE_CHECK" ? (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); startMonitor(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#f97316] text-white rounded-lg hover:bg-[#ea580c] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                                    Start 7-Day Monitor
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : qRecord.phase === "MONITOR" ? (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); executeQuarantine(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#ef4444] text-white rounded-lg hover:bg-[#dc2626] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldOff className="w-3 h-3" />}
+                                    Quarantine Now
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#22c55e40] text-[#22c55e] rounded-lg hover:bg-[#22c55e10] transition-colors"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    Restore
+                                  </button>
+                                  <span className="text-[10px] text-[var(--muted-foreground,#6b7280)] ml-1">
+                                    Monitoring since {formatDate(qRecord.monitorStartedAt)}
+                                  </span>
+                                </>
+                              ) : qRecord.phase === "QUARANTINE" ? (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); restoreResource(qRecord.id) }}
+                                    disabled={actionLoading === qRecord.id}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#22c55e] text-white rounded-lg hover:bg-[#16a34a] transition-colors disabled:opacity-50"
+                                  >
+                                    {actionLoading === qRecord.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                    Restore
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); viewActivity(qRecord.id) }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-100 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                                  >
+                                    <History className="w-3 h-3" />
+                                    Activity Log
+                                  </button>
+                                  <span className="text-[10px] text-[#ef4444] ml-1">
+                                    Quarantined {formatDate(qRecord.quarantinedAt)} — config backed up
+                                  </span>
+                                </>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -480,6 +756,187 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ======= PRE-CHECK MODAL ======= */}
+      {preCheckModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setPreCheckModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border,#e5e7eb)]">
+              <div className="flex items-center gap-3">
+                <ShieldAlert className="w-6 h-6 text-[#8b5cf6]" />
+                <div>
+                  <h3 className="font-semibold text-[var(--foreground,#111827)]">Quarantine Safety Check</h3>
+                  <p className="text-xs text-[var(--muted-foreground,#6b7280)]">{preCheckModal.orphan.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setPreCheckModal(null)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-5">
+              {preCheckModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Loader2 className="w-10 h-10 text-[#8b5cf6] animate-spin mb-3" />
+                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">Running safety analysis...</p>
+                </div>
+              ) : preCheckModal.safetyScore ? (
+                <>
+                  {/* Safety Score Gauge */}
+                  <div className="flex items-center justify-center py-4 relative">
+                    <SafetyGauge score={preCheckModal.safetyScore.score} />
+                  </div>
+
+                  <div className="text-center">
+                    <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
+                      preCheckModal.safetyScore.recommendation === "SAFE" ? "bg-[#22c55e20] text-[#22c55e]" :
+                      preCheckModal.safetyScore.recommendation === "CAUTION" ? "bg-[#f9731620] text-[#f97316]" :
+                      "bg-[#ef444420] text-[#ef4444]"
+                    }`}>
+                      {preCheckModal.safetyScore.recommendation === "SAFE" ? "Safe to Quarantine" :
+                       preCheckModal.safetyScore.recommendation === "CAUTION" ? "Proceed with Caution" :
+                       "High Risk — Review Carefully"}
+                    </span>
+                  </div>
+
+                  {/* Score Breakdown */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Score Breakdown</h4>
+                    {Object.entries(preCheckModal.safetyScore.breakdown).map(([key, data]) => (
+                      <div key={key} className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-[var(--foreground,#111827)] capitalize">{key.replace(/_/g, ' ')}</span>
+                            <span className="text-[var(--muted-foreground,#6b7280)]">{data.score}/100 ({Math.round(data.weight * 100)}% weight)</span>
+                          </div>
+                          <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                data.score >= 70 ? "bg-[#22c55e]" : data.score >= 40 ? "bg-[#f97316]" : "bg-[#ef4444]"
+                              }`}
+                              style={{ width: `${data.score}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Warnings */}
+                  {preCheckModal.safetyScore.warnings.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Warnings</h4>
+                      {preCheckModal.safetyScore.warnings.map((warning, i) => (
+                        <div key={i} className="flex items-start gap-2 p-2 bg-[#f9731610] rounded-lg">
+                          <AlertTriangle className="w-3.5 h-3.5 text-[#f97316] mt-0.5 shrink-0" />
+                          <span className="text-xs text-[#f97316]">{warning}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Quarantine Flow Description */}
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <h4 className="text-xs font-semibold text-[var(--foreground,#111827)]">What happens next?</h4>
+                    <div className="space-y-1.5">
+                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#3b82f620] text-[#3b82f6] text-[10px] font-bold shrink-0">1</span>
+                        <span><strong>Monitor (7 days)</strong> — Resource is tagged, no blocking. Watch for any access attempts.</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#f9731620] text-[#f97316] text-[10px] font-bold shrink-0">2</span>
+                        <span><strong>Quarantine</strong> — Access blocked (EC2 stopped, IAM deny-all, SG rules revoked). Full config backed up.</span>
+                      </div>
+                      <div className="flex items-start gap-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+                        <span className="flex items-center justify-center w-4 h-4 rounded-full bg-[#ef444420] text-[#ef4444] text-[10px] font-bold shrink-0">3</span>
+                        <span><strong>Delete (after 30 days)</strong> — Permanently removed. Restore available at any point before deletion.</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8">
+                  <AlertTriangle className="w-10 h-10 text-[#f97316] mx-auto mb-3" />
+                  <p className="text-sm text-[var(--muted-foreground,#6b7280)]">Safety check failed. Please try again.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!preCheckModal.loading && preCheckModal.safetyScore && (
+              <div className="flex items-center justify-end gap-2 p-5 border-t border-[var(--border,#e5e7eb)]">
+                <button
+                  onClick={() => setPreCheckModal(null)}
+                  className="px-4 py-2 text-sm border border-[var(--border,#e5e7eb)] rounded-lg hover:bg-gray-50 transition-colors text-[var(--muted-foreground,#6b7280)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const qr = getQuarantineStatus(preCheckModal.orphan.name)
+                    if (qr) startMonitor(qr.id)
+                  }}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] transition-colors disabled:opacity-50"
+                >
+                  {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Start Monitoring Phase
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ======= ACTIVITY LOG MODAL ======= */}
+      {activityModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setActivityModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border,#e5e7eb)]">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-[#8b5cf6]" />
+                <h3 className="font-semibold text-[var(--foreground,#111827)]">Activity Log</h3>
+              </div>
+              <button onClick={() => setActivityModal(null)} className="p-1 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />
+              </button>
+            </div>
+            <div className="p-5">
+              {activityModal.loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 text-[#8b5cf6] animate-spin" />
+                </div>
+              ) : activityModal.activity.length === 0 ? (
+                <p className="text-sm text-[var(--muted-foreground,#6b7280)] text-center py-4">No activity recorded yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {activityModal.activity.map((entry, i) => {
+                    const pc = PHASE_CONFIG[entry.phase] || PHASE_CONFIG.PRE_CHECK
+                    const PhaseIcon = pc.icon
+                    return (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${pc.bgColor}`}>
+                          <PhaseIcon className={`w-3.5 h-3.5 ${pc.color}`} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-semibold ${pc.color}`}>{pc.label}</span>
+                            <span className="text-[10px] text-[var(--muted-foreground,#6b7280)]">{formatDateTime(entry.timestamp)}</span>
+                          </div>
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-0.5">{entry.note}</p>
+                          <p className="text-[10px] text-[var(--muted-foreground,#9ca3af)] mt-0.5">by {entry.actor}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
