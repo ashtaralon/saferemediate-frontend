@@ -18,7 +18,7 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
     { id: "systems", label: "Systems", icon: Server },
     { id: "compliance", label: "Compliance", icon: Grid3x3 },
     { id: "identities", label: "Identities", icon: Fingerprint },
-    { id: "per-resource", label: "Per-Resource", icon: Split },
+    { id: "per-resource", label: "Shared Resource", icon: Split },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "integrations", label: "Integrations", icon: Plug },
   ]

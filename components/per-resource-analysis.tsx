@@ -173,6 +173,7 @@ export function PerResourceAnalysis() {
   // UI state
   const [activeTab, setActiveTab] = useState<"aggregated" | "per-resource">("aggregated")
   const [aggApplied, setAggApplied] = useState(false)
+  const [scanTab, setScanTab] = useState<"action-required" | "no-issues">("action-required")
 
   // ── API helper ──
   const apiCall = useCallback(async (method: string, path: string, body?: any) => {
@@ -491,7 +492,7 @@ export function PerResourceAnalysis() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Per-Resource Analysis</h2>
+          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Shared Resource Analysis</h2>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             Discover shared IAM roles and Security Groups, split into per-resource least-privilege policies
           </p>
@@ -556,24 +557,94 @@ export function PerResourceAnalysis() {
         )}
 
         {roles.length > 0 && !selectedRole && (() => {
-          const iamRoles = roles.filter(r => r.resource_type !== "SecurityGroup")
-          const sgItems = roles.filter(r => r.resource_type === "SecurityGroup")
+          // Classify resources into action-required vs no-issues
+          const classifyResource = (r: ScannedRole): boolean => {
+            if (r.resource_type === "SecurityGroup") {
+              const inbound = r.inbound_rules || r.total_permissions || 0
+              const ports = r.active_ports || 0
+              // Action required: public SG, unused rules, or over-exposed ports
+              if (r.has_public) return true
+              if (inbound > 0 && ports === 0) return true  // no traffic at all
+              if (ports > 0 && ports < inbound) return true  // unused ports open
+              return false
+            }
+            // IAM Role: action required if diverse resources share permissions
+            const names = r.resources.map(res => res.resource_name)
+            const prefixes = new Set(names.map(n => n.replace(/[-_]\d+$/, "").toLowerCase()))
+            return prefixes.size > 1  // functionally different resources = over-permission risk
+          }
+
+          const actionRequired = roles.filter(r => classifyResource(r))
+          const noIssues = roles.filter(r => !classifyResource(r))
+          const currentItems = scanTab === "action-required" ? actionRequired : noIssues
+          const currentIamRoles = currentItems.filter(r => r.resource_type !== "SecurityGroup")
+          const currentSgItems = currentItems.filter(r => r.resource_type === "SecurityGroup")
+
           return (
           <div className="space-y-3">
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              Found <span className="font-semibold" style={{ color: "#ef4444" }}>{roles.length}</span> shared resource(s)
-              {iamRoles.length > 0 && sgItems.length > 0
-                ? ` — ${iamRoles.length} IAM role(s), ${sgItems.length} security group(s)`
-                : " — each is a blast radius risk"}
-            </p>
+            {/* Tab switcher */}
+            <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}>
+              <button
+                onClick={() => setScanTab("action-required")}
+                className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center"
+                style={{
+                  background: scanTab === "action-required" ? "#ef4444" : "transparent",
+                  color: scanTab === "action-required" ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Action Required
+                {actionRequired.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-xs font-bold" style={{
+                    background: scanTab === "action-required" ? "rgba(255,255,255,0.2)" : "#ef444420",
+                    color: scanTab === "action-required" ? "#fff" : "#ef4444",
+                  }}>{actionRequired.length}</span>
+                )}
+              </button>
+              <button
+                onClick={() => setScanTab("no-issues")}
+                className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all flex-1 justify-center"
+                style={{
+                  background: scanTab === "no-issues" ? "#22c55e" : "transparent",
+                  color: scanTab === "no-issues" ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                No Issues
+                {noIssues.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-xs font-bold" style={{
+                    background: scanTab === "no-issues" ? "rgba(255,255,255,0.2)" : "#22c55e20",
+                    color: scanTab === "no-issues" ? "#fff" : "#22c55e",
+                  }}>{noIssues.length}</span>
+                )}
+              </button>
+            </div>
 
-            {/* IAM Roles section */}
-            {iamRoles.length > 0 && sgItems.length > 0 && (
+            {/* Tab content */}
+            {currentItems.length === 0 && (
+              <div className="text-center py-8">
+                {scanTab === "action-required" ? (
+                  <>
+                    <CheckCircle2 className="w-8 h-8 mx-auto mb-2" style={{ color: "#22c55e" }} />
+                    <p className="text-sm font-medium" style={{ color: "#22c55e" }}>No action required</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>All shared resources are properly configured</p>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-8 h-8 mx-auto mb-2" style={{ color: "#f97316" }} />
+                    <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>All shared resources need attention</p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* IAM Roles */}
+            {currentIamRoles.length > 0 && currentSgItems.length > 0 && (
               <div className="text-xs font-semibold uppercase tracking-wider pt-2" style={{ color: "var(--text-muted)" }}>
                 IAM Roles
               </div>
             )}
-            {iamRoles.map((role) => {
+            {currentIamRoles.map((role) => {
               const resourceTypes = [...new Set(role.resources.map(r => getTypeLabel(r.resource_type)))]
               const roleType = resourceTypes.length === 1
                 ? `${resourceTypes[0]} Execution Role`
@@ -666,15 +737,15 @@ export function PerResourceAnalysis() {
               )
             })}
 
-            {/* Security Groups section */}
-            {sgItems.length > 0 && (
+            {/* Security Groups */}
+            {currentSgItems.length > 0 && (
               <>
-                {iamRoles.length > 0 && (
+                {currentIamRoles.length > 0 && (
                   <div className="text-xs font-semibold uppercase tracking-wider pt-3" style={{ color: "var(--text-muted)" }}>
                     Security Groups
                   </div>
                 )}
-                {sgItems.map((sg) => {
+                {currentSgItems.map((sg) => {
                   const totalRules = sg.total_permissions || 0
                   const activePorts = sg.active_ports || 0
                   const hasPublic = sg.has_public || false
