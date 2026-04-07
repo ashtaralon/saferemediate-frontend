@@ -52,6 +52,7 @@ interface AutomationRulesViewProps {
   onEditRule?: (rule: AutomationRule) => void
   onDeleteRule?: (ruleId: string) => void
   onToggleRule?: (ruleId: string) => void
+  loading?: boolean
 }
 
 export function AutomationRulesView({
@@ -61,6 +62,7 @@ export function AutomationRulesView({
   onEditRule,
   onDeleteRule,
   onToggleRule,
+  loading = false,
 }: AutomationRulesViewProps) {
   const [selectedRule, setSelectedRule] = useState<AutomationRule | null>(null)
 
@@ -70,6 +72,39 @@ export function AutomationRulesView({
     issuesFixed: rules.reduce((sum, r) => sum + r.issuesFixed, 0),
     successRate: rules.length > 0 ? Math.round(rules.reduce((sum, r) => sum + r.successRate, 0) / rules.length) : 0,
     rollbacks: 0,
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-start justify-between gap-4 mb-6">
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+              Automation Rules
+            </h1>
+            <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+              Configure automated remediation policies for your systems
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="p-4 rounded-lg animate-pulse" style={{ background: "var(--bg-secondary)" }}>
+              <div className="h-4 w-24 rounded mb-3" style={{ background: "var(--bg-tertiary, #374151)" }} />
+              <div className="h-8 w-16 rounded" style={{ background: "var(--bg-tertiary, #374151)" }} />
+            </div>
+          ))}
+        </div>
+        <div className="space-y-4">
+          {[1, 2].map((i) => (
+            <div key={i} className="p-5 rounded-lg animate-pulse" style={{ background: "var(--bg-secondary)" }}>
+              <div className="h-5 w-64 rounded mb-3" style={{ background: "var(--bg-tertiary, #374151)" }} />
+              <div className="h-4 w-48 rounded" style={{ background: "var(--bg-tertiary, #374151)" }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   if (rules.length === 0) {
