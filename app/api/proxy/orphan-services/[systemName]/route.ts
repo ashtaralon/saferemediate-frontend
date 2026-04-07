@@ -329,11 +329,12 @@ export async function GET(
       return NextResponse.json({ orphans: [], seasonal: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } })
     }
 
-    // 2. Fetch REAL activity evidence AND security risk factors in parallel
-    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null }> = {}
+    // 2. Fetch REAL activity evidence, security risk factors, AND AWS existence validation
+    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null; is_attached?: boolean; attached_entities?: number; attached_to?: string[] }> = {}
     let securityRisks: Record<string, { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }> = {}
+    let awsValidation: Record<string, { exists: boolean; checked: boolean; type?: string; attachment_count?: number }> = {}
 
-    // Fetch evidence and security risks sequentially to avoid Next.js fetch issues
+    // Fetch evidence, security risks, and AWS validation sequentially to avoid Next.js fetch issues
     try {
       const evidenceResp = await fetch(
         `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/activity-evidence`,
@@ -360,6 +361,20 @@ export async function GET(
       console.warn('[orphan-services] Security risks fetch error:', e.message)
     }
 
+    // Validate AWS existence — filters out stale Neo4j nodes for deleted resources
+    try {
+      const validateResp = await fetch(
+        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/validate-aws`,
+        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000), cache: 'no-store' }
+      )
+      if (validateResp.ok) {
+        const validateJson = await validateResp.json()
+        awsValidation = validateJson.validation || {}
+      }
+    } catch (e: any) {
+      console.warn('[orphan-services] AWS validation fetch error:', e.message)
+    }
+
     // Build lastUsedBy map from system-resources data
     const lastUsedByMap: Record<string, string> = {}
     for (const r of resources) {
@@ -380,12 +395,29 @@ export async function GET(
       const resourceName = r.name || ''
       if (isAWSManagedResource(resourceName, resourceType)) continue
 
+      // Skip resources that don't exist in AWS (stale Neo4j nodes)
+      const awsStatus = awsValidation[resourceName]
+      if (awsStatus?.checked && !awsStatus.exists) {
+        console.log(`[orphan-services] Skipping stale resource "${resourceName}" — does not exist in AWS`)
+        continue
+      }
+
+      // Skip IAM policies that AWS confirms are attached to roles/users
+      if (resourceType === 'IAMPolicy' && awsStatus?.checked && awsStatus.exists && (awsStatus.attachment_count ?? 0) > 0) {
+        continue
+      }
+
       // Get evidence for this resource
       const ev = evidence[resourceName]
       const totalRels = ev?.total_relationships ?? (r.connections || 0)
       const cloudtrailEvents = ev?.cloudtrail_events ?? 0
       const totalHits = ev?.total_hits ?? 0
       const advisorServices = ev?.access_advisor_services ?? 0
+      const isAttached = ev?.is_attached ?? false
+
+      // Skip resources that are actively attached to other resources
+      // (e.g., IAM policy attached to a user/role, SG protecting an instance)
+      if (isAttached) continue
 
       // Determine last activity from evidence (authoritative) or node property (fallback)
       const evidenceLastActivity = ev?.last_activity
