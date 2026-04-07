@@ -39,6 +39,26 @@ interface AutomationRule {
   issuesFixed: number
 }
 
+interface ExecutionResult {
+  ruleId: string
+  ruleName: string
+  status: string
+  dryRun: boolean
+  findingsMatched: number
+  findingsRemediated: number
+  findingsFailed: number
+  findingsSkipped: number
+  snapshotsCreated: number
+  details: Array<{
+    finding_id: string
+    title?: string
+    severity?: string
+    resource_id?: string
+    status: string
+    snapshot_id?: string
+  }>
+}
+
 interface AutomationRulesViewProps {
   rules?: AutomationRule[]
   stats?: {
@@ -52,16 +72,24 @@ interface AutomationRulesViewProps {
   onEditRule?: (rule: AutomationRule) => void
   onDeleteRule?: (ruleId: string) => void
   onToggleRule?: (ruleId: string) => void
+  onExecuteRule?: (ruleId: string, dryRun: boolean) => void
+  executingRuleId?: string | null
+  lastExecution?: ExecutionResult | null
+  onDismissExecution?: () => void
   loading?: boolean
 }
 
 export function AutomationRulesView({
-  rules = [], // Default to empty array
+  rules = [],
   stats,
   onCreateRule,
   onEditRule,
   onDeleteRule,
   onToggleRule,
+  onExecuteRule,
+  executingRuleId,
+  lastExecution,
+  onDismissExecution,
   loading = false,
 }: AutomationRulesViewProps) {
   const [selectedRule, setSelectedRule] = useState<AutomationRule | null>(null)
@@ -225,6 +253,83 @@ export function AutomationRulesView({
         </div>
       </div>
 
+      {/* Execution Results Banner */}
+      {lastExecution && (
+        <div
+          className="p-4 rounded-lg border-2"
+          style={{
+            background: lastExecution.findingsFailed > 0 ? "rgba(239, 68, 68, 0.1)" : "rgba(34, 197, 94, 0.1)",
+            borderColor: lastExecution.findingsFailed > 0 ? "#ef4444" : "#22c55e",
+          }}
+        >
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {lastExecution.findingsFailed > 0 ? (
+                <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
+              )}
+              <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                Execution {lastExecution.dryRun ? "(Dry Run)" : ""} — {lastExecution.ruleName}
+              </h3>
+            </div>
+            <button
+              onClick={onDismissExecution}
+              className="text-sm px-3 py-1 rounded hover:bg-white/10"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="grid grid-cols-4 gap-4 text-sm mb-3">
+            <div>
+              <span style={{ color: "var(--text-secondary)" }}>Findings matched: </span>
+              <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{lastExecution.findingsMatched}</span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-secondary)" }}>{lastExecution.dryRun ? "Simulated" : "Remediated"}: </span>
+              <span className="font-semibold text-[#22c55e]">{lastExecution.findingsRemediated}</span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-secondary)" }}>Failed: </span>
+              <span className="font-semibold text-[#ef4444]">{lastExecution.findingsFailed}</span>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-secondary)" }}>Snapshots: </span>
+              <span className="font-semibold" style={{ color: "#3B82F6" }}>{lastExecution.snapshotsCreated}</span>
+            </div>
+          </div>
+          {lastExecution.details.length > 0 && (
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {lastExecution.details.map((d, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded" style={{ background: "rgba(0,0,0,0.2)" }}>
+                  <span
+                    className="px-1.5 py-0.5 rounded font-medium"
+                    style={{
+                      background: d.status === "remediated" || d.status === "simulated" || d.status === "snapshot_created"
+                        ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                      color: d.status === "remediated" || d.status === "simulated" || d.status === "snapshot_created"
+                        ? "#22c55e" : "#ef4444",
+                    }}
+                  >
+                    {d.status}
+                  </span>
+                  <span style={{ color: "var(--text-primary)" }}>{d.title || d.finding_id}</span>
+                  {d.resource_id && (
+                    <span style={{ color: "var(--text-secondary)" }}>({d.resource_id})</span>
+                  )}
+                  {d.snapshot_id && (
+                    <span className="ml-auto flex items-center gap-1" style={{ color: "#3B82F6" }}>
+                      <Camera className="w-3 h-3" /> {d.snapshot_id}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Automation Rules List */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -335,25 +440,40 @@ export function AutomationRulesView({
 
               <div className="flex flex-col items-end gap-2">
                 <div className="flex items-center gap-2">
-                  <button
-                    className="p-2 rounded hover:bg-gray-100"
-                    title="Duplicate"
-                    onClick={() => console.log("[v0] Duplicate rule:", rule.id)}
-                  >
-                    <Copy className="w-4 h-4" style={{ color: "var(--text-secondary)" }} />
-                  </button>
-                  <button className="p-2 rounded hover:bg-gray-100" title="Edit" onClick={() => onEditRule?.(rule)}>
+                  {/* Run Now button */}
+                  {rule.enabled && (
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+                      style={{ backgroundColor: "#22c55e" }}
+                      title="Run Now (Dry Run)"
+                      disabled={executingRuleId === rule.id}
+                      onClick={() => onExecuteRule?.(rule.id, true)}
+                    >
+                      {executingRuleId === rule.id ? (
+                        <>
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Running...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5" />
+                          Run Now
+                        </>
+                      )}
+                    </button>
+                  )}
+                  <button className="p-2 rounded hover:bg-white/10" title="Edit" onClick={() => onEditRule?.(rule)}>
                     <Edit2 className="w-4 h-4" style={{ color: "var(--text-secondary)" }} />
                   </button>
                   <button
-                    className="p-2 rounded hover:bg-gray-100"
+                    className="p-2 rounded hover:bg-white/10"
                     title={rule.enabled ? "Pause" : "Resume"}
                     onClick={() => onToggleRule?.(rule.id)}
                   >
                     {rule.enabled ? (
                       <Pause className="w-4 h-4" style={{ color: "var(--text-secondary)" }} />
                     ) : (
-                      <Play className="w-4 h-4" style={{ color: "var(--success)" }} />
+                      <Play className="w-4 h-4" style={{ color: "#22c55e" }} />
                     )}
                   </button>
                   <button
@@ -366,7 +486,7 @@ export function AutomationRulesView({
                 </div>
 
                 <div className="text-right text-xs" style={{ color: "var(--text-secondary)" }}>
-                  <div>Next run: {rule.nextRun || "Not scheduled"}</div>
+                  <div>Last run: {rule.lastRun ? new Date(rule.lastRun).toLocaleString() : "Never"}</div>
                   <div className="mt-1">
                     <span className="text-[#22c55e] font-medium">{rule.successRate}%</span> success •{" "}
                     <span className="font-medium">{rule.issuesFixed}</span> fixed

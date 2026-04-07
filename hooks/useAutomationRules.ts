@@ -99,6 +99,29 @@ function mapStats(raw: any): AutomationStats {
   }
 }
 
+export interface ExecutionResult {
+  ruleId: string
+  ruleName: string
+  status: string
+  dryRun: boolean
+  findingsMatched: number
+  findingsRemediated: number
+  findingsFailed: number
+  findingsSkipped: number
+  snapshotsCreated: number
+  details: Array<{
+    finding_id: string
+    title?: string
+    severity?: string
+    resource_id?: string
+    status: string
+    snapshot_id?: string
+    pipeline_id?: string
+    errors?: string[]
+    reason?: string
+  }>
+}
+
 interface UseAutomationRulesReturn {
   rules: AutomationRule[]
   stats: AutomationStats | null
@@ -109,6 +132,7 @@ interface UseAutomationRulesReturn {
   updateRule: (id: string, data: Partial<CreateRuleData>) => Promise<AutomationRule>
   deleteRule: (id: string) => Promise<void>
   toggleRule: (id: string) => Promise<AutomationRule>
+  executeRule: (id: string, dryRun?: boolean) => Promise<ExecutionResult>
 }
 
 export function useAutomationRules(): UseAutomationRulesReturn {
@@ -207,6 +231,31 @@ export function useAutomationRules(): UseAutomationRulesReturn {
     return mapRule(raw)
   }, [fetchRules])
 
+  const executeRule = useCallback(async (id: string, dryRun: boolean = true): Promise<ExecutionResult> => {
+    const res = await fetch(
+      `/api/proxy/automation-rules/${encodeURIComponent(id)}/execute?dry_run=${dryRun}`,
+      { method: "POST" }
+    )
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(err)
+    }
+    const raw = await res.json()
+    await fetchRules() // refresh stats after execution
+    return {
+      ruleId: raw.rule_id,
+      ruleName: raw.rule_name || "",
+      status: raw.status,
+      dryRun: raw.dry_run,
+      findingsMatched: raw.findings_matched || 0,
+      findingsRemediated: raw.findings_remediated || 0,
+      findingsFailed: raw.findings_failed || 0,
+      findingsSkipped: raw.findings_skipped || 0,
+      snapshotsCreated: raw.snapshots_created || 0,
+      details: raw.details || [],
+    }
+  }, [fetchRules])
+
   return {
     rules,
     stats,
@@ -217,5 +266,6 @@ export function useAutomationRules(): UseAutomationRulesReturn {
     updateRule,
     deleteRule,
     toggleRule,
+    executeRule,
   }
 }
