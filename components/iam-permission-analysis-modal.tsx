@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { 
-  X, Calendar, CheckCircle, AlertTriangle, Shield, Check, 
-  CheckSquare, Loader2, RefreshCw, XCircle, Activity
+import {
+  X, Calendar, CheckCircle, AlertTriangle, Shield, Check,
+  CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -60,6 +60,7 @@ interface GapAnalysisData {
       explanation: string
       action: string
       color: string
+      protected?: boolean
       permission_count: number
       permissions: Array<{
         permission: string
@@ -70,6 +71,7 @@ interface GapAnalysisData {
         data_source_type: string
         explanation: string
         logged_by_default: boolean
+        protected?: boolean
       }>
     }>
     overall_confidence: number
@@ -78,6 +80,7 @@ interface GapAnalysisData {
       safe_to_remove: number
       verify_first: number
       investigate_first: number
+      protected?: number
     }
     observation_days: number
     account_signals: {
@@ -296,8 +299,13 @@ export function IAMPermissionAnalysisModal({
       })
       
       setGapData(mappedData)
-      // Initialize all unused permissions as selected by default
-      const unusedPermsSet = new Set(mappedData.unused_permissions)
+      // Initialize all unused permissions as selected by default, excluding protected ones
+      const protectedPerms = new Set(
+        (mappedData.confidence_groups?.groups ?? [])
+          .filter(g => g.protected || g.action === 'protected')
+          .flatMap(g => g.permissions.map(p => p.permission))
+      )
+      const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !protectedPerms.has(p)))
       setSelectedPermissionsToRemove(unusedPermsSet)
 
       // Auto-enable "Detach managed policies" when permission lists are empty
@@ -330,7 +338,15 @@ export function IAMPermissionAnalysisModal({
   // Select/deselect all unused permissions
   const selectAllPermissions = () => {
     if (gapData) {
-      setSelectedPermissionsToRemove(new Set(gapData.unused_permissions))
+      // Exclude protected permissions from "Select All"
+      const protectedPerms = new Set(
+        (gapData.confidence_groups?.groups ?? [])
+          .filter(g => g.protected || g.action === 'protected')
+          .flatMap(g => g.permissions.map(p => p.permission))
+      )
+      setSelectedPermissionsToRemove(
+        new Set(gapData.unused_permissions.filter(p => !protectedPerms.has(p)))
+      )
     }
   }
 
@@ -890,6 +906,13 @@ export function IAMPermissionAnalysisModal({
                       <span style={{ color: "var(--muted-foreground, #6b7280)" }}>investigate first</span>
                     </span>
                   )}
+                  {(gapData.confidence_groups.summary.protected ?? 0) > 0 && (
+                    <span className="flex items-center gap-1">
+                      <Lock className="w-3 h-3 text-[#6b7280]" />
+                      <strong className="text-[#6b7280]">{gapData.confidence_groups.summary.protected}</strong>
+                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>protected</span>
+                    </span>
+                  )}
                   {gapData.confidence_groups.account_signals && (
                     <span className="ml-auto" style={{ color: "var(--muted-foreground, #9ca3af)" }}>
                       Data events:
@@ -904,71 +927,93 @@ export function IAMPermissionAnalysisModal({
               {unusedPermissions.length > 0 && gapData?.confidence_groups?.groups ? (
                 <div className="space-y-4 max-h-[400px] overflow-y-auto">
                   {gapData.confidence_groups.groups.map((group, gi) => {
+                    const isProtected = group.protected || group.action === 'protected'
                     const colorMap: Record<string, { text: string; border: string; bg: string }> = {
                       green: { text: '#22c55e', border: '#bbf7d0', bg: '#f0fdf4' },
                       orange: { text: '#f97316', border: '#fed7aa', bg: '#fff7ed' },
                       red: { text: '#ef4444', border: '#fecaca', bg: '#fef2f2' },
+                      gray: { text: '#6b7280', border: '#d1d5db', bg: '#f9fafb' },
                     }
-                    const colors = colorMap[group.color] || colorMap.orange
+                    const colors = colorMap[group.color] || (isProtected ? colorMap.gray : colorMap.orange)
 
                     return (
-                      <div key={gi} className="rounded-xl border overflow-hidden" style={{ borderColor: colors.border }}>
+                      <div key={gi} className={`rounded-xl border overflow-hidden ${isProtected ? 'opacity-75' : ''}`} style={{ borderColor: colors.border }}>
                         <div className="px-4 py-2 flex items-center justify-between" style={{ background: colors.bg }}>
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
+                            {isProtected ? (
+                              <Lock className="w-4 h-4 text-[#6b7280]" />
+                            ) : (
+                              <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
+                            )}
                             <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>{group.label}</span>
-                            {!group.logged_by_default && (
+                            {isProtected ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]">
+                                PROTECTED
+                              </span>
+                            ) : !group.logged_by_default && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: colors.border, color: colors.text }}>
                                 {group.data_source_type === 'data_event' ? 'DATA EVENT' :
                                  group.data_source_type === 'internal_service' ? 'INTERNAL' : 'PARTIAL'}
                               </span>
                             )}
                           </div>
-                          <button
-                            onClick={() => {
-                              const groupPerms = group.permissions.map(p => p.permission)
-                              const allSelected = groupPerms.every(p => selectedPermissionsToRemove.has(p))
-                              const newSet = new Set(selectedPermissionsToRemove)
-                              groupPerms.forEach(p => allSelected ? newSet.delete(p) : newSet.add(p))
-                              setSelectedPermissionsToRemove(newSet)
-                            }}
-                            className="text-xs font-medium px-2 py-0.5 rounded" style={{ color: colors.text }}
-                          >
-                            {group.permissions.every(p => selectedPermissionsToRemove.has(p.permission)) ? 'Deselect group' : 'Select group'}
-                          </button>
+                          {!isProtected && (
+                            <button
+                              onClick={() => {
+                                const groupPerms = group.permissions.map(p => p.permission)
+                                const allSelected = groupPerms.every(p => selectedPermissionsToRemove.has(p))
+                                const newSet = new Set(selectedPermissionsToRemove)
+                                groupPerms.forEach(p => allSelected ? newSet.delete(p) : newSet.add(p))
+                                setSelectedPermissionsToRemove(newSet)
+                              }}
+                              className="text-xs font-medium px-2 py-0.5 rounded" style={{ color: colors.text }}
+                            >
+                              {group.permissions.every(p => selectedPermissionsToRemove.has(p.permission)) ? 'Deselect group' : 'Select group'}
+                            </button>
+                          )}
                         </div>
                         <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: colors.border, background: colors.bg + '80' }}>
                           {group.explanation}
                         </div>
                         <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                           {group.permissions.map((perm, i) => (
-                            <label
+                            <div
                               key={i}
-                              className={`flex items-center gap-3 p-1.5 rounded cursor-pointer transition-colors ${
-                                selectedPermissionsToRemove.has(perm.permission)
-                                  ? 'bg-[#ef444410]'
-                                  : 'hover:bg-gray-50'
+                              className={`flex items-center gap-3 p-1.5 rounded transition-colors ${
+                                isProtected
+                                  ? 'opacity-60 cursor-not-allowed'
+                                  : selectedPermissionsToRemove.has(perm.permission)
+                                    ? 'bg-[#ef444410] cursor-pointer'
+                                    : 'hover:bg-gray-50 cursor-pointer'
                               }`}
+                              onClick={() => { if (!isProtected) togglePermissionSelection(perm.permission) }}
                             >
                               <input
                                 type="checkbox"
-                                checked={selectedPermissionsToRemove.has(perm.permission)}
-                                onChange={() => togglePermissionSelection(perm.permission)}
-                                className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
+                                checked={!isProtected && selectedPermissionsToRemove.has(perm.permission)}
+                                disabled={isProtected}
+                                onChange={() => { if (!isProtected) togglePermissionSelection(perm.permission) }}
+                                className="w-4 h-4 rounded border-[var(--border,#d1d5db)] disabled:opacity-40"
                               />
                               <span className="font-mono text-xs text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
-                                perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
-                                perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
-                                perm.risk_level === 'MEDIUM' ? 'bg-[#eab30820] text-[#ca8a04]' :
-                                'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
-                              }`}>
-                                {(perm as any).damage_tier === 'IRREVERSIBLE' ? 'IRREVERSIBLE' :
-                                 (perm as any).damage_tier === 'DESTRUCTIVE' ? 'DELETE' :
-                                 (perm as any).damage_tier === 'WRITE' ? 'WRITE' :
-                                 perm.risk_level}
-                              </span>
-                            </label>
+                              {isProtected ? (
+                                <span className="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-gray-100 text-[#6b7280]">
+                                  LOCKED
+                                </span>
+                              ) : (
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
+                                  perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                                  perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                                  perm.risk_level === 'MEDIUM' ? 'bg-[#eab30820] text-[#ca8a04]' :
+                                  'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
+                                }`}>
+                                  {(perm as any).damage_tier === 'IRREVERSIBLE' ? 'IRREVERSIBLE' :
+                                   (perm as any).damage_tier === 'DESTRUCTIVE' ? 'DELETE' :
+                                   (perm as any).damage_tier === 'WRITE' ? 'WRITE' :
+                                   perm.risk_level}
+                                </span>
+                              )}
+                            </div>
                           ))}
                         </div>
                       </div>
