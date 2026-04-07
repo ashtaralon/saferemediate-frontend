@@ -361,19 +361,8 @@ export async function GET(
       console.warn('[orphan-services] Security risks fetch error:', e.message)
     }
 
-    // Validate AWS existence — filters out stale Neo4j nodes for deleted resources
-    try {
-      const validateResp = await fetch(
-        `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/validate-aws`,
-        { headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30000), cache: 'no-store' }
-      )
-      if (validateResp.ok) {
-        const validateJson = await validateResp.json()
-        awsValidation = validateJson.validation || {}
-      }
-    } catch (e: any) {
-      console.warn('[orphan-services] AWS validation fetch error:', e.message)
-    }
+    // AWS validation is done AFTER candidate selection (see below) to avoid
+    // checking all 1000+ resources. Only orphan candidates get validated.
 
     // Build lastUsedBy map from system-resources data
     const lastUsedByMap: Record<string, string> = {}
@@ -394,18 +383,6 @@ export async function GET(
       // Skip AWS-managed resources, service-linked roles, and permission string nodes
       const resourceName = r.name || ''
       if (isAWSManagedResource(resourceName, resourceType)) continue
-
-      // Skip resources that don't exist in AWS (stale Neo4j nodes)
-      const awsStatus = awsValidation[resourceName]
-      if (awsStatus?.checked && !awsStatus.exists) {
-        console.log(`[orphan-services] Skipping stale resource "${resourceName}" — does not exist in AWS`)
-        continue
-      }
-
-      // Skip IAM policies that AWS confirms are attached to roles/users
-      if (resourceType === 'IAMPolicy' && awsStatus?.checked && awsStatus.exists && (awsStatus.attachment_count ?? 0) > 0) {
-        continue
-      }
 
       // Get evidence for this resource
       const ev = evidence[resourceName]
@@ -500,6 +477,54 @@ export async function GET(
         seasonal.push(orphanResource)
       } else {
         orphans.push(orphanResource)
+      }
+    }
+
+    // 4. Validate orphan candidates against AWS (only the ~20-30 candidates, not all 1000+ resources)
+    if (orphans.length > 0) {
+      try {
+        const candidates = orphans.map(o => ({
+          name: o.name,
+          type: o.type,
+          arn: o.properties?.arn || '',
+          id: o.properties?.id || o.id || '',
+        }))
+
+        const validateResp = await fetch(
+          `${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/validate-candidates`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(candidates),
+            signal: AbortSignal.timeout(30000),
+            cache: 'no-store',
+          }
+        )
+
+        if (validateResp.ok) {
+          const validateJson = await validateResp.json()
+          awsValidation = validateJson.validation || {}
+
+          // Filter out stale resources (don't exist in AWS) and attached IAM policies
+          const validatedOrphans = orphans.filter(o => {
+            const awsStatus = awsValidation[o.name]
+            if (awsStatus?.checked && !awsStatus.exists) {
+              console.log(`[orphan-services] Removing stale orphan "${o.name}" — does not exist in AWS`)
+              return false
+            }
+            if (o.type === 'IAMPolicy' && awsStatus?.checked && awsStatus.exists && (awsStatus.attachment_count ?? 0) > 0) {
+              console.log(`[orphan-services] Removing attached IAM policy "${o.name}" — ${awsStatus.attachment_count} attachments in AWS`)
+              return false
+            }
+            return true
+          })
+
+          // Replace orphans with validated list
+          orphans.length = 0
+          orphans.push(...validatedOrphans)
+        }
+      } catch (e: any) {
+        console.warn('[orphan-services] AWS validation of candidates failed (proceeding without):', e.message)
       }
     }
 

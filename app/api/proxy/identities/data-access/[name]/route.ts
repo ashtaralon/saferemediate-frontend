@@ -124,15 +124,15 @@ export async function GET(
     )
 
     // 3. Extract permissions and classify by data service
-    const allPermissions = detail.permission_analysis?.permissions_analysis || []
-    const usedPerms = detail.permission_analysis?.used_permissions || []
-    const unusedPerms = detail.permission_analysis?.unused_permissions || []
+    // Backend returns allowed_actions, used_actions, unused_actions as string arrays
+    const allPermissions: string[] = detail.permission_analysis?.allowed_actions || []
+    const usedPerms: string[] = detail.permission_analysis?.used_actions || []
+    const unusedPerms: string[] = detail.permission_analysis?.unused_actions || []
 
     // Group permissions by service
     const servicePermissions: Record<string, { allowed: string[]; used: string[]; unused: string[] }> = {}
 
-    for (const perm of allPermissions) {
-      const permName = typeof perm === 'string' ? perm : perm.permission || perm.action || ''
+    for (const permName of allPermissions) {
       const mapping = PERMISSION_OPERATION_MAP[permName]
       if (!mapping) continue
       if (!DATA_SERVICES.has(mapping.service)) continue
@@ -142,8 +142,7 @@ export async function GET(
       }
       servicePermissions[mapping.service].allowed.push(mapping.operation)
 
-      const isUsed = usedPerms.includes(permName) || (typeof perm !== 'string' && perm.status === 'USED')
-      if (isUsed) {
+      if (usedPerms.includes(permName)) {
         servicePermissions[mapping.service].used.push(mapping.operation)
       } else {
         servicePermissions[mapping.service].unused.push(mapping.operation)
@@ -151,18 +150,9 @@ export async function GET(
     }
 
     // Also check for wildcard permissions
-    const hasWildcardS3 = allPermissions.some((p: any) => {
-      const name = typeof p === 'string' ? p : p.permission || ''
-      return name === 's3:*'
-    })
-    const hasWildcardRDS = allPermissions.some((p: any) => {
-      const name = typeof p === 'string' ? p : p.permission || ''
-      return name === 'rds:*' || name === 'rds-data:*'
-    })
-    const hasWildcardDDB = allPermissions.some((p: any) => {
-      const name = typeof p === 'string' ? p : p.permission || ''
-      return name === 'dynamodb:*'
-    })
+    const hasWildcardS3 = allPermissions.some((p: string) => p === 's3:*')
+    const hasWildcardRDS = allPermissions.some((p: string) => p === 'rds:*' || p === 'rds-data:*')
+    const hasWildcardDDB = allPermissions.some((p: string) => p === 'dynamodb:*')
 
     if (hasWildcardS3 && !servicePermissions['S3']) {
       servicePermissions['S3'] = { allowed: ['READ', 'WRITE', 'DELETE', 'LIST'], used: [], unused: ['READ', 'WRITE', 'DELETE', 'LIST'] }

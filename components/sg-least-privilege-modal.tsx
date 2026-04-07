@@ -1165,6 +1165,426 @@ const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, s
 };
 
 // =============================================================================
+// TAB: RESTRUCTURE — Break up SG into per-resource SGs
+// =============================================================================
+
+interface ENIPortInfo {
+  port: number;
+  protocol: string;
+  connection_count: number;
+  unique_sources: number;
+  sample_sources?: string[];
+}
+
+interface ENIAnalysis {
+  eni_id: string;
+  resource_type: string;
+  resource_id: string;
+  resource_name: string;
+  private_ip: string;
+  current_sgs: string[];
+  observed_ports: ENIPortInfo[];
+  traffic_note?: string;
+}
+
+interface ProposedSG {
+  proposed_name: string;
+  role_hint: string;
+  ports_used: number[];
+  rules: any[];
+  rules_count: number;
+  enis: { eni_id: string; resource_id: string; resource_name: string; resource_type: string }[];
+  resource_count: number;
+  note?: string;
+}
+
+interface RestructureProposal {
+  sg_id: string;
+  sg_name: string;
+  proposal_id: string;
+  proposed_sgs: ProposedSG[];
+  rules_dropped: any[];
+  summary: {
+    original_rules: number;
+    new_sgs_count: number;
+    rules_dropped_count: number;
+    total_enis_affected: number;
+  };
+  warnings: string[];
+}
+
+const ROLE_COLORS: Record<string, string> = {
+  web: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  database: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  cache: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+  admin: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  monitoring: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+  logging: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
+  messaging: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  service: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+  'catch-all': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+};
+
+const RestructureTab: React.FC<{ sgId: string; sgName: string }> = ({ sgId, sgName }) => {
+  const [phase, setPhase] = useState<'analyze' | 'proposal' | 'executed'>('analyze');
+  const [eniAnalysis, setEniAnalysis] = useState<ENIAnalysis[]>([]);
+  const [proposal, setProposal] = useState<RestructureProposal | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [executionResult, setExecutionResult] = useState<any>(null);
+
+  // Phase 1: Load per-ENI analysis
+  useEffect(() => {
+    const fetchEniAnalysis = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/per-eni-analysis?days=90`);
+        if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
+        const data = await resp.json();
+        setEniAnalysis(data.eni_analysis || []);
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEniAnalysis();
+  }, [sgId]);
+
+  // Generate restructure proposal
+  const handleGeneratePlan = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/propose-restructure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 90 }),
+      });
+      if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
+      const data = await resp.json();
+      setProposal(data);
+      setPhase('proposal');
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Execute restructure
+  const handleExecute = async () => {
+    if (!proposal) return;
+    setExecuting(true);
+    setError(null);
+    try {
+      const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/execute-restructure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposal_id: proposal.proposal_id, create_snapshot: true }),
+      });
+      if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
+      const data = await resp.json();
+      setExecutionResult(data);
+      setPhase('executed');
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  // Rollback
+  const handleRollback = async () => {
+    if (!executionResult?.snapshot_id) return;
+    setExecuting(true);
+    try {
+      const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/rollback-restructure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snapshot_id: executionResult.snapshot_id }),
+      });
+      if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
+      setPhase('analyze');
+      setProposal(null);
+      setExecutionResult(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin" />
+        <span className="ml-3 text-slate-400">
+          {phase === 'analyze' ? 'Analyzing per-resource traffic...' : 'Generating restructure plan...'}
+        </span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
+        <p className="text-red-400 text-sm">{error}</p>
+      </div>
+    );
+  }
+
+  // ─── Phase 3: Execution result ──────────────────────────
+  if (phase === 'executed' && executionResult) {
+    return (
+      <div className="space-y-6">
+        <div className={`rounded-xl p-5 border ${executionResult.success ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+          <div className="flex items-center gap-3 mb-3">
+            {executionResult.success ? (
+              <CheckCircle className="w-6 h-6 text-emerald-400" />
+            ) : (
+              <XCircle className="w-6 h-6 text-red-400" />
+            )}
+            <h3 className="text-lg font-semibold text-slate-100">
+              {executionResult.success ? 'Restructure Complete' : 'Restructure Failed'}
+            </h3>
+          </div>
+
+          {executionResult.created_sgs?.map((sg: any) => (
+            <div key={sg.sg_id} className="flex items-center gap-3 py-2 px-3 bg-slate-800/50 rounded-lg mb-2">
+              <Shield className="w-4 h-4 text-indigo-400" />
+              <span className="text-sm text-slate-200 font-mono">{sg.sg_id}</span>
+              <span className="text-sm text-slate-400">{sg.name}</span>
+              <span className="text-xs text-slate-500 ml-auto">{sg.eni_count} ENIs</span>
+            </div>
+          ))}
+
+          <div className="text-xs text-slate-500 mt-3">
+            {executionResult.summary?.new_sgs_created} SGs created, {executionResult.summary?.enis_modified} ENIs modified
+          </div>
+        </div>
+
+        {executionResult.rollback_available && (
+          <button
+            onClick={handleRollback}
+            disabled={executing}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-400 rounded-lg text-sm"
+          >
+            <RotateCcw className="w-4 h-4" />
+            {executing ? 'Rolling back...' : 'Rollback Restructure'}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Phase 2: Proposal view ─────────────────────────────
+  if (phase === 'proposal' && proposal) {
+    return (
+      <div className="space-y-6">
+        {/* Summary */}
+        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
+          <h3 className="text-sm font-medium text-slate-300 mb-3">Restructure Plan</h3>
+          <div className="grid grid-cols-4 gap-3 text-center">
+            <div>
+              <div className="text-2xl font-bold text-slate-200">{proposal.summary.original_rules}</div>
+              <div className="text-xs text-slate-500">Original Rules</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-indigo-400">{proposal.summary.new_sgs_count}</div>
+              <div className="text-xs text-indigo-400/70">New SGs</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-red-400">{proposal.summary.rules_dropped_count}</div>
+              <div className="text-xs text-red-400/70">Rules Dropped</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-emerald-400">{proposal.summary.total_enis_affected}</div>
+              <div className="text-xs text-emerald-400/70">ENIs Affected</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Proposed SGs */}
+        <div className="space-y-3">
+          {proposal.proposed_sgs.map((ps, idx) => {
+            const colorClass = ROLE_COLORS[ps.role_hint] || ROLE_COLORS.service;
+            return (
+              <div key={idx} className={`rounded-xl p-4 border ${colorClass}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    <span className="font-mono text-sm font-medium">{ps.proposed_name}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700/50 text-slate-300">
+                    {ps.role_hint}
+                  </span>
+                </div>
+
+                {/* Ports */}
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {ps.ports_used.map((port) => (
+                    <span key={port} className="px-2 py-0.5 rounded bg-slate-700/50 text-xs font-mono text-slate-300">
+                      :{port}
+                    </span>
+                  ))}
+                  {ps.ports_used.length === 0 && (
+                    <span className="text-xs text-slate-500 italic">All original rules (no traffic data)</span>
+                  )}
+                </div>
+
+                {/* Rules count */}
+                <div className="text-xs text-slate-500 mb-2">{ps.rules_count} rules</div>
+
+                {/* Attached resources */}
+                <div className="space-y-1">
+                  {ps.enis.map((eni) => (
+                    <div key={eni.eni_id} className="flex items-center gap-2 text-xs">
+                      <Cloud className="w-3 h-3 text-slate-500" />
+                      <span className="text-slate-400">{eni.resource_name || eni.resource_id}</span>
+                      <span className="text-slate-600">({eni.resource_type})</span>
+                    </div>
+                  ))}
+                </div>
+
+                {ps.note && (
+                  <div className="mt-2 text-xs text-amber-400/80 italic">{ps.note}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Dropped rules */}
+        {proposal.rules_dropped.length > 0 && (
+          <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/30">
+            <h4 className="text-sm font-medium text-red-400 mb-2">Rules Dropped (unused)</h4>
+            {proposal.rules_dropped.map((r: any, i: number) => (
+              <div key={i} className="text-xs text-red-300 font-mono">
+                {r.protocol}/{r.from_port} from {r.source}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Warnings */}
+        {proposal.warnings.length > 0 && (
+          <div className="bg-amber-500/10 rounded-xl p-4 border border-amber-500/30">
+            {proposal.warnings.map((w, i) => (
+              <div key={i} className="text-xs text-amber-400 flex items-start gap-2">
+                <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                {w}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => { setPhase('analyze'); setProposal(null); }}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleExecute}
+            disabled={executing}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium"
+          >
+            <Zap className="w-4 h-4" />
+            {executing ? 'Executing...' : 'Execute Restructure'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Phase 1: Per-ENI analysis ──────────────────────────
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-slate-800/50 rounded-xl p-5 border border-indigo-500/20">
+        <div className="flex items-center gap-3 mb-2">
+          <Network className="w-5 h-5 text-indigo-400" />
+          <h3 className="text-lg font-semibold text-slate-100">SG Restructure</h3>
+        </div>
+        <p className="text-sm text-slate-400">
+          Break up <strong className="text-slate-200">{sgName}</strong> into smaller, per-resource SGs.
+          Each resource gets only the rules it actually needs.
+        </p>
+      </div>
+
+      {eniAnalysis.length === 0 ? (
+        <div className="text-center py-8">
+          <EyeOff className="w-8 h-8 text-slate-500 mx-auto mb-3" />
+          <p className="text-slate-400">No ENIs attached to this Security Group</p>
+          <p className="text-xs text-slate-500 mt-1">Restructure requires at least one attached resource</p>
+        </div>
+      ) : (
+        <>
+          {/* Per-ENI breakdown */}
+          <div className="space-y-3">
+            {eniAnalysis.map((eni) => (
+              <div key={eni.eni_id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-slate-400" />
+                    <span className="text-sm font-medium text-slate-200">
+                      {eni.resource_name || eni.resource_id || eni.eni_id}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-400">
+                      {eni.resource_type}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-500 font-mono">{eni.private_ip}</span>
+                </div>
+
+                {/* Observed ports */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {eni.observed_ports.length > 0 ? (
+                    eni.observed_ports.map((p) => (
+                      <span
+                        key={`${p.port}-${p.protocol}`}
+                        className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs"
+                      >
+                        <span className="font-mono text-emerald-400">:{p.port}</span>
+                        <span className="text-slate-500 ml-1">{p.protocol}</span>
+                        <span className="text-emerald-600 ml-1">{p.connection_count.toLocaleString()}</span>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-slate-500 italic">No observed traffic</span>
+                  )}
+                </div>
+
+                {eni.traffic_note && (
+                  <div className="text-xs text-amber-400/60 mt-1">{eni.traffic_note}</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Generate plan button */}
+          <button
+            onClick={handleGeneratePlan}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors"
+          >
+            <Network className="w-4 h-4" />
+            {loading ? 'Generating...' : 'Generate Restructure Plan'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
+
+// =============================================================================
 // MAIN COMPONENT
 // =============================================================================
 
@@ -1179,7 +1599,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [analysis, setAnalysis] = useState<SGAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact' | 'comparison' | 'vulnerabilities' | 'enforcement'>('summary');
+  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact' | 'comparison' | 'vulnerabilities' | 'enforcement' | 'restructure'>('summary');
   const [syncing, setSyncing] = useState(false);
   const [orphanStatus, setOrphanStatus] = useState<{
     is_orphan: boolean;
@@ -1271,7 +1691,7 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
 
     const rulesToRemediate = analysis.recommendations.delete;
     if (rulesToRemediate.length === 0) {
-      alert('No rules to remediate');
+      console.warn('[SG] No rules to remediate');
       return;
     }
 
@@ -1340,13 +1760,12 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
 
     const rulesToRemediate = analysis.recommendations.delete;
     if (rulesToRemediate.length === 0) {
-      alert('No rules to remediate');
+      console.warn('[SG] No rules to remediate');
       return;
     }
 
-    if (!confirm(`Are you sure you want to remove ${rulesToRemediate.length} unused rules from ${analysis.sg_name}?\n\nThis will create a snapshot for rollback.`)) {
-      return;
-    }
+    // Auto-confirm remediation (confirmation handled by UI flow)
+    console.log(`[SG-Remediate] Applying fix: removing ${rulesToRemediate.length} unused rules from ${analysis.sg_name}`)
 
     setLoading(true);
     try {
@@ -1376,14 +1795,14 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       const result = await response.json();
       console.log('Remediation result:', result);
 
-      alert(`✅ Remediation successful!\n\nRules removed: ${result.summary?.rules_removed || 0}\nSnapshot ID: ${result.snapshot_id || 'N/A'}`);
+      console.log(`[SG-Remediate] Success! Rules removed: ${result.summary?.rules_removed || 0}, Snapshot: ${result.snapshot_id || 'N/A'}`);
 
       // Refresh analysis and notify parent
       await fetchAnalysis();
       onRemediate?.(sgId, rulesToRemediate);
     } catch (err: any) {
       console.error('Remediation error:', err);
-      alert(`❌ Remediation failed: ${err.message}`);
+      console.error(`[SG-Remediate] Failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -1463,6 +1882,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
             { id: 'enforcement', label: 'Enforcement', icon: Settings },
             { id: 'evidence', label: 'Evidence', icon: Database },
             { id: 'impact', label: 'Impact', icon: AlertTriangle },
+            { id: 'restructure', label: 'Restructure', icon: Network },
             { id: 'comparison', label: 'CSPM vs Behavioral', icon: Columns },
           ].map((tab) => (
             <button
@@ -1551,6 +1971,7 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
               {activeTab === 'enforcement' && <EnforcementModeSelector showDetails={true} />}
               {activeTab === 'evidence' && <EvidenceTab analysis={analysis} />}
               {activeTab === 'impact' && <ImpactTab analysis={analysis} />}
+              {activeTab === 'restructure' && <RestructureTab sgId={sgId} sgName={sgName || analysis.sg_name} />}
               {activeTab === 'comparison' && <ComparisonTab analysis={analysis} orphanStatus={orphanStatus} sgId={sgId} />}
             </>
           ) : null}
