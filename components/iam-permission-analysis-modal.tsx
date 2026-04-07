@@ -1677,60 +1677,102 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
 
-            {/* Never Used Permissions */}
-            <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                  <span className="font-semibold text-[#ef4444]">Never Used Permissions ({unusedCount})</span>
-                </div>
-                <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
-                  Remove these
-                </span>
-              </div>
-              {unusedPermissions.length > 0 ? (
-                <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                  {unusedPermissions.map((perm, i) => {
-                    const tierColors: Record<string, string> = {
-                      'CRITICAL': '#ef4444',
-                      'HIGH': '#f97316',
-                      'MEDIUM': '#eab308',
-                      'LOW': '#6b7280',
-                    }
-                    const tierColor = tierColors[(perm as any).risk_level] || '#ef4444'
-                    const damageTier = (perm as any).damage_tier || ''
-                    const damageLabel = (perm as any).damage_label || ''
-                    return (
-                      <div key={i} className="flex items-center gap-2 text-sm" title={damageLabel}>
-                        <X className="w-4 h-4 flex-shrink-0" style={{ color: tierColor }} />
-                        <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
-                        {damageTier && damageTier !== 'READ' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{
-                            color: tierColor,
-                            background: `${tierColor}15`,
-                            border: `1px solid ${tierColor}30`
-                          }}>
-                            {damageTier === 'IRREVERSIBLE' ? '⚠ IRREVERSIBLE' :
-                             damageTier === 'ADMIN' ? '🔑 ADMIN' :
-                             damageTier === 'DESTRUCTIVE' ? '🗑 DELETE' :
-                             damageTier === 'WRITE' ? '✏ WRITE' : damageTier}
-                          </span>
-                        )}
+            {/* Never Used Permissions — split into removable vs protected */}
+            {(() => {
+              const protectedSet = new Set(
+                (gapData?.confidence_groups?.groups ?? [])
+                  .filter(g => g.protected || g.action === 'protected')
+                  .flatMap(g => g.permissions.map(p => p.permission))
+              )
+              const removablePerms = unusedPermissions.filter(p => !protectedSet.has(p.permission))
+              const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
+              const removableCount = unusedCount - protectedPerms.length
+
+              return (
+                <>
+                  {/* Removable permissions */}
+                  <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+                        <span className="font-semibold text-[#ef4444]">Never Used Permissions ({removableCount})</span>
                       </div>
-                    )
-                  })}
-                </div>
-              ) : unusedCount > 0 ? (
-                <div className="mt-3 p-3 rounded-lg bg-[#ef444408]">
-                  <p className="text-sm" style={{ color: "var(--foreground, #374151)" }}>
-                    <strong>{unusedCount} permission{unusedCount !== 1 ? 's' : ''}</strong> are configured but were never used in {observationDays} days.
-                  </p>
-                  <p className="text-xs mt-1 text-[#ef4444]">
-                    These permissions come from managed policies attached to this role. To remediate, detach the managed policies and replace with a minimal inline policy containing only the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
-                  </p>
-                </div>
-              ) : null}
-            </div>
+                      <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
+                        Remove these
+                      </span>
+                    </div>
+                    {removablePerms.length > 0 ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                        {removablePerms.map((perm, i) => {
+                          const tierColors: Record<string, string> = {
+                            'CRITICAL': '#ef4444',
+                            'HIGH': '#f97316',
+                            'MEDIUM': '#eab308',
+                            'LOW': '#6b7280',
+                          }
+                          const tierColor = tierColors[(perm as any).risk_level] || '#ef4444'
+                          const damageTier = (perm as any).damage_tier || ''
+                          const damageLabel = (perm as any).damage_label || ''
+                          return (
+                            <div key={i} className="flex items-center gap-2 text-sm" title={damageLabel}>
+                              <X className="w-4 h-4 flex-shrink-0" style={{ color: tierColor }} />
+                              <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
+                              {damageTier && damageTier !== 'READ' && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{
+                                  color: tierColor,
+                                  background: `${tierColor}15`,
+                                  border: `1px solid ${tierColor}30`
+                                }}>
+                                  {damageTier === 'IRREVERSIBLE' ? 'IRREVERSIBLE' :
+                                   damageTier === 'ADMIN' ? 'ADMIN' :
+                                   damageTier === 'DESTRUCTIVE' ? 'DELETE' :
+                                   damageTier === 'WRITE' ? 'WRITE' : damageTier}
+                                </span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : removableCount > 0 ? (
+                      <div className="mt-3 p-3 rounded-lg bg-[#ef444408]">
+                        <p className="text-sm" style={{ color: "var(--foreground, #374151)" }}>
+                          <strong>{removableCount} permission{removableCount !== 1 ? 's' : ''}</strong> are configured but were never used in {observationDays} days.
+                        </p>
+                        <p className="text-xs mt-1 text-[#ef4444]">
+                          These permissions come from managed policies attached to this role. To remediate, detach the managed policies and replace with a minimal inline policy containing only the {usedCount} used permission{usedCount !== 1 ? 's' : ''}.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Protected permissions (SSM/EC2 Messages) */}
+                  {protectedPerms.length > 0 && (
+                    <div className="border-2 border-[#d1d5db] bg-[#f9fafb] rounded-xl p-4 opacity-75">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Lock className="w-5 h-5 text-[#6b7280]" />
+                          <span className="font-semibold text-[#6b7280]">Protected Permissions ({protectedPerms.length})</span>
+                        </div>
+                        <span className="px-3 py-1 bg-[#6b728015] text-[#6b7280] border border-[#d1d5db] rounded-lg text-sm font-medium">
+                          Do not remove
+                        </span>
+                      </div>
+                      <p className="text-xs mt-2 text-[#6b7280]">
+                        Required for AWS SSM Agent / Session Manager. Internal service calls not visible in CloudTrail — removing will break SSM.
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                        {protectedPerms.map((perm, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm opacity-60">
+                            <Lock className="w-3 h-3 flex-shrink-0 text-[#6b7280]" />
+                            <span className="font-mono text-[#6b7280] truncate">{perm.permission}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </div>
           )}
 
