@@ -415,9 +415,13 @@ export async function GET(
       const advisorServices = ev?.access_advisor_services ?? 0
       const isAttached = ev?.is_attached ?? false
 
-      // Skip resources that are actively attached to other resources
-      // (e.g., IAM policy attached to a user/role, SG protecting an instance)
-      if (isAttached) continue
+      // For IAM policies/roles: skip if attached to other entities in Neo4j
+      // (the AWS attachment_count check above already handles the primary case,
+      // this is a safety net for graph-level attachments)
+      // For other resource types (EC2, SG, Lambda etc), structural relationships
+      // don't prove the resource is actively used — idle time + relationship count
+      // in the graduated criteria below are better indicators.
+      if (isAttached && (resourceType === 'IAMPolicy' || resourceType === 'IAMUser')) continue
 
       // Determine last activity from evidence (authoritative) or node property (fallback)
       const evidenceLastActivity = ev?.last_activity
