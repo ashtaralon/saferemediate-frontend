@@ -39,6 +39,23 @@ interface AutomationRule {
   issuesFixed: number
 }
 
+interface ExecutionDetail {
+  finding_id: string
+  title?: string
+  severity?: string
+  resource_id?: string
+  status: string
+  snapshot_id?: string
+  reason?: string
+  simulation?: { success: boolean; blast_radius: string; details: any }
+  aws_state_captured?: boolean
+  rules_targeted?: number
+  aws_calls?: string[]
+  validated?: boolean
+  auto_rolled_back?: boolean
+  error?: string
+}
+
 interface ExecutionResult {
   ruleId: string
   ruleName: string
@@ -49,14 +66,7 @@ interface ExecutionResult {
   findingsFailed: number
   findingsSkipped: number
   snapshotsCreated: number
-  details: Array<{
-    finding_id: string
-    title?: string
-    severity?: string
-    resource_id?: string
-    status: string
-    snapshot_id?: string
-  }>
+  details: ExecutionDetail[]
 }
 
 interface AutomationRulesViewProps {
@@ -300,31 +310,54 @@ export function AutomationRulesView({
             </div>
           </div>
           {lastExecution.details.length > 0 && (
-            <div className="space-y-1 max-h-40 overflow-y-auto">
-              {lastExecution.details.map((d, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded" style={{ background: "rgba(0,0,0,0.2)" }}>
-                  <span
-                    className="px-1.5 py-0.5 rounded font-medium"
-                    style={{
-                      background: d.status === "remediated" || d.status === "simulated" || d.status === "snapshot_created"
-                        ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                      color: d.status === "remediated" || d.status === "simulated" || d.status === "snapshot_created"
-                        ? "#22c55e" : "#ef4444",
-                    }}
-                  >
-                    {d.status}
-                  </span>
-                  <span style={{ color: "var(--text-primary)" }}>{d.title || d.finding_id}</span>
-                  {d.resource_id && (
-                    <span style={{ color: "var(--text-secondary)" }}>({d.resource_id})</span>
-                  )}
-                  {d.snapshot_id && (
-                    <span className="ml-auto flex items-center gap-1" style={{ color: "#3B82F6" }}>
-                      <Camera className="w-3 h-3" /> {d.snapshot_id}
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {lastExecution.details.map((d, i) => {
+                const isSuccess = ["remediated", "simulated", "snapshot_created", "no_action_needed"].includes(d.status)
+                return (
+                  <div key={i} className="flex items-center gap-2 text-xs p-1.5 rounded" style={{ background: "rgba(0,0,0,0.2)" }}>
+                    <span
+                      className="px-1.5 py-0.5 rounded font-medium shrink-0"
+                      style={{
+                        background: isSuccess ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                        color: isSuccess ? "#22c55e" : "#ef4444",
+                      }}
+                    >
+                      {d.status}
                     </span>
-                  )}
-                </div>
-              ))}
+                    <span style={{ color: "#f1f5f9" }}>{d.title || d.finding_id}</span>
+                    {d.resource_id && (
+                      <span style={{ color: "#94a3b8" }}>({d.resource_id})</span>
+                    )}
+                    {/* Strategy details */}
+                    {d.aws_state_captured && (
+                      <span className="px-1 py-0.5 rounded" style={{ background: "rgba(59, 130, 246, 0.2)", color: "#60a5fa" }}>
+                        AWS
+                      </span>
+                    )}
+                    {d.simulation?.blast_radius && (
+                      <span style={{ color: "#94a3b8" }}>blast: {d.simulation.blast_radius}</span>
+                    )}
+                    {d.aws_calls && d.aws_calls.length > 0 && (
+                      <span style={{ color: "#fbbf24" }}>{d.aws_calls.length} AWS call{d.aws_calls.length > 1 ? "s" : ""}</span>
+                    )}
+                    {d.validated !== undefined && (
+                      <span style={{ color: d.validated ? "#22c55e" : "#ef4444" }}>
+                        {d.validated ? "validated" : "drift detected"}
+                      </span>
+                    )}
+                    {d.auto_rolled_back && (
+                      <span className="px-1 py-0.5 rounded" style={{ background: "rgba(251, 191, 36, 0.2)", color: "#fbbf24" }}>
+                        auto-rolled-back
+                      </span>
+                    )}
+                    {d.snapshot_id && (
+                      <span className="ml-auto flex items-center gap-1 shrink-0" style={{ color: "#3B82F6" }}>
+                        <Camera className="w-3 h-3" /> {d.snapshot_id}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

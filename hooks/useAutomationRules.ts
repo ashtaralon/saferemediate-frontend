@@ -99,6 +99,24 @@ function mapStats(raw: any): AutomationStats {
   }
 }
 
+export interface ExecutionDetail {
+  finding_id: string
+  title?: string
+  severity?: string
+  resource_id?: string
+  status: string
+  snapshot_id?: string
+  reason?: string
+  // Strategy execution fields
+  simulation?: { success: boolean; blast_radius: string; details: any }
+  aws_state_captured?: boolean
+  rules_targeted?: number
+  aws_calls?: string[]
+  validated?: boolean
+  auto_rolled_back?: boolean
+  error?: string
+}
+
 export interface ExecutionResult {
   ruleId: string
   ruleName: string
@@ -109,17 +127,7 @@ export interface ExecutionResult {
   findingsFailed: number
   findingsSkipped: number
   snapshotsCreated: number
-  details: Array<{
-    finding_id: string
-    title?: string
-    severity?: string
-    resource_id?: string
-    status: string
-    snapshot_id?: string
-    pipeline_id?: string
-    errors?: string[]
-    reason?: string
-  }>
+  details: ExecutionDetail[]
 }
 
 interface UseAutomationRulesReturn {
