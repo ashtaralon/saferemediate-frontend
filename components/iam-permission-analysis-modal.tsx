@@ -49,6 +49,43 @@ interface GapAnalysisData {
   unused_permissions: string[]
   high_risk_unused: string[]
   confidence: string
+  confidence_groups?: {
+    groups: Array<{
+      group_id: string
+      label: string
+      confidence_score: number
+      data_source_type: string
+      service_label: string
+      logged_by_default: boolean
+      explanation: string
+      action: string
+      color: string
+      permission_count: number
+      permissions: Array<{
+        permission: string
+        status: string
+        risk_level: string
+        damage_tier?: string
+        confidence_score: number
+        data_source_type: string
+        explanation: string
+        logged_by_default: boolean
+      }>
+    }>
+    overall_confidence: number
+    total_permissions: number
+    summary: {
+      safe_to_remove: number
+      verify_first: number
+      investigate_first: number
+    }
+    observation_days: number
+    account_signals: {
+      s3_data_events: boolean
+      lambda_data_events: boolean
+      dynamodb_data_events: boolean
+    }
+  }
   dependency_context?: DependencyContext
   remediated_at?: string | null
   service_role_analysis?: any
@@ -243,6 +280,7 @@ export function IAMPermissionAnalysisModal({
         unused_permissions: actualUnusedPerms,
         high_risk_unused: rawData.high_risk_unused || [],
         confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
+        confidence_groups: rawData.confidence_groups || null,
         dependency_context: rawData.dependency_context,
         remediated_at: rawData.remediated_at || null,
         service_role_analysis: rawData.service_role_analysis || null
@@ -498,49 +536,53 @@ export function IAMPermissionAnalysisModal({
   startDate.setDate(startDate.getDate() - observationDays)
   const formatDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
-  // Safety score calculation
+  // Safety score — uses backend-computed confidence when available
   const calculateSafetyScore = () => {
     if (!gapData) return 95
-    let score = 95
 
-    // Check if this is a known service role from backend analysis
+    // Use backend confidence engine score when available (data-driven, not hardcoded)
+    if (gapData.confidence_groups?.overall_confidence != null) {
+      let score = gapData.confidence_groups.overall_confidence
+
+      // Apply service role penalty from trust policy analysis
+      const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+      if (backendAnalysis?.is_service_role && backendAnalysis?.analysis?.cloudtrail_visible === false) {
+        score = Math.min(score, 15) // Service role — hard cap
+      }
+
+      // Apply dependency penalty
+      if (gapData.dependency_context?.has_critical_dependencies) {
+        score = Math.max(10, score - 15)
+      }
+
+      return Math.max(5, Math.min(100, score))
+    }
+
+    // Fallback: compute locally if backend doesn't provide confidence_groups
+    let score = 95
     const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
     const isKnownServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.cloudtrail_visible === false
 
-    // CRITICAL: If NO permissions are observed in use, confidence is low regardless of events
     if (usedCount === 0 && unusedCount > 0) {
       if (isKnownServiceRole) {
-        score = 15 // Service role — CloudTrail won't capture usage
+        score = 15
       } else if (cloudtrailEvents === 0) {
-        score = 35 // No events at all — needs investigation
+        score = 35
       } else {
-        // Events exist but nothing used — suspicious, not safe
-        score = 40 // Low confidence — data may be incomplete
+        score = 40
       }
     } else if (cloudtrailEvents === 0 && unusedCount > 0) {
       score = 35
     } else {
-      // We have CloudTrail data - base confidence on that
       const highRiskCount = gapData.high_risk_unused?.length ?? 0
-
-      // Scale penalty by evidence strength: more events = less penalty per high-risk perm
-      // With 100K+ events, we have strong evidence — cap penalty at 3 points total
-      // With <1K events, apply up to 8 points total penalty
       let highRiskPenalty = 0
       if (highRiskCount > 0) {
-        if (cloudtrailEvents > 100000) {
-          highRiskPenalty = Math.min(3, highRiskCount)
-        } else if (cloudtrailEvents > 10000) {
-          highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
-        } else if (cloudtrailEvents > 1000) {
-          highRiskPenalty = Math.min(8, highRiskCount)
-        } else {
-          highRiskPenalty = Math.min(12, highRiskCount * 2)
-        }
+        if (cloudtrailEvents > 100000) highRiskPenalty = Math.min(3, highRiskCount)
+        else if (cloudtrailEvents > 10000) highRiskPenalty = Math.min(5, Math.ceil(highRiskCount * 0.5))
+        else if (cloudtrailEvents > 1000) highRiskPenalty = Math.min(8, highRiskCount)
+        else highRiskPenalty = Math.min(12, highRiskCount * 2)
       }
       score -= highRiskPenalty
-
-      // Reduce score if low CloudTrail events (but not zero)
       if (cloudtrailEvents > 0 && cloudtrailEvents < 10) score -= 5
     }
 
@@ -681,8 +723,9 @@ export function IAMPermissionAnalysisModal({
                     </p>
                   </div>
                 )
-              } else if (noCloudTrailData || (usedCount === 0 && unusedCount > 0)) {
-                // WARNING: Insufficient data - Investigation needed
+              } else if (safetyScore < 50) {
+                // WARNING: Low confidence — score driven by backend engine
+                const cg = gapData?.confidence_groups
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
@@ -691,22 +734,48 @@ export function IAMPermissionAnalysisModal({
                       <span className="text-2xl font-bold text-[#f97316]">LOW CONFIDENCE</span>
                     </div>
                     <p className="text-[#f97316] mt-2 font-semibold">
-                      Insufficient usage data collected. Cannot verify if permissions are truly unused.
+                      {cg ? `${cg.summary.investigate_first} permissions lack sufficient data to verify.` : 'Insufficient usage data collected.'}
                     </p>
-                    <p className="text-[#f97316] text-sm mt-1">
-                      This role may be used by an internal AWS service, or used infrequently outside the observation period.
-                    </p>
-                    <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
-                      <p className="text-sm font-bold text-[#9a3412] mb-2">Missing Data Sources:</p>
-                      <ul className="text-xs text-[#9a3412] space-y-1 list-disc list-inside">
-                        <li>S3 Data Events may not be enabled in CloudTrail (management events only by default)</li>
-                        <li>SSM/EC2 Messages are internal service calls — often not logged</li>
-                        <li>Lambda invocations require data-level logging to track</li>
-                      </ul>
-                      <p className="text-xs text-[#9a3412] mt-2 font-semibold">
-                        Recommendation: Enable CloudTrail data events before remediating this role.
-                      </p>
+                    {cg && (
+                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                        <p className="text-sm font-bold text-[#9a3412] mb-2">Data Source Gaps:</p>
+                        <ul className="text-xs text-[#9a3412] space-y-1 list-disc list-inside">
+                          {!cg.account_signals.s3_data_events && cg.groups.some(g => g.service_label === 'S3' && g.data_source_type === 'data_event') && (
+                            <li>S3 data events not enabled — cannot verify object-level operations (GetObject, PutObject)</li>
+                          )}
+                          {!cg.account_signals.lambda_data_events && cg.groups.some(g => g.service_label === 'Lambda' && g.data_source_type === 'data_event') && (
+                            <li>Lambda data events not enabled — cannot verify function invocations</li>
+                          )}
+                          {cg.groups.some(g => g.data_source_type === 'internal_service') && (
+                            <li>Internal AWS service calls detected — these are never logged in CloudTrail</li>
+                          )}
+                          {noCloudTrailData && (
+                            <li>No CloudTrail events found for this role — role may be inactive or used by internal service</li>
+                          )}
+                        </ul>
+                        <p className="text-xs text-[#9a3412] mt-2 font-semibold">
+                          {cg.summary.safe_to_remove > 0
+                            ? `${cg.summary.safe_to_remove} permissions are safe to remove. Review groups individually.`
+                            : 'Enable CloudTrail data events before remediating this role.'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              } else if (safetyScore < 75) {
+                // MEDIUM confidence
+                const cg = gapData?.confidence_groups
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#f97316]">REVIEW RECOMMENDED</span>
                     </div>
+                    <p className="text-[#f97316] mt-2">
+                      {cg ? `${cg.summary.safe_to_remove} permissions safe to remove, ${cg.summary.verify_first + cg.summary.investigate_first} need verification.`
+                           : `${cloudtrailEvents.toLocaleString()} events analyzed — some permissions need verification.`}
+                    </p>
                   </div>
                 )
               } else {
@@ -771,7 +840,7 @@ export function IAMPermissionAnalysisModal({
               })()}
             </div>
 
-            {/* Permissions to Remove */}
+            {/* Permissions to Remove — Grouped by Backend Confidence Engine */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-lg" style={{ color: "var(--foreground, #111827)" }}>
@@ -796,40 +865,131 @@ export function IAMPermissionAnalysisModal({
                 )}
               </div>
 
-              {unusedPermissions.length > 0 ? (
-                <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-64 overflow-y-auto">
-                  <div className="space-y-2">
-                    {unusedPermissions.map((perm, i) => (
-                      <label
-                        key={i}
-                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                          selectedPermissionsToRemove.has(perm.permission)
-                            ? 'bg-[#ef444420] border border-[#ef444440]'
-                            : 'bg-white border border-[var(--border,#e5e7eb)] hover:bg-gray-50'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedPermissionsToRemove.has(perm.permission)}
-                          onChange={() => togglePermissionSelection(perm.permission)}
-                          className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
-                        />
-                        <span className="font-mono text-sm text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
-                          perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
-                          perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
-                          perm.risk_level === 'MEDIUM' ? 'bg-[#eab30820] text-[#ca8a04]' :
-                          'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
-                        }`}>
-                          {(perm as any).damage_tier === 'IRREVERSIBLE' ? '⚠ IRREVERSIBLE' :
-                           (perm as any).damage_tier === 'ADMIN' ? '🔑 ADMIN' :
-                           (perm as any).damage_tier === 'DESTRUCTIVE' ? '🗑 DELETE' :
-                           (perm as any).damage_tier === 'WRITE' ? '✏ WRITE' :
-                           perm.risk_level}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+              {/* Confidence summary bar */}
+              {gapData?.confidence_groups && (
+                <div className="mb-3 p-3 rounded-lg flex items-center gap-4 text-xs" style={{ background: "var(--background, #f8f9fa)" }}>
+                  <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Breakdown:</span>
+                  {gapData.confidence_groups.summary.safe_to_remove > 0 && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
+                      <strong className="text-[#22c55e]">{gapData.confidence_groups.summary.safe_to_remove}</strong>
+                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>safe to remove</span>
+                    </span>
+                  )}
+                  {gapData.confidence_groups.summary.verify_first > 0 && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-[#f97316]" />
+                      <strong className="text-[#f97316]">{gapData.confidence_groups.summary.verify_first}</strong>
+                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>verify first</span>
+                    </span>
+                  )}
+                  {gapData.confidence_groups.summary.investigate_first > 0 && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
+                      <strong className="text-[#ef4444]">{gapData.confidence_groups.summary.investigate_first}</strong>
+                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>investigate first</span>
+                    </span>
+                  )}
+                  {gapData.confidence_groups.account_signals && (
+                    <span className="ml-auto" style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+                      Data events:
+                      S3 {gapData.confidence_groups.account_signals.s3_data_events ? '✓' : '✗'}
+                      {' '}Lambda {gapData.confidence_groups.account_signals.lambda_data_events ? '✓' : '✗'}
+                      {' '}DDB {gapData.confidence_groups.account_signals.dynamodb_data_events ? '✓' : '✗'}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {unusedPermissions.length > 0 && gapData?.confidence_groups?.groups ? (
+                <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                  {gapData.confidence_groups.groups.map((group, gi) => {
+                    const colorMap: Record<string, { text: string; border: string; bg: string }> = {
+                      green: { text: '#22c55e', border: '#bbf7d0', bg: '#f0fdf4' },
+                      orange: { text: '#f97316', border: '#fed7aa', bg: '#fff7ed' },
+                      red: { text: '#ef4444', border: '#fecaca', bg: '#fef2f2' },
+                    }
+                    const colors = colorMap[group.color] || colorMap.orange
+
+                    return (
+                      <div key={gi} className="rounded-xl border overflow-hidden" style={{ borderColor: colors.border }}>
+                        <div className="px-4 py-2 flex items-center justify-between" style={{ background: colors.bg }}>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
+                            <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>{group.label}</span>
+                            {!group.logged_by_default && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: colors.border, color: colors.text }}>
+                                {group.data_source_type === 'data_event' ? 'DATA EVENT' :
+                                 group.data_source_type === 'internal_service' ? 'INTERNAL' : 'PARTIAL'}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => {
+                              const groupPerms = group.permissions.map(p => p.permission)
+                              const allSelected = groupPerms.every(p => selectedPermissionsToRemove.has(p))
+                              const newSet = new Set(selectedPermissionsToRemove)
+                              groupPerms.forEach(p => allSelected ? newSet.delete(p) : newSet.add(p))
+                              setSelectedPermissionsToRemove(newSet)
+                            }}
+                            className="text-xs font-medium px-2 py-0.5 rounded" style={{ color: colors.text }}
+                          >
+                            {group.permissions.every(p => selectedPermissionsToRemove.has(p.permission)) ? 'Deselect group' : 'Select group'}
+                          </button>
+                        </div>
+                        <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: colors.border, background: colors.bg + '80' }}>
+                          {group.explanation}
+                        </div>
+                        <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
+                          {group.permissions.map((perm, i) => (
+                            <label
+                              key={i}
+                              className={`flex items-center gap-3 p-1.5 rounded cursor-pointer transition-colors ${
+                                selectedPermissionsToRemove.has(perm.permission)
+                                  ? 'bg-[#ef444410]'
+                                  : 'hover:bg-gray-50'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedPermissionsToRemove.has(perm.permission)}
+                                onChange={() => togglePermissionSelection(perm.permission)}
+                                className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
+                              />
+                              <span className="font-mono text-xs text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
+                                perm.risk_level === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
+                                perm.risk_level === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
+                                perm.risk_level === 'MEDIUM' ? 'bg-[#eab30820] text-[#ca8a04]' :
+                                'bg-gray-100 text-[var(--muted-foreground,#4b5563)]'
+                              }`}>
+                                {(perm as any).damage_tier === 'IRREVERSIBLE' ? 'IRREVERSIBLE' :
+                                 (perm as any).damage_tier === 'DESTRUCTIVE' ? 'DELETE' :
+                                 (perm as any).damage_tier === 'WRITE' ? 'WRITE' :
+                                 perm.risk_level}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : unusedPermissions.length > 0 ? (
+                <div className="space-y-1 max-h-[300px] overflow-y-auto p-3 rounded-xl border" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+                  {unusedPermissions.map((perm, i) => (
+                    <label key={i} className={`flex items-center gap-3 p-1.5 rounded cursor-pointer transition-colors ${
+                      selectedPermissionsToRemove.has(perm.permission) ? 'bg-[#ef444410]' : 'hover:bg-gray-50'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedPermissionsToRemove.has(perm.permission)}
+                        onChange={() => togglePermissionSelection(perm.permission)}
+                        className="w-4 h-4 text-[#ef4444] rounded border-[var(--border,#d1d5db)] focus:ring-[#ef4444]"
+                      />
+                      <span className="font-mono text-xs text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
+                    </label>
+                  ))}
                 </div>
               ) : unusedCount > 0 ? (
                 <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl">
@@ -975,79 +1135,83 @@ export function IAMPermissionAnalysisModal({
               </div>
             )}
 
-            {/* Confidence Factors */}
+            {/* Confidence Factors — driven by backend confidence engine */}
             <div className="p-4 rounded-xl" style={{ background: "var(--background, #f8f9fa)" }}>
               <h3 className="font-bold mb-3" style={{ color: "var(--foreground, #111827)" }}>Confidence Factors:</h3>
               <div className="space-y-2">
-                {(() => {
-                  const noCloudTrailData = cloudtrailEvents === 0 && unusedCount > 0
-                  const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
-                  const isServiceRole = backendAnalysis?.is_service_role
-
-                  const factors = noCloudTrailData ? [
-                    {
-                      label: `${observationDays} days analyzed - No usage data collected`,
-                      score: 0,
-                      warning: true,
-                      critical: true
-                    },
-                    {
-                      label: isServiceRole
-                        ? `Role is used by AWS service (${backendAnalysis?.analysis?.service_name})`
-                        : 'Permissions unverified - may be used by internal service',
-                      score: isServiceRole ? 0 : 20,
-                      warning: true,
-                      critical: isServiceRole
-                    },
-                    {
-                      label: gapData?.dependency_context?.has_critical_dependencies
-                        ? 'Critical dependencies detected'
-                        : 'No production dependencies in graph',
-                      score: gapData?.dependency_context?.has_critical_dependencies ? 50 : 80,
-                      warning: gapData?.dependency_context?.has_critical_dependencies
-                    },
-                    {
-                      label: 'Investigation recommended before remediation',
-                      score: 30,
-                      warning: true
-                    }
-                  ] : [
-                    { label: `${observationDays} days of usage analysis`, score: 99 },
-                    { label: `${cloudtrailEvents.toLocaleString()} API events verified`, score: 100 },
-                    {
-                      label: gapData?.dependency_context?.has_critical_dependencies
-                        ? 'Critical dependencies detected (reduced confidence)'
-                        : 'No production dependencies detected',
-                      score: gapData?.dependency_context?.has_critical_dependencies ? 75 : 100,
-                      warning: gapData?.dependency_context?.has_critical_dependencies
-                    },
-                    { label: 'Similar fixes applied successfully', score: 98 }
-                  ]
-
-                  return factors.map((factor, i) => (
-                    <div key={i} className="flex items-center justify-between">
+                {gapData?.confidence_groups?.groups ? (
+                  <>
+                    {/* Per-group confidence from backend */}
+                    {gapData.confidence_groups.groups.map((group, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <span className="flex items-center gap-2 text-sm">
+                          {group.confidence_score >= 70 ? (
+                            <Check className="w-4 h-4 text-[#22c55e]" />
+                          ) : group.confidence_score >= 40 ? (
+                            <AlertTriangle className="w-4 h-4 text-amber-500" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-[#ef4444]" />
+                          )}
+                          <span>{group.label} — {group.data_source_type === 'management_event' ? 'management event' : group.data_source_type === 'data_event' ? 'data event (not default)' : group.data_source_type === 'internal_service' ? 'internal service call' : 'partial logging'}</span>
+                        </span>
+                        <span className={`font-semibold ${
+                          group.confidence_score >= 70 ? 'text-[#22c55e]' :
+                          group.confidence_score >= 40 ? 'text-[#f97316]' :
+                          'text-[#ef4444]'
+                        }`}>
+                          {group.confidence_score}%
+                        </span>
+                      </div>
+                    ))}
+                    {/* Observation window */}
+                    <div className="flex items-center justify-between">
                       <span className="flex items-center gap-2 text-sm">
-                        {factor.critical ? (
-                          <XCircle className="w-4 h-4 text-[#ef4444]" />
-                        ) : factor.warning ? (
+                        <Check className="w-4 h-4 text-[#22c55e]" />
+                        <span>{observationDays}-day observation window</span>
+                      </span>
+                      <span className="font-semibold text-[#22c55e]">
+                        {cloudtrailEvents.toLocaleString()} events
+                      </span>
+                    </div>
+                    {/* Dependencies */}
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-2 text-sm">
+                        {gapData?.dependency_context?.has_critical_dependencies ? (
                           <AlertTriangle className="w-4 h-4 text-amber-500" />
                         ) : (
                           <Check className="w-4 h-4 text-[#22c55e]" />
                         )}
-                        <span className={factor.critical ? 'text-[#ef4444] font-medium' : ''}>
-                          {factor.label}
-                        </span>
-                      </span>
-                      <span className={`font-semibold ${
-                        factor.critical ? 'text-[#ef4444]' :
-                        factor.warning ? 'text-[#f97316]' :
-                        'text-[#22c55e]'
-                      }`}>
-                        {factor.score}%
+                        <span>{gapData?.dependency_context?.has_critical_dependencies
+                          ? 'Critical dependencies detected'
+                          : 'No critical dependencies'}</span>
                       </span>
                     </div>
-                  ))
-                })()}
+                    {/* Account data event status */}
+                    {gapData.confidence_groups.account_signals && (
+                      <div className="mt-2 pt-2 border-t text-xs" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+                        <span style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                          Account data events:
+                          {' '}S3 {gapData.confidence_groups.account_signals.s3_data_events ? '✓ enabled' : '✗ not enabled'}
+                          {' · '}Lambda {gapData.confidence_groups.account_signals.lambda_data_events ? '✓ enabled' : '✗ not enabled'}
+                          {' · '}DynamoDB {gapData.confidence_groups.account_signals.dynamodb_data_events ? '✓ enabled' : '✗ not enabled'}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* Fallback when no confidence groups from backend */}
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-2 text-sm">
+                        <Check className="w-4 h-4 text-[#22c55e]" />
+                        <span>{observationDays} days of usage analysis</span>
+                      </span>
+                      <span className="font-semibold text-[#22c55e]">
+                        {cloudtrailEvents.toLocaleString()} events
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
