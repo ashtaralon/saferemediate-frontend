@@ -483,17 +483,12 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
                         color: getRiskColor(nhi.risk_level),
                       }}>{nhi.risk_level}</span>
                     </div>
-                    <div className="text-center flex items-center gap-1.5">
+                    <div className="text-center">
                       <button
                         onClick={(e) => { e.stopPropagation(); router.push(`/nhi-profile/${encodeURIComponent(nhi.name)}`) }}
                         className="px-3 py-1 rounded-lg text-xs font-medium transition-all hover:opacity-90 border"
                         style={{ borderColor: "#8b5cf640", color: "#8b5cf6" }}
                       >Investigate</button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); router.push(`/nhi-profile/${encodeURIComponent(nhi.name)}?action=remediate`) }}
-                        className="px-3 py-1 rounded-lg text-xs font-medium text-white transition-all hover:opacity-90"
-                        style={{ background: "#8b5cf6" }}
-                      >Fix</button>
                     </div>
                   </div>
 
