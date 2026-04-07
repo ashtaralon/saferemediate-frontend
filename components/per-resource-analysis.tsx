@@ -164,6 +164,12 @@ export function PerResourceAnalysis() {
   const [remediateData, setRemediateData] = useState<RemediateData | null>(null)
   const [perResourceRemediateData, setPerResourceRemediateData] = useState<PerResourceRemediateData | null>(null)
 
+  // SG restructure state
+  const [sgRestructurePhase, setSgRestructurePhase] = useState<"idle" | "analyzing" | "proposing" | "proposed" | "executing" | "done">("idle")
+  const [sgEniAnalysis, setSgEniAnalysis] = useState<any>(null)
+  const [sgProposal, setSgProposal] = useState<any>(null)
+  const [sgExecResult, setSgExecResult] = useState<any>(null)
+
   // UI state
   const [activeTab, setActiveTab] = useState<"aggregated" | "per-resource">("aggregated")
   const [aggApplied, setAggApplied] = useState(false)
@@ -182,6 +188,72 @@ export function PerResourceAnalysis() {
     }
     return res.json()
   }, [])
+
+  // ── SG Restructure handlers ──
+  const handleSgAnalyze = useCallback(async () => {
+    if (!selectedSGData?.sg_id) return
+    setSgRestructurePhase("analyzing")
+    setSgEniAnalysis(null)
+    setSgProposal(null)
+    setSgExecResult(null)
+    setError(null)
+    try {
+      const data = await apiCall("GET", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/per-eni-analysis?days=90`)
+      setSgEniAnalysis(data)
+      setSgRestructurePhase("idle")
+    } catch (e: any) {
+      setError(e.message)
+      setSgRestructurePhase("idle")
+    }
+  }, [apiCall, selectedSGData])
+
+  const handleSgPropose = useCallback(async () => {
+    if (!selectedSGData?.sg_id) return
+    setSgRestructurePhase("proposing")
+    setError(null)
+    try {
+      const data = await apiCall("POST", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/propose-restructure`, { days: 90 })
+      setSgProposal(data)
+      setSgRestructurePhase("proposed")
+    } catch (e: any) {
+      setError(e.message)
+      setSgRestructurePhase("idle")
+    }
+  }, [apiCall, selectedSGData])
+
+  const handleSgExecute = useCallback(async () => {
+    if (!selectedSGData?.sg_id || !sgProposal?.proposal_id) return
+    setSgRestructurePhase("executing")
+    setError(null)
+    try {
+      const data = await apiCall("POST", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/execute-restructure`, {
+        proposal_id: sgProposal.proposal_id,
+        create_snapshot: true,
+      })
+      setSgExecResult(data)
+      setSgRestructurePhase("done")
+    } catch (e: any) {
+      setError(e.message)
+      setSgRestructurePhase("proposed")
+    }
+  }, [apiCall, selectedSGData, sgProposal])
+
+  const handleSgRollback = useCallback(async () => {
+    if (!selectedSGData?.sg_id || !sgExecResult?.snapshot_id) return
+    setSgRestructurePhase("executing")
+    setError(null)
+    try {
+      await apiCall("POST", `/api/proxy/sg-restructure/${selectedSGData.sg_id}/rollback-restructure`, {
+        snapshot_id: sgExecResult.snapshot_id,
+      })
+      setSgRestructurePhase("idle")
+      setSgProposal(null)
+      setSgExecResult(null)
+    } catch (e: any) {
+      setError(e.message)
+      setSgRestructurePhase("done")
+    }
+  }, [apiCall, selectedSGData, sgExecResult])
 
   // ── Scan ──
   const runScan = useCallback(async () => {
@@ -229,6 +301,11 @@ export function PerResourceAnalysis() {
         // For SGs, we show the scan data directly — no CloudTrail analysis needed
         setAnalysisData(null)
         setStage("analysis")
+        // Reset restructure state
+        setSgRestructurePhase("idle")
+        setSgEniAnalysis(null)
+        setSgProposal(null)
+        setSgExecResult(null)
         return
       }
 
@@ -822,49 +899,223 @@ export function PerResourceAnalysis() {
             const recPublic = selectedSGData.has_public || false
             const recResCount = selectedSGData.resources.length
 
+            let recColor = "#8b5cf6"
+            let recTitle = "Recommendation: Split into per-resource SGs"
+            let recDesc = `Create a dedicated SG for each resource, with only the ports that resource actually uses. This limits blast radius \u2014 a port needed by one resource won\u2019t be open for the others.`
+
             if (recPublic) {
-              return (
-                <div className="mt-5 p-4 rounded-lg border" style={{ background: "#ef444410", borderColor: "#ef444440" }}>
-                  <div className="flex items-start gap-3">
-                    <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: "#ef4444" }}>Priority: Split public-facing SG immediately</p>
-                      <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                        Each of the {recResCount} resources should have its own SG with only the public ports it actually needs.
-                        Sharing a public SG means a port opened for one service is accessible from the internet for all {recResCount}.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )
+              recColor = "#ef4444"
+              recTitle = "Priority: Split public-facing SG immediately"
+              recDesc = `Each of the ${recResCount} resources should have its own SG with only the public ports it actually needs. Sharing a public SG means a port opened for one service is accessible from the internet for all ${recResCount}.`
+            } else if (recInbound > 0 && recPorts === 0) {
+              recColor = "#f97316"
+              recTitle = "Recommendation: Review and remove unused rules"
+              recDesc = `No traffic observed on any port. Consider removing all ${recInbound} inbound rule${recInbound !== 1 ? "s" : ""} or verifying these resources still need network access.`
             }
-            if (recInbound > 0 && recPorts === 0) {
-              return (
-                <div className="mt-5 p-4 rounded-lg border" style={{ background: "#f9731610", borderColor: "#f9731640" }}>
-                  <div className="flex items-start gap-3">
-                    <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: "#f97316" }}>Recommendation: Review and remove unused rules</p>
-                      <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                        No traffic observed on any port. Consider removing all {recInbound} inbound rule{recInbound !== 1 ? "s" : ""} or verifying these resources still need network access.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )
-            }
+
             return (
-              <div className="mt-5 p-4 rounded-lg border" style={{ background: "#8b5cf610", borderColor: "#8b5cf640" }}>
-                <div className="flex items-start gap-3">
-                  <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "#8b5cf6" }} />
-                  <div>
-                    <p className="text-sm font-semibold" style={{ color: "#8b5cf6" }}>Recommendation: Split into per-resource SGs</p>
-                    <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
-                      Create a dedicated SG for each resource, with only the ports that resource actually uses.
-                      This limits blast radius — a port needed by one resource won&apos;t be open for the others.
-                    </p>
+              <div className="mt-5 space-y-4">
+                {/* Recommendation with inline action buttons */}
+                <div className="p-4 rounded-lg border" style={{ background: `${recColor}10`, borderColor: `${recColor}40` }}>
+                  <div className="flex items-start gap-3">
+                    <Split className="w-5 h-5 shrink-0 mt-0.5" style={{ color: recColor }} />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold" style={{ color: recColor }}>{recTitle}</p>
+                      <p className="text-xs mt-1 mb-4" style={{ color: "var(--text-secondary)" }}>{recDesc}</p>
+
+                      {/* Action buttons - inside the recommendation box */}
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          onClick={handleSgAnalyze}
+                          disabled={sgRestructurePhase === "analyzing"}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm"
+                          style={{ background: "#8b5cf6", color: "#fff", opacity: sgRestructurePhase === "analyzing" ? 0.6 : 1 }}
+                        >
+                          {sgRestructurePhase === "analyzing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                          {sgRestructurePhase === "analyzing" ? "Analyzing..." : "Analyze Per-Resource Traffic"}
+                        </button>
+                        {sgEniAnalysis && (
+                          <button
+                            onClick={handleSgPropose}
+                            disabled={sgRestructurePhase === "proposing"}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm"
+                            style={{ background: "#f97316", color: "#fff", opacity: sgRestructurePhase === "proposing" ? 0.6 : 1 }}
+                          >
+                            {sgRestructurePhase === "proposing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Split className="w-4 h-4" />}
+                            {sgRestructurePhase === "proposing" ? "Generating..." : "Generate Restructure Plan"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Per-ENI Analysis Results */}
+                {sgEniAnalysis && sgRestructurePhase !== "proposed" && sgRestructurePhase !== "done" && (
+                  <div className="rounded-lg border p-4" style={{ background: "var(--bg-tertiary)", borderColor: "var(--border-subtle)" }}>
+                    <h4 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+                      Per-Resource Traffic Breakdown
+                    </h4>
+                    <div className="space-y-3">
+                      {(sgEniAnalysis.eni_analysis || []).map((eni: any) => (
+                        <div key={eni.eni_id} className="rounded-lg border p-3" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-secondary)" }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Server className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+                              <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                                {eni.resource_name || eni.eni_id}
+                              </span>
+                              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#8b5cf610", color: "#8b5cf6" }}>
+                                {eni.resource_type}
+                              </span>
+                            </div>
+                            <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{eni.private_ip}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(eni.observed_ports || []).length > 0 ? (
+                              (eni.observed_ports || []).map((p: any) => (
+                                <span key={`${p.port}-${p.protocol}`} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: "#22c55e15", color: "#22c55e", border: "1px solid #22c55e30" }}>
+                                  :{p.port}/{p.protocol} <span style={{ color: "#22c55e80" }}>{p.connection_count.toLocaleString()}</span>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs italic" style={{ color: "var(--text-muted)" }}>No observed traffic</span>
+                            )}
+                          </div>
+                          {eni.traffic_note && (
+                            <p className="text-xs mt-1 italic" style={{ color: "#f9731680" }}>{eni.traffic_note}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Restructure Proposal */}
+                {sgProposal && sgRestructurePhase === "proposed" && (
+                  <div className="rounded-lg border p-4" style={{ background: "var(--bg-tertiary)", borderColor: "#8b5cf640" }}>
+                    <h4 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
+                      Restructure Plan
+                    </h4>
+
+                    {/* Summary stats */}
+                    <div className="grid grid-cols-4 gap-3 mb-4">
+                      <div className="text-center p-2 rounded-lg border" style={{ borderColor: "var(--border-subtle)" }}>
+                        <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{sgProposal.summary?.original_rules}</div>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>Original Rules</div>
+                      </div>
+                      <div className="text-center p-2 rounded-lg border" style={{ borderColor: "#8b5cf640", background: "#8b5cf610" }}>
+                        <div className="text-lg font-bold" style={{ color: "#8b5cf6" }}>{sgProposal.summary?.new_sgs_count}</div>
+                        <div className="text-xs" style={{ color: "#8b5cf6" }}>New SGs</div>
+                      </div>
+                      <div className="text-center p-2 rounded-lg border" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
+                        <div className="text-lg font-bold" style={{ color: "#ef4444" }}>{sgProposal.summary?.rules_dropped_count}</div>
+                        <div className="text-xs" style={{ color: "#ef4444" }}>Rules Dropped</div>
+                      </div>
+                      <div className="text-center p-2 rounded-lg border" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
+                        <div className="text-lg font-bold" style={{ color: "#22c55e" }}>{sgProposal.summary?.total_enis_affected}</div>
+                        <div className="text-xs" style={{ color: "#22c55e" }}>ENIs Affected</div>
+                      </div>
+                    </div>
+
+                    {/* Proposed SGs */}
+                    <div className="space-y-3 mb-4">
+                      {(sgProposal.proposed_sgs || []).map((ps: any, idx: number) => (
+                        <div key={idx} className="rounded-lg border p-3" style={{ borderColor: "#8b5cf630", background: "#8b5cf608" }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Shield className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+                              <span className="text-sm font-mono font-medium" style={{ color: "var(--text-primary)" }}>{ps.proposed_name}</span>
+                            </div>
+                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#8b5cf620", color: "#8b5cf6" }}>{ps.role_hint}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {(ps.ports_used || []).map((port: number) => (
+                              <span key={port} className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)" }}>:{port}</span>
+                            ))}
+                            {(ps.ports_used || []).length === 0 && <span className="text-xs italic" style={{ color: "var(--text-muted)" }}>All original rules</span>}
+                          </div>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            {ps.rules_count} rules &middot; {ps.resource_count} resource{ps.resource_count !== 1 ? "s" : ""}
+                          </div>
+                          {ps.enis?.map((eni: any) => (
+                            <div key={eni.eni_id} className="flex items-center gap-1.5 mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                              <Server className="w-3 h-3" /> {eni.resource_name || eni.resource_id} ({eni.resource_type})
+                            </div>
+                          ))}
+                          {ps.note && <p className="text-xs mt-1 italic" style={{ color: "#f97316" }}>{ps.note}</p>}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Dropped rules */}
+                    {(sgProposal.rules_dropped || []).length > 0 && (
+                      <div className="rounded-lg border p-3 mb-4" style={{ background: "#ef444410", borderColor: "#ef444430" }}>
+                        <p className="text-xs font-semibold mb-1" style={{ color: "#ef4444" }}>Rules Dropped (unused)</p>
+                        {sgProposal.rules_dropped.map((r: any, i: number) => (
+                          <span key={i} className="text-xs font-mono mr-2" style={{ color: "#ef444490" }}>
+                            {r.protocol}/{r.from_port} from {r.source}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Execute button */}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { setSgRestructurePhase("idle"); setSgProposal(null) }}
+                        className="px-4 py-2 rounded-lg text-sm"
+                        style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)" }}
+                      >
+                        Back
+                      </button>
+                      <button
+                        onClick={handleSgExecute}
+                        disabled={sgRestructurePhase === "executing"}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium"
+                        style={{ background: "#22c55e", color: "#fff", opacity: sgRestructurePhase === "executing" ? 0.6 : 1 }}
+                      >
+                        {sgRestructurePhase === "executing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                        {sgRestructurePhase === "executing" ? "Executing..." : "Execute Restructure"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Execution result */}
+                {sgExecResult && sgRestructurePhase === "done" && (
+                  <div className="rounded-lg border p-4" style={{
+                    background: sgExecResult.success ? "#22c55e10" : "#ef444410",
+                    borderColor: sgExecResult.success ? "#22c55e40" : "#ef444440",
+                  }}>
+                    <div className="flex items-center gap-2 mb-3">
+                      {sgExecResult.success ? <CheckCircle2 className="w-5 h-5" style={{ color: "#22c55e" }} /> : <XCircle className="w-5 h-5" style={{ color: "#ef4444" }} />}
+                      <h4 className="text-sm font-semibold" style={{ color: sgExecResult.success ? "#22c55e" : "#ef4444" }}>
+                        {sgExecResult.success ? "Restructure Complete" : "Restructure Failed"}
+                      </h4>
+                    </div>
+                    {(sgExecResult.created_sgs || []).map((sg: any) => (
+                      <div key={sg.sg_id} className="flex items-center gap-2 py-1.5 px-3 rounded-lg mb-1.5" style={{ background: "var(--bg-secondary)" }}>
+                        <Shield className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+                        <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>{sg.sg_id}</span>
+                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{sg.name}</span>
+                        <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>{sg.eni_count} ENIs</span>
+                      </div>
+                    ))}
+                    <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
+                      {sgExecResult.summary?.new_sgs_created} SGs created, {sgExecResult.summary?.enis_modified} ENIs modified
+                    </p>
+                    {sgExecResult.rollback_available && (
+                      <button
+                        onClick={handleSgRollback}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium mt-3"
+                        style={{ background: "#ef444420", color: "#ef4444", border: "1px solid #ef444440" }}
+                      >
+                        <ArrowLeft className="w-3 h-3" /> Rollback Restructure
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })()}
