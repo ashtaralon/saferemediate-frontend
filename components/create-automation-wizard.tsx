@@ -101,6 +101,27 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
     }
   }, [isOpen, editingRule])
 
+  // Normalize backend environment values to wizard filter IDs
+  const normalizeEnvironment = (env: string): string => {
+    const lower = (env || "").toLowerCase().trim()
+    if (lower.includes("prod") && !lower.includes("pre")) return "prod"
+    if (lower.includes("pre-prod") || lower.includes("pre prod") || lower.includes("preprod")) return "pre-prod"
+    if (lower.includes("stag")) return "staging"
+    if (lower.includes("test")) return "test"
+    if (lower.includes("dev")) return "dev"
+    return "prod" // default
+  }
+
+  // Normalize backend criticality values to wizard filter IDs
+  const normalizeCriticality = (crit: string): string => {
+    const lower = (crit || "").toLowerCase().trim()
+    if (lower.includes("mission")) return "mission-critical"
+    if (lower.includes("business")) return "business-critical"
+    if (lower.includes("important")) return "important"
+    if (lower.includes("low")) return "low-priority"
+    return "standard" // default
+  }
+
   // Fetch systems for step 3
   useEffect(() => {
     if (isOpen) {
@@ -110,8 +131,8 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
         .then((data) => {
           const sysList: SystemItem[] = (data.systems || []).map((s: any) => ({
             name: s.name || s.systemName || "Unknown",
-            environment: s.environment || "prod",
-            criticality: s.criticality || "standard",
+            environment: normalizeEnvironment(s.environment),
+            criticality: normalizeCriticality(s.criticality || s.businessCriticality),
           }))
           setSystems(sysList)
         })
