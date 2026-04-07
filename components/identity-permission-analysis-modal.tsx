@@ -841,8 +841,17 @@ export function IdentityPermissionAnalysisModal({
             Remove {unusedList.length} unused permissions to achieve least privilege compliance. This will reduce the attack surface by {gapPercent}% while maintaining all current functionality.
           </p>
           <div className="flex items-center gap-2 text-sm">
-            <Shield className="w-4 h-4" style={{ color: "#10B981" }} />
-            <span style={{ color: "#10B981" }}>High confidence remediation - No service disruption expected</span>
+            {usedList.length === 0 && unusedList.length > 0 ? (
+              <>
+                <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
+                <span style={{ color: "#f97316" }}>Low confidence — All permissions show no usage. Investigate before removing.</span>
+              </>
+            ) : (
+              <>
+                <Shield className="w-4 h-4" style={{ color: "#10B981" }} />
+                <span style={{ color: "#10B981" }}>High confidence remediation — No service disruption expected</span>
+              </>
+            )}
           </div>
         </div>
 

@@ -507,16 +507,18 @@ export function IAMPermissionAnalysisModal({
     const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
     const isKnownServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.cloudtrail_visible === false
 
-    // CRITICAL: If NO CloudTrail events AND unused permissions exist, we have NO evidence
-    // This is NOT safe - we don't know if the role is unused or just not logged
-    if (cloudtrailEvents === 0 && unusedCount > 0) {
+    // CRITICAL: If NO permissions are observed in use, confidence is low regardless of events
+    if (usedCount === 0 && unusedCount > 0) {
       if (isKnownServiceRole) {
-        // Known AWS service role - severely reduce confidence
-        score = 15 // Very low - this is a service role that won't log to CloudTrail
+        score = 15 // Service role — CloudTrail won't capture usage
+      } else if (cloudtrailEvents === 0) {
+        score = 35 // No events at all — needs investigation
       } else {
-        // Unknown role with no activity - needs investigation
-        score = 35 // Low confidence - could be unused OR service role
+        // Events exist but nothing used — suspicious, not safe
+        score = 40 // Low confidence — data may be incomplete
       }
+    } else if (cloudtrailEvents === 0 && unusedCount > 0) {
+      score = 35
     } else {
       // We have CloudTrail data - base confidence on that
       const highRiskCount = gapData.high_risk_unused?.length ?? 0
@@ -679,7 +681,7 @@ export function IAMPermissionAnalysisModal({
                     </p>
                   </div>
                 )
-              } else if (noCloudTrailData) {
+              } else if (noCloudTrailData || (usedCount === 0 && unusedCount > 0)) {
                 // WARNING: Insufficient data - Investigation needed
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
@@ -694,6 +696,17 @@ export function IAMPermissionAnalysisModal({
                     <p className="text-[#f97316] text-sm mt-1">
                       This role may be used by an internal AWS service, or used infrequently outside the observation period.
                     </p>
+                    <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                      <p className="text-sm font-bold text-[#9a3412] mb-2">Missing Data Sources:</p>
+                      <ul className="text-xs text-[#9a3412] space-y-1 list-disc list-inside">
+                        <li>S3 Data Events may not be enabled in CloudTrail (management events only by default)</li>
+                        <li>SSM/EC2 Messages are internal service calls — often not logged</li>
+                        <li>Lambda invocations require data-level logging to track</li>
+                      </ul>
+                      <p className="text-xs text-[#9a3412] mt-2 font-semibold">
+                        Recommendation: Enable CloudTrail data events before remediating this role.
+                      </p>
+                    </div>
                   </div>
                 )
               } else {
@@ -1577,17 +1590,19 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 </div>
               )
-            } else if (noUsageData) {
+            } else if (noUsageData || (usedCount === 0 && unusedCount > 0)) {
               return (
                 <div className="mx-6 mb-6 p-4 border-2 border-[#f9731640] bg-[#f9731610] rounded-xl">
                   <h3 className="font-bold text-[#f97316]">Investigation Required</h3>
                   <p className="text-[#f97316] mt-1">
-                    Cannot verify if permissions are truly unused. This role may be used by EC2 instances,
-                    Lambda functions, or other services that don't fully log to our data sources.
+                    {usedCount === 0
+                      ? `All ${unusedCount} permissions show no observed usage. This could mean the role is truly unused, or that usage is not captured by current data sources.`
+                      : `Cannot verify if permissions are truly unused. This role may be used by EC2 instances, Lambda functions, or other services that don't fully log to our data sources.`
+                    }
                   </p>
                   <div className="flex items-center gap-2 mt-3 text-[#f97316]">
                     <AlertTriangle className="w-5 h-5" />
-                    <span className="font-medium">Low confidence - Investigate before removing permissions</span>
+                    <span className="font-medium">Low confidence — Enable data events and investigate before removing</span>
                   </div>
                 </div>
               )

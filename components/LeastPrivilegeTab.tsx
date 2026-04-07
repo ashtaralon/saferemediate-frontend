@@ -1644,7 +1644,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                           </div>
                           <p className="text-xs mb-3" style={{ color: "var(--text-secondary)" }}>
                             {metrics.unusedCount > 0
-                              ? <>{metrics.unusedCount} of {metrics.total} permissions never used — only <strong style={{ color: "#22c55e" }}>{metrics.usedCount}</strong> needed</>
+                              ? (resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence && metrics.usedCount === 0))
+                                ? <>{metrics.unusedCount} of {metrics.total} permissions have <strong style={{ color: "#f97316" }}>no observed usage</strong> — insufficient data to confirm</>
+                                : <>{metrics.unusedCount} of {metrics.total} permissions never used — only <strong style={{ color: "#22c55e" }}>{metrics.usedCount}</strong> needed</>
                               : <>All {metrics.total} permissions are in active use</>
                             }
                           </p>
@@ -1792,8 +1794,21 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             </div>
                             <div className="flex justify-between">
                               <span>Confidence</span>
-                              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{resource.evidence?.confidence || 'LOW'}</span>
+                              <span className="font-semibold" style={{
+                                color: (resource.evidence?.confidence || 'LOW') === 'HIGH' ? '#22c55e'
+                                     : (resource.evidence?.confidence || 'LOW') === 'MEDIUM' ? '#f97316'
+                                     : '#ef4444'
+                              }}>
+                                {resource.evidence?.confidence || 'LOW'}
+                              </span>
                             </div>
+                            {(resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence)) && resource.gapCount > 0 && (
+                              <div className="mt-2 p-2 rounded text-xs" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
+                                <span style={{ color: "#991b1b" }}>
+                                  No usage data collected — permissions may be used by services not tracked by CloudTrail. Enable data events before remediating.
+                                </span>
+                              </div>
+                            )}
                             <div className="flex justify-between">
                               <span>Data Sources</span>
                               <span className="font-medium" style={{ color: "var(--text-primary)" }}>
