@@ -22,7 +22,7 @@ interface SyncStatus {
 
 const STEP_LABELS: Record<string, string> = {
   starting: "Starting...",
-  resource_collectors: "Discovering AWS resources",
+  resource_collectors: "Discovering AWS resources (EC2, ALB, Lambda, RDS, S3, IAM, EventBridge)",
   tag_sync: "Syncing AWS tags",
   flow_logs: "Ingesting VPC Flow Logs",
   cloudtrail: "Ingesting CloudTrail events",
@@ -262,6 +262,15 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
 
           {result.success && result.results && (
             <div className="mt-2 space-y-1 text-xs">
+              {result.results.resource_collectors && (
+                <div>
+                  Resources:{" "}
+                  {Object.entries(result.results.resource_collectors as Record<string, any>)
+                    .filter(([_, v]) => v && !v.error)
+                    .map(([k, v]: [string, any]) => `${k}: ${v.nodes_created || 0}`)
+                    .join(", ")}
+                </div>
+              )}
               <div>
                 Tag Sync:{" "}
                 {result.results.tag_sync?.summary?.aws_resources_with_systemname || 0} resources
