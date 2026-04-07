@@ -160,19 +160,19 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
     list.includes(item) ? list.filter((i) => i !== item) : [...list, item]
 
   return createPortal(
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[9999] p-4">
       <div
         className="rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto"
-        style={{ background: "var(--bg-secondary)" }}
+        style={{ background: "#1e293b" }}
       >
         {/* Header */}
-        <div className="p-6 border-b" style={{ borderColor: "var(--border-subtle, #374151)" }}>
+        <div className="p-6 border-b" style={{ borderColor: "#374151" }}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            <h2 className="text-2xl font-bold" style={{ color: "#f1f5f9" }}>
               {editingRule ? "Edit Automation Rule" : "Create Automation Rule"}
             </h2>
             <button onClick={onClose} className="p-2 rounded-lg transition-colors hover:bg-white/10">
-              <X className="w-5 h-5" style={{ color: "var(--text-secondary)" }} />
+              <X className="w-5 h-5" style={{ color: "#94a3b8" }} />
             </button>
           </div>
 
@@ -184,8 +184,8 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                   className="flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium"
                   style={{
                     background:
-                      step > i + 1 ? "#10B981" : step === i + 1 ? "#8B5CF6" : "var(--bg-tertiary, #374151)",
-                    color: step >= i + 1 ? "white" : "var(--text-secondary)",
+                      step > i + 1 ? "#10B981" : step === i + 1 ? "#8B5CF6" : "#374151",
+                    color: step >= i + 1 ? "white" : "#94a3b8",
                   }}
                 >
                   {step > i + 1 ? "\u2713" : i + 1}
@@ -193,7 +193,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                 {i < TOTAL_STEPS - 1 && (
                   <div
                     className="flex-1 h-1 mx-2 rounded"
-                    style={{ background: step > i + 1 ? "#10B981" : "var(--bg-tertiary, #374151)" }}
+                    style={{ background: step > i + 1 ? "#10B981" : "#374151" }}
                   />
                 )}
               </div>
@@ -207,10 +207,10 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
           {step === 1 && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: "#f1f5f9" }}>
                   Step 1: Select Environment
                 </h3>
-                <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-sm mb-4" style={{ color: "#94a3b8" }}>
                   Choose which environments this automation rule will target
                 </p>
                 <div className="grid grid-cols-2 gap-3">
@@ -219,7 +219,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                       key={env.id}
                       className="flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md"
                       style={{
-                        borderColor: formData.selectedEnvironments.includes(env.id) ? env.color : "var(--border-subtle, #374151)",
+                        borderColor: formData.selectedEnvironments.includes(env.id) ? env.color : "#374151",
                         background: formData.selectedEnvironments.includes(env.id) ? `${env.color}10` : "transparent",
                       }}
                     >
@@ -245,10 +245,10 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
           {step === 2 && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: "#f1f5f9" }}>
                   Step 2: Select Business Criticality
                 </h3>
-                <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-sm mb-4" style={{ color: "#94a3b8" }}>
                   Choose the business criticality levels to target
                 </p>
                 <div className="space-y-3">
@@ -257,7 +257,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                       key={crit.id}
                       className="flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md"
                       style={{
-                        borderColor: formData.selectedCriticalities.includes(crit.id) ? crit.color : "var(--border-subtle, #374151)",
+                        borderColor: formData.selectedCriticalities.includes(crit.id) ? crit.color : "#374151",
                         background: formData.selectedCriticalities.includes(crit.id) ? `${crit.color}10` : "transparent",
                       }}
                     >
@@ -273,7 +273,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                         <div className="font-semibold mb-1" style={{ color: crit.color }}>
                           {crit.label}
                         </div>
-                        <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                        <div className="text-sm" style={{ color: "#94a3b8" }}>
                           {crit.description}
                         </div>
                       </div>
@@ -288,10 +288,10 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
           {step === 3 && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: "#f1f5f9" }}>
                   Step 3: Select Systems
                 </h3>
-                <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-sm mb-4" style={{ color: "#94a3b8" }}>
                   {loadingSystems
                     ? "Loading systems..."
                     : `${filteredSystems.length} system(s) matching your filters`}
@@ -299,7 +299,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
 
                 {formData.selectedEnvironments.length > 0 || formData.selectedCriticalities.length > 0 ? (
                   <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(59, 130, 246, 0.1)" }}>
-                    <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+                    <div className="text-sm" style={{ color: "#f1f5f9" }}>
                       <strong>Filters:</strong>{" "}
                       {formData.selectedEnvironments.length > 0
                         ? formData.selectedEnvironments
@@ -319,18 +319,18 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                 {loadingSystems ? (
                   <div className="space-y-2">
                     {[1, 2, 3].map((i) => (
-                      <div key={i} className="p-3 rounded-lg animate-pulse" style={{ background: "var(--bg-tertiary, #374151)" }}>
-                        <div className="h-4 w-48 rounded" style={{ background: "var(--bg-secondary)" }} />
+                      <div key={i} className="p-3 rounded-lg animate-pulse" style={{ background: "#374151" }}>
+                        <div className="h-4 w-48 rounded" style={{ background: "#1e293b" }} />
                       </div>
                     ))}
                   </div>
                 ) : filteredSystems.length === 0 ? (
                   <div className="p-8 text-center rounded-lg" style={{ background: "rgba(245, 158, 11, 0.1)" }}>
                     <AlertTriangle className="w-12 h-12 mx-auto mb-3" style={{ color: "#F59E0B" }} />
-                    <p className="font-medium mb-1" style={{ color: "var(--text-primary)" }}>
+                    <p className="font-medium mb-1" style={{ color: "#f1f5f9" }}>
                       No systems match your criteria
                     </p>
-                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    <p className="text-sm" style={{ color: "#94a3b8" }}>
                       Go back and adjust your environment or criticality selections, or systems will be fetched from your cloud account
                     </p>
                   </div>
@@ -348,7 +348,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                         }}
                         className="w-4 h-4"
                       />
-                      <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                      <span className="font-medium" style={{ color: "#f1f5f9" }}>
                         Select All ({filteredSystems.length})
                       </span>
                     </label>
@@ -360,7 +360,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                         <label
                           key={system.name}
                           className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:border-purple-500"
-                          style={{ borderColor: "var(--border-subtle, #374151)" }}
+                          style={{ borderColor: "#374151" }}
                         >
                           <input
                             type="checkbox"
@@ -371,7 +371,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                             className="w-4 h-4"
                           />
                           <div className="flex-1">
-                            <div className="font-medium" style={{ color: "var(--text-primary)" }}>
+                            <div className="font-medium" style={{ color: "#f1f5f9" }}>
                               {system.name}
                             </div>
                             <div className="flex items-center gap-2 mt-1">
@@ -406,14 +406,14 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
           {step === 4 && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: "#f1f5f9" }}>
                   Step 4: Configure Remediation Criteria
                 </h3>
 
-                <label className="block text-sm font-medium mb-2 mt-4" style={{ color: "var(--text-primary)" }}>
+                <label className="block text-sm font-medium mb-2 mt-4" style={{ color: "#f1f5f9" }}>
                   Minimum Severity Level
                 </label>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-sm mb-3" style={{ color: "#94a3b8" }}>
                   Only remediate issues at or above this severity
                 </p>
                 <div className="grid grid-cols-4 gap-3">
@@ -430,7 +430,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                         onClick={() => setFormData({ ...formData, minSeverity: severity })}
                         className="p-3 rounded-lg border-2 font-medium transition-all"
                         style={{
-                          borderColor: formData.minSeverity === severity ? "#8B5CF6" : "var(--border-subtle, #374151)",
+                          borderColor: formData.minSeverity === severity ? "#8B5CF6" : "#374151",
                           background: formData.minSeverity === severity ? "rgba(139, 92, 246, 0.1)" : "transparent",
                           color: colors[severity],
                         }}
@@ -443,10 +443,10 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+                <label className="block text-sm font-medium mb-2" style={{ color: "#f1f5f9" }}>
                   Minimum Confidence Score: {formData.minConfidence}%
                 </label>
-                <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                <p className="text-sm mb-3" style={{ color: "#94a3b8" }}>
                   Only auto-remediate when simulation confidence is at or above this level
                 </p>
                 <input
@@ -458,14 +458,14 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                   onChange={(e) => setFormData({ ...formData, minConfidence: parseInt(e.target.value) })}
                   className="w-full"
                 />
-                <div className="flex justify-between text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                <div className="flex justify-between text-xs mt-1" style={{ color: "#94a3b8" }}>
                   <span>70% (More fixes)</span>
                   <span>99% (Safest)</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+                <label className="block text-sm font-medium mb-2" style={{ color: "#f1f5f9" }}>
                   Rule Name
                 </label>
                 <input
@@ -475,9 +475,9 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                   placeholder="e.g., Production Critical Auto-Fix"
                   className="w-full px-4 py-2 rounded-lg border text-sm"
                   style={{
-                    background: "var(--bg-primary, #111827)",
-                    borderColor: "var(--border-subtle, #374151)",
-                    color: "var(--text-primary)",
+                    background: "#0f172a",
+                    borderColor: "#374151",
+                    color: "#f1f5f9",
                   }}
                 />
               </div>
@@ -488,7 +488,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
           {step === 5 && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+                <h3 className="text-lg font-semibold mb-2" style={{ color: "#f1f5f9" }}>
                   Step 5: Safety Features & Schedule
                 </h3>
               </div>
@@ -501,7 +501,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                     <h3 className="font-medium mb-1" style={{ color: "#3B82F6" }}>
                       Safety Features
                     </h3>
-                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                    <p className="text-sm" style={{ color: "#94a3b8" }}>
                       Configure snapshot creation, canary deployments, and auto-rollback policies
                     </p>
                   </div>
@@ -509,7 +509,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
               </div>
 
               {/* Snapshot */}
-              <label className="flex items-start gap-3 p-4 rounded-lg border cursor-pointer" style={{ borderColor: "var(--border-subtle, #374151)" }}>
+              <label className="flex items-start gap-3 p-4 rounded-lg border cursor-pointer" style={{ borderColor: "#374151" }}>
                 <input
                   type="checkbox"
                   checked={formData.createSnapshot}
@@ -518,19 +518,19 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <Camera className="w-4 h-4" style={{ color: "var(--text-primary)" }} />
-                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                    <Camera className="w-4 h-4" style={{ color: "#f1f5f9" }} />
+                    <span className="font-medium" style={{ color: "#f1f5f9" }}>
                       Create Snapshot Before Remediation
                     </span>
                   </div>
-                  <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <p className="text-sm" style={{ color: "#94a3b8" }}>
                     Automatically capture system state before applying fixes
                   </p>
                 </div>
               </label>
 
               {/* Canary */}
-              <label className="flex items-start gap-3 p-4 rounded-lg border cursor-pointer" style={{ borderColor: "var(--border-subtle, #374151)" }}>
+              <label className="flex items-start gap-3 p-4 rounded-lg border cursor-pointer" style={{ borderColor: "#374151" }}>
                 <input
                   type="checkbox"
                   checked={formData.useCanary}
@@ -539,17 +539,17 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <Activity className="w-4 h-4" style={{ color: "var(--text-primary)" }} />
-                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                    <Activity className="w-4 h-4" style={{ color: "#f1f5f9" }} />
+                    <span className="font-medium" style={{ color: "#f1f5f9" }}>
                       Use Canary Deployment
                     </span>
                   </div>
-                  <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                  <p className="text-sm mb-3" style={{ color: "#94a3b8" }}>
                     Roll out fixes gradually to a subset of resources first
                   </p>
                   {formData.useCanary && (
                     <div onClick={(e) => e.preventDefault()}>
-                      <label className="block text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+                      <label className="block text-sm font-medium mb-2" style={{ color: "#f1f5f9" }}>
                         Canary Percentage: {formData.canaryPercentage}%
                       </label>
                       <input
@@ -567,7 +567,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
               </label>
 
               {/* Auto-rollback */}
-              <label className="flex items-start gap-3 p-4 rounded-lg border cursor-pointer" style={{ borderColor: "var(--border-subtle, #374151)" }}>
+              <label className="flex items-start gap-3 p-4 rounded-lg border cursor-pointer" style={{ borderColor: "#374151" }}>
                 <input
                   type="checkbox"
                   checked={formData.autoRollback}
@@ -576,17 +576,17 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <RotateCcw className="w-4 h-4" style={{ color: "var(--text-primary)" }} />
-                    <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                    <RotateCcw className="w-4 h-4" style={{ color: "#f1f5f9" }} />
+                    <span className="font-medium" style={{ color: "#f1f5f9" }}>
                       Auto-Rollback on Failure
                     </span>
                   </div>
-                  <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
+                  <p className="text-sm mb-3" style={{ color: "#94a3b8" }}>
                     Automatically revert changes if errors or performance degradation detected
                   </p>
                   {formData.autoRollback && (
                     <div onClick={(e) => e.preventDefault()}>
-                      <label className="block text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+                      <label className="block text-sm font-medium mb-2" style={{ color: "#f1f5f9" }}>
                         Rollback Window: {formData.rollbackWindow} hours
                       </label>
                       <input
@@ -598,7 +598,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                         onChange={(e) => setFormData({ ...formData, rollbackWindow: parseInt(e.target.value) })}
                         className="w-full"
                       />
-                      <div className="flex justify-between text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                      <div className="flex justify-between text-xs mt-1" style={{ color: "#94a3b8" }}>
                         <span>1 hour</span>
                         <span>36 hours</span>
                       </div>
@@ -608,8 +608,8 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
               </label>
 
               {/* Schedule */}
-              <div className="border-t pt-6" style={{ borderColor: "var(--border-subtle, #374151)" }}>
-                <label className="block text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>
+              <div className="border-t pt-6" style={{ borderColor: "#374151" }}>
+                <label className="block text-sm font-medium mb-3" style={{ color: "#f1f5f9" }}>
                   Schedule
                 </label>
                 <div className="space-y-3">
@@ -620,7 +620,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                     { value: "cron", label: "Custom Cron Expression", desc: "Advanced scheduling with cron syntax" },
                   ].map((opt) => (
                     <div key={opt.value}>
-                      <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer" style={{ borderColor: "var(--border-subtle, #374151)" }}>
+                      <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer" style={{ borderColor: "#374151" }}>
                         <input
                           type="radio"
                           name="scheduleType"
@@ -628,10 +628,10 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                           onChange={() => setFormData({ ...formData, scheduleType: opt.value })}
                         />
                         <div>
-                          <div className="font-medium" style={{ color: "var(--text-primary)" }}>
+                          <div className="font-medium" style={{ color: "#f1f5f9" }}>
                             {opt.label}
                           </div>
-                          <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                          <div className="text-sm" style={{ color: "#94a3b8" }}>
                             {opt.desc}
                           </div>
                         </div>
@@ -645,9 +645,9 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                             onChange={(e) => setFormData({ ...formData, scheduleTime: e.target.value })}
                             className="px-4 py-2 rounded-lg border text-sm"
                             style={{
-                              background: "var(--bg-primary, #111827)",
-                              borderColor: "var(--border-subtle, #374151)",
-                              color: "var(--text-primary)",
+                              background: "#0f172a",
+                              borderColor: "#374151",
+                              color: "#f1f5f9",
                             }}
                           />
                         </div>
@@ -662,12 +662,12 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                             placeholder="0 2 * * *"
                             className="w-full px-4 py-2 rounded-lg border font-mono text-sm"
                             style={{
-                              background: "var(--bg-primary, #111827)",
-                              borderColor: "var(--border-subtle, #374151)",
-                              color: "var(--text-primary)",
+                              background: "#0f172a",
+                              borderColor: "#374151",
+                              color: "#f1f5f9",
                             }}
                           />
-                          <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                          <p className="text-xs mt-1" style={{ color: "#94a3b8" }}>
                             Example: 0 2 * * * (Every day at 2:00 AM)
                           </p>
                         </div>
@@ -683,7 +683,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
         {/* Footer */}
         <div
           className="p-6 border-t flex items-center justify-between"
-          style={{ borderColor: "var(--border-subtle, #374151)" }}
+          style={{ borderColor: "#374151" }}
         >
           <button
             onClick={() => {
@@ -691,7 +691,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
               else onClose()
             }}
             className="px-4 py-2 rounded-lg font-medium transition-colors hover:bg-white/10"
-            style={{ color: "var(--text-secondary)" }}
+            style={{ color: "#94a3b8" }}
           >
             {step === 1 ? "Cancel" : "Back"}
           </button>
