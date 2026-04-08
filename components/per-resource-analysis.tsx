@@ -147,7 +147,7 @@ type Stage = "scan" | "analysis" | "comparison" | "simulation" | "remediation"
 
 // ── Component ────────────────────────────────────────
 
-export function PerResourceAnalysis() {
+export function PerResourceAnalysis({ systemName }: { systemName?: string }) {
   const [stage, setStage] = useState<Stage>("scan")
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState("")
@@ -271,7 +271,8 @@ export function PerResourceAnalysis() {
     setStage("scan")
 
     try {
-      const data = await apiCall("GET", "/api/proxy/cyntro/scan")
+      const qs = systemName ? `?system_name=${encodeURIComponent(systemName)}` : ""
+      const data = await apiCall("GET", `/api/proxy/cyntro/scan${qs}`)
       setRoles(data)
       if (data.length === 0) {
         setError("No shared resources found. All roles and SGs are single-resource.")
@@ -282,7 +283,7 @@ export function PerResourceAnalysis() {
       setLoading(false)
       setLoadingMsg("")
     }
-  }, [apiCall])
+  }, [apiCall, systemName])
 
   // ── Analyze role or SG ──
   const analyzeRole = useCallback(
@@ -467,20 +468,36 @@ export function PerResourceAnalysis() {
     const t = (type || "").toUpperCase()
     if (t.includes("LAMBDA")) return "#f59e0b"
     if (t.includes("EC2")) return "#3b82f6"
-    if (t.includes("ECS") || t.includes("CONTAINER")) return "#06b6d4"
+    if (t.includes("ECS") || t.includes("FARGATE") || t.includes("CONTAINER")) return "#06b6d4"
     if (t.includes("RDS") || t.includes("DATABASE")) return "#8b5cf6"
     if (t.includes("S3") || t.includes("BUCKET")) return "#22c55e"
     if (t.includes("DYNAMO")) return "#f97316"
+    if (t.includes("LOADBALANCER") || t.includes("ELB") || t.includes("ALB") || t.includes("NLB")) return "#ec4899"
+    if (t.includes("VPCENDPOINT") || t.includes("VPCE")) return "#a78bfa"
+    if (t.includes("NATGATEWAY") || t.includes("NAT")) return "#14b8a6"
+    if (t.includes("EFS") || t.includes("MOUNT")) return "#84cc16"
+    if (t.includes("ELASTICACHE") || t.includes("REDIS") || t.includes("MEMCACHED")) return "#f43f5e"
+    if (t.includes("REDSHIFT")) return "#7c3aed"
+    if (t.includes("CODEBUILD")) return "#0ea5e9"
+    if (t.includes("NETWORK") && t.includes("INTERFACE")) return "#6b7280"
     return "#6b7280"
   }
   const getTypeLabel = (type: string) => {
     const t = (type || "").toUpperCase()
     if (t.includes("LAMBDA")) return "Lambda"
     if (t.includes("EC2")) return "EC2"
-    if (t.includes("ECS")) return "ECS"
+    if (t.includes("ECS") || t.includes("FARGATE")) return "ECS"
     if (t.includes("RDS")) return "RDS"
     if (t.includes("S3")) return "S3"
     if (t.includes("DYNAMO")) return "DynamoDB"
+    if (t.includes("LOADBALANCER") || t.includes("ELB")) return "ALB/NLB"
+    if (t.includes("VPCENDPOINT") || t.includes("VPCE")) return "VPC Endpoint"
+    if (t.includes("NATGATEWAY") || t.includes("NAT")) return "NAT GW"
+    if (t.includes("EFS") || t.includes("MOUNT")) return "EFS"
+    if (t.includes("ELASTICACHE")) return "ElastiCache"
+    if (t.includes("REDSHIFT")) return "Redshift"
+    if (t.includes("CODEBUILD")) return "CodeBuild"
+    if (t.includes("NETWORK") && t.includes("INTERFACE")) return "ENI"
     if (t.includes("INSTANCE") && t.includes("PROFILE")) return "Profile"
     return type || "Resource"
   }
