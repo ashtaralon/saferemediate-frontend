@@ -3,48 +3,36 @@
 /**
  * Security Group Least Privilege Modal
  * =====================================
- * 
- * Complete LP analysis modal for Security Groups following the A7 patent:
- * - Summary tab: LP Score, Attack Surface Reduction, Network Exposure
- * - Rules tab: Configured vs Observed traffic
- * - Evidence tab: Data sources and confidence
- * - Impact tab: What will continue working, what will be removed
- * 
- * Uses the new /api/sg-least-privilege/{sg_id}/analysis endpoint
+ *
+ * Single-scroll, two-phase UI matching the IAM permission analysis modal:
+ * Phase 1: Initial analysis with rule breakdown by status
+ * Phase 2: Simulation results with selectable rules for remediation
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield,
   ShieldCheck,
-  ShieldAlert,
   AlertTriangle,
   CheckCircle,
   XCircle,
+  X,
   Clock,
-  Eye,
-  EyeOff,
-  ChevronDown,
-  ChevronRight,
-  RefreshCw,
-  Download,
-  Play,
-  RotateCcw,
-  FileText,
   Globe,
   Lock,
-  Network,
   Activity,
-  Database,
+  RefreshCw,
+  Download,
+  Loader2,
+  Calendar,
+  Check,
+  CheckSquare,
+  Server,
   Cloud,
-  Columns,
-  Sparkles,
-  Zap,
-  Bug,
-  Settings,
+  Database,
+  Cpu,
+  Network,
 } from 'lucide-react';
-import { VulnerabilityExposurePanel } from './vulnerability-exposure-panel';
-import { EnforcementModeSelector } from './enforcement-mode-selector';
 
 // =============================================================================
 // TYPES
@@ -86,6 +74,41 @@ interface RuleAnalysis {
   recommendation: Recommendation;
 }
 
+interface AttachedResource {
+  resource_id: string;
+  resource_name: string;
+  resource_type: string;
+}
+
+function getResourceTypeStyle(type: string): { color: string; bg: string; label: string; Icon: React.FC<any> } {
+  switch (type) {
+    case 'EC2Instance':
+      return { color: '#f97316', bg: '#f9731612', label: 'EC2', Icon: Server };
+    case 'Lambda':
+      return { color: '#a855f7', bg: '#a855f712', label: 'Lambda', Icon: Cloud };
+    case 'LoadBalancer':
+      return { color: '#ec4899', bg: '#ec489912', label: 'ALB/NLB', Icon: Activity };
+    case 'VPCEndpoint':
+      return { color: '#a78bfa', bg: '#a78bfa12', label: 'VPC Endpoint', Icon: Network };
+    case 'RDS':
+      return { color: '#3b82f6', bg: '#3b82f612', label: 'RDS', Icon: Database };
+    case 'ECS':
+      return { color: '#f97316', bg: '#f9731612', label: 'ECS', Icon: Cpu };
+    case 'NATGateway':
+      return { color: '#14b8a6', bg: '#14b8a612', label: 'NAT GW', Icon: Network };
+    case 'EFS':
+      return { color: '#84cc16', bg: '#84cc1612', label: 'EFS', Icon: Database };
+    case 'ElastiCache':
+      return { color: '#f43f5e', bg: '#f43f5e12', label: 'ElastiCache', Icon: Database };
+    case 'Redshift':
+      return { color: '#7c3aed', bg: '#7c3aed12', label: 'Redshift', Icon: Database };
+    case 'CodeBuild':
+      return { color: '#0ea5e9', bg: '#0ea5e912', label: 'CodeBuild', Icon: Cpu };
+    default:
+      return { color: '#6b7280', bg: '#6b728012', label: 'ENI', Icon: Network };
+  }
+}
+
 interface Evidence {
   sources: { name: string; available: boolean }[];
   observation_period: {
@@ -107,6 +130,7 @@ interface SGAnalysis {
   system_name: string | null;
   lp_score: number;
   gap_percentage: number;
+  attached_resources?: AttachedResource[];
   summary: {
     total_rules: number;
     used_rules: number;
@@ -136,1453 +160,60 @@ interface SGLeastPrivilegeModalProps {
 }
 
 // =============================================================================
-// HELPER COMPONENTS
+// HELPER: Rule display line
 // =============================================================================
 
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const styles: Record<string, { bg: string; text: string; label?: string }> = {
-    USED: { bg: 'bg-[#10b98110]0/20', text: 'text-emerald-400' },
-    UNUSED: { bg: 'bg-[#ef444410]0/20', text: 'text-red-400', label: 'UNUSED (DELETE)' },
-    OVERLY_BROAD: { bg: 'bg-[#f9731610]0/20', text: 'text-orange-400', label: 'OVERLY BROAD' },
-    UNKNOWN: { bg: 'bg-gray-500/20', text: 'text-[var(--muted-foreground,#9ca3af)]' },
-  };
-
-  const style = styles[status] || styles.UNKNOWN;
-  const label = style.label || status;
-
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${style.bg} ${style.text}`}>
-      {label}
+const RuleDisplay: React.FC<{
+  rule: RuleAnalysis;
+  checkbox?: boolean;
+  checked?: boolean;
+  disabled?: boolean;
+  onChange?: () => void;
+  showStatus?: boolean;
+}> = ({ rule, checkbox, checked, disabled, onChange, showStatus = true }) => (
+  <div
+    className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
+      disabled ? 'opacity-60' : checkbox && checked ? 'bg-[#ef444410]' : checkbox ? 'hover:bg-gray-50 cursor-pointer' : ''
+    }`}
+    onClick={() => { if (checkbox && !disabled && onChange) onChange(); }}
+  >
+    {checkbox && (
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={() => { if (!disabled && onChange) onChange(); }}
+        className="w-4 h-4 rounded border-[var(--border,#d1d5db)] disabled:opacity-40"
+      />
+    )}
+    <span className="font-mono text-sm font-medium" style={{ color: "var(--foreground, #111827)" }}>
+      {rule.protocol}/{rule.port_range}
     </span>
-  );
-};
-
-const ConfidenceBadge: React.FC<{ level: string; score: number }> = ({ level, score }) => {
-  const styles: Record<string, string> = {
-    HIGH: 'bg-[#10b98110]0/20 text-emerald-400',
-    MEDIUM: 'bg-[#f9731610]0/20 text-amber-400',
-    LOW: 'bg-[#ef444410]0/20 text-red-400',
-    NONE: 'bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)]',
-  };
-
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[level] || styles.LOW}`}>
-      {level} ({score}%)
+    <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>←</span>
+    <span className={`text-sm flex items-center gap-1 ${rule.is_public ? 'text-[#ef4444]' : ''}`} style={rule.is_public ? {} : { color: "var(--foreground, #374151)" }}>
+      {rule.is_public ? <Globe className="w-3 h-3" /> : rule.source_type === 'security_group' ? <Shield className="w-3 h-3 text-[#3b82f6]" /> : null}
+      {rule.source}
     </span>
-  );
-};
-
-const SourceDisplay: React.FC<{ source: string; sourceType: string; isPublic: boolean }> = ({
-  source,
-  sourceType,
-  isPublic,
-}) => {
-  if (sourceType === 'security_group') {
-    return (
-      <span className="flex items-center gap-1 text-blue-400">
-        <Shield className="w-3 h-3" />
-        {source}
+    {rule.port_name && (
+      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--background, #f3f4f6)", color: "var(--muted-foreground, #6b7280)" }}>
+        {rule.port_name}
       </span>
-    );
-  }
-
-  return (
-    <span className={`flex items-center gap-1 ${isPublic ? 'text-red-400' : 'text-slate-300'}`}>
-      {isPublic ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-      {source}
-    </span>
-  );
-};
-
-// =============================================================================
-// TAB: SUMMARY
-// =============================================================================
-
-const SummaryTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
-  const attackSurfaceReduction = analysis.summary.unused_rules + analysis.summary.overly_broad_rules;
-  const attackSurfacePercent = Math.round(
-    (attackSurfaceReduction / Math.max(analysis.summary.total_rules, 1)) * 100
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* LP Score and Attack Surface */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-          <div className="text-sm text-slate-400 mb-2">LP Score</div>
-          <div className="flex items-end gap-2">
-            <span
-              className={`text-4xl font-bold ${
-                analysis.lp_score >= 80
-                  ? 'text-emerald-400'
-                  : analysis.lp_score >= 50
-                  ? 'text-amber-400'
-                  : 'text-red-400'
-              }`}
-            >
-              {analysis.lp_score}
-            </span>
-            <span className="text-slate-500 text-lg mb-1">/ 100</span>
-          </div>
-          {analysis.evidence.confidence.level === 'NONE' && (
-            <div className="text-xs text-amber-400 mt-2">Requires traffic/access analysis</div>
-          )}
-        </div>
-
-        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-          <div className="text-sm text-slate-400 mb-2">Attack Surface Reduction</div>
-          <div className="flex items-end gap-2">
-            <span className="text-4xl font-bold text-red-400">{attackSurfacePercent}%</span>
-          </div>
-          <div className="text-xs text-slate-500 mt-2">
-            {attackSurfaceReduction} of {analysis.summary.total_rules} rules can be removed/tightened
-          </div>
-        </div>
-      </div>
-
-      {/* Network Exposure Visualization */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Network Exposure Visualization</h3>
-        
-        {/* Visual bar */}
-        <div className="relative h-8 rounded-lg overflow-hidden bg-slate-700/50 mb-4">
-          {/* Used (green) */}
-          <div
-            className="absolute left-0 top-0 h-full bg-[#10b98110]0/60"
-            style={{ width: `${(analysis.summary.used_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%` }}
-          />
-          {/* Unused (red) */}
-          <div
-            className="absolute top-0 h-full bg-[#ef444410]0/60"
-            style={{
-              left: `${(analysis.summary.used_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
-              width: `${(analysis.summary.unused_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
-            }}
-          />
-          {/* Overly broad (orange) */}
-          <div
-            className="absolute top-0 h-full bg-[#f9731610]0/60"
-            style={{
-              left: `${((analysis.summary.used_rules + analysis.summary.unused_rules) / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
-              width: `${(analysis.summary.overly_broad_rules / Math.max(analysis.summary.total_rules, 1)) * 100}%`,
-            }}
-          />
-          
-          {/* Labels */}
-          <div className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
-            {analysis.summary.used_rules > 0 && (
-              <span className="px-2">{analysis.summary.used_rules} Used</span>
-            )}
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex gap-6 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-[#10b98110]0/60" />
-            <span className="text-slate-400">Used ({analysis.summary.used_rules})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-[#ef444410]0/60" />
-            <span className="text-slate-400">Unused ({analysis.summary.unused_rules})</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-[#f9731610]0/60" />
-            <span className="text-slate-400">Overly Broad ({analysis.summary.overly_broad_rules})</span>
-          </div>
-        </div>
-
-        {/* Summary text */}
-        <p className="text-sm text-slate-400 mt-4">
-          <strong className="text-slate-300">{analysis.sg_name}</strong> has{' '}
-          <strong>{analysis.summary.total_rules} allowed rules</strong>. In{' '}
-          <strong>{analysis.summary.observation_days} days</strong> of observation, only{' '}
-          <strong className="text-emerald-400">{analysis.summary.used_rules} were used</strong>. The other{' '}
-          <strong className="text-red-400">
-            {analysis.summary.unused_rules + analysis.summary.overly_broad_rules} (
-            {attackSurfacePercent}%)
-          </strong>{' '}
-          are your attack surface.
-        </p>
-      </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// TAB: RULES
-// =============================================================================
-
-const RulesTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
-  const [filter, setFilter] = useState<'all' | 'used' | 'unused' | 'public'>('all');
-  const [sortBy, setSortBy] = useState<'status' | 'traffic'>('status');
-
-  const filteredRules = analysis.rules.filter((rule) => {
-    if (filter === 'all') return true;
-    if (filter === 'used') return rule.status === 'USED';
-    if (filter === 'unused') return rule.status === 'UNUSED' || rule.status === 'OVERLY_BROAD';
-    if (filter === 'public') return rule.is_public;
-    return true;
-  });
-
-  const sortedRules = [...filteredRules].sort((a, b) => {
-    if (sortBy === 'status') {
-      const order = { UNUSED: 0, OVERLY_BROAD: 1, UNKNOWN: 2, USED: 3 };
-      return (order[a.status] || 4) - (order[b.status] || 4);
-    }
-    return b.traffic.connection_count - a.traffic.connection_count;
-  });
-
-  return (
-    <div className="space-y-4">
-      {/* Summary boxes */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-          <div className="text-2xl font-bold text-slate-300">{analysis.summary.total_rules}</div>
-          <div className="text-xs text-slate-500">Total Rules</div>
-        </div>
-        <div className="bg-[#10b98110]0/10 rounded-lg p-3 text-center border border-emerald-500/30">
-          <div className="text-2xl font-bold text-emerald-400">{analysis.summary.used_rules}</div>
-          <div className="text-xs text-emerald-400/70">Used (KEEP)</div>
-        </div>
-        <div className="bg-[#ef444410]0/10 rounded-lg p-3 text-center border border-red-500/30">
-          <div className="text-2xl font-bold text-red-400">{analysis.summary.unused_rules}</div>
-          <div className="text-xs text-red-400/70">Unused (DELETE)</div>
-        </div>
-        <div className="bg-[#f9731610]0/10 rounded-lg p-3 text-center border border-orange-500/30">
-          <div className="text-2xl font-bold text-orange-400">{analysis.summary.overly_broad_rules}</div>
-          <div className="text-xs text-orange-400/70">Overly Broad</div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          {(['all', 'used', 'unused', 'public'] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filter === f
-                  ? 'bg-[#8b5cf6] text-white'
-                  : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              {f === 'all' && 'All'}
-              {f === 'used' && `Used (${analysis.summary.used_rules})`}
-              {f === 'unused' && `Unused (${analysis.summary.unused_rules})`}
-              {f === 'public' && `Public (${analysis.summary.public_rules})`}
-            </button>
-          ))}
-        </div>
-
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as 'status' | 'traffic')}
-          className="bg-slate-700/50 text-slate-300 rounded-lg px-3 py-1.5 text-xs border border-slate-600"
-        >
-          <option value="status">Sort by Status</option>
-          <option value="traffic">Sort by Traffic</option>
-        </select>
-      </div>
-
-      {/* Rules table */}
-      <div className="border border-slate-700/50 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-800/50 text-slate-400 text-xs uppercase">
-              <th className="px-4 py-3 text-left">Port</th>
-              <th className="px-4 py-3 text-left">Protocol</th>
-              <th className="px-4 py-3 text-left">Source</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-right">Traffic</th>
-              <th className="px-4 py-3 text-left">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-700/50">
-            {sortedRules.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  No rules found
-                </td>
-              </tr>
-            ) : (
-              sortedRules.map((rule) => (
-                <tr key={rule.rule_id} className="hover:bg-slate-800/30">
-                  <td className="px-4 py-3">
-                    <div className="font-mono text-slate-200">{rule.port_range}</div>
-                    {rule.port_name && (
-                      <div className="text-xs text-slate-500">{rule.port_name}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400">{rule.protocol}</td>
-                  <td className="px-4 py-3">
-                    <SourceDisplay
-                      source={rule.source}
-                      sourceType={rule.source_type}
-                      isPublic={rule.is_public}
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={rule.status} />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {rule.traffic.has_traffic ? (
-                      <div>
-                        <div className="text-slate-200">
-                          {rule.traffic.connection_count.toLocaleString()}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {rule.traffic.unique_sources} sources
-                        </div>
-                        {/* Show sample sources for OVERLY_BROAD rules */}
-                        {rule.status === 'OVERLY_BROAD' && rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {rule.traffic.sample_sources.slice(0, 3).map((ip, idx) => (
-                              <code key={idx} className="px-1 py-0.5 bg-[#10b98110]0/20 text-emerald-400 rounded text-xs font-mono">
-                                {ip}
-                              </code>
-                            ))}
-                            {rule.traffic.sample_sources.length > 3 && (
-                              <span className="text-xs text-slate-500">+{rule.traffic.sample_sources.length - 3}</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-500 italic">No traffic</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        rule.recommendation.action === 'KEEP'
-                          ? 'bg-[#10b98110]0/20 text-emerald-400'
-                          : rule.recommendation.action === 'DELETE'
-                          ? 'bg-[#ef444410]0/20 text-red-400'
-                          : rule.recommendation.action === 'TIGHTEN'
-                          ? 'bg-[#f9731610]0/20 text-orange-400'
-                          : 'bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)]'
-                      }`}
-                    >
-                      {rule.recommendation.action}
-                    </span>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// TAB: EVIDENCE
-// =============================================================================
-
-const EvidenceTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
-  return (
-    <div className="space-y-6">
-      {/* Data Sources */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Evidence Sources</h3>
-        <div className="space-y-3">
-          {analysis.evidence.sources.map((source) => (
-            <div key={source.name} className="flex items-center gap-3">
-              {source.available ? (
-                <CheckCircle className="w-5 h-5 text-emerald-400" />
-              ) : (
-                <XCircle className="w-5 h-5 text-slate-500" />
-              )}
-              <div>
-                <div className={source.available ? 'text-slate-200' : 'text-slate-500'}>
-                  {source.name}
-                </div>
-                <div className="text-xs text-slate-500">Evidence source</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Observation Period */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Observation Period</h3>
-        <div className="flex items-center gap-3">
-          <Clock className="w-8 h-8 text-indigo-400" />
-          <div>
-            <div className="text-2xl font-bold text-slate-200">
-              {analysis.evidence.observation_period.days} days
-            </div>
-            <div className="text-xs text-slate-500">
-              From {new Date(analysis.evidence.observation_period.start).toLocaleDateString()} to{' '}
-              {new Date(analysis.evidence.observation_period.end).toLocaleDateString()}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Confidence */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Confidence</h3>
-        <div className="flex items-center gap-4">
-          <ConfidenceBadge
-            level={analysis.evidence.confidence.level}
-            score={analysis.evidence.confidence.score}
-          />
-          <span className="text-sm text-slate-400">{analysis.evidence.confidence.reason}</span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// TAB: IMPACT
-// =============================================================================
-
-const ImpactTab: React.FC<{ analysis: SGAnalysis }> = ({ analysis }) => {
-  return (
-    <div className="space-y-6">
-      {/* Impact Analysis Summary */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">Impact Analysis</h3>
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-emerald-400">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm">No service disruption expected</span>
-          </div>
-          <div className="flex items-center gap-2 text-emerald-400">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm">All active workflows will continue</span>
-          </div>
-          <div className="flex items-center gap-2 text-emerald-400">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm">
-              Reduces attack surface by {analysis.gap_percentage}%
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-emerald-400">
-            <CheckCircle className="w-4 h-4" />
-            <span className="text-sm">Achieves least privilege compliance</span>
-          </div>
-        </div>
-      </div>
-
-      {/* What Will Continue Working */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-4">What Will Continue Working</h3>
-        {analysis.recommendations.keep.length > 0 ? (
-          <div className="space-y-2">
-            {analysis.recommendations.keep.slice(0, 5).map((rule) => (
-              <div key={rule.rule_id} className="flex items-center gap-2 text-sm">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <span className="text-slate-300">
-                  {rule.protocol}/{rule.port_range} from {rule.source}
-                </span>
-                <span className="text-slate-500">
-                  ({rule.traffic.connection_count.toLocaleString()} connections)
-                </span>
-              </div>
-            ))}
-            {analysis.recommendations.keep.length > 5 && (
-              <div className="text-xs text-slate-500 mt-2">
-                + {analysis.recommendations.keep.length - 5} more rules
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500">No actively used rules found</div>
-        )}
-      </div>
-
-      {/* What Will Be Tightened (0.0.0.0/0 with real traffic) */}
-      {analysis.recommendations.tighten.length > 0 && (
-        <div className="bg-[#f9731610]0/5 rounded-xl p-5 border border-orange-500/20">
-          <h3 className="text-sm font-medium text-orange-400 mb-4 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            What Will Be Tightened (Replace 0.0.0.0/0 with observed IPs)
-          </h3>
-          <div className="space-y-4">
-            {analysis.recommendations.tighten.map((rule) => (
-              <div key={rule.rule_id} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-1 bg-[#f9731610]0/20 text-orange-400 rounded text-xs font-medium">
-                      TIGHTEN
-                    </span>
-                    <span className="text-slate-300 font-medium">
-                      {rule.protocol}/{rule.port_range}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500">
-                    {rule.traffic.connection_count.toLocaleString()} connections from {rule.traffic.unique_sources} sources
-                  </span>
-                </div>
-
-                {/* Current Rule */}
-                <div className="mb-3 p-3 bg-[#ef444410]0/10 rounded-lg border border-red-500/30">
-                  <div className="text-xs text-red-400 font-medium mb-1">CURRENT (Overly Broad)</div>
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-red-400" />
-                    <code className="text-red-300 font-mono text-sm">{rule.source}</code>
-                    <span className="text-slate-500 text-xs">← Open to entire internet</span>
-                  </div>
-                </div>
-
-                {/* Observed Traffic */}
-                {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
-                  <div className="mb-3 p-3 bg-[#10b98110]0/10 rounded-lg border border-emerald-500/30">
-                    <div className="text-xs text-emerald-400 font-medium mb-2">OBSERVED TRAFFIC FROM</div>
-                    <div className="flex flex-wrap gap-2">
-                      {rule.traffic.sample_sources.slice(0, 10).map((ip, idx) => (
-                        <code key={idx} className="px-2 py-1 bg-[#10b98110]0/20 text-emerald-300 rounded text-xs font-mono">
-                          {ip}
-                        </code>
-                      ))}
-                      {rule.traffic.sample_sources.length > 10 && (
-                        <span className="px-2 py-1 bg-slate-700 text-slate-400 rounded text-xs">
-                          +{rule.traffic.sample_sources.length - 10} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Recommendation */}
-                <div className="p-3 bg-[#8b5cf6]/10 rounded-lg border border-indigo-500/30">
-                  <div className="text-xs text-indigo-400 font-medium mb-1">💡 RECOMMENDATION</div>
-                  <div className="text-sm text-slate-300">
-                    Replace <code className="text-red-400 font-mono">{rule.source}</code> with specific IPs/CIDRs:
-                  </div>
-                  {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {rule.traffic.sample_sources.slice(0, 5).map((ip, idx) => (
-                        <code key={idx} className="px-2 py-0.5 bg-[#8b5cf6]/20 text-indigo-300 rounded text-xs font-mono">
-                          {ip}/32
-                        </code>
-                      ))}
-                      {rule.traffic.sample_sources.length > 5 && (
-                        <span className="text-xs text-slate-500">+{rule.traffic.sample_sources.length - 5} more</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* What Will Be Removed */}
-      <div className="bg-[#ef444410]0/5 rounded-xl p-5 border border-red-500/20">
-        <h3 className="text-sm font-medium text-red-400 mb-4">What Will Be Removed (No Traffic Observed)</h3>
-        {analysis.recommendations.delete.length > 0 ? (
-          <div className="space-y-2">
-            {analysis.recommendations.delete.map((rule) => (
-              <div key={rule.rule_id} className="flex items-center gap-2 text-sm">
-                <XCircle className="w-4 h-4 text-red-400" />
-                <span className="text-slate-300">
-                  {rule.protocol}/{rule.port_range} from {rule.source}
-                </span>
-                <span className="text-slate-500">(0 connections in {analysis.summary.observation_days}d)</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500">No rules recommended for removal</div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// COMPARISON TAB - CSPM vs Behavioral Analysis
-// =============================================================================
-
-interface ComparisonTabProps {
-  analysis: SGAnalysis;
-  orphanStatus: {
-    is_orphan: boolean;
-    severity: string;
-    message: string;
-    attachment_count: number;
-  } | null;
-  sgId: string;
-}
-
-interface ResourceAttachment {
-  resource_type: string;
-  resource_id: string;
-  resource_name?: string;
-  description?: string;
-  iam_role?: string;
-  iam_role_issues?: number;
-}
-
-const ComparisonTab: React.FC<ComparisonTabProps> = ({ analysis, orphanStatus, sgId }) => {
-  const [attachments, setAttachments] = useState<ResourceAttachment[]>([]);
-  const [loadingAttachments, setLoadingAttachments] = useState(true);
-
-  // Fetch resource attachments and their IAM roles
-  useEffect(() => {
-    const fetchResourceContext = async () => {
-      setLoadingAttachments(true);
-      try {
-        // Fetch SG detailed analysis which includes attachments from orphan detection
-        const sgResponse = await fetch(`/api/proxy/security-groups/${sgId}/analysis?days=90`);
-        if (sgResponse.ok) {
-          const sgData = await sgResponse.json();
-          // Get attachments from current_state (orphan detection endpoint)
-          const rawAttachments = sgData.current_state?.attachments || [];
-
-          // For each EC2 instance, try to get the IAM role
-          const enrichedAttachments: ResourceAttachment[] = await Promise.all(
-            rawAttachments.map(async (att: any) => {
-              const attachment: ResourceAttachment = {
-                resource_type: att.resource_type || att.type || 'unknown',
-                resource_id: att.resource_id || att.id || 'unknown',
-                resource_name: att.resource_name || att.name,
-                description: att.description,
-              };
-
-              // If it's an EC2 instance, fetch its details to get IAM role
-              if (attachment.resource_id?.startsWith('i-')) {
-                try {
-                  const resourceResponse = await fetch(`/api/proxy/resource-view/${attachment.resource_id}`);
-                  if (resourceResponse.ok) {
-                    const resourceData = await resourceResponse.json();
-                    attachment.resource_name = attachment.resource_name || resourceData.resource?.name;
-
-                    // Find IAM role from instance profile or connections
-                    const iamRole = resourceData.resource?.iam_role ||
-                                    resourceData.resource?.instance_profile?.role ||
-                                    resourceData.resource?.metadata?.iam_role;
-
-                    if (iamRole) {
-                      attachment.iam_role = iamRole;
-                    } else {
-                      // Try to find from connections
-                      const roleConnection = resourceData.connections?.inbound?.find(
-                        (conn: any) => conn.source?.arn?.includes('assumed-role')
-                      );
-                      if (roleConnection?.source?.arn) {
-                        const roleName = roleConnection.source.arn.split('/')[1];
-                        attachment.iam_role = roleName;
-                      }
-                    }
-
-                    // Get LP issues for this role if found
-                    if (attachment.iam_role) {
-                      try {
-                        const lpResponse = await fetch('/api/proxy/least-privilege/issues');
-                        if (lpResponse.ok) {
-                          const lpData = await lpResponse.json();
-                          const roleIssue = lpData.resources?.find(
-                            (r: any) => r.resourceType === 'IAMRole' && r.resourceName === attachment.iam_role
-                          );
-                          if (roleIssue) {
-                            attachment.iam_role_issues = roleIssue.gapCount || 0;
-                          }
-                        }
-                      } catch (e) {
-                        console.error('Error fetching LP issues:', e);
-                      }
-                    }
-                  }
-                } catch (e) {
-                  console.error('Error fetching resource details:', e);
-                }
-              }
-
-              return attachment;
-            })
-          );
-
-          setAttachments(enrichedAttachments);
-        } else {
-          console.error('Failed to fetch SG inspector:', sgResponse.status);
-        }
-      } catch (error) {
-        console.error('Error fetching resource context:', error);
-      } finally {
-        setLoadingAttachments(false);
-      }
-    };
-
-    if (sgId) {
-      fetchResourceContext();
-    }
-  }, [sgId]);
-
-  // Build comparison data
-  const buildComparisonData = () => {
-    const rows: Array<{
-      id: string;
-      ruleInfo: string;
-      cspmDetects: string;
-      cspmSeverity: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
-      behavioralInsight: string;
-      recommendation: string;
-      action: string;
-      isUniqueInsight: boolean;
-    }> = [];
-
-    // Analyze each rule
-    analysis.rules.forEach((rule) => {
-      const isPublic = rule.is_public;
-      const hasTraffic = rule.traffic.connection_count > 0;
-      const isUnused = rule.status === 'UNUSED';
-      const isOverlyBroad = rule.status === 'OVERLY_BROAD';
-
-      // What CSPM would detect
-      let cspmDetects = '';
-      let cspmSeverity: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' = 'NONE';
-
-      if (isPublic) {
-        cspmDetects = `Open ${rule.protocol}/${rule.port_range} to 0.0.0.0/0`;
-        cspmSeverity = 'HIGH';
-      } else {
-        cspmDetects = `${rule.protocol}/${rule.port_range} from ${rule.source}`;
-        cspmSeverity = 'LOW';
-      }
-
-      // What SafeRemediate adds (behavioral insight)
-      let behavioralInsight = '';
-      let isUniqueInsight = false;
-
-      if (isUnused) {
-        behavioralInsight = `0 connections in ${analysis.summary.observation_days} days`;
-        isUniqueInsight = true;
-      } else if (isOverlyBroad && rule.traffic.sample_sources?.length) {
-        behavioralInsight = `Only ${rule.traffic.unique_sources} IPs connected: ${rule.traffic.sample_sources.slice(0, 3).join(', ')}${rule.traffic.sample_sources.length > 3 ? '...' : ''}`;
-        isUniqueInsight = true;
-      } else if (hasTraffic) {
-        behavioralInsight = `${rule.traffic.connection_count.toLocaleString()} connections from ${rule.traffic.unique_sources} sources`;
-        isUniqueInsight = false;
-      }
-
-      rows.push({
-        id: rule.rule_id,
-        ruleInfo: `${rule.protocol}/${rule.port_range} from ${rule.source}`,
-        cspmDetects,
-        cspmSeverity,
-        behavioralInsight,
-        recommendation: rule.recommendation.reason,
-        action: rule.recommendation.action,
-        isUniqueInsight,
-      });
-    });
-
-    return rows;
-  };
-
-  const comparisonRows = buildComparisonData();
-
-  // Calculate summary stats
-  const uniqueInsightsCount = comparisonRows.filter(r => r.isUniqueInsight).length;
-  const unusedRulesCount = analysis.recommendations.delete.length;
-  const overlyBroadCount = analysis.recommendations.tighten.length;
-  const isOrphan = orphanStatus?.is_orphan || false;
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-xl p-5 border border-indigo-500/20">
-        <div className="flex items-center gap-3 mb-2">
-          <Sparkles className="w-5 h-5 text-indigo-400" />
-          <h3 className="text-lg font-semibold text-slate-100">CSPM vs Behavioral Analysis</h3>
-        </div>
-        <p className="text-sm text-slate-400">
-          Compare what traditional CSPM tools detect (static configuration) vs Cyntro's behavioral analysis (actual traffic patterns).
-        </p>
-      </div>
-
-      {/* Side-by-Side Comparison Table */}
-      <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
-        <div className="grid grid-cols-2 divide-x divide-slate-700/50">
-          {/* CSPM Header */}
-          <div className="px-4 py-3 bg-slate-700/30">
-            <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-slate-400" />
-              <span className="text-sm font-medium text-slate-300">CSPM Tools</span>
-            </div>
-            <span className="text-xs text-slate-500">Static Configuration Analysis</span>
-          </div>
-          {/* SafeRemediate Header */}
-          <div className="px-4 py-3 bg-[#8b5cf6]/10">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-indigo-400" />
-              <span className="text-sm font-medium text-indigo-300">Cyntro</span>
-            </div>
-            <span className="text-xs text-indigo-400/70">Behavioral Traffic Analysis</span>
-          </div>
-        </div>
-
-        {/* Comparison Rows */}
-        <div className="divide-y divide-slate-700/30">
-          {comparisonRows.map((row) => (
-            <div key={row.id} className="grid grid-cols-2 divide-x divide-slate-700/30">
-              {/* CSPM Column */}
-              <div className="px-4 py-3">
-                <div className="flex items-start gap-2">
-                  {row.cspmSeverity === 'HIGH' ? (
-                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-                  ) : (
-                    <CheckCircle className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
-                  )}
-                  <div>
-                    <div className="text-sm text-slate-300">{row.cspmDetects}</div>
-                    {row.cspmSeverity === 'HIGH' && (
-                      <span className="text-xs text-red-400">Flags: Public Internet Access</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              {/* SafeRemediate Column */}
-              <div className={`px-4 py-3 ${row.isUniqueInsight ? 'bg-[#f9731610]0/5' : ''}`}>
-                <div className="flex items-start gap-2">
-                  {row.isUniqueInsight ? (
-                    <Zap className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                  ) : (
-                    <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                  )}
-                  <div>
-                    <div className="text-sm text-slate-300">{row.cspmDetects}</div>
-                    {row.behavioralInsight && (
-                      <div className={`text-xs mt-1 ${row.isUniqueInsight ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        + {row.behavioralInsight}
-                      </div>
-                    )}
-                    {row.isUniqueInsight && (
-                      <div className="mt-1">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          row.action === 'DELETE' ? 'bg-[#ef444410]0/20 text-red-400' :
-                          row.action === 'TIGHTEN' ? 'bg-[#f9731610]0/20 text-orange-400' :
-                          'bg-slate-500/20 text-slate-400'
-                        }`}>
-                          → {row.action}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {/* Orphan SG Row (if applicable) */}
-          {isOrphan && (
-            <div className="grid grid-cols-2 divide-x divide-slate-700/30 bg-[#8b5cf6]/5">
-              {/* CSPM Column */}
-              <div className="px-4 py-3">
-                <div className="flex items-start gap-2">
-                  <XCircle className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <div className="text-sm text-slate-500">Cannot detect orphan SGs</div>
-                    <span className="text-xs text-slate-600">No behavioral analysis</span>
-                  </div>
-                </div>
-              </div>
-              {/* SafeRemediate Column */}
-              <div className="px-4 py-3">
-                <div className="flex items-start gap-2">
-                  <Zap className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <div className="text-sm text-purple-300 flex items-center gap-2">
-                      👻 ORPHAN SG Detected
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
-                        orphanStatus?.severity === 'CRITICAL' ? 'bg-[#ef444410]0/30 text-red-400' : 'bg-[#f9731610]0/30 text-amber-400'
-                      }`}>
-                        {orphanStatus?.severity}
-                      </span>
-                    </div>
-                    <div className="text-xs text-purple-400 mt-1">
-                      + {orphanStatus?.attachment_count} attachments found
-                    </div>
-                    <div className="mt-1">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[#ef444410]0/20 text-red-400">
-                        → DELETE SG
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Summary Box */}
-      <div className="bg-white rounded-xl p-5 border border-emerald-500/20">
-        <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="w-5 h-5 text-emerald-400" />
-          <h4 className="font-semibold text-emerald-300">
-            Cyntro found {uniqueInsightsCount + (isOrphan ? 1 : 0)} issues CSPM tools would miss
-          </h4>
-        </div>
-        <div className="space-y-2">
-          {unusedRulesCount > 0 && (
-            <div className="flex items-center gap-2 text-sm">
-              <div className="w-2 h-2 rounded-full bg-red-400"></div>
-              <span className="text-slate-300">{unusedRulesCount} unused rule{unusedRulesCount > 1 ? 's' : ''}</span>
-              <span className="text-red-400 text-xs">(DELETE)</span>
-            </div>
-          )}
-          {overlyBroadCount > 0 && (
-            <div className="flex items-center gap-2 text-sm">
-              <div className="w-2 h-2 rounded-full bg-orange-400"></div>
-              <span className="text-slate-300">{overlyBroadCount} overly broad rule{overlyBroadCount > 1 ? 's' : ''}</span>
-              <span className="text-orange-400 text-xs">(TIGHTEN)</span>
-            </div>
-          )}
-          {isOrphan && (
-            <div className="flex items-center gap-2 text-sm">
-              <div className="w-2 h-2 rounded-full bg-purple-400"></div>
-              <span className="text-slate-300">Orphan Security Group detected</span>
-              <span className="text-purple-400 text-xs">(DELETE SG)</span>
-            </div>
-          )}
-          {uniqueInsightsCount === 0 && !isOrphan && (
-            <div className="text-sm text-slate-400">
-              All rules are actively used and properly scoped.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Resource Context Section */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <div className="flex items-center gap-2 mb-4">
-          <Cloud className="w-5 h-5 text-blue-400" />
-          <h4 className="text-sm font-semibold text-slate-200">Resource Context</h4>
-          <span className="text-xs text-slate-500">
-            ({loadingAttachments ? 'Loading...' : `${attachments.length} attached resource${attachments.length !== 1 ? 's' : ''}`})
-          </span>
-        </div>
-
-        {loadingAttachments ? (
-          <div className="flex items-center gap-2 text-slate-400 text-sm">
-            <RefreshCw className="w-4 h-4 animate-spin" />
-            Loading resource attachments...
-          </div>
-        ) : attachments.length === 0 ? (
-          <div className="text-sm text-slate-500">
-            {isOrphan ? (
-              <div className="flex items-center gap-2 text-purple-400">
-                <AlertTriangle className="w-4 h-4" />
-                No resources attached - this is an orphan Security Group
-              </div>
-            ) : (
-              'No resource attachments found'
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {attachments.map((att, idx) => (
-              <div key={idx} className="bg-slate-700/30 rounded-lg p-3 border border-slate-600/30">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-[#3b82f610]0/20 text-blue-400">
-                      {att.resource_id?.startsWith('i-') ? 'EC2' : att.resource_type}
-                    </span>
-                    <span className="text-sm text-slate-200 font-medium">
-                      {att.resource_name || att.resource_id}
-                    </span>
-                  </div>
-                  <code className="text-xs text-slate-500 font-mono">{att.resource_id}</code>
-                </div>
-
-                {att.description && (
-                  <p className="text-xs text-slate-400 mb-2">{att.description}</p>
-                )}
-
-                {att.iam_role && (
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-600/30">
-                    <Shield className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="text-xs text-slate-400">IAM Role:</span>
-                    <span className="text-xs text-amber-300 font-medium">{att.iam_role}</span>
-                    {att.iam_role_issues !== undefined && att.iam_role_issues > 0 && (
-                      <span className="px-1.5 py-0.5 rounded text-xs bg-[#ef444410]0/20 text-red-400">
-                        {att.iam_role_issues} LP issues
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Summary for non-orphan SGs */}
-        {!isOrphan && attachments.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-slate-700/30">
-            <div className="text-xs text-slate-400">
-              <span className="text-slate-300 font-medium">Summary:</span> This SG protects{' '}
-              <span className="text-blue-400">{attachments.filter(a => a.resource_id?.startsWith('i-')).length} EC2 instances</span>
-              {attachments.some(a => a.iam_role) && (
-                <>
-                  {' '}using{' '}
-                  <span className="text-amber-400">
-                    {new Set(attachments.map(a => a.iam_role).filter(Boolean)).size} unique IAM role{new Set(attachments.map(a => a.iam_role).filter(Boolean)).size !== 1 ? 's' : ''}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Explanation Box */}
-      <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700/30">
-        <h4 className="text-sm font-medium text-slate-400 mb-2">How Cyntro differs from CSPM:</h4>
-        <div className="grid grid-cols-2 gap-4 text-xs">
-          <div>
-            <div className="text-slate-500 mb-1">CSPM Tools:</div>
-            <ul className="space-y-1 text-slate-400">
-              <li>• Check if ports are open</li>
-              <li>• Flag 0.0.0.0/0 rules</li>
-              <li>• Compliance benchmarks</li>
-              <li>• Point-in-time config</li>
-            </ul>
-          </div>
-          <div>
-            <div className="text-indigo-400 mb-1">Cyntro adds:</div>
-            <ul className="space-y-1 text-indigo-300">
-              <li>• Actual traffic analysis ({analysis.summary.observation_days}d)</li>
-              <li>• Unused rule detection</li>
-              <li>• Orphan SG detection</li>
-              <li>• Specific IP recommendations</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// TAB: RESTRUCTURE — Break up SG into per-resource SGs
-// =============================================================================
-
-interface ENIPortInfo {
-  port: number;
-  protocol: string;
-  connection_count: number;
-  unique_sources: number;
-  sample_sources?: string[];
-}
-
-interface ENIAnalysis {
-  eni_id: string;
-  resource_type: string;
-  resource_id: string;
-  resource_name: string;
-  private_ip: string;
-  current_sgs: string[];
-  observed_ports: ENIPortInfo[];
-  traffic_note?: string;
-}
-
-interface ProposedSG {
-  proposed_name: string;
-  role_hint: string;
-  ports_used: number[];
-  rules: any[];
-  rules_count: number;
-  enis: { eni_id: string; resource_id: string; resource_name: string; resource_type: string }[];
-  resource_count: number;
-  note?: string;
-}
-
-interface RestructureProposal {
-  sg_id: string;
-  sg_name: string;
-  proposal_id: string;
-  proposed_sgs: ProposedSG[];
-  rules_dropped: any[];
-  summary: {
-    original_rules: number;
-    new_sgs_count: number;
-    rules_dropped_count: number;
-    total_enis_affected: number;
-  };
-  warnings: string[];
-}
-
-const ROLE_COLORS: Record<string, string> = {
-  web: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  database: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  cache: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
-  admin: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  monitoring: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-  logging: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
-  messaging: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  service: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
-  'catch-all': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-};
-
-const RestructureTab: React.FC<{ sgId: string; sgName: string }> = ({ sgId, sgName }) => {
-  const [phase, setPhase] = useState<'analyze' | 'proposal' | 'executed'>('analyze');
-  const [eniAnalysis, setEniAnalysis] = useState<ENIAnalysis[]>([]);
-  const [proposal, setProposal] = useState<RestructureProposal | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [executing, setExecuting] = useState(false);
-  const [executionResult, setExecutionResult] = useState<any>(null);
-
-  // Phase 1: Load per-ENI analysis
-  useEffect(() => {
-    const fetchEniAnalysis = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/per-eni-analysis?days=90`);
-        if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
-        const data = await resp.json();
-        setEniAnalysis(data.eni_analysis || []);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchEniAnalysis();
-  }, [sgId]);
-
-  // Generate restructure proposal
-  const handleGeneratePlan = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/propose-restructure`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: 90 }),
-      });
-      if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
-      const data = await resp.json();
-      setProposal(data);
-      setPhase('proposal');
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Execute restructure
-  const handleExecute = async () => {
-    if (!proposal) return;
-    setExecuting(true);
-    setError(null);
-    try {
-      const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/execute-restructure`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proposal_id: proposal.proposal_id, create_snapshot: true }),
-      });
-      if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
-      const data = await resp.json();
-      setExecutionResult(data);
-      setPhase('executed');
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setExecuting(false);
-    }
-  };
-
-  // Rollback
-  const handleRollback = async () => {
-    if (!executionResult?.snapshot_id) return;
-    setExecuting(true);
-    try {
-      const resp = await fetch(`/api/proxy/sg-restructure/${sgId}/rollback-restructure`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshot_id: executionResult.snapshot_id }),
-      });
-      if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
-      setPhase('analyze');
-      setProposal(null);
-      setExecutionResult(null);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setExecuting(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <RefreshCw className="w-6 h-6 text-indigo-400 animate-spin" />
-        <span className="ml-3 text-slate-400">
-          {phase === 'analyze' ? 'Analyzing per-resource traffic...' : 'Generating restructure plan...'}
-        </span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-8">
-        <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-3" />
-        <p className="text-red-400 text-sm">{error}</p>
-      </div>
-    );
-  }
-
-  // ─── Phase 3: Execution result ──────────────────────────
-  if (phase === 'executed' && executionResult) {
-    return (
-      <div className="space-y-6">
-        <div className={`rounded-xl p-5 border ${executionResult.success ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-          <div className="flex items-center gap-3 mb-3">
-            {executionResult.success ? (
-              <CheckCircle className="w-6 h-6 text-emerald-400" />
-            ) : (
-              <XCircle className="w-6 h-6 text-red-400" />
-            )}
-            <h3 className="text-lg font-semibold text-slate-100">
-              {executionResult.success ? 'Restructure Complete' : 'Restructure Failed'}
-            </h3>
-          </div>
-
-          {executionResult.created_sgs?.map((sg: any) => (
-            <div key={sg.sg_id} className="flex items-center gap-3 py-2 px-3 bg-slate-800/50 rounded-lg mb-2">
-              <Shield className="w-4 h-4 text-indigo-400" />
-              <span className="text-sm text-slate-200 font-mono">{sg.sg_id}</span>
-              <span className="text-sm text-slate-400">{sg.name}</span>
-              <span className="text-xs text-slate-500 ml-auto">{sg.eni_count} ENIs</span>
-            </div>
-          ))}
-
-          <div className="text-xs text-slate-500 mt-3">
-            {executionResult.summary?.new_sgs_created} SGs created, {executionResult.summary?.enis_modified} ENIs modified
-          </div>
-        </div>
-
-        {executionResult.rollback_available && (
-          <button
-            onClick={handleRollback}
-            disabled={executing}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-400 rounded-lg text-sm"
-          >
-            <RotateCcw className="w-4 h-4" />
-            {executing ? 'Rolling back...' : 'Rollback Restructure'}
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  // ─── Phase 2: Proposal view ─────────────────────────────
-  if (phase === 'proposal' && proposal) {
-    return (
-      <div className="space-y-6">
-        {/* Summary */}
-        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-          <h3 className="text-sm font-medium text-slate-300 mb-3">Restructure Plan</h3>
-          <div className="grid grid-cols-4 gap-3 text-center">
-            <div>
-              <div className="text-2xl font-bold text-slate-200">{proposal.summary.original_rules}</div>
-              <div className="text-xs text-slate-500">Original Rules</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-indigo-400">{proposal.summary.new_sgs_count}</div>
-              <div className="text-xs text-indigo-400/70">New SGs</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-red-400">{proposal.summary.rules_dropped_count}</div>
-              <div className="text-xs text-red-400/70">Rules Dropped</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-emerald-400">{proposal.summary.total_enis_affected}</div>
-              <div className="text-xs text-emerald-400/70">ENIs Affected</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Proposed SGs */}
-        <div className="space-y-3">
-          {proposal.proposed_sgs.map((ps, idx) => {
-            const colorClass = ROLE_COLORS[ps.role_hint] || ROLE_COLORS.service;
-            return (
-              <div key={idx} className={`rounded-xl p-4 border ${colorClass}`}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Shield className="w-4 h-4" />
-                    <span className="font-mono text-sm font-medium">{ps.proposed_name}</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700/50 text-slate-300">
-                    {ps.role_hint}
-                  </span>
-                </div>
-
-                {/* Ports */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {ps.ports_used.map((port) => (
-                    <span key={port} className="px-2 py-0.5 rounded bg-slate-700/50 text-xs font-mono text-slate-300">
-                      :{port}
-                    </span>
-                  ))}
-                  {ps.ports_used.length === 0 && (
-                    <span className="text-xs text-slate-500 italic">All original rules (no traffic data)</span>
-                  )}
-                </div>
-
-                {/* Rules count */}
-                <div className="text-xs text-slate-500 mb-2">{ps.rules_count} rules</div>
-
-                {/* Attached resources */}
-                <div className="space-y-1">
-                  {ps.enis.map((eni) => (
-                    <div key={eni.eni_id} className="flex items-center gap-2 text-xs">
-                      <Cloud className="w-3 h-3 text-slate-500" />
-                      <span className="text-slate-400">{eni.resource_name || eni.resource_id}</span>
-                      <span className="text-slate-600">({eni.resource_type})</span>
-                    </div>
-                  ))}
-                </div>
-
-                {ps.note && (
-                  <div className="mt-2 text-xs text-amber-400/80 italic">{ps.note}</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Dropped rules */}
-        {proposal.rules_dropped.length > 0 && (
-          <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/30">
-            <h4 className="text-sm font-medium text-red-400 mb-2">Rules Dropped (unused)</h4>
-            {proposal.rules_dropped.map((r: any, i: number) => (
-              <div key={i} className="text-xs text-red-300 font-mono">
-                {r.protocol}/{r.from_port} from {r.source}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Warnings */}
-        {proposal.warnings.length > 0 && (
-          <div className="bg-amber-500/10 rounded-xl p-4 border border-amber-500/30">
-            {proposal.warnings.map((w, i) => (
-              <div key={i} className="text-xs text-amber-400 flex items-start gap-2">
-                <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                {w}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            onClick={() => { setPhase('analyze'); setProposal(null); }}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm"
-          >
-            Back
-          </button>
-          <button
-            onClick={handleExecute}
-            disabled={executing}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-medium"
-          >
-            <Zap className="w-4 h-4" />
-            {executing ? 'Executing...' : 'Execute Restructure'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Phase 1: Per-ENI analysis ──────────────────────────
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-indigo-500/20">
-        <div className="flex items-center gap-3 mb-2">
-          <Network className="w-5 h-5 text-indigo-400" />
-          <h3 className="text-lg font-semibold text-slate-100">SG Restructure</h3>
-        </div>
-        <p className="text-sm text-slate-400">
-          Break up <strong className="text-slate-200">{sgName}</strong> into smaller, per-resource SGs.
-          Each resource gets only the rules it actually needs.
-        </p>
-      </div>
-
-      {eniAnalysis.length === 0 ? (
-        <div className="text-center py-8">
-          <EyeOff className="w-8 h-8 text-slate-500 mx-auto mb-3" />
-          <p className="text-slate-400">No ENIs attached to this Security Group</p>
-          <p className="text-xs text-slate-500 mt-1">Restructure requires at least one attached resource</p>
-        </div>
-      ) : (
-        <>
-          {/* Per-ENI breakdown */}
-          <div className="space-y-3">
-            {eniAnalysis.map((eni) => (
-              <div key={eni.eni_id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm font-medium text-slate-200">
-                      {eni.resource_name || eni.resource_id || eni.eni_id}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-400">
-                      {eni.resource_type}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500 font-mono">{eni.private_ip}</span>
-                </div>
-
-                {/* Observed ports */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {eni.observed_ports.length > 0 ? (
-                    eni.observed_ports.map((p) => (
-                      <span
-                        key={`${p.port}-${p.protocol}`}
-                        className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs"
-                      >
-                        <span className="font-mono text-emerald-400">:{p.port}</span>
-                        <span className="text-slate-500 ml-1">{p.protocol}</span>
-                        <span className="text-emerald-600 ml-1">{p.connection_count.toLocaleString()}</span>
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-slate-500 italic">No observed traffic</span>
-                  )}
-                </div>
-
-                {eni.traffic_note && (
-                  <div className="text-xs text-amber-400/60 mt-1">{eni.traffic_note}</div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Generate plan button */}
-          <button
-            onClick={handleGeneratePlan}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors"
-          >
-            <Network className="w-4 h-4" />
-            {loading ? 'Generating...' : 'Generate Restructure Plan'}
-          </button>
-        </>
-      )}
-    </div>
-  );
-};
-
+    )}
+    {rule.is_public && (
+      <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#ef444415] text-[#ef4444]">PUBLIC</span>
+    )}
+    {showStatus && (
+      <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
+        rule.status === 'USED' ? 'bg-[#22c55e15] text-[#22c55e]' :
+        rule.status === 'OVERLY_BROAD' ? 'bg-[#f9731615] text-[#f97316]' :
+        rule.status === 'UNUSED' ? 'bg-[#ef444415] text-[#ef4444]' :
+        'bg-gray-100 text-[var(--muted-foreground,#6b7280)]'
+      }`}>
+        {rule.status === 'OVERLY_BROAD' ? 'OVERLY BROAD' : rule.status}
+      </span>
+    )}
+  </div>
+);
 
 // =============================================================================
 // MAIN COMPONENT
@@ -1599,8 +230,13 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
   const [analysis, setAnalysis] = useState<SGAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'summary' | 'rules' | 'evidence' | 'impact' | 'comparison' | 'vulnerabilities' | 'enforcement' | 'restructure'>('summary');
   const [syncing, setSyncing] = useState(false);
+  const [showSimulation, setShowSimulation] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [createSnapshot, setCreateSnapshot] = useState(true);
+  const [selectedRulesToRemediate, setSelectedRulesToRemediate] = useState<Set<string>>(new Set());
+  const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [orphanStatus, setOrphanStatus] = useState<{
     is_orphan: boolean;
     severity: string;
@@ -1632,46 +268,23 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     fetchOrphanStatus();
   }, [isOpen, sgId]);
 
-  const handleSyncFlowLogs = async () => {
-    setSyncing(true);
-    try {
-      const response = await fetch(`/api/proxy/sg-least-privilege/sync-flow-logs?days=30`, {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error(`Sync failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('[SG-LP] Flow logs synced:', data);
-
-      // Refresh analysis after sync
-      await fetchAnalysis();
-
-      alert(`Flow logs synced! ${data.security_groups_processed || 0} Security Groups updated.`);
-    } catch (err: any) {
-      console.error('Sync error:', err);
-      alert(`Sync failed: ${err.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   const fetchAnalysis = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      // Use proxy endpoint
       const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/analysis?days=365`);
-
       if (!response.ok) {
         throw new Error(`Failed to fetch analysis: ${response.status}`);
       }
-
       const data = await response.json();
       setAnalysis(data);
+
+      // Initialize selected rules: all DELETE + TIGHTEN rules selected by default
+      const remediatable = [
+        ...(data.recommendations?.delete || []),
+        ...(data.recommendations?.tighten || []),
+      ];
+      setSelectedRulesToRemediate(new Set(remediatable.map((r: RuleAnalysis) => r.rule_id)));
     } catch (err: any) {
       console.error('Analysis fetch error:', err);
       setError(err.message);
@@ -1686,105 +299,99 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     }
   }, [isOpen, sgId, fetchAnalysis]);
 
+  const handleSyncFlowLogs = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch(`/api/proxy/sg-least-privilege/sync-flow-logs?days=30`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
+      const data = await response.json();
+      console.log('[SG-LP] Flow logs synced:', data);
+      await fetchAnalysis();
+    } catch (err: any) {
+      console.error('Sync error:', err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleSimulate = async () => {
     if (!analysis) return;
-
-    const rulesToRemediate = analysis.recommendations.delete;
-    if (rulesToRemediate.length === 0) {
-      console.warn('[SG] No rules to remediate');
-      return;
-    }
-
-    setLoading(true);
-    let snapshotId: string | null = null;
+    setSimulating(true);
 
     try {
-      // Step 1: Create a snapshot first for rollback safety
+      // Create pre-simulation snapshot
       console.log('[SG-LP] Creating pre-simulation snapshot...');
       const snapshotResponse = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
       });
-
       if (snapshotResponse.ok) {
         const snapshotResult = await snapshotResponse.json();
-        snapshotId = snapshotResult.snapshot_id;
-        console.log('[SG-LP] Snapshot created:', snapshotId);
-      } else {
-        console.warn('[SG-LP] Failed to create snapshot, continuing with simulation');
+        setSnapshotId(snapshotResult.snapshot_id);
+        console.log('[SG-LP] Snapshot created:', snapshotResult.snapshot_id);
       }
 
-      // Step 2: Run the simulation
+      // Run simulation
+      const rulesToSimulate = [
+        ...analysis.recommendations.delete.map(r => ({
+          rule_id: r.rule_id, direction: r.direction, protocol: r.protocol.toLowerCase(),
+          from_port: r.from_port, to_port: r.to_port, source: r.source, action: 'DELETE' as const,
+        })),
+        ...analysis.recommendations.tighten.map(r => ({
+          rule_id: r.rule_id, direction: r.direction, protocol: r.protocol.toLowerCase(),
+          from_port: r.from_port, to_port: r.to_port, source: r.source, action: 'TIGHTEN' as const,
+        })),
+      ];
+
       const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rules: rulesToRemediate.map(r => ({
-            rule_id: r.rule_id,
-            direction: r.direction,
-            protocol: r.protocol.toLowerCase(),
-            from_port: r.from_port,
-            to_port: r.to_port,
-            source: r.source,
-            action: 'DELETE'
-          })),
-          create_snapshot: true,
-          dry_run: true
-        })
+        body: JSON.stringify({ rules: rulesToSimulate, create_snapshot: true, dry_run: true }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Simulation failed: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`Simulation failed: ${response.status}`);
       const result = await response.json();
-      console.log('Simulation result:', result);
-
-      // Show simulation results with snapshot info
-      const safetyStatus = result.safety?.is_safe ? '✅ SAFE' : '⚠️ WARNING';
-      const warnings = result.safety?.warnings?.join('\n') || 'None';
-      const commands = result.cli_commands?.join('\n') || 'No commands';
-      const snapshotInfo = snapshotId ? `\n\n📸 Snapshot Created: ${snapshotId}` : '';
-
-      alert(`${safetyStatus} to apply\n\nRules to remove: ${result.summary?.rules_to_change || 0}\n\nWarnings:\n${warnings}\n\nCLI Commands:\n${commands}${snapshotInfo}`);
+      console.log('[SG-LP] Simulation result:', result);
     } catch (err: any) {
       console.error('Simulation error:', err);
-      alert(`Simulation failed: ${err.message}`);
     } finally {
-      setLoading(false);
+      setSimulating(false);
+      setShowSimulation(true);
     }
   };
 
   const handleApplyFix = async () => {
     if (!analysis) return;
+    setApplying(true);
 
-    const rulesToRemediate = analysis.recommendations.delete;
-    if (rulesToRemediate.length === 0) {
-      console.warn('[SG] No rules to remediate');
-      return;
-    }
-
-    // Auto-confirm remediation (confirmation handled by UI flow)
-    console.log(`[SG-Remediate] Applying fix: removing ${rulesToRemediate.length} unused rules from ${analysis.sg_name}`)
-
-    setLoading(true);
     try {
+      // Build rules from selected set
+      const allRemediatable = [
+        ...analysis.recommendations.delete,
+        ...analysis.recommendations.tighten,
+      ];
+      const selectedRules = allRemediatable.filter(r => selectedRulesToRemediate.has(r.rule_id));
+
+      console.log(`[SG-Remediate] Applying fix: ${selectedRules.length} rules on ${analysis.sg_name}`);
+
       const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/remediate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rules: rulesToRemediate.map(r => ({
+          rules: selectedRules.map(r => ({
             rule_id: r.rule_id,
             direction: r.direction,
             protocol: r.protocol.toLowerCase(),
             from_port: r.from_port,
             to_port: r.to_port,
             source: r.source,
-            action: 'DELETE'
+            action: r.status === 'OVERLY_BROAD' ? 'TIGHTEN' : 'DELETE',
           })),
-          create_snapshot: true,
-          dry_run: false
-        })
+          create_snapshot: createSnapshot,
+          dry_run: false,
+        }),
       });
 
       if (!response.ok) {
@@ -1793,40 +400,33 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       }
 
       const result = await response.json();
-      console.log('Remediation result:', result);
+      console.log('[SG-Remediate] Success:', result);
 
-      console.log(`[SG-Remediate] Success! Rules removed: ${result.summary?.rules_removed || 0}, Snapshot: ${result.snapshot_id || 'N/A'}`);
-
-      // Refresh analysis and notify parent
       await fetchAnalysis();
-      onRemediate?.(sgId, rulesToRemediate);
+      onRemediate?.(sgId, selectedRules);
+      handleClose();
     } catch (err: any) {
       console.error('Remediation error:', err);
-      console.error(`[SG-Remediate] Failed: ${err.message}`);
     } finally {
-      setLoading(false);
+      setApplying(false);
     }
   };
 
   const handleExportTerraform = () => {
     if (!analysis) return;
-
     const terraformConfig = `# Terraform configuration for ${analysis.sg_name}
 # Generated by Cyntro LP Engine
 
 resource "aws_security_group_rule" "least_privilege" {
   # Rules to KEEP (observed traffic):
 ${analysis.recommendations.keep
-  .map(
-    (r) => `  # ${r.protocol}/${r.port_range} from ${r.source} - ${r.traffic.connection_count} connections`
-  )
+  .map(r => `  # ${r.protocol}/${r.port_range} from ${r.source} - ${r.traffic.connection_count} connections`)
   .join('\n')}
 
   # Rules to DELETE (no observed traffic):
-${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port_range} from ${r.source}`).join('\n')}
+${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_range} from ${r.source}`).join('\n')}
 }
 `;
-
     const blob = new Blob([terraformConfig], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1835,182 +435,828 @@ ${analysis.recommendations.delete.map((r) => `  # REMOVE: ${r.protocol}/${r.port
     a.click();
   };
 
+  const handleClose = () => {
+    setShowSimulation(false);
+    setAnalysis(null);
+    setError(null);
+    setSnapshotId(null);
+    onClose();
+  };
+
+  // Toggle rule selection
+  const toggleRuleSelection = (ruleId: string) => {
+    setSelectedRulesToRemediate(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(ruleId)) newSet.delete(ruleId);
+      else newSet.add(ruleId);
+      return newSet;
+    });
+  };
+
+  // Select/deselect helpers
+  const selectAllRules = () => {
+    if (!analysis) return;
+    const all = [...analysis.recommendations.delete, ...analysis.recommendations.tighten];
+    setSelectedRulesToRemediate(new Set(all.map(r => r.rule_id)));
+  };
+  const deselectAllRules = () => setSelectedRulesToRemediate(new Set());
+
+  const selectGroup = (rules: RuleAnalysis[]) => {
+    const newSet = new Set(selectedRulesToRemediate);
+    const allSelected = rules.every(r => newSet.has(r.rule_id));
+    rules.forEach(r => allSelected ? newSet.delete(r.rule_id) : newSet.add(r.rule_id));
+    setSelectedRulesToRemediate(newSet);
+  };
+
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+  // Derived values
+  const totalRules = analysis?.summary?.total_rules ?? 0;
+  const usedRules = analysis?.summary?.used_rules ?? 0;
+  const unusedRules = analysis?.summary?.unused_rules ?? 0;
+  const overlyBroadRules = analysis?.summary?.overly_broad_rules ?? 0;
+  const toRemediate = unusedRules + overlyBroadRules;
+  const observationDays = analysis?.summary?.observation_days ?? 365;
+  const remediatePercent = totalRules > 0 ? Math.round((toRemediate / totalRules) * 100) : 0;
+  const usedPercent = totalRules > 0 ? Math.round((usedRules / totalRules) * 100) : 0;
 
-      {/* Modal */}
-      <div className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-slate-900 border border-slate-700/50 shadow-2xl">
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - observationDays);
+  const formatDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  // Safety score
+  const calculateSafetyScore = () => {
+    if (!analysis) return 95;
+    const confidence = analysis.evidence?.confidence?.score ?? 80;
+    let score = confidence;
+    if (analysis.evidence?.confidence?.level === 'NONE') score = 30;
+    else if (analysis.evidence?.confidence?.level === 'LOW') score = 45;
+    if (orphanStatus?.is_orphan) score = Math.max(10, score - 10);
+    return Math.max(5, Math.min(100, score));
+  };
+  const safetyScore = calculateSafetyScore();
+
+  // Loading state
+  if (loading && !analysis) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+        <div className="relative w-[600px] rounded-2xl shadow-2xl p-8 text-center" style={{ background: "var(--card, #ffffff)" }}>
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: "#8b5cf6" }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>Analyzing Security Group</h2>
+          <p style={{ color: "var(--muted-foreground, #6b7280)" }}>
+            Analyzing traffic data for <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{sgName || sgId}</span>...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+        <div className="relative w-[600px] rounded-2xl shadow-2xl p-8 text-center" style={{ background: "var(--card, #ffffff)" }}>
+          <XCircle className="w-12 h-12 mx-auto mb-4" style={{ color: "#ef4444" }} />
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>Failed to Load Data</h2>
+          <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>{error}</p>
+          <div className="flex justify-center gap-3">
+            <button onClick={fetchAnalysis} className="px-4 py-2 text-white rounded-lg font-medium hover:opacity-90" style={{ background: "#8b5cf6" }}>
+              <RefreshCw className="w-4 h-4 inline mr-2" />
+              Retry
+            </button>
+            <button onClick={handleClose} className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Simulating state
+  if (simulating) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/60" />
+        <div className="relative w-[700px] rounded-2xl shadow-2xl p-8" style={{ background: "var(--card, #ffffff)" }}>
+          <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>Simulating Rule Changes</h2>
+          <p className="text-lg mb-6">
+            <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{sgName || sgId}</span>
+            <span style={{ color: "var(--muted-foreground, #6b7280)" }}> - Analyzing {observationDays} days of traffic data...</span>
+          </p>
+          <div className="space-y-4">
+            {[
+              { title: "Loading traffic history...", subtitle: `Analyzing VPC Flow Log data`, done: true },
+              { title: "Identifying unused rules...", subtitle: `Found ${unusedRules} unused rules`, done: true },
+              { title: "Checking overly broad rules...", subtitle: `Found ${overlyBroadRules} rules to tighten`, done: true },
+              { title: "Calculating safety score...", subtitle: `${safetyScore}% confidence`, done: false },
+            ].map((step, i) => (
+              <div key={i} className={`flex items-start gap-4 p-4 rounded-lg ${step.done ? '' : 'ring-2'}`}>
+                <div className="text-2xl">{step.done ? '✅' : '⏳'}</div>
+                <div>
+                  <div className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{step.title}</div>
+                  <div className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>{step.subtitle}</div>
+                  {!step.done && (
+                    <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--background, #f8f9fa)" }}>
+                      <div className="h-full bg-[#8b5cf6] rounded-full animate-pulse" style={{ width: '70%' }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // PHASE 2: Simulation Results View
+  // =========================================================================
+  if (showSimulation && analysis) {
+    const deleteRules = analysis.recommendations.delete;
+    const tightenRules = analysis.recommendations.tighten;
+    const keepRules = analysis.recommendations.keep;
+    const selectedCount = selectedRulesToRemediate.size;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+        <div className="relative w-[900px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
+          {/* Header */}
+          <div className="px-6 py-4 border-b flex items-center justify-between" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: "var(--foreground, #111827)" }}>Simulation Results</h2>
+              <p className="text-lg">
+                <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{sgName || sgId}</span>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}> - Rule Removal Analysis</span>
+              </p>
+            </div>
+            <button onClick={handleClose} style={{ color: "var(--muted-foreground, #6b7280)" }}>
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Safety Score Banner */}
+            {(() => {
+              if (safetyScore < 50) {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#f97316]">LOW CONFIDENCE</span>
+                    </div>
+                    <p className="text-[#f97316] mt-2 font-semibold">
+                      Insufficient traffic data — review rules individually before applying.
+                    </p>
+                  </div>
+                );
+              } else if (safetyScore < 75) {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#f97316]">REVIEW RECOMMENDED</span>
+                    </div>
+                    <p className="text-[#f97316] mt-2">
+                      Some rules need verification — review before applying.
+                    </p>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
+                      <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
+                    </div>
+                    <p className="text-[#22c55e] mt-2">
+                      {observationDays} days of traffic data analyzed — No service disruption expected
+                    </p>
+                  </div>
+                );
+              }
+            })()}
+
+            {/* What Will Change */}
+            <div>
+              <h3 className="font-bold text-lg mb-3" style={{ color: "var(--foreground, #111827)" }}>What Will Change:</h3>
+              <div className="space-y-2">
+                {deleteRules.length > 0 && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                    <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                    <span>Remove <strong>{deleteRules.filter(r => selectedRulesToRemediate.has(r.rule_id)).length}</strong> unused rules</span>
+                  </div>
+                )}
+                {tightenRules.length > 0 && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                    <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                    <span>Tighten <strong>{tightenRules.filter(r => selectedRulesToRemediate.has(r.rule_id)).length}</strong> overly broad rules (replace 0.0.0.0/0 with observed IPs)</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                  <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                  <span>Reduce attack surface by <strong>{remediatePercent}%</strong> ({totalRules} → {usedRules} rules)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Rules to Remediate */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-lg" style={{ color: "var(--foreground, #111827)" }}>
+                  Rules to Remediate ({selectedCount} of {toRemediate} selected)
+                </h3>
+                <div className="flex gap-2 text-xs">
+                  <button onClick={selectAllRules} className="text-[#8b5cf6] hover:underline font-medium">Select All</button>
+                  <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>|</span>
+                  <button onClick={deselectAllRules} className="text-[#8b5cf6] hover:underline font-medium">Clear All</button>
+                </div>
+              </div>
+
+              {/* Breakdown summary bar */}
+              <div className="mb-3 p-3 rounded-lg flex items-center gap-4 text-xs" style={{ background: "var(--background, #f8f9fa)" }}>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Breakdown:</span>
+                {deleteRules.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
+                    <strong className="text-[#ef4444]">{deleteRules.length}</strong>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>to delete</span>
+                  </span>
+                )}
+                {tightenRules.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#f97316]" />
+                    <strong className="text-[#f97316]">{tightenRules.length}</strong>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>to tighten</span>
+                  </span>
+                )}
+                {keepRules.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
+                    <strong className="text-[#22c55e]">{keepRules.length}</strong>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>to keep</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                {/* DELETE group */}
+                {deleteRules.length > 0 && (
+                  <div className="rounded-xl border overflow-hidden" style={{ borderColor: '#fecaca' }}>
+                    <div className="px-4 py-2 flex items-center justify-between" style={{ background: '#fef2f2' }}>
+                      <div className="flex items-center gap-2">
+                        <XCircle className="w-4 h-4 text-[#ef4444]" />
+                        <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                          Rules to Delete ({deleteRules.length})
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#ef444420] text-[#ef4444]">UNUSED</span>
+                      </div>
+                      <button
+                        onClick={() => selectGroup(deleteRules)}
+                        className="text-xs font-medium px-2 py-0.5 rounded text-[#ef4444]"
+                      >
+                        {deleteRules.every(r => selectedRulesToRemediate.has(r.rule_id)) ? 'Deselect group' : 'Select group'}
+                      </button>
+                    </div>
+                    <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: '#fecaca', background: '#fef2f280' }}>
+                      No traffic observed in {observationDays} days — safe to remove
+                    </div>
+                    <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
+                      {deleteRules.map(rule => (
+                        <RuleDisplay
+                          key={rule.rule_id}
+                          rule={rule}
+                          checkbox
+                          checked={selectedRulesToRemediate.has(rule.rule_id)}
+                          onChange={() => toggleRuleSelection(rule.rule_id)}
+                          showStatus={false}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TIGHTEN group */}
+                {tightenRules.length > 0 && (
+                  <div className="rounded-xl border overflow-hidden" style={{ borderColor: '#fed7aa' }}>
+                    <div className="px-4 py-2 flex items-center justify-between" style={{ background: '#fff7ed' }}>
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-[#f97316]" />
+                        <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                          Rules to Tighten ({tightenRules.length})
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#f9731620] text-[#f97316]">OVERLY BROAD</span>
+                      </div>
+                      <button
+                        onClick={() => selectGroup(tightenRules)}
+                        className="text-xs font-medium px-2 py-0.5 rounded text-[#f97316]"
+                      >
+                        {tightenRules.every(r => selectedRulesToRemediate.has(r.rule_id)) ? 'Deselect group' : 'Select group'}
+                      </button>
+                    </div>
+                    <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: '#fed7aa', background: '#fff7ed80' }}>
+                      Replace 0.0.0.0/0 with observed source IPs
+                    </div>
+                    <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
+                      {tightenRules.map(rule => (
+                        <div key={rule.rule_id}>
+                          <RuleDisplay
+                            rule={rule}
+                            checkbox
+                            checked={selectedRulesToRemediate.has(rule.rule_id)}
+                            onChange={() => toggleRuleSelection(rule.rule_id)}
+                            showStatus={false}
+                          />
+                          {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
+                            <div className="ml-10 mb-2 flex items-center gap-2 text-xs" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                              <span className="text-[#ef4444]">{rule.source}</span>
+                              <span>→</span>
+                              <div className="flex flex-wrap gap-1">
+                                {rule.traffic.sample_sources.slice(0, 5).map((ip, idx) => (
+                                  <code key={idx} className="px-1.5 py-0.5 bg-[#22c55e10] text-[#22c55e] rounded text-xs font-mono border border-[#22c55e30]">
+                                    {ip}/32
+                                  </code>
+                                ))}
+                                {rule.traffic.sample_sources.length > 5 && (
+                                  <span className="text-xs" style={{ color: "var(--muted-foreground, #9ca3af)" }}>+{rule.traffic.sample_sources.length - 5} more</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* KEEP group */}
+                {keepRules.length > 0 && (
+                  <div className="rounded-xl border overflow-hidden opacity-75" style={{ borderColor: '#bbf7d0' }}>
+                    <div className="px-4 py-2 flex items-center justify-between" style={{ background: '#f0fdf4' }}>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-[#22c55e]" />
+                        <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                          Rules to Keep ({keepRules.length})
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#22c55e20] text-[#22c55e]">USED</span>
+                      </div>
+                    </div>
+                    <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: '#bbf7d0', background: '#f0fdf480' }}>
+                      Active traffic observed — these rules will not be modified
+                    </div>
+                    <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
+                      {keepRules.map(rule => (
+                        <RuleDisplay key={rule.rule_id} rule={rule} showStatus={false} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Evidence */}
+            <div className="p-4 rounded-xl" style={{ background: "var(--background, #f8f9fa)" }}>
+              <h3 className="font-bold mb-3" style={{ color: "var(--foreground, #111827)" }}>Confidence Factors:</h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-sm">
+                    <Check className="w-4 h-4 text-[#22c55e]" />
+                    <span>{observationDays}-day observation window</span>
+                  </span>
+                  <span className="font-semibold text-[#22c55e]">VPC Flow Logs</span>
+                </div>
+                {analysis.evidence?.sources?.map((source, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-sm">
+                      {source.available ? (
+                        <Check className="w-4 h-4 text-[#22c55e]" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-[#ef4444]" />
+                      )}
+                      <span>{source.name}</span>
+                    </span>
+                    <span className={`font-semibold ${source.available ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                      {source.available ? 'Available' : 'Not available'}
+                    </span>
+                  </div>
+                ))}
+                {orphanStatus?.is_orphan && (
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-sm">
+                      <AlertTriangle className="w-4 h-4 text-[#f97316]" />
+                      <span>Orphan Security Group</span>
+                    </span>
+                    <span className="font-semibold text-[#f97316]">{orphanStatus.severity}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
+            <button
+              onClick={() => setShowSimulation(false)}
+              disabled={applying}
+              className="px-4 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-100 font-medium disabled:opacity-50"
+            >
+              ← BACK
+            </button>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={createSnapshot}
+                  onChange={(e) => setCreateSnapshot(e.target.checked)}
+                  disabled={applying}
+                  className="rounded border-[var(--border,#d1d5db)] text-[#8b5cf6] focus:ring-[#8b5cf6]"
+                />
+                <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>Create rollback snapshot</span>
+              </label>
+              <button
+                onClick={handleExportTerraform}
+                className="px-3 py-2 border border-[var(--border,#d1d5db)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50 text-sm flex items-center gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                Terraform
+              </button>
+              {(() => {
+                const lowConfidence = safetyScore < 50;
+                if (lowConfidence) {
+                  return (
+                    <button
+                      onClick={handleApplyFix}
+                      disabled={applying || selectedCount === 0}
+                      className="px-6 py-2.5 bg-[#f97316] text-white rounded-lg font-bold hover:bg-[#ea580c] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {applying ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" />Applying...</>
+                      ) : (
+                        <><AlertTriangle className="w-4 h-4" />APPLY ANYWAY ({selectedCount} rules)</>
+                      )}
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    onClick={handleApplyFix}
+                    disabled={applying || selectedCount === 0}
+                    className="px-6 py-2.5 bg-[#8b5cf6] text-white rounded-lg font-bold hover:bg-[#7c3aed] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {applying ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" />Applying...</>
+                    ) : (
+                      `APPLY FIX (${selectedCount} rules)`
+                    )}
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // PHASE 1: Initial Analysis View (pre-simulation)
+  // =========================================================================
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+      <div className="relative w-[950px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50">
+        <div className="px-6 py-4 border-b flex items-center justify-between" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
           <div>
-            <h2 className="text-lg font-semibold text-slate-100">
-              {sgName || sgId}
-            </h2>
-            <p className="text-sm text-slate-400">
-              SecurityGroup • {systemName || 'Unknown System'}
+            <h2 className="text-xl font-bold" style={{ color: "var(--foreground, #111827)" }}>Rule Usage Analysis</h2>
+            <p className="text-sm">
+              <span className="font-bold" style={{ color: "var(--foreground, #111827)" }}>{sgName || sgId}</span>
+              <span style={{ color: "var(--muted-foreground, #6b7280)" }}> - SecurityGroup - {systemName || 'Unknown System'}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleSyncFlowLogs}
               disabled={syncing}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-[#8b5cf6] hover:bg-[#7c3aed] disabled:bg-indigo-800 disabled:opacity-50 rounded-lg transition-colors"
-              title="Sync VPC Flow Logs to correlate traffic with Security Groups"
+              className="p-2 rounded-lg hover:opacity-80"
+              style={{ color: "var(--muted-foreground, #9ca3af)" }}
+              title="Sync VPC Flow Logs"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing...' : 'Sync Flow Logs'}
+              <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-            >
-              <XCircle className="w-5 h-5 text-slate-400" />
+            <button onClick={handleClose} style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+              <X className="w-6 h-6" />
             </button>
           </div>
         </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-slate-700/50 overflow-x-auto">
-          {[
-            { id: 'summary', label: 'Summary', icon: Activity },
-            { id: 'rules', label: 'Rules', icon: Shield },
-            { id: 'vulnerabilities', label: 'Vulnerabilities', icon: Bug },
-            { id: 'enforcement', label: 'Enforcement', icon: Settings },
-            { id: 'evidence', label: 'Evidence', icon: Database },
-            { id: 'impact', label: 'Impact', icon: AlertTriangle },
-            { id: 'restructure', label: 'Restructure', icon: Network },
-            { id: 'comparison', label: 'CSPM vs Behavioral', icon: Columns },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'text-indigo-400 border-b-2 border-indigo-400'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Orphan Warning Banner */}
-        {orphanStatus?.is_orphan && (
-          <div
-            className={`mx-6 mt-4 p-4 rounded-lg border-2 flex items-start gap-3 ${
-              orphanStatus.severity === 'CRITICAL'
-                ? 'bg-[#ef444410]0/20 border-red-500'
-                : 'bg-[#f9731610]0/20 border-amber-500'
-            }`}
-          >
-            <AlertTriangle
-              className={`w-6 h-6 flex-shrink-0 ${
-                orphanStatus.severity === 'CRITICAL' ? 'text-red-400' : 'text-amber-400'
-              }`}
-            />
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <span
-                  className={`px-2 py-0.5 rounded text-xs font-bold text-white ${
-                    orphanStatus.severity === 'CRITICAL' ? 'bg-red-600' : 'bg-amber-600'
-                  }`}
-                >
-                  {orphanStatus.severity} - ORPHAN SG
-                </span>
-              </div>
-              <p
-                className={`font-medium ${
-                  orphanStatus.severity === 'CRITICAL' ? 'text-red-300' : 'text-amber-300'
-                }`}
-              >
-                {orphanStatus.message}
-              </p>
-              <p
-                className={`text-sm mt-1 ${
-                  orphanStatus.severity === 'CRITICAL' ? 'text-red-400' : 'text-amber-400'
-                }`}
-              >
-                This Security Group has {orphanStatus.attachment_count} attachments.
-                {orphanStatus.severity === 'CRITICAL'
-                  ? ' It has public ingress rules and poses a security risk.'
-                  : ' Consider deleting it to reduce your attack surface.'}
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* Content */}
-        <div className="p-6 max-h-[60vh] overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
-              <span className="ml-3 text-slate-400">Analyzing security group...</span>
-            </div>
-          ) : error ? (
-            <div className="text-center py-12">
-              <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-              <p className="text-red-400">{error}</p>
-              <button
-                onClick={fetchAnalysis}
-                className="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm"
-              >
-                Retry
-              </button>
-            </div>
-          ) : analysis ? (
+        <div className="flex-1 overflow-y-auto">
+          {analysis ? (
             <>
-              {activeTab === 'summary' && <SummaryTab analysis={analysis} />}
-              {activeTab === 'rules' && <RulesTab analysis={analysis} />}
-              {activeTab === 'vulnerabilities' && <VulnerabilityExposurePanel sgId={sgId} />}
-              {activeTab === 'enforcement' && <EnforcementModeSelector showDetails={true} />}
-              {activeTab === 'evidence' && <EvidenceTab analysis={analysis} />}
-              {activeTab === 'impact' && <ImpactTab analysis={analysis} />}
-              {activeTab === 'restructure' && <RestructureTab sgId={sgId} sgName={sgName || analysis.sg_name} />}
-              {activeTab === 'comparison' && <ComparisonTab analysis={analysis} orphanStatus={orphanStatus} sgId={sgId} />}
+              {/* Observation Period Banner */}
+              <div className="mx-6 mt-4 p-4 border-l-4 rounded-r-lg" style={{ borderColor: "#3b82f6", background: "#3b82f610" }}>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5" style={{ color: "#3b82f6" }} />
+                  <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>{observationDays}-Day Observation Period</span>
+                </div>
+                <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                  Tracked from {formatDate(startDate)} to {formatDate(endDate)} - VPC Flow Logs analyzed
+                </p>
+              </div>
+
+              {/* Orphan Warning */}
+              {orphanStatus?.is_orphan && (
+                <div className={`mx-6 mt-4 p-5 border-l-4 rounded-r-lg ${
+                  orphanStatus.severity === 'CRITICAL' ? 'border-[#ef4444]' : 'border-[#f97316]'
+                }`} style={{ background: orphanStatus.severity === 'CRITICAL' ? '#ef444410' : '#f9731610' }}>
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className={`w-6 h-6 flex-shrink-0 ${
+                      orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
+                    }`} />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${
+                          orphanStatus.severity === 'CRITICAL' ? 'bg-[#ef4444]' : 'bg-[#f97316]'
+                        }`}>
+                          {orphanStatus.severity} - ORPHAN SG
+                        </span>
+                      </div>
+                      <p className={`mt-1 font-medium ${
+                        orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
+                      }`}>
+                        {orphanStatus.message}
+                      </p>
+                      <p className={`text-sm mt-1 ${
+                        orphanStatus.severity === 'CRITICAL' ? 'text-[#ef4444]' : 'text-[#f97316]'
+                      }`}>
+                        {orphanStatus.attachment_count} attachments.
+                        {orphanStatus.severity === 'CRITICAL'
+                          ? ' Public ingress rules pose a security risk.'
+                          : ' Consider deleting to reduce attack surface.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Connected Resources */}
+              {analysis.attached_resources && analysis.attached_resources.length > 0 && (
+                <div className="mx-6 mt-4 p-4 rounded-xl border" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Server className="w-4 h-4" style={{ color: "var(--muted-foreground, #6b7280)" }} />
+                    <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                      Connected Resources ({analysis.attached_resources.length})
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.attached_resources.map((res, idx) => {
+                      const style = getResourceTypeStyle(res.resource_type);
+                      const IconComp = style.Icon;
+                      return (
+                        <div
+                          key={`${res.resource_id}-${idx}`}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm"
+                          style={{ borderColor: `${style.color}30`, background: style.bg }}
+                        >
+                          <IconComp className="w-3.5 h-3.5 flex-shrink-0" style={{ color: style.color }} />
+                          <span className="font-medium" style={{ color: style.color }}>{style.label}</span>
+                          <span className="text-xs truncate max-w-[180px]" style={{ color: "var(--foreground, #374151)" }} title={res.resource_name}>
+                            {res.resource_name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Over-Privileged Banner + Stats */}
+              <div className="p-6 space-y-4">
+                {/* Over-Privileged Bar */}
+                <div className="flex items-center gap-5 p-5 rounded-xl border-2" style={{
+                  borderColor: remediatePercent >= 75 ? '#ef444440' : remediatePercent >= 50 ? '#f9731640' : remediatePercent >= 25 ? '#eab30840' : '#22c55e40',
+                  background: remediatePercent >= 75 ? '#ef444408' : remediatePercent >= 50 ? '#f9731608' : remediatePercent >= 25 ? '#eab30808' : '#22c55e08',
+                }}>
+                  <div className="flex flex-col items-center flex-shrink-0">
+                    <span className="text-4xl font-bold" style={{
+                      color: remediatePercent >= 75 ? '#ef4444' : remediatePercent >= 50 ? '#f97316' : remediatePercent >= 25 ? '#eab308' : '#22c55e'
+                    }}>{remediatePercent}%</span>
+                    <span className="text-xs font-semibold mt-0.5" style={{
+                      color: remediatePercent >= 75 ? '#ef4444' : remediatePercent >= 50 ? '#f97316' : remediatePercent >= 25 ? '#eab308' : '#22c55e'
+                    }}>Over-Privileged</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                      <strong>{toRemediate}</strong> of <strong>{totalRules}</strong> rules can be removed or tightened — only <strong>{usedRules}</strong> actively used
+                    </p>
+                    <div className="flex items-center gap-1 mt-2 h-3 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+                      <div className="h-full rounded-l-full transition-all" style={{
+                        width: `${usedPercent}%`,
+                        background: '#22c55e',
+                        minWidth: usedRules > 0 ? '4px' : '0',
+                      }} />
+                      {overlyBroadRules > 0 && (
+                        <div className="h-full transition-all" style={{
+                          width: `${(overlyBroadRules / totalRules) * 100}%`,
+                          background: '#f97316',
+                        }} />
+                      )}
+                      <div className="h-full rounded-r-full transition-all" style={{
+                        width: `${(unusedRules / Math.max(totalRules, 1)) * 100}%`,
+                        background: '#ef4444',
+                      }} />
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-xs text-[#22c55e]">{usedRules} used</span>
+                      <span className="text-xs" style={{ color: remediatePercent >= 75 ? '#ef4444' : '#f97316' }}>{toRemediate} to remediate</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="rounded-xl p-4 text-center border" style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}>
+                    <div className="text-4xl font-bold" style={{ color: "var(--foreground, #111827)" }}>{totalRules}</div>
+                    <div className="mt-1" style={{ color: "var(--muted-foreground, #9ca3af)" }}>Total Rules</div>
+                  </div>
+                  <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#22c55e40", background: "#22c55e10" }}>
+                    <div className="text-4xl font-bold" style={{ color: "#22c55e" }}>{usedRules}</div>
+                    <div className="mt-1" style={{ color: "#22c55e" }}>Actually Used ({usedPercent}%)</div>
+                  </div>
+                  <div className="rounded-xl p-4 text-center border-2" style={{ borderColor: "#ef444440", background: "#ef444410" }}>
+                    <div className="text-4xl font-bold" style={{ color: "#ef4444" }}>{toRemediate}</div>
+                    <div className="mt-1" style={{ color: "#ef4444" }}>To Remediate ({remediatePercent}%)</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rule Usage Breakdown */}
+              <div className="px-6 pb-6 space-y-4">
+                <h3 className="text-lg font-bold" style={{ color: "var(--foreground, #111827)" }}>Rule Usage Breakdown</h3>
+
+                {/* Used Rules — Keep */}
+                <div className="border border-[#22c55e40] rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5 text-[#22c55e]" />
+                      <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>Used Rules ({usedRules})</span>
+                    </div>
+                    <span className="px-3 py-1 border border-[#22c55e40] text-[#22c55e] rounded-lg text-sm font-medium bg-[#22c55e10]">
+                      Keep these
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-1 max-h-40 overflow-y-auto">
+                    {analysis.recommendations.keep.length > 0 ? analysis.recommendations.keep.map(rule => (
+                      <div key={rule.rule_id} className="flex items-center gap-2 text-sm">
+                        <span className="text-[#22c55e]">✓</span>
+                        <span className="font-mono" style={{ color: "var(--foreground, #1f2937)" }}>
+                          {rule.protocol}/{rule.port_range}
+                        </span>
+                        <span style={{ color: "var(--muted-foreground, #6b7280)" }}>from {rule.source}</span>
+                        <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+                          - {rule.traffic.connection_count.toLocaleString()} connections
+                        </span>
+                      </div>
+                    )) : (
+                      <p className="text-sm italic" style={{ color: "var(--muted-foreground, #9ca3af)" }}>No actively used rules found</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Overly Broad Rules — Tighten */}
+                {analysis.recommendations.tighten.length > 0 && (
+                  <div className="border-2 border-[#f9731640] bg-[#f9731610] rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-[#f97316]" />
+                        <span className="font-semibold text-[#f97316]">Overly Broad Rules ({analysis.recommendations.tighten.length})</span>
+                      </div>
+                      <span className="px-3 py-1 bg-[#f9731620] text-[#f97316] border border-[#f9731640] rounded-lg text-sm font-medium">
+                        Tighten these
+                      </span>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {analysis.recommendations.tighten.map(rule => (
+                        <div key={rule.rule_id} className="p-3 rounded-lg border" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--card, #ffffff)" }}>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="font-mono font-medium" style={{ color: "var(--foreground, #111827)" }}>
+                              {rule.protocol}/{rule.port_range}
+                            </span>
+                            <span className="text-[#ef4444] flex items-center gap-1">
+                              <Globe className="w-3 h-3" />{rule.source}
+                            </span>
+                            <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+                              ({rule.traffic.unique_sources} actual sources)
+                            </span>
+                          </div>
+                          {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
+                            <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                              <span className="text-[#ef4444] line-through">{rule.source}</span>
+                              <span>→</span>
+                              <div className="flex flex-wrap gap-1">
+                                {rule.traffic.sample_sources.slice(0, 5).map((ip, idx) => (
+                                  <code key={idx} className="px-1.5 py-0.5 bg-[#22c55e10] text-[#22c55e] rounded font-mono border border-[#22c55e30]">
+                                    {ip}/32
+                                  </code>
+                                ))}
+                                {rule.traffic.sample_sources.length > 5 && (
+                                  <span>+{rule.traffic.sample_sources.length - 5} more</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Unused Rules — Delete */}
+                <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="w-5 h-5 text-[#ef4444]" />
+                      <span className="font-semibold text-[#ef4444]">Unused Rules ({unusedRules})</span>
+                    </div>
+                    <span className="px-3 py-1 bg-[#ef444420] text-[#ef4444] border border-[#ef444440] rounded-lg text-sm font-medium">
+                      Delete these
+                    </span>
+                  </div>
+                  {analysis.recommendations.delete.length > 0 ? (
+                    <div className="mt-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                      {analysis.recommendations.delete.map(rule => (
+                        <div key={rule.rule_id} className="flex items-center gap-2 text-sm">
+                          <X className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                          <span className="font-mono" style={{ color: "var(--foreground, #374151)" }}>
+                            {rule.protocol}/{rule.port_range}
+                          </span>
+                          <span className="text-xs truncate" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                            from {rule.source}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm" style={{ color: "var(--muted-foreground, #9ca3af)" }}>No unused rules found</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Recommended Action */}
+              {toRemediate > 0 && (
+                <div className="mx-6 mb-6 p-4 border rounded-xl" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+                  <h3 className="font-bold" style={{ color: "var(--foreground, #111827)" }}>Recommended Action</h3>
+                  <p className="mt-1" style={{ color: "var(--muted-foreground, #4b5563)" }}>
+                    {unusedRules > 0 && `Remove ${unusedRules} unused rule${unusedRules !== 1 ? 's' : ''}`}
+                    {unusedRules > 0 && overlyBroadRules > 0 && ' and '}
+                    {overlyBroadRules > 0 && `tighten ${overlyBroadRules} overly broad rule${overlyBroadRules !== 1 ? 's' : ''}`}
+                    {' '}to reduce attack surface by {remediatePercent}%.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 text-[#22c55e]">
+                    <Shield className="w-5 h-5" />
+                    <span className="font-medium">
+                      {safetyScore >= 75 ? 'High confidence — No service disruption expected'
+                       : safetyScore >= 50 ? 'Medium confidence — Review recommended before applying'
+                       : 'Low confidence — Investigate before applying'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </>
           ) : null}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-700/50 bg-slate-800/50">
+        <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--background, #f8f9fa)" }}>
           <button
-            onClick={onClose}
-            className="px-4 py-2 text-slate-400 hover:text-slate-200 transition-colors"
+            onClick={handleClose}
+            className="px-4 py-2 border rounded-lg font-medium"
+            style={{ borderColor: "var(--border, #e5e7eb)", color: "var(--muted-foreground, #6b7280)" }}
           >
-            Cancel
+            CLOSE
           </button>
-          <div className="flex gap-3">
-            <button
-              onClick={handleSimulate}
-              disabled={!analysis || analysis.recommendations.delete.length === 0 || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] hover:bg-[#8b5cf6] disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <Play className="w-4 h-4" />
-              Simulate
-            </button>
-            <button
-              onClick={handleApplyFix}
-              disabled={!analysis || analysis.recommendations.delete.length === 0 || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-[#10b98110]0 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              {loading ? 'Applying...' : 'Apply Fix Now'}
-            </button>
-            <button
-              onClick={handleExportTerraform}
-              disabled={!analysis}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export Terraform
-            </button>
-          </div>
+          <button
+            onClick={handleSimulate}
+            disabled={!analysis || toRemediate === 0 || simulating}
+            className="px-6 py-2.5 text-white rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+            style={{ background: "#8b5cf6" }}
+          >
+            {simulating ? (
+              <><Loader2 className="w-4 h-4 inline mr-2 animate-spin" />Simulating...</>
+            ) : (
+              'SIMULATE FIX'
+            )}
+          </button>
         </div>
       </div>
     </div>
