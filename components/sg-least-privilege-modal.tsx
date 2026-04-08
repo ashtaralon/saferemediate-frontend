@@ -1142,9 +1142,12 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                         <span className="font-semibold text-[#f97316]">Overly Broad Rules ({analysis.recommendations.tighten.length})</span>
                       </div>
                       <span className="px-3 py-1 bg-[#f9731620] text-[#f97316] border border-[#f9731640] rounded-lg text-sm font-medium">
-                        Tighten these
+                        Restrict access
                       </span>
                     </div>
+                    <p className="mt-2 text-sm text-[#f97316]">
+                      These ports are open to <strong>0.0.0.0/0 (the entire internet)</strong>. Remediation will remove the open rule and replace it with rules that only allow the {analysis.recommendations.tighten.length > 1 ? 'specific IPs' : 'specific IP'} that actually connected.
+                    </p>
                     <div className="mt-3 space-y-3">
                       {analysis.recommendations.tighten.map(rule => (
                         <div key={rule.rule_id} className="p-3 rounded-lg border" style={{ borderColor: "var(--border, #e5e7eb)", background: "var(--card, #ffffff)" }}>
@@ -1152,17 +1155,22 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                             <span className="font-mono font-medium" style={{ color: "var(--foreground, #111827)" }}>
                               {rule.protocol}/{rule.port_range}
                             </span>
+                            {rule.port_name && (
+                              <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-[#ef444410] text-[#ef4444]">
+                                {rule.port_name}
+                              </span>
+                            )}
                             <span className="text-[#ef4444] flex items-center gap-1">
                               <Globe className="w-3 h-3" />{rule.source}
                             </span>
                             <span style={{ color: "var(--muted-foreground, #9ca3af)" }}>
-                              ({rule.traffic.unique_sources} actual sources)
+                              ({rule.traffic.unique_sources} actual source{rule.traffic.unique_sources !== 1 ? 's' : ''})
                             </span>
                           </div>
-                          {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 && (
-                            <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: "var(--muted-foreground, #6b7280)" }}>
-                              <span className="text-[#ef4444] line-through">{rule.source}</span>
-                              <span>→</span>
+                          <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                            <span className="text-[#ef4444] line-through font-mono">0.0.0.0/0</span>
+                            <span>→</span>
+                            {rule.traffic.sample_sources && rule.traffic.sample_sources.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {rule.traffic.sample_sources.slice(0, 5).map((ip, idx) => (
                                   <code key={idx} className="px-1.5 py-0.5 bg-[#22c55e10] text-[#22c55e] rounded font-mono border border-[#22c55e30]">
@@ -1173,8 +1181,10 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                                   <span>+{rule.traffic.sample_sources.length - 5} more</span>
                                 )}
                               </div>
-                            </div>
-                          )}
+                            ) : (
+                              <span className="text-[#f97316] italic">No observed sources — rule will be removed entirely</span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
