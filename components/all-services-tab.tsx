@@ -210,24 +210,43 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
           // Use Neo4j data (A7 Patent: only system resources)
           console.log(`[AllServices] Using Neo4j data: ${neo4jResources.length} resources`)
           
-          const mapped: ServiceNode[] = neo4jResources.map((r: any) => ({
-            id: r.id || r.name || Math.random().toString(),
-            name: r.name || "Unknown",
-            type: r.type || "Unknown",
-            systemName: r.systemName || systemName,
-            environment: r.environment || "Production",
-            region: "eu-west-1",
-            status: r.is_seed ? "Seed" : "Discovered",
-            lastSeen: new Date().toISOString(),
-            properties: {},
-            attachedPolicies: r.type === 'IAMRole' ? (r.connections || 0) : 0,
-            permissionCount: r.connections || 0,
-            instanceState: "active",
-            tags: {},
-            isTagged: true,  // All Neo4j resources are tagged
-            vpcId: undefined,
-          }))
-          
+          // Normalize type names — backend may return LambdaFunction, S3Bucket, etc.
+          const TYPE_NORMALIZE: Record<string, string> = {
+            'LambdaFunction': 'Lambda',
+            'S3Bucket': 'S3',
+            'RDSCluster': 'RDS',
+            'ECSService': 'ECS',
+            'ECSCluster': 'ECS',
+            'ECSTask': 'ECS',
+            'KMSKey': 'KMS',
+            'KMSAlias': 'KMS',
+            'CloudWatchLogs': 'CloudWatch',
+            'NetworkInterface': 'ENI',
+          }
+
+          const mapped: ServiceNode[] = neo4jResources.map((r: any) => {
+            const rawType = r.type || "Unknown"
+            const normalizedType = TYPE_NORMALIZE[rawType] || rawType
+            return {
+              id: r.id || r.name || Math.random().toString(),
+              name: r.name || "Unknown",
+              type: normalizedType,
+              systemName: r.systemName || systemName,
+              environment: r.environment || "Production",
+              region: "eu-west-1",
+              status: r.is_seed ? "Seed" : "Discovered",
+              lastSeen: new Date().toISOString(),
+              properties: {},
+              attachedPolicies: normalizedType === 'IAMRole' ? (r.connections || 0) : 0,
+              permissionCount: r.connections || 0,
+              instanceState: "active",
+              tags: {},
+              isTagged: true,  // All Neo4j resources are tagged
+              vpcId: undefined,
+            }
+          })
+
+          console.log(`[AllServices] Mapped ${mapped.length} resources (deduped by backend, ${neo4jData.duplicates_removed || 0} removed)`)
           setServices(mapped)
           return
         }
