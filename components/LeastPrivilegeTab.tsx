@@ -873,11 +873,27 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const canRollback = snapshotId || eventId
 
       if (!canRollback) {
-        toast({
-          title: "No rollback available",
-          description: `No remediation snapshot found for ${resourceName}. The resource may have been remediated before snapshot tracking was enabled.`,
-          variant: "destructive"
-        })
+        // No snapshot exists — offer to reset remediation status instead
+        const resetConfirmed = window.confirm(
+          `No remediation snapshot found for "${resourceName}".\n\nThis may have been remediated before snapshot tracking was enabled. Would you like to move it back to Active Issues so you can re-analyze and remediate it properly?`
+        )
+        if (!resetConfirmed) return
+
+        try {
+          const resetEndpoint = resource.resourceType === 'SecurityGroup'
+            ? `/api/proxy/sg-least-privilege/${resourceId}/reset-remediation`
+            : `/api/proxy/iam-gap/${resourceId}/reset-remediation`
+          const resetRes = await fetch(resetEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+          const resetData = await resetRes.json().catch(() => ({}))
+          if (resetRes.ok && resetData.success !== false) {
+            toast({ title: "Moved to Active", description: `${resourceName} moved back to Active Issues for re-analysis.` })
+            handleRollbackSuccess(resourceName)
+          } else {
+            throw new Error(resetData.detail || resetData.error || 'Reset failed')
+          }
+        } catch (resetErr: any) {
+          toast({ title: "Reset Failed", description: resetErr.message, variant: "destructive" })
+        }
         return
       }
 

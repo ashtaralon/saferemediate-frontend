@@ -33,6 +33,11 @@ interface IAMRole {
   highRiskUnused: string[];
   score: number;
   lastUsed?: string;
+  dataQuality: "high" | "medium" | "low" | "none" | "unknown";
+  dataQualityReason: string;
+  cloudtrailSynced: boolean;
+  hasCrossAccountTrust: boolean;
+  accessAdvisorChecked: boolean;
 }
 
 interface OverallSummary {
@@ -545,7 +550,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
             onClick={e => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="px-6 py-4 bg-white text-white flex items-center justify-between">
+            <div className="px-6 py-4 bg-slate-800 text-white flex items-center justify-between">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -916,7 +921,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                 syncing
                   ? 'bg-blue-600/50 text-blue-200 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-[#3b82f610]0 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
               }`}
             >
               {syncing ? (
@@ -938,7 +943,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
             <button
               onClick={handleRefresh}
               disabled={sgLoading || iamLoading}
-              className="px-4 py-2 bg-emerald-600 hover:bg-[#10b98110]0 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className={`w-4 h-4 ${(sgLoading || iamLoading) ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1036,8 +1041,39 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                   className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4"
                 >
                   <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-white">{role.name}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium text-white">{role.name}</div>
+                        {/* Data Quality Badge */}
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                            role.dataQuality === 'high' ? 'bg-emerald-500/20 text-emerald-400' :
+                            role.dataQuality === 'medium' ? 'bg-amber-500/20 text-amber-400' :
+                            role.dataQuality === 'low' ? 'bg-rose-500/20 text-rose-400' :
+                            role.dataQuality === 'none' ? 'bg-red-500/20 text-red-400' :
+                            'bg-slate-500/20 text-slate-400'
+                          }`}
+                          title={role.dataQualityReason || 'Data quality unknown — run Sync from AWS'}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            role.dataQuality === 'high' ? 'bg-emerald-400' :
+                            role.dataQuality === 'medium' ? 'bg-amber-400' :
+                            role.dataQuality === 'low' ? 'bg-rose-400' :
+                            role.dataQuality === 'none' ? 'bg-red-400' :
+                            'bg-slate-400'
+                          }`} />
+                          {role.dataQuality === 'high' ? 'Verified' :
+                           role.dataQuality === 'medium' ? 'Partial' :
+                           role.dataQuality === 'low' ? 'Low visibility' :
+                           role.dataQuality === 'none' ? 'No data' :
+                           'Unverified'}
+                        </span>
+                        {role.hasCrossAccountTrust && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-purple-500/20 text-purple-400" title="Role has cross-account trust — external actions invisible in our CloudTrail">
+                            Cross-account
+                          </span>
+                        )}
+                      </div>
                       <div className="text-sm text-slate-400 mt-1">
                         {role.usedCount} / {role.allowedCount} permissions used
                         {role.highRiskUnused.length > 0 && (
@@ -1045,17 +1081,25 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                             · {role.highRiskUnused.length} high-risk unused
                           </span>
                         )}
+                        {(role.dataQuality === 'low' || role.dataQuality === 'none' || role.dataQuality === 'unknown') && role.unusedCount > 0 && (
+                          <span className="text-amber-400/70 ml-2">
+                            · Gap % may be inaccurate
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <div className="text-2xl font-bold text-white">{role.score}%</div>
+                        <div className={`text-2xl font-bold ${
+                          (role.dataQuality === 'low' || role.dataQuality === 'none' || role.dataQuality === 'unknown')
+                            ? 'text-slate-500' : 'text-white'
+                        }`}>{role.score}%</div>
                         <div className="text-xs text-slate-500">LP Score</div>
                       </div>
                       <div
                         className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                          role.score >= 80 ? 'bg-[#10b98110]0/20' :
-                          role.score >= 60 ? 'bg-[#f9731610]0/20' :
+                          role.score >= 80 ? 'bg-emerald-500/20' :
+                          role.score >= 60 ? 'bg-amber-500/20' :
                           'bg-rose-500/20'
                         }`}
                       >
@@ -1075,7 +1119,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                         }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           role.unusedCount > 0
-                            ? 'bg-white text-white hover:from-rose-500 hover:to-orange-500'
+                            ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white hover:from-rose-600 hover:to-orange-600'
                             : 'bg-slate-700 text-slate-400 cursor-not-allowed'
                         }`}
                         disabled={role.unusedCount === 0}
@@ -1159,7 +1203,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                         onClick={() => toggleSGExpand(sg.sg_id)}
                         className={`p-3 rounded-lg border transition-colors text-left ${
                           expandedSGs.has(sg.sg_id)
-                            ? 'bg-[#10b98110]0/10 border-emerald-500/30'
+                            ? 'bg-emerald-500/10 border-emerald-500/30'
                             : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
                         }`}
                       >
@@ -1176,12 +1220,12 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                             </span>
                           )}
                           {sg.summary.overly_broad_rules > 0 && (
-                            <span className="px-1.5 py-0.5 bg-[#f9731610]0/20 text-amber-400 rounded text-xs">
+                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded text-xs">
                               {sg.summary.overly_broad_rules} broad
                             </span>
                           )}
                           {sg.summary.unused_rules === 0 && sg.summary.overly_broad_rules === 0 && (
-                            <span className="px-1.5 py-0.5 bg-[#10b98110]0/20 text-emerald-400 rounded text-xs">
+                            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded text-xs">
                               ✓ OK
                             </span>
                           )}

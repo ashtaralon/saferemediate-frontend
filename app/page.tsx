@@ -650,7 +650,7 @@ export default function HomePage() {
         return <IdentitiesSection />
 
       case "per-resource":
-        return <PerResourceAnalysis />
+        return <PerResourceAnalysis systemName={selectedSystem} />
 
       case "least-privilege":
         return <LeastPrivilegeTab systemName={selectedSystem} />

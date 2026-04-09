@@ -40,8 +40,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const roleFilter = req.nextUrl.searchParams.get("role_filter") || ""
-    const url = roleFilter
-      ? `${BACKEND_URL}/api/scan?role_filter=${encodeURIComponent(roleFilter)}`
+    const systemName = req.nextUrl.searchParams.get("system_name") || ""
+    const params = new URLSearchParams()
+    if (roleFilter) params.set("role_filter", roleFilter)
+    if (systemName) params.set("system_name", systemName)
+    const qs = params.toString()
+    const url = qs
+      ? `${BACKEND_URL}/api/scan?${qs}`
       : `${BACKEND_URL}/api/scan`
 
     const res = await fetch(url, { cache: "no-store", signal: controller.signal })

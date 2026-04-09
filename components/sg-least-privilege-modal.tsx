@@ -57,6 +57,12 @@ interface Recommendation {
   confidence: Confidence;
 }
 
+interface RuleProtection {
+  tier: 'never_remove' | 'warn';
+  category: string;
+  explanation: string;
+}
+
 interface RuleAnalysis {
   rule_id: string;
   direction: string;
@@ -72,6 +78,7 @@ interface RuleAnalysis {
   status: 'USED' | 'UNUSED' | 'OVERLY_BROAD' | 'UNKNOWN';
   traffic: TrafficData;
   recommendation: Recommendation;
+  protection?: RuleProtection;
 }
 
 interface AttachedResource {
@@ -138,10 +145,14 @@ interface SGAnalysis {
     overly_broad_rules: number;
     public_rules: number;
     observation_days: number;
+    protected_rules?: number;
+    warn_rules?: number;
   };
   evidence: Evidence;
   rules: RuleAnalysis[];
   recommendations: {
+    protected: RuleAnalysis[];
+    warn: RuleAnalysis[];
     delete: RuleAnalysis[];
     tighten: RuleAnalysis[];
     review: RuleAnalysis[];
@@ -706,6 +717,20 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     <span style={{ color: "var(--muted-foreground, #6b7280)" }}>to keep</span>
                   </span>
                 )}
+                {(analysis.recommendations.warn?.length ?? 0) > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#eab308]" />
+                    <strong className="text-[#eab308]">{analysis.recommendations.warn.length}</strong>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>caution</span>
+                  </span>
+                )}
+                {(analysis.recommendations.protected?.length ?? 0) > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-[#6b7280]" />
+                    <strong className="text-[#6b7280]">{analysis.recommendations.protected.length}</strong>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>protected</span>
+                  </span>
+                )}
               </div>
 
               <div className="space-y-4 max-h-[400px] overflow-y-auto">
@@ -816,6 +841,84 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                       {keepRules.map(rule => (
                         <RuleDisplay key={rule.rule_id} rule={rule} showStatus={false} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* WARN group — selectable with caution */}
+                {(analysis.recommendations.warn?.length ?? 0) > 0 && (
+                  <div className="rounded-xl border overflow-hidden" style={{ borderColor: '#fde68a' }}>
+                    <div className="px-4 py-2 flex items-center justify-between" style={{ background: '#fefce8' }}>
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-[#eab308]" />
+                        <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                          Review Before Removing ({analysis.recommendations.warn.length})
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#eab30820] text-[#eab308]">CAUTION</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const warnRules = analysis.recommendations.warn || [];
+                          const allSelected = warnRules.every(r => selectedRulesToRemediate.has(r.rule_id));
+                          const newSet = new Set(selectedRulesToRemediate);
+                          warnRules.forEach(r => allSelected ? newSet.delete(r.rule_id) : newSet.add(r.rule_id));
+                          setSelectedRulesToRemediate(newSet);
+                        }}
+                        className="text-xs font-medium px-2 py-0.5 rounded text-[#eab308]"
+                      >
+                        {(analysis.recommendations.warn || []).every(r => selectedRulesToRemediate.has(r.rule_id)) ? 'Deselect group' : 'Select group'}
+                      </button>
+                    </div>
+                    <div className="px-4 py-1.5 text-xs border-b" style={{ color: '#a16207', borderColor: '#fde68a', background: '#fefce880' }}>
+                      These rules match patterns that are frequently critical — review the explanation before removing
+                    </div>
+                    <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
+                      {analysis.recommendations.warn.map(rule => (
+                        <div key={rule.rule_id}>
+                          <RuleDisplay
+                            rule={rule}
+                            checkbox
+                            checked={selectedRulesToRemediate.has(rule.rule_id)}
+                            onChange={() => toggleRuleSelection(rule.rule_id)}
+                            showStatus={false}
+                          />
+                          {rule.protection?.explanation && (
+                            <div className="ml-10 mb-1 text-[11px] text-[#a16207] leading-tight">
+                              {rule.protection.explanation}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* PROTECTED group — locked, cannot be selected */}
+                {(analysis.recommendations.protected?.length ?? 0) > 0 && (
+                  <div className="rounded-xl border overflow-hidden opacity-75" style={{ borderColor: '#d1d5db' }}>
+                    <div className="px-4 py-2 flex items-center justify-between" style={{ background: '#f9fafb' }}>
+                      <div className="flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-[#6b7280]" />
+                        <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                          Protected Rules ({analysis.recommendations.protected.length})
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]">PROTECTED</span>
+                      </div>
+                    </div>
+                    <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: '#d1d5db', background: '#f9fafb80' }}>
+                      These rules match critical infrastructure patterns and cannot be removed
+                    </div>
+                    <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
+                      {analysis.recommendations.protected.map(rule => (
+                        <div key={rule.rule_id}>
+                          <RuleDisplay rule={rule} disabled showStatus={false} />
+                          {rule.protection?.explanation && (
+                            <div className="ml-6 mb-1 text-[11px] text-[#6b7280] leading-tight">
+                              {rule.protection.explanation}
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>

@@ -10,7 +10,8 @@ const BACKEND_URL =
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName")
+  // Frontend sends 'system_name' (snake_case) in query params
+  const systemName = url.searchParams.get("system_name") || url.searchParams.get("systemName")
 
   try {
     const controller = new AbortController()
@@ -56,7 +57,13 @@ export async function GET(req: NextRequest) {
       score: r.permissionsCount > 0
         ? Math.round(((r.permissionsCount - r.unusedPermissionsCount) / r.permissionsCount) * 100)
         : 100,
-      lastUsed: r.lastUsed
+      lastUsed: r.lastUsed,
+      // Visibility / data quality
+      dataQuality: r.dataQuality || "unknown",
+      dataQualityReason: r.dataQualityReason || "",
+      cloudtrailSynced: r.cloudtrailSynced || false,
+      hasCrossAccountTrust: r.hasCrossAccountTrust || false,
+      accessAdvisorChecked: r.accessAdvisorChecked || false,
     }))
 
     console.log(`[LP Proxy Roles] Fetched and transformed ${roles.length} roles`)
@@ -65,8 +72,8 @@ export async function GET(req: NextRequest) {
     console.error("[LP Proxy Roles] Error:", error.message)
 
     if (error.name === "AbortError") {
-      // Return empty array instead of error
-      return NextResponse.json([], { status: 200 })
+      // Return matching shape on timeout
+      return NextResponse.json({ roles: [] }, { status: 200 })
     }
 
     return NextResponse.json(

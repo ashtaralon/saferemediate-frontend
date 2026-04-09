@@ -61,6 +61,9 @@ interface GapAnalysisData {
       action: string
       color: string
       protected?: boolean
+      warn?: boolean
+      protection_tier?: string | null
+      protection_category?: string | null
       permission_count: number
       permissions: Array<{
         permission: string
@@ -72,6 +75,10 @@ interface GapAnalysisData {
         explanation: string
         logged_by_default: boolean
         protected?: boolean
+        reserved?: boolean
+        warn?: boolean
+        protection_tier?: string | null
+        protection_category?: string | null
       }>
     }>
     overall_confidence: number
@@ -81,6 +88,8 @@ interface GapAnalysisData {
       verify_first: number
       investigate_first: number
       protected?: number
+      warn_before_removing?: number
+      reserved?: number
     }
     observation_days: number
     account_signals: {
@@ -299,13 +308,13 @@ export function IAMPermissionAnalysisModal({
       })
       
       setGapData(mappedData)
-      // Initialize all unused permissions as selected by default, excluding protected ones
-      const protectedPerms = new Set(
+      // Initialize all unused permissions as selected by default, excluding protected, warn, and reserved ones
+      const excludedPerms = new Set(
         (mappedData.confidence_groups?.groups ?? [])
-          .filter(g => g.protected || g.action === 'protected')
+          .filter(g => g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
           .flatMap(g => g.permissions.map(p => p.permission))
       )
-      const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !protectedPerms.has(p)))
+      const unusedPermsSet = new Set(mappedData.unused_permissions.filter(p => !excludedPerms.has(p)))
       setSelectedPermissionsToRemove(unusedPermsSet)
 
       // Auto-enable "Detach managed policies" when permission lists are empty
@@ -338,14 +347,14 @@ export function IAMPermissionAnalysisModal({
   // Select/deselect all unused permissions
   const selectAllPermissions = () => {
     if (gapData) {
-      // Exclude protected permissions from "Select All"
-      const protectedPerms = new Set(
+      // Exclude protected, warn, and reserved permissions from "Select All"
+      const excludedPerms = new Set(
         (gapData.confidence_groups?.groups ?? [])
-          .filter(g => g.protected || g.action === 'protected')
+          .filter(g => g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
           .flatMap(g => g.permissions.map(p => p.permission))
       )
       setSelectedPermissionsToRemove(
-        new Set(gapData.unused_permissions.filter(p => !protectedPerms.has(p)))
+        new Set(gapData.unused_permissions.filter(p => !excludedPerms.has(p)))
       )
     }
   }
@@ -906,6 +915,20 @@ export function IAMPermissionAnalysisModal({
                       <span style={{ color: "var(--muted-foreground, #6b7280)" }}>investigate first</span>
                     </span>
                   )}
+                  {(gapData.confidence_groups.summary.reserved ?? 0) > 0 && (
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-[#3b82f6]" />
+                      <strong className="text-[#3b82f6]">{gapData.confidence_groups.summary.reserved}</strong>
+                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>reserved</span>
+                    </span>
+                  )}
+                  {(gapData.confidence_groups.summary.warn_before_removing ?? 0) > 0 && (
+                    <span className="flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-[#eab308]" />
+                      <strong className="text-[#eab308]">{gapData.confidence_groups.summary.warn_before_removing}</strong>
+                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>caution</span>
+                    </span>
+                  )}
                   {(gapData.confidence_groups.summary.protected ?? 0) > 0 && (
                     <span className="flex items-center gap-1">
                       <Lock className="w-3 h-3 text-[#6b7280]" />
@@ -928,20 +951,27 @@ export function IAMPermissionAnalysisModal({
                 <div className="space-y-4 max-h-[400px] overflow-y-auto">
                   {gapData.confidence_groups.groups.map((group, gi) => {
                     const isProtected = group.protected || group.action === 'protected'
+                    const isReserved = group.action === 'reserved'
+                    const isWarn = group.warn || group.action === 'warn_before_removing'
+                    const isLocked = isProtected || isReserved
                     const colorMap: Record<string, { text: string; border: string; bg: string }> = {
                       green: { text: '#22c55e', border: '#bbf7d0', bg: '#f0fdf4' },
                       orange: { text: '#f97316', border: '#fed7aa', bg: '#fff7ed' },
                       red: { text: '#ef4444', border: '#fecaca', bg: '#fef2f2' },
+                      blue: { text: '#3b82f6', border: '#bfdbfe', bg: '#eff6ff' },
                       gray: { text: '#6b7280', border: '#d1d5db', bg: '#f9fafb' },
+                      yellow: { text: '#eab308', border: '#fde68a', bg: '#fefce8' },
                     }
-                    const colors = colorMap[group.color] || (isProtected ? colorMap.gray : colorMap.orange)
+                    const colors = colorMap[group.color] || (isProtected ? colorMap.gray : isWarn ? colorMap.yellow : colorMap.orange)
 
                     return (
-                      <div key={gi} className={`rounded-xl border overflow-hidden ${isProtected ? 'opacity-75' : ''}`} style={{ borderColor: colors.border }}>
+                      <div key={gi} className={`rounded-xl border overflow-hidden ${isLocked ? 'opacity-75' : ''}`} style={{ borderColor: colors.border }}>
                         <div className="px-4 py-2 flex items-center justify-between" style={{ background: colors.bg }}>
                           <div className="flex items-center gap-2">
-                            {isProtected ? (
-                              <Lock className="w-4 h-4 text-[#6b7280]" />
+                            {isLocked ? (
+                              <Lock className="w-4 h-4" style={{ color: colors.text }} />
+                            ) : isWarn ? (
+                              <AlertTriangle className="w-4 h-4" style={{ color: colors.text }} />
                             ) : (
                               <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
                             )}
@@ -950,6 +980,14 @@ export function IAMPermissionAnalysisModal({
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]">
                                 PROTECTED
                               </span>
+                            ) : isWarn ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#eab30820] text-[#eab308]">
+                                CAUTION
+                              </span>
+                            ) : isReserved ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#3b82f620] text-[#3b82f6]">
+                                RESERVED
+                              </span>
                             ) : !group.logged_by_default && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: colors.border, color: colors.text }}>
                                 {group.data_source_type === 'data_event' ? 'DATA EVENT' :
@@ -957,7 +995,7 @@ export function IAMPermissionAnalysisModal({
                               </span>
                             )}
                           </div>
-                          {!isProtected && (
+                          {!isLocked && (
                             <button
                               onClick={() => {
                                 const groupPerms = group.permissions.map(p => p.permission)
@@ -980,25 +1018,25 @@ export function IAMPermissionAnalysisModal({
                             <div
                               key={i}
                               className={`flex items-center gap-3 p-1.5 rounded transition-colors ${
-                                isProtected
+                                isLocked
                                   ? 'opacity-60 cursor-not-allowed'
                                   : selectedPermissionsToRemove.has(perm.permission)
                                     ? 'bg-[#ef444410] cursor-pointer'
                                     : 'hover:bg-gray-50 cursor-pointer'
                               }`}
-                              onClick={() => { if (!isProtected) togglePermissionSelection(perm.permission) }}
+                              onClick={() => { if (!isLocked) togglePermissionSelection(perm.permission) }}
                             >
                               <input
                                 type="checkbox"
-                                checked={!isProtected && selectedPermissionsToRemove.has(perm.permission)}
-                                disabled={isProtected}
-                                onChange={() => { if (!isProtected) togglePermissionSelection(perm.permission) }}
+                                checked={!isLocked && selectedPermissionsToRemove.has(perm.permission)}
+                                disabled={isLocked}
+                                onChange={() => { if (!isLocked) togglePermissionSelection(perm.permission) }}
                                 className="w-4 h-4 rounded border-[var(--border,#d1d5db)] disabled:opacity-40"
                               />
                               <span className="font-mono text-xs text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
-                              {isProtected ? (
-                                <span className="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 bg-gray-100 text-[#6b7280]">
-                                  LOCKED
+                              {isLocked ? (
+                                <span className="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0" style={{ background: colors.bg, color: colors.text }}>
+                                  {isReserved ? 'RESERVED' : 'LOCKED'}
                                 </span>
                               ) : (
                                 <span className={`px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0 ${
@@ -1677,16 +1715,22 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
 
-            {/* Never Used Permissions — split into removable vs protected */}
+            {/* Never Used Permissions — split into removable vs warn vs protected */}
             {(() => {
               const protectedSet = new Set(
                 (gapData?.confidence_groups?.groups ?? [])
                   .filter(g => g.protected || g.action === 'protected')
                   .flatMap(g => g.permissions.map(p => p.permission))
               )
-              const removablePerms = unusedPermissions.filter(p => !protectedSet.has(p.permission))
+              const warnSet = new Set(
+                (gapData?.confidence_groups?.groups ?? [])
+                  .filter(g => g.warn || g.action === 'warn_before_removing')
+                  .flatMap(g => g.permissions.map(p => p.permission))
+              )
+              const removablePerms = unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission))
+              const warnPerms = unusedPermissions.filter(p => warnSet.has(p.permission))
               const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
-              const removableCount = unusedCount - protectedPerms.length
+              const removableCount = unusedCount - protectedPerms.length - warnPerms.length
 
               return (
                 <>
@@ -1745,7 +1789,33 @@ export function IAMPermissionAnalysisModal({
                     ) : null}
                   </div>
 
-                  {/* Protected permissions (SSM/EC2 Messages) */}
+                  {/* Caution permissions (logging, SLR, ECS) — selectable but warned */}
+                  {warnPerms.length > 0 && (
+                    <div className="border-2 border-[#fde68a] bg-[#fefce8] rounded-xl p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5 text-[#eab308]" />
+                          <span className="font-semibold text-[#eab308]">Caution — Review Before Removing ({warnPerms.length})</span>
+                        </div>
+                        <span className="px-3 py-1 bg-[#eab30815] text-[#eab308] border border-[#fde68a] rounded-lg text-sm font-medium">
+                          May break services
+                        </span>
+                      </div>
+                      <p className="text-xs mt-2 text-[#a16207]">
+                        These permissions are partially logged or called by AWS services internally. They may appear unused but could be actively required. Review each before removing.
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                        {warnPerms.map((perm, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0 text-[#eab308]" />
+                            <span className="font-mono text-[var(--foreground,#374151)] truncate">{perm.permission}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Protected permissions (SSM, iam:PassRole, KMS, STS) */}
                   {protectedPerms.length > 0 && (
                     <div className="border-2 border-[#d1d5db] bg-[#f9fafb] rounded-xl p-4 opacity-75">
                       <div className="flex items-center justify-between">
@@ -1758,7 +1828,7 @@ export function IAMPermissionAnalysisModal({
                         </span>
                       </div>
                       <p className="text-xs mt-2 text-[#6b7280]">
-                        Required for AWS SSM Agent / Session Manager. Internal service calls not visible in CloudTrail — removing will break SSM.
+                        Includes SSM Agent internals, iam:PassRole, KMS encryption, and STS assume-role permissions. These are invisible or excluded from CloudTrail and critical to AWS infrastructure.
                       </p>
                       <div className="mt-3 grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
                         {protectedPerms.map((perm, i) => (
