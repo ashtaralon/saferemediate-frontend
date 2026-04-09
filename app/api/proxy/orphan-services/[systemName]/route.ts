@@ -40,18 +40,24 @@ const ORPHAN_THRESHOLD_DAYS = 100      // Minimum idle days to flag at all
 const DECOMMISSION_THRESHOLD_DAYS = 150 // Escalate to DECOMMISSION
 const DELETE_THRESHOLD_DAYS = 180       // Escalate to DELETE (if isolated)
 
-// Only analyze actual AWS workload resources that cost money or pose security risk
-// Use VARIANT types (EC2Instance, S3Bucket, etc.) — base types (EC2, S3, RDS) are
-// polluted with IAM permission strings and service descriptors in Neo4j.
-// Exclude: networking infra (VPC/Subnet/IGW), AWS-managed policies, permission strings
+// Only analyze actual AWS workload resources that cost money or pose security risk.
+// Include BOTH base types (EC2, S3, Lambda) and variant types (EC2Instance, S3Bucket)
+// since Neo4j may store either form depending on the collector.
+// Exclude: networking infra (VPC/Subnet/IGW), traffic artifacts (IPs), permission strings.
 const ORPHAN_ELIGIBLE_TYPES = new Set([
-  'EC2Instance', 'LambdaFunction',
-  'RDSInstance', 'S3Bucket',
-  'DynamoDBTable',
+  // Base types (as stored by collectors)
+  'EC2', 'Lambda', 'S3', 'RDS', 'DynamoDB', 'SQS', 'KMS',
+  // Variant types (alternate naming)
+  'EC2Instance', 'LambdaFunction', 'S3Bucket', 'RDSInstance',
+  'DynamoDBTable', 'SQSQueue', 'StepFunction',
+  // Container/load balancer types
   'ECS', 'EKS', 'LoadBalancer', 'ALB', 'NLB',
-  'IAMRole', 'IAMPolicy', 'IAMUser', 'SecurityGroup',
-  'ElasticIP', 'NAT', 'NATGateway',
-  'SQSQueue', 'StepFunction',
+  // IAM types
+  'IAMRole', 'IAMPolicy', 'IAMUser',
+  // Network security
+  'SecurityGroup',
+  // Other billable resources
+  'ElasticIP', 'NAT', 'NATGateway', 'EventBridge',
 ])
 
 // AWS-managed IAM policy prefixes — these exist in every account, never orphans
@@ -384,9 +390,11 @@ export async function GET(
       const resourceName = r.name || ''
       if (isAWSManagedResource(resourceName, resourceType)) continue
 
-      // Get evidence for this resource
+      // Get evidence for this resource.
+      // Use the MAX of evidence and resource connections to avoid false positives:
+      // the evidence endpoint may under-count structural relationships.
       const ev = evidence[resourceName]
-      const totalRels = ev?.total_relationships ?? (r.connections || 0)
+      const totalRels = Math.max(ev?.total_relationships ?? 0, r.connections || 0)
       const cloudtrailEvents = ev?.cloudtrail_events ?? 0
       const totalHits = ev?.total_hits ?? 0
       const advisorServices = ev?.access_advisor_services ?? 0
@@ -400,10 +408,17 @@ export async function GET(
       // in the graduated criteria below are better indicators.
       if (isAttached && (resourceType === 'IAMPolicy' || resourceType === 'IAMUser')) continue
 
-      // Determine last activity from evidence (authoritative) or node property (fallback)
+      // Determine last activity from evidence (authoritative) or node property (fallback).
+      // IMPORTANT: nodeLastSeen is often just the sync timestamp (when the collector last
+      // ran), NOT when the resource was last used. Only use it as fallback when the resource
+      // has real activity evidence (rels, CloudTrail, hits) but no explicit timestamp.
       const evidenceLastActivity = ev?.last_activity
       const nodeLastSeen = r.lastSeen || r.last_seen || r.properties?.lastSeen
-      const bestLastSeen = evidenceLastActivity || nodeLastSeen
+      const hasRealEvidence = totalRels > 0 || cloudtrailEvents > 0 || totalHits > 0 || advisorServices > 0
+
+      // Only fall back to nodeLastSeen if there's real activity evidence backing it.
+      // Without evidence, nodeLastSeen is just "when we last synced" — meaningless for orphan detection.
+      const bestLastSeen = evidenceLastActivity || (hasRealEvidence ? nodeLastSeen : null)
       const lastSeen = bestLastSeen ? new Date(bestLastSeen) : null
       const hasValidDate = lastSeen && !isNaN(lastSeen.getTime()) && lastSeen.getTime() > new Date('2020-01-01').getTime()
 
@@ -412,8 +427,8 @@ export async function GET(
       if (hasValidDate) {
         idleDays = Math.floor((now - lastSeen!.getTime()) / (1000 * 60 * 60 * 24))
       } else {
-        // No timestamp at all — check if it has ANY evidence of being alive
-        if (totalRels > 0 || cloudtrailEvents > 0 || totalHits > 0 || advisorServices > 0) {
+        // No real activity timestamp
+        if (hasRealEvidence) {
           idleDays = 0  // Has evidence of use but no timestamp — NOT an orphan
         } else {
           idleDays = 180  // Truly no evidence of any activity anywhere
