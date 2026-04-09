@@ -175,7 +175,7 @@ export function AllServicesTab({ systemName }: AllServicesTabProps) {
 
       setSyncMessage({
         type: 'success',
-        text: `Synced: ${data.results?.flow_logs?.relationships_created || 0} traffic, ${data.results?.cloudtrail?.relationships_created || 0} API calls`
+        text: `Synced: ${data.results?.flow_logs?.relationships_created || 0} traffic, ${(data.results?.cloudtrail?.advisor_relationships || 0) + (data.results?.cloudtrail?.api_call_relationships || 0)} API calls`
       })
 
       // Refresh the services list

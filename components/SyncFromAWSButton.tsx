@@ -35,6 +35,7 @@ const STEP_LABELS: Record<string, string> = {
   s3_access_logs: "Ingesting S3 Access Logs",
   rds_query_logs: "Ingesting RDS Query Logs",
   behavioral_sync: "Running behavioral sync (traffic + permissions)",
+  visibility_signals: "Collecting visibility signals (trust policies, Access Advisor, data events)",
   auto_tagger: "Running auto-tagger",
 }
 
@@ -105,7 +106,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               status: "running",
               current_step: 0,
               current_step_name: "processing",
-              total_steps: 13,
+              total_steps: 15,
               progress_percent: 0,
             }),
             message: "Sync in progress (status temporarily unavailable)...",
@@ -168,7 +169,7 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
           status: "running",
           current_step: 0,
           current_step_name: "starting",
-          total_steps: 13,
+          total_steps: 15,
           message: "Starting sync...",
           progress_percent: 0,
         })
@@ -180,9 +181,9 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
           status: "running",
           current_step: data.current_step || 0,
           current_step_name: "",
-          total_steps: 13,
+          total_steps: 15,
           message: data.message || "Sync in progress...",
-          progress_percent: Math.round(((data.current_step || 0) / 7) * 100),
+          progress_percent: Math.round(((data.current_step || 0) / 15) * 100),
         })
       } else {
         throw new Error(data.error || "Failed to start sync job")
@@ -281,8 +282,9 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               </div>
               <div>
                 CloudTrail:{" "}
-                {result.results.cloudtrail?.events_processed || 0} events,{" "}
-                {result.results.cloudtrail?.resources_discovered || 0} resources discovered
+                {(result.results.cloudtrail?.advisor_relationships || 0) +
+                 (result.results.cloudtrail?.api_call_relationships || 0)} events,{" "}
+                {result.results.cloudtrail?.resource_access_relationships || 0} resources discovered
               </div>
               <div>
                 IAM Analyzer:{" "}
@@ -304,24 +306,42 @@ export function SyncFromAWSButton({ onSyncComplete, className = "" }: SyncFromAW
               </div>
               <div>
                 Security Groups:{" "}
-                {result.results.security_groups?.security_groups_processed || result.results.security_groups?.total || 0} groups
+                {result.results.security_groups?.total_security_groups || 0} groups,{" "}
+                {result.results.security_groups?.total_rules || 0} rules
               </div>
               <div>
                 NACLs:{" "}
-                {result.results.nacls?.nacls_processed || result.results.nacls?.total || 0} ACLs
+                {result.results.nacls?.nacls_processed || result.results.nacls?.total_nacls || 0} ACLs
               </div>
               <div>
                 S3 Access Logs:{" "}
-                {result.results.s3_access_logs?.relationships_created || 0} access patterns
+                {result.results.s3_access_logs?.total_relationships || result.results.s3_access_logs?.relationships_created || 0} access patterns
               </div>
               <div>
                 RDS Query Logs:{" "}
-                {result.results.rds_query_logs?.relationships_created || 0} query patterns
+                {result.results.rds_query_logs?.total_relationships || result.results.rds_query_logs?.relationships_created || 0} query patterns
               </div>
               <div>
                 Behavioral Sync:{" "}
-                {result.results.behavioral_sync?.total_relationships || result.results.behavioral_sync?.steps_completed || 0} patterns
+                {(() => {
+                  const bs = result.results.behavioral_sync
+                  if (!bs || bs.error) return "0"
+                  const traffic = bs.traffic?.patterns_created || 0
+                  const perms = bs.permissions?.total_permissions_found || 0
+                  const s3 = bs.s3_access?.buckets_with_access || 0
+                  const findings = bs.security_findings?.findings_total || 0
+                  return `${traffic} traffic, ${perms} permissions, ${s3} S3, ${findings} findings`
+                })()}
               </div>
+              {result.results.visibility_signals && (
+                <div>
+                  Visibility Signals:{" "}
+                  {result.results.visibility_signals.trust_policies?.roles_updated || 0} trust policies,{" "}
+                  {result.results.visibility_signals.trust_policies?.cross_account_roles || 0} cross-account,{" "}
+                  {result.results.visibility_signals.access_advisor?.roles_updated || 0} Access Advisor,{" "}
+                  {(result.results.visibility_signals.cloudtrail_config?.data_events_enabled || []).length} data event services
+                </div>
+              )}
               <div>
                 Auto-Tagger:{" "}
                 {result.results.auto_tagger?.tagged || 0} resources tagged

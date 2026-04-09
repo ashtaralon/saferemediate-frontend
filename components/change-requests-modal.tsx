@@ -129,7 +129,7 @@ export function ChangeRequestsModal({ isOpen, onClose, requests }: ChangeRequest
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-6 border-b border-[var(--border,#e5e7eb)] bg-white
+        <div className="p-6 border-b border-[var(--border,#e5e7eb)] bg-white">
           <div className="flex items-start justify-between mb-4">
             <div className="flex-1">
               <h2 className="text-2xl font-bold text-[var(--foreground,#111827)] mb-2">Change Requests Dashboard</h2>
