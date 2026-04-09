@@ -336,7 +336,7 @@ export async function GET(
     }
 
     // 2. Fetch REAL activity evidence, security risk factors, AND AWS existence validation
-    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null; is_attached?: boolean; attached_entities?: number; attached_to?: string[] }> = {}
+    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null; activity_dates?: string[]; is_attached?: boolean; attached_entities?: number; attached_to?: string[] }> = {}
     let securityRisks: Record<string, { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }> = {}
     let awsValidation: Record<string, { exists: boolean; checked: boolean; type?: string; attachment_count?: number }> = {}
 
@@ -468,8 +468,8 @@ export async function GET(
       const tags = r.tags || r.properties?.tags || {}
       if (tags['schedule'] || tags['Schedule'] || tags['keep'] || tags['Keep']) continue
 
-      // Detect seasonal patterns
-      const activityHistory: string[] = []
+      // Detect seasonal patterns from real CloudTrail activity dates
+      const activityHistory: string[] = ev?.activity_dates || []
       const seasonalInfo = detectSeasonalPattern(activityHistory)
 
       // Get security risk data for this resource
