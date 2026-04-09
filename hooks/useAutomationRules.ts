@@ -130,6 +130,32 @@ export interface ExecutionResult {
   details: ExecutionDetail[]
 }
 
+export interface RollbackResult {
+  snapshotId: string
+  status: string
+  message: string
+  details?: any
+}
+
+export interface RollbackHistoryItem {
+  snapshotId: string
+  ruleId?: string
+  ruleName?: string
+  resourceId?: string
+  rolledBackAt: string
+  trigger: string
+  status: string
+}
+
+export interface ActiveMonitoringWindow {
+  snapshotId: string
+  ruleId?: string
+  resourceId?: string
+  startedAt: string
+  expiresAt: string
+  status: string
+}
+
 interface UseAutomationRulesReturn {
   rules: AutomationRule[]
   stats: AutomationStats | null
@@ -141,6 +167,9 @@ interface UseAutomationRulesReturn {
   deleteRule: (id: string) => Promise<void>
   toggleRule: (id: string) => Promise<AutomationRule>
   executeRule: (id: string, dryRun?: boolean) => Promise<ExecutionResult>
+  rollbackSnapshot: (snapshotId: string) => Promise<RollbackResult>
+  getRollbackHistory: () => Promise<RollbackHistoryItem[]>
+  getActiveMonitoring: () => Promise<ActiveMonitoringWindow[]>
 }
 
 export function useAutomationRules(): UseAutomationRulesReturn {
@@ -264,6 +293,60 @@ export function useAutomationRules(): UseAutomationRulesReturn {
     }
   }, [fetchRules])
 
+  const rollbackSnapshot = useCallback(async (snapshotId: string): Promise<RollbackResult> => {
+    const res = await fetch(
+      `/api/proxy/automation-rules/rollback/${encodeURIComponent(snapshotId)}`,
+      { method: "POST" }
+    )
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(err)
+    }
+    const raw = await res.json()
+    await fetchRules()
+    return {
+      snapshotId: raw.snapshot_id || snapshotId,
+      status: raw.status || "completed",
+      message: raw.message || "Rollback completed",
+      details: raw.details,
+    }
+  }, [fetchRules])
+
+  const getRollbackHistory = useCallback(async (): Promise<RollbackHistoryItem[]> => {
+    const res = await fetch("/api/proxy/automation-rules/rollback/history")
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(err)
+    }
+    const raw = await res.json()
+    return (raw.history || []).map((item: any) => ({
+      snapshotId: item.snapshot_id,
+      ruleId: item.rule_id,
+      ruleName: item.rule_name,
+      resourceId: item.resource_id,
+      rolledBackAt: item.rolled_back_at,
+      trigger: item.trigger,
+      status: item.status,
+    }))
+  }, [])
+
+  const getActiveMonitoring = useCallback(async (): Promise<ActiveMonitoringWindow[]> => {
+    const res = await fetch("/api/proxy/automation-rules/monitoring/active")
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(err)
+    }
+    const raw = await res.json()
+    return (raw.windows || []).map((item: any) => ({
+      snapshotId: item.snapshot_id,
+      ruleId: item.rule_id,
+      resourceId: item.resource_id,
+      startedAt: item.started_at,
+      expiresAt: item.expires_at,
+      status: item.status,
+    }))
+  }, [])
+
   return {
     rules,
     stats,
@@ -275,5 +358,8 @@ export function useAutomationRules(): UseAutomationRulesReturn {
     deleteRule,
     toggleRule,
     executeRule,
+    rollbackSnapshot,
+    getRollbackHistory,
+    getActiveMonitoring,
   }
 }

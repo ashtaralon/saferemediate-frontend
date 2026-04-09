@@ -1,16 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { useAutomationRules, type AutomationRule, type CreateRuleData, type ExecutionResult } from "@/hooks/useAutomationRules"
+import { useAutomationRules, type AutomationRule, type CreateRuleData, type ExecutionResult, type RollbackResult } from "@/hooks/useAutomationRules"
 import { AutomationRulesView } from "./automation-rules-view"
 import { CreateAutomationWizard } from "./create-automation-wizard"
 
 export function AutomationSection() {
-  const { rules, stats, loading, createRule, updateRule, deleteRule, toggleRule, executeRule } = useAutomationRules()
+  const { rules, stats, loading, createRule, updateRule, deleteRule, toggleRule, executeRule, rollbackSnapshot } = useAutomationRules()
   const [showWizard, setShowWizard] = useState(false)
   const [editingRule, setEditingRule] = useState<AutomationRule | null>(null)
   const [executingRuleId, setExecutingRuleId] = useState<string | null>(null)
   const [lastExecution, setLastExecution] = useState<ExecutionResult | null>(null)
+  const [rollingBackSnapshotId, setRollingBackSnapshotId] = useState<string | null>(null)
 
   const handleSave = async (data: CreateRuleData) => {
     if (editingRule) {
@@ -68,6 +69,17 @@ export function AutomationSection() {
         executingRuleId={executingRuleId}
         lastExecution={lastExecution}
         onDismissExecution={() => setLastExecution(null)}
+        rollingBackSnapshotId={rollingBackSnapshotId}
+        onRollback={async (snapshotId) => {
+          setRollingBackSnapshotId(snapshotId)
+          try {
+            await rollbackSnapshot(snapshotId)
+          } catch (err) {
+            console.error("Rollback failed:", err)
+          } finally {
+            setRollingBackSnapshotId(null)
+          }
+        }}
       />
 
       <CreateAutomationWizard

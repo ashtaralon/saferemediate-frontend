@@ -33,10 +33,11 @@ interface AutomationRule {
   autoRollback: boolean
   rollbackWindow: number
   schedule: string
-  lastRun?: string
-  nextRun?: string
+  lastRun?: string | null
+  nextRun?: string | null
   successRate: number
   issuesFixed: number
+  rollbackCount?: number
 }
 
 interface ExecutionDetail {
@@ -83,6 +84,8 @@ interface AutomationRulesViewProps {
   onDeleteRule?: (ruleId: string) => void
   onToggleRule?: (ruleId: string) => void
   onExecuteRule?: (ruleId: string, dryRun: boolean) => void
+  onRollback?: (snapshotId: string) => void
+  rollingBackSnapshotId?: string | null
   executingRuleId?: string | null
   lastExecution?: ExecutionResult | null
   onDismissExecution?: () => void
@@ -97,6 +100,8 @@ export function AutomationRulesView({
   onDeleteRule,
   onToggleRule,
   onExecuteRule,
+  onRollback,
+  rollingBackSnapshotId,
   executingRuleId,
   lastExecution,
   onDismissExecution,
@@ -351,9 +356,25 @@ export function AutomationRulesView({
                       </span>
                     )}
                     {d.snapshot_id && (
-                      <span className="ml-auto flex items-center gap-1 shrink-0" style={{ color: "#3B82F6" }}>
-                        <Camera className="w-3 h-3" /> {d.snapshot_id}
-                      </span>
+                      <button
+                        className="ml-auto flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors disabled:opacity-50"
+                        style={{ color: "#3B82F6" }}
+                        title="Click to rollback this snapshot"
+                        disabled={rollingBackSnapshotId === d.snapshot_id}
+                        onClick={() => onRollback?.(d.snapshot_id!)}
+                      >
+                        {rollingBackSnapshotId === d.snapshot_id ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                            Rolling back...
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="w-3 h-3" />
+                            <Camera className="w-3 h-3" /> {d.snapshot_id}
+                          </>
+                        )}
+                      </button>
                     )}
                   </div>
                 )
