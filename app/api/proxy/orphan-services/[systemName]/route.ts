@@ -203,7 +203,8 @@ function classifyOrphan(
   edgeCount: number,
   idleDays: number,
   seasonalInfo: { isSeasonal: boolean; pattern: string | null; nextRun: string | null },
-  securityRisk?: { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }
+  securityRisk?: { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number },
+  isDR: boolean = false,
 ): Omit<OrphanResource, 'id' | 'name' | 'type' | 'region' | 'status' | 'lastSeen' | 'properties'> {
   const isInternetFacing = securityRisk?.is_internet_facing || resource.is_internet_facing || resource.properties?.is_internet_facing
   const isStopped = resource.instanceState === 'stopped' || resource.status === 'stopped'
@@ -264,7 +265,12 @@ function classifyOrphan(
   let recommendation: 'DELETE' | 'DECOMMISSION' | 'REVIEW' | 'ARCHIVE' = 'REVIEW'
   let recommendationReason = ''
 
-  if (seasonalInfo.isSeasonal) {
+  if (isDR) {
+    recommendation = 'REVIEW'
+    confidence = 'LOW'
+    riskLevel = 'LOW'
+    recommendationReason = `Identified as DR/standby resource. Idle for ${idleDays} days is expected for disaster recovery. Verify DR plan is current and failover was tested recently.`
+  } else if (seasonalInfo.isSeasonal) {
     recommendation = 'REVIEW'
     recommendationReason = `Detected ${seasonalInfo.pattern} usage pattern. Next expected activity: ${seasonalInfo.nextRun ? new Date(seasonalInfo.nextRun).toLocaleDateString() : 'unknown'}. Verify this is intentional.`
   } else if (idleDays >= DELETE_THRESHOLD_DAYS && edgeCount === 0) {
@@ -464,9 +470,15 @@ export async function GET(
 
       if (!isOrphanCandidate) continue
 
-      // Check for scheduled tags
+      // Check for tags that indicate the resource should be kept
       const tags = r.tags || r.properties?.tags || {}
       if (tags['schedule'] || tags['Schedule'] || tags['keep'] || tags['Keep']) continue
+
+      // Check for DR / standby tags — these resources are intentionally idle
+      const drTagKeys = ['dr', 'DR', 'disaster-recovery', 'DisasterRecovery', 'standby', 'Standby', 'failover', 'Failover', 'backup', 'Backup']
+      const hasDRTag = drTagKeys.some(k => tags[k]) ||
+        Object.values(tags).some(v => typeof v === 'string' && /\b(dr|disaster.?recovery|standby|failover|warm.?standby|pilot.?light)\b/i.test(v))
+      const isDRByName = /\b(dr|disaster-recovery|standby|failover|warm-standby|pilot-light|backup-replica)\b/i.test(resourceName)
 
       // Detect seasonal patterns from real CloudTrail activity dates
       const activityHistory: string[] = ev?.activity_dates || []
@@ -474,7 +486,8 @@ export async function GET(
 
       // Get security risk data for this resource
       const secRisk = securityRisks[resourceName]
-      const classification = classifyOrphan(r, totalRels, idleDays, seasonalInfo, secRisk)
+      const isDR = hasDRTag || isDRByName
+      const classification = classifyOrphan(r, totalRels, idleDays, seasonalInfo, secRisk, isDR)
 
       const orphanResource: OrphanResource = {
         id: r.id || r.name || Math.random().toString(),
