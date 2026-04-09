@@ -39,6 +39,7 @@ const SEASONAL_LOOKBACK_DAYS = 365
 const ORPHAN_THRESHOLD_DAYS = 100      // Minimum idle days to flag at all
 const DECOMMISSION_THRESHOLD_DAYS = 150 // Escalate to DECOMMISSION
 const DELETE_THRESHOLD_DAYS = 180       // Escalate to DELETE (if isolated)
+const NEW_RESOURCE_GRACE_DAYS = 30     // Don't flag resources discovered less than 30 days ago
 
 // Only analyze actual AWS workload resources that cost money or pose security risk.
 // Include BOTH base types (EC2, S3, Lambda) and variant types (EC2Instance, S3Bucket)
@@ -342,7 +343,7 @@ export async function GET(
     }
 
     // 2. Fetch REAL activity evidence, security risk factors, AND AWS existence validation
-    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null; activity_dates?: string[]; is_attached?: boolean; attached_entities?: number; attached_to?: string[] }> = {}
+    let evidence: Record<string, { total_relationships: number; cloudtrail_events: number; total_hits: number; access_advisor_services: number; last_activity: string | null; first_seen?: string | null; activity_dates?: string[]; is_attached?: boolean; attached_entities?: number; attached_to?: string[] }> = {}
     let securityRisks: Record<string, { is_internet_facing: boolean; risk_score: number; factors: SecurityFactor[]; has_encryption: boolean; sg_count: number; total_permissions: number }> = {}
     let awsValidation: Record<string, { exists: boolean; checked: boolean; type?: string; attachment_count?: number }> = {}
 
@@ -397,9 +398,18 @@ export async function GET(
       if (isAWSManagedResource(resourceName, resourceType)) continue
 
       // Get evidence for this resource.
+      const ev = evidence[resourceName]
+
+      // Grace period: skip resources first discovered less than 30 days ago.
+      // New workloads need time to accumulate traffic evidence before we judge them.
+      const firstSeen = ev?.first_seen ? new Date(ev.first_seen) : null
+      if (firstSeen && !isNaN(firstSeen.getTime())) {
+        const ageDays = Math.floor((now - firstSeen.getTime()) / (1000 * 60 * 60 * 24))
+        if (ageDays < NEW_RESOURCE_GRACE_DAYS) continue
+      }
+
       // Use the MAX of evidence and resource connections to avoid false positives:
       // the evidence endpoint may under-count structural relationships.
-      const ev = evidence[resourceName]
       const totalRels = Math.max(ev?.total_relationships ?? 0, r.connections || 0)
       const cloudtrailEvents = ev?.cloudtrail_events ?? 0
       const totalHits = ev?.total_hits ?? 0
