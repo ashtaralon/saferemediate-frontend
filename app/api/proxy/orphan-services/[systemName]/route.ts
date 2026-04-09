@@ -135,6 +135,43 @@ interface OrphanResource {
   totalPermissions: number
 }
 
+interface ConfidenceSignal {
+  raw: any
+  normalized: number
+  weighted: number
+  label: string
+  lower_env_boost?: boolean
+}
+
+interface NewResource {
+  id: string
+  name: string
+  type: string
+  region: string
+  ageDays: number
+  graceDaysRemaining: number
+  firstSeen: string
+  connections: number
+  // Multi-signal confidence
+  phase: 'DISCOVERY' | 'LEARNING' | 'ADVISORY' | 'ENFORCING'
+  phaseLabel: string
+  confidenceScore: number
+  confidenceBreakdown: Record<string, ConfidenceSignal>
+  reasons: string[]
+  promotableIn: string | null
+  // Day-0 posture
+  day0Posture: {
+    denyEastWest: boolean
+    allowDeclaredDepsOnly: boolean
+    enforceMinimumRole: boolean
+    blockPrivilegeExpansion: boolean
+    allowReadsOnly: boolean
+    blockSensitiveExport: boolean
+    tempExceptionTtlHours: number
+  }
+  properties: Record<string, any>
+}
+
 async function runNeo4jQuery(cypher: string): Promise<any[]> {
   if (!NEO4J_URI || !NEO4J_PASSWORD) return []
 
@@ -339,7 +376,7 @@ export async function GET(
     }
 
     if (resources.length === 0) {
-      return NextResponse.json({ orphans: [], seasonal: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 } })
+      return NextResponse.json({ orphans: [], seasonal: [], newResources: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0, newCount: 0 } })
     }
 
     // 2. Fetch REAL activity evidence, security risk factors, AND AWS existence validation
@@ -387,6 +424,7 @@ export async function GET(
     const now = Date.now()
     const orphans: OrphanResource[] = []
     const seasonal: OrphanResource[] = []
+    const newResources: NewResource[] = []
 
     for (const r of resources) {
       // Skip non-service types (NetworkEndpoints, IPs, traffic artifacts)
@@ -400,12 +438,180 @@ export async function GET(
       // Get evidence for this resource.
       const ev = evidence[resourceName]
 
-      // Grace period: skip resources first discovered less than 30 days ago.
-      // New workloads need time to accumulate traffic evidence before we judge them.
+      // Grace period: new resources (< 30 days old) are tagged as NEW instead of
+      // being analyzed for orphan status. They still appear in the response so the
+      // UI can show them with their multi-signal confidence breakdown and day-0 posture.
       const firstSeen = ev?.first_seen ? new Date(ev.first_seen) : null
       if (firstSeen && !isNaN(firstSeen.getTime())) {
         const ageDays = Math.floor((now - firstSeen.getTime()) / (1000 * 60 * 60 * 24))
-        if (ageDays < NEW_RESOURCE_GRACE_DAYS) continue
+        if (ageDays < NEW_RESOURCE_GRACE_DAYS) {
+          const totalRelsNew = Math.max(ev?.total_relationships ?? 0, r.connections || 0)
+          const cloudtrailNew = ev?.cloudtrail_events ?? 0
+          const totalHitsNew = ev?.total_hits ?? 0
+          const advisorNew = ev?.access_advisor_services ?? 0
+
+          // ── Multi-signal confidence computation ──
+          // Telemetry coverage: proportion of evidence sources reporting
+          const tcSources = [
+            cloudtrailNew > 0 ? 1 : 0,        // CloudTrail
+            advisorNew > 0 ? 1 : 0,            // Access Advisor
+            totalHitsNew > 0 ? 1 : 0,          // Flow Logs / total hits
+            totalRelsNew > 0 ? 1 : 0,          // Graph relationships
+          ]
+          const telemetryCoverage = tcSources.reduce((a, b) => a + b, 0) / tcSources.length
+
+          // Dependency declared: has relationships in the graph
+          const dependencyDeclared = totalRelsNew > 0
+
+          // Change velocity: approximate from CloudTrail event density
+          let changeVelocity: string
+          if (cloudtrailNew > 50) changeVelocity = 'high'
+          else if (cloudtrailNew > 10) changeVelocity = 'medium'
+          else if (cloudtrailNew > 0) changeVelocity = 'low'
+          else changeVelocity = 'unknown'
+
+          // Pattern match: check if resource type is a well-known pattern
+          const knownPatternTypes = new Set(['EC2', 'EC2Instance', 'Lambda', 'LambdaFunction', 'RDS', 'RDSInstance', 'S3', 'S3Bucket', 'ECS', 'EKS', 'LoadBalancer', 'ALB', 'NLB'])
+          const patternMatchScore = knownPatternTypes.has(resourceType) ? 0.70 : 0.30
+
+          // Environment type from system tags/name
+          const sysNameLower = systemName.toLowerCase()
+          let envType: string = 'production'
+          if (sysNameLower.includes('dev') || sysNameLower.includes('sandbox')) envType = 'development'
+          else if (sysNameLower.includes('stag') || sysNameLower.includes('test') || sysNameLower.includes('qa')) envType = 'staging'
+
+          // Criticality: infer from system name
+          let criticalityTier = 2 // standard
+          if (sysNameLower.includes('prod') && (sysNameLower.includes('critical') || sysNameLower.includes('core'))) criticalityTier = 3
+          else if (sysNameLower.includes('dev') || sysNameLower.includes('sandbox')) criticalityTier = 0
+          else if (sysNameLower.includes('stag') || sysNameLower.includes('test')) criticalityTier = 1
+
+          // ── Compute composite confidence (mirrors backend OnboardingSignals) ──
+          const weights = { tc: 0.25, obs: 0.20, dep: 0.15, vel: 0.10, pat: 0.10, crit: 0.10, env: 0.10 }
+
+          // Observation maturity (diminishing returns curve)
+          let obsNorm: number
+          if (ageDays >= 365) obsNorm = 1.0
+          else if (ageDays >= 180) obsNorm = 0.95 + 0.05 * ((ageDays - 180) / 185)
+          else if (ageDays >= 90) obsNorm = 0.85 + 0.10 * ((ageDays - 90) / 90)
+          else if (ageDays >= 30) obsNorm = 0.60 + 0.25 * ((ageDays - 30) / 60)
+          else if (ageDays >= 14) obsNorm = 0.40 + 0.20 * ((ageDays - 14) / 16)
+          else if (ageDays >= 7) obsNorm = 0.20 + 0.20 * ((ageDays - 7) / 7)
+          else obsNorm = ageDays > 0 ? ageDays * 0.20 / 7 : 0
+
+          const velMap: Record<string, number> = { high: 1.0, medium: 0.7, low: 0.4, static: 0.2, unknown: 0.0 }
+          const critMap: Record<number, number> = { 0: 1.0, 1: 0.8, 2: 0.5, 3: 0.2 }
+          const envMap: Record<string, number> = { development: 1.0, staging: 0.7, production: 0.3 }
+
+          const breakdown: Record<string, ConfidenceSignal> = {
+            telemetry_coverage: {
+              raw: Math.round(telemetryCoverage * 100) / 100,
+              normalized: Math.round(telemetryCoverage * 100) / 100,
+              weighted: Math.round(telemetryCoverage * weights.tc * 1000) / 1000,
+              label: 'Telemetry Coverage',
+            },
+            observation_maturity: {
+              raw: ageDays,
+              normalized: Math.round(obsNorm * 100) / 100,
+              weighted: Math.round(obsNorm * weights.obs * 1000) / 1000,
+              label: 'Observation Period',
+            },
+            dependency_declared: {
+              raw: dependencyDeclared,
+              normalized: dependencyDeclared ? 1.0 : 0.0,
+              weighted: Math.round((dependencyDeclared ? 1.0 : 0.0) * weights.dep * 1000) / 1000,
+              label: 'Declared Dependencies',
+            },
+            change_velocity: {
+              raw: changeVelocity,
+              normalized: velMap[changeVelocity] ?? 0,
+              weighted: Math.round((velMap[changeVelocity] ?? 0) * weights.vel * 1000) / 1000,
+              label: 'Change Velocity',
+            },
+            pattern_match: {
+              raw: Math.round(patternMatchScore * 100) / 100,
+              normalized: Math.round(patternMatchScore * 100) / 100,
+              weighted: Math.round(patternMatchScore * weights.pat * 1000) / 1000,
+              label: 'Service Pattern Match',
+            },
+            criticality: {
+              raw: criticalityTier,
+              normalized: critMap[criticalityTier] ?? 0.5,
+              weighted: Math.round((critMap[criticalityTier] ?? 0.5) * weights.crit * 1000) / 1000,
+              label: 'Workload Criticality',
+            },
+            env_type: {
+              raw: envType,
+              normalized: Math.round((envMap[envType] ?? 0.3) * 100) / 100,
+              weighted: Math.round((envMap[envType] ?? 0.3) * weights.env * 1000) / 1000,
+              label: 'Environment Type',
+            },
+          }
+
+          const compositeScore = Math.min(
+            Object.values(breakdown).reduce((sum, s) => sum + s.weighted, 0),
+            1.0
+          )
+
+          // Phase from composite score
+          let phase: 'DISCOVERY' | 'LEARNING' | 'ADVISORY' | 'ENFORCING'
+          let phaseLabel: string
+          if (compositeScore >= 0.80) { phase = 'ENFORCING'; phaseLabel = 'Canary/auto-remediation eligible' }
+          else if (compositeScore >= 0.55) { phase = 'ADVISORY'; phaseLabel = 'Findings visible — approval required for remediation' }
+          else if (compositeScore >= 0.30) { phase = 'LEARNING'; phaseLabel = 'Building behavioral baseline — no enforcement' }
+          else { phase = 'DISCOVERY'; phaseLabel = 'Collecting telemetry — restricted posture active' }
+
+          // Reasons
+          const reasons: string[] = []
+          if (telemetryCoverage < 0.30) reasons.push('Telemetry below 30% — enable CloudTrail + Access Advisor')
+          else if (telemetryCoverage < 0.60) reasons.push(`Telemetry at ${Math.round(telemetryCoverage * 100)}% — enable Flow Logs for faster promotion`)
+          else reasons.push(`Telemetry at ${Math.round(telemetryCoverage * 100)}%`)
+          if (ageDays < 14) reasons.push(`Only ${ageDays}d observed — minimum 14d for baseline`)
+          else reasons.push(`${ageDays}d observed`)
+          if (!dependencyDeclared) reasons.push('No declared dependencies — add to graph for faster promotion')
+          else reasons.push('Dependencies declared in graph')
+          if (patternMatchScore >= 0.70) reasons.push(`Matches known service pattern (${Math.round(patternMatchScore * 100)}%)`)
+          if (criticalityTier >= 3) reasons.push('Critical workload — conservative enforcement ramp')
+
+          // Promotable hint
+          let promotableIn: string | null = null
+          if (phase === 'DISCOVERY') promotableIn = `Need +${(0.30 - compositeScore).toFixed(2)} confidence to LEARNING (enable telemetry, declare dependencies)`
+          else if (phase === 'LEARNING') promotableIn = `Need +${(0.55 - compositeScore).toFixed(2)} confidence to ADVISORY (more observation, add pattern match)`
+          else if (phase === 'ADVISORY') promotableIn = `Need +${(0.80 - compositeScore).toFixed(2)} confidence to ENFORCING (more observation, verify dependencies)`
+
+          // Day-0 posture based on env + criticality
+          const isDevEnv = envType === 'development'
+          const isStagingEnv = envType === 'staging'
+          const isCritical = criticalityTier >= 3
+
+          newResources.push({
+            id: r.id || r.name || Math.random().toString(),
+            name: r.name || 'Unknown',
+            type: r.type || 'Unknown',
+            region: r.region || r.properties?.region || 'eu-west-1',
+            ageDays,
+            graceDaysRemaining: NEW_RESOURCE_GRACE_DAYS - ageDays,
+            firstSeen: firstSeen.toISOString(),
+            connections: totalRelsNew,
+            phase,
+            phaseLabel,
+            confidenceScore: Math.round(compositeScore * 1000) / 1000,
+            confidenceBreakdown: breakdown,
+            reasons,
+            promotableIn,
+            day0Posture: {
+              denyEastWest: !isDevEnv,
+              allowDeclaredDepsOnly: !isDevEnv && !isStagingEnv,
+              enforceMinimumRole: true,
+              blockPrivilegeExpansion: !isDevEnv,
+              allowReadsOnly: !isDevEnv && !isStagingEnv,
+              blockSensitiveExport: !isDevEnv,
+              tempExceptionTtlHours: isCritical ? 4 : isDevEnv ? 168 : isStagingEnv ? 72 : 24,
+            },
+            properties: r.properties || {},
+          })
+          continue
+        }
       }
 
       // Use the MAX of evidence and resource connections to avoid false positives:
@@ -573,18 +779,19 @@ export async function GET(
     const summary = {
       total: orphans.length,
       seasonalCount: seasonal.length,
+      newCount: newResources.length,
       estimatedMonthlySavings: orphans.reduce((sum, o) => sum + o.estimatedMonthlyCost, 0),
       highRisk: orphans.filter(o => o.riskLevel === 'HIGH').length,
       mediumRisk: orphans.filter(o => o.riskLevel === 'MEDIUM').length,
       lowRisk: orphans.filter(o => o.riskLevel === 'LOW').length,
     }
 
-    return NextResponse.json({ orphans, seasonal, summary })
+    return NextResponse.json({ orphans, seasonal, newResources, summary })
 
   } catch (error: any) {
     console.error('[orphan-services] Error:', error)
     return NextResponse.json(
-      { error: error.message, orphans: [], seasonal: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0, seasonalCount: 0 } },
+      { error: error.message, orphans: [], seasonal: [], newResources: [], summary: { total: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0, seasonalCount: 0, newCount: 0 } },
       { status: 500 }
     )
   }

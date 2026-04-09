@@ -74,9 +74,45 @@ interface OrphanResource {
   totalPermissions: number
 }
 
+interface ConfidenceSignal {
+  raw: any
+  normalized: number
+  weighted: number
+  label: string
+  lower_env_boost?: boolean
+}
+
+interface NewResource {
+  id: string
+  name: string
+  type: string
+  region: string
+  ageDays: number
+  graceDaysRemaining: number
+  firstSeen: string
+  connections: number
+  phase: "DISCOVERY" | "LEARNING" | "ADVISORY" | "ENFORCING"
+  phaseLabel: string
+  confidenceScore: number
+  confidenceBreakdown: Record<string, ConfidenceSignal>
+  reasons: string[]
+  promotableIn: string | null
+  day0Posture: {
+    denyEastWest: boolean
+    allowDeclaredDepsOnly: boolean
+    enforceMinimumRole: boolean
+    blockPrivilegeExpansion: boolean
+    allowReadsOnly: boolean
+    blockSensitiveExport: boolean
+    tempExceptionTtlHours: number
+  }
+  properties: Record<string, any>
+}
+
 interface OrphanSummary {
   total: number
   seasonalCount: number
+  newCount: number
   estimatedMonthlySavings: number
   highRisk: number
   mediumRisk: number
@@ -177,10 +213,18 @@ const PHASE_CONFIG: Record<string, { label: string; color: string; icon: React.E
   RESTORED: { label: "Restored", color: "text-[#22c55e]", icon: CheckCircle2, bgColor: "bg-[#22c55e10]" },
 }
 
+const LP_PHASE_CONFIG = {
+  DISCOVERY: { label: "Discovery", color: "text-[#8b5cf6]", bgColor: "bg-[#8b5cf610]", borderColor: "border-[#8b5cf630]" },
+  LEARNING: { label: "Learning", color: "text-[#3b82f6]", bgColor: "bg-[#3b82f610]", borderColor: "border-[#3b82f630]" },
+  ADVISORY: { label: "Advisory", color: "text-[#f97316]", bgColor: "bg-[#f9731610]", borderColor: "border-[#f9731630]" },
+  ENFORCING: { label: "Enforcing", color: "text-[#22c55e]", bgColor: "bg-[#22c55e10]", borderColor: "border-[#22c55e30]" },
+}
+
 export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [orphans, setOrphans] = useState<OrphanResource[]>([])
   const [seasonal, setSeasonal] = useState<OrphanResource[]>([])
-  const [summary, setSummary] = useState<OrphanSummary>({ total: 0, seasonalCount: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 })
+  const [newResources, setNewResources] = useState<NewResource[]>([])
+  const [summary, setSummary] = useState<OrphanSummary>({ total: 0, seasonalCount: 0, newCount: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -188,7 +232,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
   const [typeFilter, setTypeFilter] = useState<string>("ALL")
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["orphans", "seasonal"]))
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["orphans", "seasonal", "new"]))
 
   // Quarantine state
   const [quarantineRecords, setQuarantineRecords] = useState<QuarantineRecord[]>([])
@@ -210,7 +254,8 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
       const data = await response.json()
       setOrphans(data.orphans || [])
       setSeasonal(data.seasonal || [])
-      setSummary(data.summary || { total: 0, seasonalCount: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 })
+      setNewResources(data.newResources || [])
+      setSummary(data.summary || { total: 0, seasonalCount: 0, newCount: 0, estimatedMonthlySavings: 0, highRisk: 0, mediumRisk: 0, lowRisk: 0 })
     } catch (err: any) {
       console.error("[OrphanServices] Fetch error:", err)
       setError(err.message)
@@ -470,7 +515,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
     <div className="space-y-6">
       {/* Summary Stats Bar */}
       <div className="bg-gray-50 rounded-xl p-5 border border-[var(--border,#e5e7eb)]">
-        <div className="flex gap-3 w-[30%] min-w-[420px]">
+        <div className="flex gap-3 w-[38%] min-w-[520px]">
           <div className="flex-1 bg-white rounded-lg p-3 border border-[var(--border,#e5e7eb)] text-center">
             <Unplug className="w-4 h-4 mx-auto mb-1 text-[#8b5cf6]" />
             <div className="text-lg font-bold text-[var(--foreground,#111827)]">{summary.total}</div>
@@ -491,6 +536,13 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
             <div className="text-lg font-bold text-[#3b82f6]">{quarantineRecords.filter(r => r.phase === "QUARANTINE" || r.phase === "MONITOR").length}</div>
             <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">In Quarantine</div>
           </div>
+          {newResources.length > 0 && (
+            <div className="flex-1 bg-white rounded-lg p-3 border border-[#22c55e40] text-center">
+              <Activity className="w-4 h-4 mx-auto mb-1 text-[#22c55e]" />
+              <div className="text-lg font-bold text-[#22c55e]">{newResources.length}</div>
+              <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">New</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -856,6 +908,161 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                     <span className="text-xs text-[#3b82f6] bg-[#3b82f610] px-2 py-1 rounded font-medium">
                       {svc.seasonalPattern}
                     </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ======= NEW RESOURCES SECTION ======= */}
+      {newResources.length > 0 && (
+        <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] overflow-hidden">
+          <button
+            onClick={() => toggleSection("new")}
+            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              {expandedSections.has("new") ? <ChevronDown className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" /> : <ChevronRight className="w-5 h-5 text-[var(--muted-foreground,#6b7280)]" />}
+              <Activity className="w-5 h-5 text-[#22c55e]" />
+              <span className="font-semibold text-[var(--foreground,#111827)]">New Resources</span>
+              <span className="text-sm text-[var(--muted-foreground,#6b7280)]">({newResources.length})</span>
+            </div>
+            <span className="text-xs text-[#22c55e] bg-[#22c55e10] px-2 py-1 rounded">Restricted posture — building confidence before enforcement</span>
+          </button>
+
+          {expandedSections.has("new") && (
+            <div className="border-t border-[var(--border,#e5e7eb)] divide-y divide-[var(--border,#e5e7eb)]">
+              {newResources.map((res) => {
+                const Icon = getIcon(res.type)
+                const colorClass = getColor(res.type)
+                const phaseConfig = LP_PHASE_CONFIG[res.phase]
+                const isExpanded = expandedCards.has(`new-${res.id}`)
+                const phaseColor = res.phase === 'DISCOVERY' ? '#8b5cf6' : res.phase === 'LEARNING' ? '#3b82f6' : res.phase === 'ADVISORY' ? '#f97316' : '#22c55e'
+                return (
+                  <div key={res.id} className="hover:bg-gray-50/50 transition-colors">
+                    {/* Card Header */}
+                    <div
+                      className="flex items-center gap-4 p-4 cursor-pointer"
+                      onClick={() => toggleCard(`new-${res.id}`)}
+                    >
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colorClass}`}>
+                        <Icon className="w-4.5 h-4.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-[var(--foreground,#111827)] truncate">{res.name}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-[var(--muted-foreground,#6b7280)]">{res.type}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#22c55e15] text-[#22c55e] border border-[#22c55e30]">NEW</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{res.ageDays}d old</span>
+                          <span>{res.region}</span>
+                          <span>{res.connections} connection{res.connections !== 1 ? 's' : ''}</span>
+                        </div>
+                        {/* Confidence progress bar */}
+                        <div className="flex items-center gap-2 mt-2">
+                          <div className="flex-1 max-w-[200px] h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.round(res.confidenceScore * 100)}%`, backgroundColor: phaseColor }} />
+                          </div>
+                          <span className={`text-[10px] font-semibold ${phaseConfig.color}`}>{Math.round(res.confidenceScore * 100)}%</span>
+                          <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">{phaseConfig.label}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${phaseConfig.bgColor} ${phaseConfig.color} border ${phaseConfig.borderColor}`}>
+                          {phaseConfig.label}
+                        </span>
+                        <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">Since {formatDate(res.firstSeen)}</span>
+                      </div>
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" /> : <ChevronRight className="w-4 h-4 text-[var(--muted-foreground,#6b7280)]" />}
+                    </div>
+
+                    {/* Expanded: Why This Phase + Day-0 Posture */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 ml-[52px] space-y-3">
+                        {/* Confidence Breakdown */}
+                        <div className="bg-gray-50 rounded-lg p-4 border border-[var(--border,#e5e7eb)]">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide flex items-center gap-1.5">
+                              <Info className="w-3.5 h-3.5" />
+                              Why This Phase?
+                            </h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ backgroundColor: `${phaseColor}15`, color: phaseColor, border: `1px solid ${phaseColor}30` }}>
+                              {Math.round(res.confidenceScore * 100)}% confidence
+                            </span>
+                          </div>
+                          {/* Signal bars */}
+                          <div className="space-y-2">
+                            {Object.entries(res.confidenceBreakdown).map(([key, signal]) => {
+                              const barColor = signal.normalized >= 0.7 ? '#22c55e' : signal.normalized >= 0.4 ? '#f97316' : '#ef4444'
+                              return (
+                                <div key={key} className="flex items-center gap-3">
+                                  <div className="flex-1">
+                                    <div className="flex justify-between text-[10px] mb-0.5">
+                                      <span className="text-[var(--foreground,#111827)]">{signal.label}</span>
+                                      <span className="text-[var(--muted-foreground,#9ca3af)]">
+                                        {typeof signal.raw === 'boolean' ? (signal.raw ? 'Yes' : 'No') :
+                                         typeof signal.raw === 'number' ? (key === 'observation_maturity' ? `${signal.raw}d` : `${Math.round(signal.raw * 100)}%`) :
+                                         signal.raw}
+                                      </span>
+                                    </div>
+                                    <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.round(signal.normalized * 100)}%`, backgroundColor: barColor }} />
+                                    </div>
+                                  </div>
+                                  <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)] w-8 text-right">{(signal.weighted * 100).toFixed(1)}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          {/* Reasons */}
+                          <div className="mt-3 space-y-1">
+                            {res.reasons.map((reason, i) => (
+                              <div key={i} className="flex items-start gap-1.5 text-[10px] text-[var(--muted-foreground,#6b7280)]">
+                                <span className="mt-0.5">{reason.includes('enable') || reason.includes('No declared') || reason.includes('Only') ? '⚠' : '✓'}</span>
+                                <span>{reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Promotion hint */}
+                          {res.promotableIn && (
+                            <div className="mt-2 px-2 py-1.5 rounded text-[10px] font-medium" style={{ backgroundColor: `${phaseColor}08`, color: phaseColor }}>
+                              {res.promotableIn}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Day-0 Enforcement Posture */}
+                        <div className="bg-white rounded-lg p-4 border border-[var(--border,#e5e7eb)]">
+                          <h4 className="text-xs font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide flex items-center gap-1.5 mb-3">
+                            <Shield className="w-3.5 h-3.5" />
+                            Day-0 Enforcement Posture
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              { label: 'East-West Traffic', active: res.day0Posture.denyEastWest, activeText: 'Denied', inactiveText: 'Allowed' },
+                              { label: 'Undeclared Dependencies', active: res.day0Posture.allowDeclaredDepsOnly, activeText: 'Blocked', inactiveText: 'Allowed' },
+                              { label: 'Minimum Role', active: res.day0Posture.enforceMinimumRole, activeText: 'Enforced', inactiveText: 'Not enforced' },
+                              { label: 'Privilege Expansion', active: res.day0Posture.blockPrivilegeExpansion, activeText: 'Blocked', inactiveText: 'Allowed' },
+                              { label: 'Sensitive Writes', active: res.day0Posture.allowReadsOnly, activeText: 'Read-only', inactiveText: 'Read+Write' },
+                              { label: 'Data Export', active: res.day0Posture.blockSensitiveExport, activeText: 'Blocked', inactiveText: 'Allowed' },
+                            ].map((ctrl) => (
+                              <div key={ctrl.label} className="flex items-center justify-between p-1.5 rounded text-[10px]">
+                                <span className="text-[var(--muted-foreground,#6b7280)]">{ctrl.label}</span>
+                                <span className={`font-semibold ${ctrl.active ? 'text-[#ef4444]' : 'text-[#22c55e]'}`}>
+                                  {ctrl.active ? ctrl.activeText : ctrl.inactiveText}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 px-2 py-1.5 bg-gray-50 rounded text-[10px] text-[var(--muted-foreground,#6b7280)]">
+                            Temporary exceptions expire after {res.day0Posture.tempExceptionTtlHours}h — scoped, owner-tied, auto-expiring
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}

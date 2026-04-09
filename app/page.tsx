@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { RefreshCw, Shield, TrendingDown, AlertOctagon } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
+import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
@@ -490,6 +491,7 @@ export default function HomePage() {
               <AutoRefreshToggle />
             </div>
             <HomeStatsBanner {...statsData} />
+            <MicroEnforcementScore systemName={selectedSystem || "alon-prod"} />
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               <div className="lg:col-span-2">
                 <InfrastructureOverview stats={infrastructureStats} />

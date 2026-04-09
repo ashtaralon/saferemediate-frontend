@@ -26,6 +26,14 @@ interface FindingCardProps {
   isSimulating?: boolean
 }
 
+const getLPPhase = (observationDays: number | undefined) => {
+  if (!observationDays && observationDays !== 0) return null
+  if (observationDays < 14) return { label: "Discovering", color: "bg-[#8b5cf620] text-[#8b5cf6] border-[#8b5cf630]", tip: "Collecting initial telemetry — LP not yet enforced" }
+  if (observationDays < 30) return { label: "Learning", color: "bg-[#3b82f620] text-[#3b82f6] border-[#3b82f630]", tip: "Building usage baseline — findings are advisory only" }
+  if (observationDays < 90) return { label: "Advisory", color: "bg-[#f9731620] text-[#f97316] border-[#f9731630]", tip: "Approval required for remediation" }
+  return { label: "Enforcing", color: "bg-[#22c55e20] text-[#22c55e] border-[#22c55e30]", tip: "Canary/auto-remediation eligible" }
+}
+
 const getSeverityColor = (severity: string) => {
   switch (severity?.toLowerCase()) {
     case "critical":
@@ -118,6 +126,14 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                         {iamData.confidence}% confidence
                       </Badge>
                     )}
+                    {(() => {
+                      const phase = getLPPhase(iamData.observation_days)
+                      return phase ? (
+                        <Badge variant="outline" className={`text-[10px] font-semibold border ${phase.color}`} title={phase.tip}>
+                          LP: {phase.label}
+                        </Badge>
+                      ) : null
+                    })()}
                   </div>
                   <CardTitle className="text-lg mb-1">{finding.title}</CardTitle>
                   <p className="text-sm text-[var(--muted-foreground,#4b5563)] line-clamp-2">{finding.description}</p>
@@ -171,9 +187,14 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                     <div className="text-xs text-[var(--muted-foreground,#4b5563)] mt-1">Unused</div>
                   </div>
                 </div>
-                {iamData.observation_days && (
+                {iamData.observation_days != null && (
                   <div className="mt-3 text-xs text-[var(--muted-foreground,#4b5563)] text-center">
                     Based on {iamData.observation_days} days of CloudTrail analysis
+                    {iamData.observation_days < 30 && (
+                      <span className="block mt-1 text-[#3b82f6] font-medium">
+                        Still in learning phase — {30 - iamData.observation_days}d until approval-eligible
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -224,8 +245,16 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           {!isExpanded && (
             <CardContent className="pt-0">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
-                  {unusedCount} unused permissions • {iamData.confidence || 0}% confidence
+                <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground,#4b5563)]">
+                  <span>{unusedCount} unused permissions • {iamData.confidence || 0}% confidence</span>
+                  {(() => {
+                    const phase = getLPPhase(iamData.observation_days)
+                    return phase ? (
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${phase.color}`} title={phase.tip}>
+                        {phase.label}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
                 <Button
                   variant="outline"
