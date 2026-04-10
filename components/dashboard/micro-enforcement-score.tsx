@@ -441,9 +441,14 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
             <div className="relative inline-flex items-center justify-center">
               <ScoreRing score={data.customerScore} size={128} strokeWidth={9} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-[34px] font-bold leading-none" style={{ color: '#111827' }}>
-                  {data.customerScore}
-                </span>
+                <div className="flex items-end gap-0.5">
+                  <span className="text-[34px] font-bold leading-none" style={{ color: '#111827' }}>
+                    {data.customerScore}
+                  </span>
+                  <span className="text-[15px] font-semibold leading-none mb-0.5" style={{ color: '#111827' }}>
+                    %
+                  </span>
+                </div>
               </div>
             </div>
             <p className="text-[10px] mt-1 text-[var(--muted-foreground,#9ca3af)]">
