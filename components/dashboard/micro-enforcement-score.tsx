@@ -150,7 +150,7 @@ function ScoreRing({ score, size = 120, strokeWidth = 10, label }: {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-extrabold text-[var(--foreground,#111827)]">{score}%</span>
+          <span className="text-[22px] font-bold text-[var(--foreground,#111827)]">{score}%</span>
         </div>
       </div>
     </div>
