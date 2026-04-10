@@ -72,28 +72,38 @@ export async function GET(request: NextRequest) {
   const systemName = searchParams.get('systemName') || 'alon-prod'
 
   try {
-    // ── Fetch backend scoring + issues-summary in parallel ──────────
-    const [scoreResp, issuesResp] = await Promise.allSettled([
+    // ── Fetch backend scoring + issues-summary + LP issues in parallel ─
+    const [scoreResp, issuesResp, lpResp] = await Promise.allSettled([
       fetch(`${BACKEND_URL}/api/service-risk-scores/${encodeURIComponent(systemName)}`, {
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(90000),
         cache: 'no-store',
       }),
       fetch(`${BACKEND_URL}/api/issues/summary?system_name=${encodeURIComponent(systemName)}`, {
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(60000),
+        cache: 'no-store',
+      }),
+      fetch(`${BACKEND_URL}/api/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, {
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(60000),
         cache: 'no-store',
       }),
     ])
 
     let scoreData: any = null
     let issuesData: any = {}
+    let lpIssues: any[] = []
 
     if (scoreResp.status === 'fulfilled' && scoreResp.value.ok) {
       scoreData = await scoreResp.value.json()
     }
     if (issuesResp.status === 'fulfilled' && issuesResp.value.ok) {
       issuesData = await issuesResp.value.json()
+    }
+    if (lpResp.status === 'fulfilled' && lpResp.value.ok) {
+      const lpData = await lpResp.value.json()
+      lpIssues = lpData.resources || lpData.issues || []
     }
 
     // If backend scoring endpoint failed, return error
@@ -147,17 +157,67 @@ export async function GET(request: NextRequest) {
     const totalScore = scoreData.total_score ?? 0
     const totalGap = 100 - totalScore
 
-    // ── Projected scores (presentation logic) ───────────────────────
+    // ── Projected scores (from real LP remediation data) ──────────────
+    // Build lookup of ALL LP issues (the actual resources on the LP page)
+    // and which ones are remediable with an actual gap to close
+    const lpResourceNames = new Set<string>(
+      lpIssues.map((i: any) => (i.resourceName || i.name || '').toLowerCase()).filter(Boolean)
+    )
+    const remediableNames = new Set<string>(
+      lpIssues
+        .filter((i: any) => i.remediable && (i.gapPercent || i.gapCount || 0) > 0)
+        .map((i: any) => (i.resourceName || i.name || '').toLowerCase())
+        .filter(Boolean)
+    )
+
+    function matchesLPResource(resourceId: string, nameSet: Set<string>): boolean {
+      const id = resourceId.toLowerCase()
+      if (nameSet.has(id)) return true
+      for (const name of nameSet) {
+        if (name && id && (name.startsWith(id) || id.startsWith(name))) return true
+      }
+      return false
+    }
+
+    // Compute projected score for a layer using only LP-tracked resources.
+    // Resources NOT on the LP page keep their current score (they're outside
+    // Cyntro's LP scope). Resources ON the LP page that are remediable get
+    // projected to 100. This ensures the projection reflects only what
+    // Cyntro can actually fix — no hardcoded multipliers.
+    function projectedLayerScore(perResource: any[]): number {
+      if (perResource.length === 0) return 100
+      let sum = 0
+      for (const r of perResource) {
+        const id = r.resource_id || r.resource_name || ''
+        if (matchesLPResource(id, remediableNames)) {
+          sum += 100  // Cyntro can fix this — project full enforcement
+        } else {
+          sum += r.score ?? 100
+        }
+      }
+      return Math.round(sum / perResource.length)
+    }
+
+    const privResources = scoreData.per_resource?.filter((r: any) =>
+      ['IAMRole', 'IAMPolicy', 'IAMUser'].includes(r.resource_type)
+    ) || []
+    const netResources = scoreData.per_resource?.filter((r: any) =>
+      ['SecurityGroup', 'EC2', 'Lambda', 'Subnet', 'VPC', 'InternetGateway', 'RouteTable', 'NetworkACL'].includes(r.resource_type)
+    ) || []
+    const dataResources = scoreData.per_resource?.filter((r: any) =>
+      ['S3', 'S3Bucket', 'RDS', 'RDSInstance', 'DynamoDB', 'DynamoDBTable', 'KMS'].includes(r.resource_type)
+    ) || []
+
     const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
-    const projectedPrivilege = Math.min(100, Math.round(privilege.score + privilege.gapPercent * 0.90))
-    const projectedNetwork = Math.min(100, Math.round(network.score + network.gapPercent * 0.85))
-    const projectedData = Math.min(100, Math.round(data_layer.score + data_layer.gapPercent * 0.80))
+    const projectedPrivilege = projectedLayerScore(privResources)
+    const projectedNetwork = projectedLayerScore(netResources)
+    const projectedData = projectedLayerScore(dataResources)
     const projectedTotal = Math.round(
       projectedPrivilege * weights.privilege +
       projectedNetwork * weights.network +
       projectedData * weights.data
     )
-    const projectedImprovement = projectedTotal - totalScore
+    const projectedImprovement = Math.max(0, projectedTotal - totalScore)
 
     // ── Risk labels (which layer is the biggest driver) ─────────────
     const layerRisks = [
