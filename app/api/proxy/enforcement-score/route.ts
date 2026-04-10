@@ -226,49 +226,105 @@ export async function GET(request: NextRequest) {
     const totalGap = 100 - coverageScore
 
     // ── Projected scores (from real LP remediation data) ───────────
-    // Only project on customer-controlled resources (exclude provider_managed)
+    //
+    // Two sources of projected improvement:
+    //   1. LP issues matched to per_resource items → project those to 100
+    //   2. LP issues NOT matched (resource exists but not in scoring) →
+    //      add to projected layer as resources Cyntro will fix
 
+    // Parse LP issues with full metadata
+    const remediableLP = lpIssues
+      .filter((i: any) => i.remediable && (i.gapPercent || i.gapCount || 0) > 0)
+      .map((i: any) => ({
+        name: (i.resourceName || i.name || '').toLowerCase(),
+        id: (i.resourceId || '').toLowerCase(),
+        type: (i.resourceType || '').toLowerCase(),
+        gapPercent: i.gapPercent || 0,
+        gapCount: i.gapCount || 0,
+      }))
+
+    // Name set for matching (includes both resourceName AND resourceId)
     const remediableNames = new Set<string>(
-      lpIssues
-        .filter((i: any) => i.remediable && (i.gapPercent || i.gapCount || 0) > 0)
-        .map((i: any) => (i.resourceName || i.name || '').toLowerCase())
-        .filter(Boolean)
+      remediableLP.flatMap(lp => [lp.name, lp.id].filter(Boolean))
     )
 
     function matchesLPResource(resourceId: string, nameSet: Set<string>): boolean {
       const id = resourceId.toLowerCase()
+      if (!id) return false
       if (nameSet.has(id)) return true
       for (const name of nameSet) {
-        if (name && id && (name.startsWith(id) || id.startsWith(name))) return true
+        if (name && id.length > 3 && (name.startsWith(id) || id.startsWith(name))) return true
       }
       return false
     }
 
-    // Project only on customer-controlled + remediable resources.
-    // Provider-managed resources keep their current score.
-    // Customer resources not on the LP page keep their current score.
-    // Customer resources on LP page + remediable → projected to 100.
-    function projectedLayerScore(layerResources: any[]): number {
+    // Determine which layer an LP issue belongs to
+    function lpIssueLayer(type: string, name: string): 'privilege' | 'network' | 'data' | null {
+      const t = type.toLowerCase()
+      if (['iamrole', 'iampolicy', 'iamuser'].includes(t)) return 'privilege'
+      if (['securitygroup'].includes(t)) return 'network'
+      if (['s3', 's3bucket', 'rds', 'rdsinstance', 'dynamodb', 'dynamodbtable', 'kms'].includes(t)) return 'data'
+      if (name.includes('-sg') || name.includes('security')) return 'network'
+      if (name.includes('role') || name.includes('policy')) return 'privilege'
+      return null
+    }
+
+    // Track which LP issues matched per_resource items
+    const matchedLPNames = new Set<string>()
+    for (const r of perResource) {
+      const rid = (r.resource_id || r.resource_name || '').toLowerCase()
+      if (!rid || rid.length < 3) continue
+      for (const lp of remediableLP) {
+        if (lp.name === rid || lp.id === rid ||
+            (lp.name && (lp.name.startsWith(rid) || rid.startsWith(lp.name))) ||
+            (lp.id && (lp.id.startsWith(rid) || rid.startsWith(lp.id)))) {
+          matchedLPNames.add(lp.name)
+        }
+      }
+    }
+
+    // Group unmatched LP issues by layer
+    const unmatchedByLayer: Record<string, typeof remediableLP> = {
+      privilege: [], network: [], data: [],
+    }
+    for (const lp of remediableLP) {
+      if (matchedLPNames.has(lp.name)) continue
+      const layer = lpIssueLayer(lp.type, lp.name)
+      if (layer) unmatchedByLayer[layer].push(lp)
+    }
+
+    // Project coverage layer score (simple average — all resources)
+    // Includes unmatched LP resources projected to 100
+    function projectedLayerScore(layerResources: any[], layerKey: string): number {
       if (layerResources.length === 0) return 100
       let sum = 0
       for (const r of layerResources) {
         const id = r.resource_id || r.resource_name || ''
         const isCustomer = r.resource_class !== 'provider_managed'
         if (isCustomer && matchesLPResource(id, remediableNames)) {
-          sum += 100  // Cyntro can fix this — project full enforcement
+          sum += 100
         } else {
           sum += r.score ?? 100
         }
       }
-      return Math.round(sum / layerResources.length)
+      // Add unmatched LP issues as resources projected to full enforcement
+      const unmatched = unmatchedByLayer[layerKey] || []
+      for (const _lp of unmatched) {
+        sum += 100
+      }
+      return Math.round(sum / (layerResources.length + unmatched.length))
     }
 
-    // Risk-weighted projected score for customer resources only
-    function projectedCustomerLayerScore(layerResources: any[]): number {
+    // Risk-weighted projected score for customer resources
+    // Includes unmatched LP issues as additional resources Cyntro will fix
+    function projectedCustomerLayerScore(
+      layerResources: any[],
+      layerKey: 'privilege' | 'network' | 'data',
+    ): number {
       const customerResources = layerResources.filter(
         (r: any) => r.resource_class !== 'provider_managed'
       )
-      if (customerResources.length === 0) return 100
+      if (customerResources.length === 0 && unmatchedByLayer[layerKey].length === 0) return 100
 
       let weightedSum = 0
       let totalWeight = 0
@@ -279,10 +335,18 @@ export async function GET(request: NextRequest) {
         weightedSum += projectedScore * w
         totalWeight += w
       }
+
+      // Unmatched LP issues: resources Cyntro can fix that aren't in the
+      // scoring system. Include them in the projection at score 100.
+      for (const _lp of unmatchedByLayer[layerKey]) {
+        weightedSum += 100 * 1.0
+        totalWeight += 1.0
+      }
+
       return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 100
     }
 
-    // Risk-weighted projected score for critical-path resources only
+    // Risk-weighted projected score for critical-path resources
     function projectedCriticalLayerScore(layerResources: any[]): number {
       const critResources = layerResources.filter(
         (r: any) => r.resource_class === 'critical_path'
@@ -304,9 +368,9 @@ export async function GET(request: NextRequest) {
     const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
 
     // Projected coverage (simple average — back-compat)
-    const projCoveragePriv = projectedLayerScore(privResources)
-    const projCoverageNet = projectedLayerScore(netResources)
-    const projCoverageData = projectedLayerScore(dataResources)
+    const projCoveragePriv = projectedLayerScore(privResources, 'privilege')
+    const projCoverageNet = projectedLayerScore(netResources, 'network')
+    const projCoverageData = projectedLayerScore(dataResources, 'data')
     const projectedCoverage = Math.round(
       projCoveragePriv * weights.privilege +
       projCoverageNet * weights.network +
@@ -314,9 +378,9 @@ export async function GET(request: NextRequest) {
     )
 
     // Projected customer score (risk-weighted — the sales number)
-    const projCustPriv = projectedCustomerLayerScore(privResources)
-    const projCustNet = projectedCustomerLayerScore(netResources)
-    const projCustData = projectedCustomerLayerScore(dataResources)
+    const projCustPriv = projectedCustomerLayerScore(privResources, 'privilege')
+    const projCustNet = projectedCustomerLayerScore(netResources, 'network')
+    const projCustData = projectedCustomerLayerScore(dataResources, 'data')
     const projectedCustomer = Math.round(
       projCustPriv * weights.privilege +
       projCustNet * weights.network +
