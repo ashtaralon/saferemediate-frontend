@@ -274,17 +274,113 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fallback: if still no network controls found
-    if (netTotal === 0) {
-      // Use internet gateways as a proxy — each IGW is an exposure point
-      const igws = resources.filter((r: any) => r.type === 'InternetGateway')
-      netTotal = Math.max(1, igws.length)
-      netEnforced = 0  // IGWs alone don't enforce anything
-      for (const igw of igws) {
+    // ── VPCs: check for flow logs, resource count, exposure ──
+    const vpcResources = resources.filter((r: any) => r.type === 'VPC')
+    const allResourceNames = new Set(resources.map((r: any) => r.name))
+
+    for (const vpc of vpcResources) {
+      netTotal++
+      const vpcRisk = risks[vpc.name] || {}
+      const connections = vpc.connections || 0
+      const hasFlowLogs = vpc.name.toLowerCase().includes('flowlog') ||
+        allResourceNames.has(`/aws/vpc/${vpc.name}`) ||
+        allResourceNames.has(`${vpc.name}-flow-logs`)
+
+      // A VPC with many resources and no flow logs = blind spot
+      if (connections > 5 && !hasFlowLogs) {
         networkItems.push({
-          name: igw.name,
+          name: vpc.name,
           status: 'partial',
-          detail: 'Internet gateway — exposure point without WAF/firewall',
+          detail: `VPC — ${connections} resources, no flow logs detected`,
+        })
+      } else if (hasFlowLogs || connections === 0) {
+        netEnforced++
+        networkItems.push({
+          name: vpc.name,
+          status: 'enforced',
+          detail: connections > 0
+            ? `VPC — ${connections} resources, flow logs enabled`
+            : 'VPC — no active resources',
+        })
+      } else {
+        netEnforced++
+        networkItems.push({
+          name: vpc.name,
+          status: 'enforced',
+          detail: `VPC — ${connections} resources`,
+        })
+      }
+    }
+
+    // ── Subnets: public vs private ──
+    for (const subnet of subnetResources) {
+      netTotal++
+      const isPublic = subnet.name.toLowerCase().includes('public')
+      const isPrivate = subnet.name.toLowerCase().includes('private')
+      const connections = subnet.connections || 0
+
+      if (isPublic) {
+        // Public subnets are exposure points — resources inside are internet-accessible
+        networkItems.push({
+          name: subnet.name,
+          status: connections > 2 ? 'exposed' : 'partial',
+          detail: `Subnet — public, ${connections > 2 ? `${connections - 1} resources internet-exposed` : 'internet-routable'}`,
+        })
+      } else if (isPrivate) {
+        netEnforced++
+        networkItems.push({
+          name: subnet.name,
+          status: 'enforced',
+          detail: `Subnet — private, ${Math.max(0, connections - 1)} resources isolated`,
+        })
+      } else {
+        // Unknown subnet — flag if it has resources
+        if (connections > 2) {
+          networkItems.push({
+            name: subnet.name,
+            status: 'partial',
+            detail: `Subnet — ${connections - 1} resources, public/private unknown`,
+          })
+        } else {
+          netEnforced++
+          networkItems.push({
+            name: subnet.name,
+            status: 'enforced',
+            detail: 'Subnet — minimal exposure',
+          })
+        }
+      }
+    }
+
+    // ── Internet Gateways: each is an exposure entry point ──
+    const igwResources = resources.filter((r: any) => r.type === 'InternetGateway')
+    for (const igw of igwResources) {
+      netTotal++
+      // IGW is always an exposure point — it creates a path from internet to VPC
+      networkItems.push({
+        name: igw.name,
+        status: 'partial',
+        detail: 'Internet Gateway — entry point from public internet',
+      })
+    }
+
+    // ── Route Tables: public routes = exposure ──
+    const rtResources = resources.filter((r: any) => r.type === 'RouteTable')
+    for (const rt of rtResources) {
+      netTotal++
+      const isPublicRT = rt.name.toLowerCase().includes('public')
+      if (isPublicRT) {
+        networkItems.push({
+          name: rt.name,
+          status: 'partial',
+          detail: 'Route Table — routes traffic to Internet Gateway',
+        })
+      } else {
+        netEnforced++
+        networkItems.push({
+          name: rt.name,
+          status: 'enforced',
+          detail: 'Route Table — private routing',
         })
       }
     }
@@ -524,6 +620,39 @@ export async function GET(request: NextRequest) {
         observationDays: 90,
         rollback: 'Instant — VPC config and SG associations removed',
         count: exposedLambdaItems.length,
+      })
+    }
+
+    // VPC actions — flow logs, public subnets
+    const vpcsWithoutFlowLogs = networkItems.filter(i => i.detail.includes('VPC') && i.detail.includes('no flow logs'))
+    if (vpcsWithoutFlowLogs.length > 0) {
+      actions.push({
+        id: 'net-enable-flowlogs',
+        layer: 'network',
+        title: `Enable flow logs on ${vpcsWithoutFlowLogs.length} VPC${vpcsWithoutFlowLogs.length > 1 ? 's' : ''}`,
+        detail: vpcsWithoutFlowLogs.map(v => v.name).join(', '),
+        impact: 'Enables lateral movement detection — see every connection between resources',
+        risk: `${vpcsWithoutFlowLogs.length} VPC${vpcsWithoutFlowLogs.length > 1 ? 's' : ''} with no traffic visibility — attacker movement is invisible`,
+        confidence: 'high',
+        observationDays: 0,
+        rollback: 'Instant — flow logs can be disabled anytime',
+        count: vpcsWithoutFlowLogs.length,
+      })
+    }
+
+    const publicSubnets = networkItems.filter(i => i.detail.includes('Subnet') && i.detail.includes('public') && i.status !== 'enforced')
+    if (publicSubnets.length > 0) {
+      actions.push({
+        id: 'net-review-public-subnets',
+        layer: 'network',
+        title: `Review ${publicSubnets.length} public subnets with exposed resources`,
+        detail: publicSubnets.map(s => s.name).slice(0, 3).join(', ') + (publicSubnets.length > 3 ? ` + ${publicSubnets.length - 3} more` : ''),
+        impact: 'Move non-public workloads to private subnets — reduces internet-facing surface',
+        risk: `${publicSubnets.length} subnets route directly to the internet — all resources inside are reachable`,
+        confidence: 'medium',
+        observationDays: 0,
+        rollback: 'Subnet routing changes are reversible',
+        count: publicSubnets.length,
       })
     }
 
