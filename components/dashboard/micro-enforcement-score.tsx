@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react"
 import {
-  Shield, Lock, Globe, Database, TrendingUp, ChevronDown, ChevronUp,
-  AlertTriangle, Zap, RotateCcw, Eye, AlertCircle, CheckCircle2, Target,
+  Shield, Lock, Globe, Database, ChevronDown, ChevronUp,
+  AlertTriangle, Zap, RotateCcw, Eye, AlertCircle, CheckCircle2,
   ShieldAlert, ShieldCheck, Users, Crosshair
 } from "lucide-react"
 
@@ -260,10 +260,9 @@ function ActionCard({ action }: { action: EnforcementAction }) {
 
 // ── Layer Row ────────────────────────────────────────────────────────
 
-function LayerRow({ layer, config, projected }: {
+function LayerRow({ layer, config }: {
   layer: LayerScore
   config: typeof LAYER_CONFIG.privilege
-  projected: number
 }) {
   const [expanded, setExpanded] = useState(false)
   const Icon = config.icon
@@ -300,8 +299,6 @@ function LayerRow({ layer, config, projected }: {
           {!isNoData ? (
             <>
               <div className="relative h-1.5 bg-[#e5e7eb] rounded-full overflow-hidden">
-                <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
-                  style={{ width: `${projected}%`, backgroundColor: `${config.color}30` }} />
                 <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
                   style={{ width: `${layer.score}%`, backgroundColor: config.color }} />
               </div>
@@ -414,8 +411,6 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
     )
   }
 
-  const customerColor = getScoreColor(data.customerScore)
-  const projectedColor = getScoreColor(data.projected.customerScore)
   const rc = data.resourceClassification
   const customerCount = rc.customer + rc.critical_path
 
@@ -435,37 +430,18 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
         <p className="text-xs text-[#ef4444] font-medium mt-1">{data.impact?.riskStatement || data.headline}</p>
       </div>
 
-      {/* ── 3-Score Hero ── */}
+      {/* ── Current Score Hero ── */}
       <div className="px-6 py-5 border-b border-[var(--border,#e5e7eb)]">
-        {/* Primary: Customer Score → Projected */}
-        <div className="flex items-center justify-center gap-8 mb-4">
+        <div className="flex items-center justify-center mb-4">
           <div className="text-center">
             <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">
-              Your Resources
+              Current Enforcement Score
             </p>
             <div className="relative inline-flex items-center justify-center">
-              <ScoreRing score={data.customerScore} size={110} strokeWidth={8} />
+              <ScoreRing score={data.customerScore} size={128} strokeWidth={9} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[22px] font-bold" style={{ color: '#111827' }}>{data.customerScore}%</span>
-                <span className="text-[10px]" style={{ color: '#9ca3af' }}>enforced</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col items-center gap-1">
-            <TrendingUp className="w-5 h-5 text-[#22c55e]" />
-            <span className="text-xs font-bold text-[#22c55e]">+{data.projected.improvement}%</span>
-          </div>
-
-          <div className="text-center">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">
-              With Cyntro
-            </p>
-            <div className="relative inline-flex items-center justify-center">
-              <ScoreRing score={data.projected.customerScore} size={110} strokeWidth={8} />
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[22px] font-bold" style={{ color: '#111827' }}>{data.projected.customerScore}%</span>
-                <span className="text-[10px]" style={{ color: '#9ca3af' }}>projected</span>
+                <span className="text-[28px] font-bold" style={{ color: '#111827' }}>{data.customerScore}</span>
+                <span className="text-[10px]" style={{ color: '#9ca3af' }}>out of 100</span>
               </div>
             </div>
           </div>
@@ -484,11 +460,6 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
               <ShieldAlert className="w-3.5 h-3.5 text-[#ef4444]" />
               <span className="text-[11px] text-[var(--muted-foreground,#6b7280)]">
                 Critical Surface: <span className="font-semibold text-[#ef4444]">{data.criticalScore}%</span>
-                {data.projected.criticalScore !== null && data.projected.criticalScore > data.criticalScore && (
-                  <span className="text-[#22c55e] ml-1">
-                    → {data.projected.criticalScore}%
-                  </span>
-                )}
               </span>
             </div>
           )}
@@ -517,36 +488,6 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
         </div>
       )}
 
-      {/* ── Improvement Detail (only if there's meaningful improvement) ── */}
-      {data.impact && data.impact.reductionPercent > 0 && (
-        <div className="px-6 py-3 border-b border-[var(--border,#e5e7eb)] bg-[#22c55e08]">
-          <div className="flex items-center justify-center gap-4 text-[11px]">
-            <span className="flex items-center gap-1 text-[#22c55e] font-medium">
-              <Target className="w-3.5 h-3.5" />
-              Closes {data.impact.reductionPercent}% of customer gaps
-            </span>
-            {data.impact.criticalGaps > 0 && (
-              <>
-                <span className="text-[var(--border,#d1d5db)]">|</span>
-                <span className="flex items-center gap-1 text-[var(--muted-foreground,#6b7280)]">
-                  <Crosshair className="w-3.5 h-3.5 text-[#ef4444]" />
-                  {data.impact.criticalGaps} critical-path resources
-                </span>
-              </>
-            )}
-            {data.impact.remediableGaps > 0 && (
-              <>
-                <span className="text-[var(--border,#d1d5db)]">|</span>
-                <span className="flex items-center gap-1 text-[var(--muted-foreground,#6b7280)]">
-                  <Zap className="w-3.5 h-3.5" />
-                  {data.impact.remediableGaps} remediable gaps
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ── Top Enforcement Actions ── */}
       {data.actions && data.actions.length > 0 && (
         <div className="px-6 py-4">
@@ -568,18 +509,11 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
           Enforcement Layers
         </h4>
         <div className="space-y-2">
-          <LayerRow layer={data.layers.privilege} config={LAYER_CONFIG.privilege} projected={data.projected.privilege} />
-          <LayerRow layer={data.layers.network} config={LAYER_CONFIG.network} projected={data.projected.network} />
-          <LayerRow layer={data.layers.data} config={LAYER_CONFIG.data} projected={data.projected.data} />
+          <LayerRow layer={data.layers.privilege} config={LAYER_CONFIG.privilege} />
+          <LayerRow layer={data.layers.network} config={LAYER_CONFIG.network} />
+          <LayerRow layer={data.layers.data} config={LAYER_CONFIG.data} />
         </div>
       </div>
-
-      {/* ── CTA ── */}
-      {data.canClose && (
-        <div className="px-6 py-4 bg-[#8b5cf608] border-t border-[var(--border,#e5e7eb)]">
-          <p className="text-xs font-medium text-[#8b5cf6] text-center">{data.canClose}</p>
-        </div>
-      )}
     </div>
   )
 }
