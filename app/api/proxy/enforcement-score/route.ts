@@ -228,8 +228,8 @@ export async function GET(request: NextRequest) {
     // ── Projected scores (from real LP remediation data) ───────────
     //
     // Only scored resources contribute to the numeric projection.
-    // Projection assumes detected gaps are closed across privilege,
-    // network, and data, while missing-evidence penalties remain.
+    // Projection assumes detected non-missing gaps are closed across
+    // privilege, network, and data, while missing-evidence penalties remain.
 
     // Parse LP issues with full metadata
     const remediableLP = lpIssues
@@ -272,20 +272,33 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    function resourceHasActionableGap(resource: any): boolean {
+    function signalIsNegative(signal: any): boolean {
+      if (!signal || signal.is_missing) return false
+      const value = signal.value
+      if (typeof value === 'boolean') return value === true
+      if (typeof value === 'number') return value > 0
+      return false
+    }
+
+    function resourceHasGap(resource: any): boolean {
       const id = String(resource.resource_id || resource.resource_name || '')
       const lpMatch = matchingLPIssues(id).length > 0
-      const hasRecommendedActions = Array.isArray(resource.recommended_actions) && resource.recommended_actions.length > 0
-      return lpMatch || hasRecommendedActions
+      const signals = Array.isArray(resource.signals) ? resource.signals : []
+      const hasDetectedNegativeSignal = signals.some((signal: any) => signalIsNegative(signal))
+      return lpMatch || hasDetectedNegativeSignal
     }
 
     function projectedResourceScore(resource: any): number {
       const currentScore = Math.max(0, Math.min(100, Number(resource.score ?? 100)))
       const signals = Array.isArray(resource.signals) ? resource.signals : []
-      if (signals.length === 0 || !resourceHasActionableGap(resource)) return currentScore
+      const hasGap = resourceHasGap(resource)
+      if (signals.length === 0 && !hasGap) return currentScore
 
       const maxWeight = signals.reduce((sum: number, signal: any) => sum + (Number(signal?.weight) || 0), 0)
-      if (maxWeight <= 0) return currentScore
+      if (maxWeight <= 0) {
+        const id = String(resource.resource_id || resource.resource_name || '')
+        return matchingLPIssues(id).length > 0 ? 100 : currentScore
+      }
 
       const remainingDeductions = signals.reduce((sum: number, signal: any) => {
         const weight = Number(signal?.weight) || 0
@@ -400,7 +413,7 @@ export async function GET(request: NextRequest) {
     ], 0) : null
 
     const customerImprovement = Math.max(0, projectedCustomer - customerScore)
-    const actionableScoredResources = perResource.filter((resource: any) => resourceHasActionableGap(resource)).length
+    const scoredResourcesWithGaps = perResource.filter((resource: any) => resourceHasGap(resource)).length
     const unmatchedRemediableIssues = remediableLP.filter((lp) => {
       return !perResource.some((resource: any) => {
         const resourceId = String(resource.resource_id || resource.resource_name || '').toLowerCase()
@@ -448,7 +461,7 @@ export async function GET(request: NextRequest) {
       : 'Unprotected data resources'
 
     const criticalGaps = resourceClassification.critical_path || 0
-    const remediableGaps = actionableScoredResources + unmatchedRemediableIssues
+    const remediableGaps = scoredResourcesWithGaps + unmatchedRemediableIssues
     const customerGap = 100 - customerScore
 
     const impact = {
