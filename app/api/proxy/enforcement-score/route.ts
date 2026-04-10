@@ -228,9 +228,8 @@ export async function GET(request: NextRequest) {
     // ── Projected scores (from real LP remediation data) ───────────
     //
     // Only scored resources contribute to the numeric projection.
-    // Matched LP issues improve the resource proportionally to the
-    // remediable gap, while unmatched issues are counted as opportunities
-    // but do not inflate the score until the resource is in the baseline.
+    // Projection assumes detected gaps are closed across privilege,
+    // network, and data, while missing-evidence penalties remain.
 
     // Parse LP issues with full metadata
     const remediableLP = lpIssues
@@ -273,21 +272,28 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    function remediationFraction(issues: typeof remediableLP): number {
-      const maxGapPercent = issues.reduce((max, lp) => Math.max(max, lp.gapPercent || 0), 0)
-      return Math.max(0, Math.min(1, maxGapPercent / 100))
+    function resourceHasActionableGap(resource: any): boolean {
+      const id = String(resource.resource_id || resource.resource_name || '')
+      const lpMatch = matchingLPIssues(id).length > 0
+      const hasRecommendedActions = Array.isArray(resource.recommended_actions) && resource.recommended_actions.length > 0
+      return lpMatch || hasRecommendedActions
     }
 
     function projectedResourceScore(resource: any): number {
       const currentScore = Math.max(0, Math.min(100, Number(resource.score ?? 100)))
-      const id = String(resource.resource_id || resource.resource_name || '')
-      const issues = matchingLPIssues(id)
-      if (issues.length === 0) return currentScore
+      const signals = Array.isArray(resource.signals) ? resource.signals : []
+      if (signals.length === 0 || !resourceHasActionableGap(resource)) return currentScore
 
-      const fraction = remediationFraction(issues)
-      if (fraction <= 0) return currentScore
+      const maxWeight = signals.reduce((sum: number, signal: any) => sum + (Number(signal?.weight) || 0), 0)
+      if (maxWeight <= 0) return currentScore
 
-      return Math.round(currentScore + (100 - currentScore) * fraction)
+      const remainingDeductions = signals.reduce((sum: number, signal: any) => {
+        const weight = Number(signal?.weight) || 0
+        if (signal?.is_missing) return sum + weight * 0.3
+        return sum
+      }, 0)
+
+      return Math.max(0, Math.min(100, Math.round(100 - (remainingDeductions / maxWeight) * 100)))
     }
 
     function weightedLayerMix(
@@ -359,7 +365,9 @@ export async function GET(request: NextRequest) {
     const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
 
     // Projected coverage (simple average — back-compat)
-    const projCoveragePriv = projectedPrivilegePermissionScore ?? projectedLayerScore(privResources)
+    const projCoveragePriv = privilegeLPIssues.length > 0
+      ? Math.max(projectedPrivilegePermissionScore ?? 0, projectedLayerScore(privResources))
+      : projectedLayerScore(privResources)
     const projCoverageNet = projectedLayerScore(netResources)
     const projCoverageData = projectedLayerScore(dataResources)
     const projectedCoverage = weightedLayerMix([
@@ -369,7 +377,9 @@ export async function GET(request: NextRequest) {
     ], 0)
 
     // Projected customer score (risk-weighted — the sales number)
-    const projCustPriv = projectedPrivilegePermissionScore ?? projectedCustomerLayerScore(privResources)
+    const projCustPriv = privilegeLPIssues.length > 0
+      ? Math.max(projectedPrivilegePermissionScore ?? 0, projectedCustomerLayerScore(privResources))
+      : projectedCustomerLayerScore(privResources)
     const projCustNet = projectedCustomerLayerScore(netResources)
     const projCustData = projectedCustomerLayerScore(dataResources)
     const projectedCustomer = weightedLayerMix([
@@ -390,6 +400,13 @@ export async function GET(request: NextRequest) {
     ], 0) : null
 
     const customerImprovement = Math.max(0, projectedCustomer - customerScore)
+    const actionableScoredResources = perResource.filter((resource: any) => resourceHasActionableGap(resource)).length
+    const unmatchedRemediableIssues = remediableLP.filter((lp) => {
+      return !perResource.some((resource: any) => {
+        const resourceId = String(resource.resource_id || resource.resource_name || '').toLowerCase()
+        return matchesLPIdentifier(resourceId, lp.name) || matchesLPIdentifier(resourceId, lp.id)
+      })
+    }).length
 
     // ── Risk labels ────────────────────────────────────────────────
     const layerRisks = [
@@ -431,7 +448,7 @@ export async function GET(request: NextRequest) {
       : 'Unprotected data resources'
 
     const criticalGaps = resourceClassification.critical_path || 0
-    const remediableGaps = remediableIssueCount
+    const remediableGaps = actionableScoredResources + unmatchedRemediableIssues
     const customerGap = 100 - customerScore
 
     const impact = {

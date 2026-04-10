@@ -539,7 +539,7 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
                 <span className="text-[var(--border,#d1d5db)]">|</span>
                 <span className="flex items-center gap-1 text-[var(--muted-foreground,#6b7280)]">
                   <Zap className="w-3.5 h-3.5" />
-                  {data.impact.remediableGaps} auto-remediable
+                  {data.impact.remediableGaps} remediable gaps
                 </span>
               </>
             )}
