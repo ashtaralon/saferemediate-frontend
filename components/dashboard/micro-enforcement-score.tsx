@@ -438,12 +438,13 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
             <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">
               Current Enforcement Score
             </p>
-            <div className="inline-flex items-center justify-center">
+            <div className="relative inline-flex items-center justify-center">
               <ScoreRing score={data.customerScore} size={128} strokeWidth={9} />
-            </div>
-            <div className="mt-3 flex items-end justify-center gap-1">
-              <span className="text-[30px] font-bold leading-none" style={{ color: '#111827' }}>{data.customerScore}</span>
-              <span className="text-[13px] font-semibold leading-none mb-0.5" style={{ color: '#9ca3af' }}>/100</span>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-[34px] font-bold leading-none" style={{ color: '#111827' }}>
+                  {data.customerScore}
+                </span>
+              </div>
             </div>
             <p className="text-[10px] mt-1 text-[var(--muted-foreground,#9ca3af)]">
               {Math.max(0, 100 - data.customerScore)} points of enforcement gap remain
