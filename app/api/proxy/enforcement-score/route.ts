@@ -3,69 +3,68 @@ import { NextRequest, NextResponse } from 'next/server'
 const BACKEND_URL = process.env.BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
 
 /**
- * Enforcement Score API
+ * Enforcement Score API — Thin Proxy
  *
- * Computes a 3-layer micro-enforcement score for a system by aggregating
- * data from the existing issues-summary and system-resources endpoints.
+ * All scoring intelligence lives in the backend at:
+ *   /api/service-risk-scores/{system_name}
  *
- * Three enforcement layers:
- *   PRIVILEGE — used permissions / allowed permissions (IAM blast radius)
- *   NETWORK   — restricted rules / total rules (network exposure)
- *   DATA      — encrypted + access-controlled / total (data exposure)
- *
- * Total = weighted composite of the three layers.
- * The GAP (100% - score) is exactly what Cyntro closes.
+ * This proxy only:
+ *   1. Fetches the backend scoring + issues-summary (for permission ratios)
+ *   2. Transforms backend shape → frontend EnforcementScore shape
+ *   3. Computes presentation-only values (projected scores, risk labels, headlines)
  */
 
+// ── Frontend types (UI contract) ──────────────────────────────────────
+
 interface LayerScore {
-  score: number           // 0-100 percentage
-  enforced: number        // Numerator (what's locked down)
-  total: number           // Denominator (total surface)
-  gap: number             // total - enforced (what's exposed)
-  gapPercent: number      // gap / total * 100
-  details: string         // Human-readable summary
-  riskLabel: string       // Risk contribution label (e.g. "Primary risk driver")
+  score: number
+  enforced: number
+  total: number
+  gap: number
+  gapPercent: number
+  details: string
+  riskLabel: string
   items: Array<{ name: string; status: 'enforced' | 'exposed' | 'partial'; detail: string }>
 }
 
 interface EnforcementAction {
   id: string
   layer: 'privilege' | 'network' | 'data'
-  title: string               // What to do
-  detail: string              // Why / what specifically
-  impact: string              // What happens if you do it
-  risk: string                // What happens if you don't
+  title: string
+  detail: string
+  impact: string
+  risk: string
   confidence: 'high' | 'medium' | 'low'
-  observationDays: number     // How long we've been watching
-  rollback: string            // How to undo
-  count: number               // How many items affected
+  observationDays: number
+  rollback: string
+  count: number
 }
 
 interface EnforcementScore {
   systemName: string
-  totalScore: number      // Weighted composite 0-100
-  totalGap: number        // 100 - totalScore
-  projected: {            // "With Cyntro" scores
+  totalScore: number
+  totalGap: number
+  projected: {
     totalScore: number
     privilege: number
     network: number
     data: number
-    improvement: number   // How much Cyntro improves the score
+    improvement: number
   }
   layers: {
     privilege: LayerScore
     network: LayerScore
     data: LayerScore
   }
-  actions: EnforcementAction[]  // Top enforcement opportunities
+  actions: EnforcementAction[]
   impact: {
-    attackPathsExposed: number  // Exploitable paths remaining
-    reductionPercent: number    // % exposure reduction if enforced
-    primaryDriver: string       // Which layer contributes most to risk
-    riskStatement: string       // "X% of attack paths remain exploitable"
+    attackPathsExposed: number
+    reductionPercent: number
+    primaryDriver: string
+    riskStatement: string
   }
-  headline: string        // Sales headline
-  canClose: string        // "Cyntro can improve from X% to Y%"
+  headline: string
+  canClose: string
 }
 
 export async function GET(request: NextRequest) {
@@ -73,403 +72,83 @@ export async function GET(request: NextRequest) {
   const systemName = searchParams.get('systemName') || 'alon-prod'
 
   try {
-    // Fetch issues-summary and system-resources in parallel
-    const [issuesResp, resourcesResp, sgResp] = await Promise.allSettled([
+    // ── Fetch backend scoring + issues-summary in parallel ──────────
+    const [scoreResp, issuesResp] = await Promise.allSettled([
+      fetch(`${BACKEND_URL}/api/service-risk-scores/${encodeURIComponent(systemName)}`, {
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000),
+        cache: 'no-store',
+      }),
       fetch(`${BACKEND_URL}/api/issues/summary?system_name=${encodeURIComponent(systemName)}`, {
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
-        cache: 'no-store',
-      }),
-      fetch(`${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}`, {
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(25000),
-        cache: 'no-store',
-      }),
-      fetch(`${BACKEND_URL}/api/system-resources/${encodeURIComponent(systemName)}/security-risk-factors`, {
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(25000),
         cache: 'no-store',
       }),
     ])
 
-    // Parse responses
+    let scoreData: any = null
     let issuesData: any = {}
-    let resourcesData: any = { resources: [] }
-    let securityRisks: any = { security_risks: {} }
 
+    if (scoreResp.status === 'fulfilled' && scoreResp.value.ok) {
+      scoreData = await scoreResp.value.json()
+    }
     if (issuesResp.status === 'fulfilled' && issuesResp.value.ok) {
       issuesData = await issuesResp.value.json()
     }
-    if (resourcesResp.status === 'fulfilled' && resourcesResp.value.ok) {
-      resourcesData = await resourcesResp.value.json()
-    }
-    if (sgResp.status === 'fulfilled' && sgResp.value.ok) {
-      securityRisks = await sgResp.value.json()
+
+    // If backend scoring endpoint failed, return error
+    if (!scoreData) {
+      console.error('[enforcement-score] Backend scoring endpoint failed')
+      return NextResponse.json(emptyResult(systemName, 'Backend scoring unavailable'), { status: 502 })
     }
 
-    const resources = resourcesData.resources || []
-    const risks = securityRisks.security_risks || {}
+    // ── Extract backend layers ──────────────────────────────────────
+    const backendLayers = scoreData.layers || {}
+    const backendPrivilege = backendLayers.privilege || {}
+    const backendNetwork = backendLayers.network || {}
+    const backendData = backendLayers.data || {}
 
-    // ═══════════════════════════════════════════════════════════════
-    // LAYER 1: PRIVILEGE ENFORCEMENT
-    // ═══════════════════════════════════════════════════════════════
-    // Score = used_permissions / allowed_permissions
-    // Gap = unused_permissions (the blast radius Cyntro removes)
+    // ── Permission ratio from issues-summary (for privilege details) ─
     const permissions = issuesData.byCategory?.permissions || {}
     const privAllowed = permissions.allowed || 0
     const privUsed = permissions.used || 0
     const privUnused = permissions.unused || (privAllowed - privUsed)
 
-    // Also count IAM resources for detail items
-    const iamResources = resources.filter((r: any) =>
-      r.type === 'IAMRole' || r.type === 'IAMPolicy' || r.type === 'IAMUser'
+    // ── Transform: Backend layer → Frontend LayerScore ──────────────
+
+    const privilege: LayerScore = transformLayer(
+      backendPrivilege,
+      scoreData.per_resource?.filter((r: any) =>
+        ['IAMRole', 'IAMPolicy', 'IAMUser'].includes(r.resource_type)
+      ) || [],
+      // Override details with permission ratio if available
+      privAllowed > 0
+        ? `${privUsed} of ${privAllowed} permissions actively used — ${privUnused} can be removed`
+        : undefined,
+      // Override enforced/total with permission counts for IAM
+      privAllowed > 0 ? { enforced: privUsed, total: privAllowed } : undefined,
     )
 
-    const privilegeScore = privAllowed > 0 ? Math.round((privUsed / privAllowed) * 100) : 100
-    const privilegeItems: LayerScore['items'] = []
-
-    // Build per-role items from issues
-    const iamIssues = issuesData.issues?.filter((i: any) =>
-      i.type === 'iam_unused_permissions' || i.type === 'unused_permission'
-    ) || []
-    for (const issue of iamIssues.slice(0, 10)) {
-      const allowed = issue.allowedCount || issue.allowed_count || 0
-      const used = issue.usedCount || issue.used_count || 0
-      const unused = issue.unusedCount || issue.unused_count || 0
-      const roleScore = allowed > 0 ? Math.round((used / allowed) * 100) : 100
-      privilegeItems.push({
-        name: issue.resourceId || issue.role_name || 'Unknown Role',
-        status: roleScore >= 80 ? 'enforced' : roleScore >= 50 ? 'partial' : 'exposed',
-        detail: `${used}/${allowed} permissions used (${unused} removable)`,
-      })
-    }
-
-    const privilege: LayerScore = {
-      score: privilegeScore,
-      enforced: privUsed,
-      total: privAllowed,
-      gap: privUnused,
-      gapPercent: privAllowed > 0 ? Math.round((privUnused / privAllowed) * 100) : 0,
-      details: `${privUsed} of ${privAllowed} permissions actively used — ${privUnused} can be removed`,
-      riskLabel: '',  // Set after all layers computed
-      items: privilegeItems,
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // LAYER 2: NETWORK ENFORCEMENT
-    // ═══════════════════════════════════════════════════════════════
-    // Score = enforced network controls / total network controls
-    //
-    // Network controls we check (from security-risk-factors):
-    //   SGs: open 0.0.0.0/0 rules, high-risk ports
-    //   EC2/Lambda: public IPs, public SG attached, no SG protection
-    //   NACLs: overly permissive rules
-    //   Subnets: public subnets with internet-facing resources
-    //
-    // Each control point is either enforced (locked down) or exposed (open)
-
-    const sgResources = resources.filter((r: any) => r.type === 'SecurityGroup')
-    const ec2Resources = resources.filter((r: any) => r.type === 'EC2' || r.type === 'Lambda')
-    const naclResources = resources.filter((r: any) => r.type === 'NetworkACL')
-    const subnetResources = resources.filter((r: any) => r.type === 'Subnet')
-
-    let netEnforced = 0
-    let netTotal = 0
-    const networkItems: LayerScore['items'] = []
-
-    // ── Security Groups: check for open CIDR rules and high-risk ports ──
-    for (const sg of sgResources) {
-      const sgRisk = risks[sg.name] || {}
-      const factors = sgRisk.factors || []
-      const hasPublicRules = factors.some((f: any) => f.factor === 'public_inbound_rules')
-      const hasHighRiskPorts = factors.some((f: any) => f.factor === 'high_risk_ports')
-      const publicDetail = factors.find((f: any) => f.factor === 'public_inbound_rules')
-      const portsDetail = factors.find((f: any) => f.factor === 'high_risk_ports')
-
-      netTotal++
-
-      if (!hasPublicRules && !hasHighRiskPorts) {
-        netEnforced++
-        networkItems.push({
-          name: sg.name,
-          status: 'enforced',
-          detail: 'No open CIDRs, no high-risk ports',
-        })
-      } else {
-        // Build detail from actual findings
-        const details: string[] = []
-        if (publicDetail) details.push(publicDetail.detail)
-        if (portsDetail) details.push(portsDetail.detail)
-        networkItems.push({
-          name: sg.name,
-          status: 'exposed',
-          detail: details.join(' · ') || 'Over-permissive rules',
-        })
-      }
-    }
-
-    // ── EC2/Lambda: check for network exposure ──
-    // Threat model: attacker is already inside. Every compute resource without
-    // a network boundary is blast radius — Lambdas without SG can reach
-    // DynamoDB, S3, KMS, and every sensitive service.
-    for (const ec2 of ec2Resources) {
-      const ec2Risk = risks[ec2.name] || {}
-      const factors = ec2Risk.factors || []
-      if (factors.length === 0 && !ec2Risk.is_internet_facing) continue // Skip clean internal resources
-
-      const hasPublicIP = factors.some((f: any) => f.factor === 'has_public_ip')
-      const hasPublicSG = factors.some((f: any) => f.factor === 'public_sg_attached')
-      const hasHighRiskSG = factors.some((f: any) => f.factor === 'high_risk_sg_attached')
-      const noSGProtection = factors.some((f: any) => f.factor === 'no_sg_protection')
-      const excessivePerms = factors.some((f: any) => f.factor === 'excessive_permissions')
-      const noIAMRole = factors.some((f: any) => f.factor === 'no_iam_role')
-      const isLambda = ec2.type === 'Lambda'
-
-      netTotal++
-      const isExposed = hasPublicIP || hasPublicSG || hasHighRiskSG || noSGProtection
-
-      if (!isExposed) {
-        netEnforced++
-        networkItems.push({
-          name: ec2.name,
-          status: 'enforced',
-          detail: `${ec2.type} — network boundary enforced`,
-        })
-      } else {
-        const issues: string[] = []
-        if (hasPublicIP) issues.push('Public IP')
-        if (hasPublicSG) issues.push('Open SG attached')
-        if (hasHighRiskSG) issues.push('High-risk SG')
-        if (noSGProtection && isLambda) issues.push('No network boundary — can reach all services')
-        else if (noSGProtection) issues.push('No SG protection')
-        if (excessivePerms) issues.push('Excessive permissions')
-
-        // Severity: high-risk SG or public IP = exposed, no SG on Lambda = partial (still internal)
-        const severity = (hasHighRiskSG || (hasPublicIP && hasPublicSG)) ? 'exposed'
-          : (hasPublicIP || hasPublicSG) ? 'exposed'
-          : 'partial'
-
-        networkItems.push({
-          name: ec2.name,
-          status: severity,
-          detail: `${ec2.type} — ${issues.join(', ')}`,
-        })
-      }
-    }
-
-    // ── NACLs: check for risk factors ──
-    for (const nacl of naclResources) {
-      const naclRisk = risks[nacl.name] || {}
-      const factors = naclRisk.factors || []
-      netTotal++
-      if (factors.length === 0 && (naclRisk.risk_score || 0) === 0) {
-        netEnforced++
-        networkItems.push({ name: nacl.name, status: 'enforced', detail: 'NACL — restrictive rules' })
-      } else {
-        networkItems.push({
-          name: nacl.name,
-          status: 'exposed',
-          detail: `NACL — ${factors.map((f: any) => f.detail).join(', ') || 'over-permissive'}`,
-        })
-      }
-    }
-
-    // ── VPCs: check for flow logs, resource count, exposure ──
-    const vpcResources = resources.filter((r: any) => r.type === 'VPC')
-    const allResourceNames = new Set(resources.map((r: any) => r.name))
-
-    for (const vpc of vpcResources) {
-      netTotal++
-      const vpcRisk = risks[vpc.name] || {}
-      const connections = vpc.connections || 0
-      const hasFlowLogs = vpc.name.toLowerCase().includes('flowlog') ||
-        allResourceNames.has(`/aws/vpc/${vpc.name}`) ||
-        allResourceNames.has(`${vpc.name}-flow-logs`)
-
-      // A VPC with many resources and no flow logs = blind spot
-      if (connections > 5 && !hasFlowLogs) {
-        networkItems.push({
-          name: vpc.name,
-          status: 'partial',
-          detail: `VPC — ${connections} resources, no flow logs detected`,
-        })
-      } else if (hasFlowLogs || connections === 0) {
-        netEnforced++
-        networkItems.push({
-          name: vpc.name,
-          status: 'enforced',
-          detail: connections > 0
-            ? `VPC — ${connections} resources, flow logs enabled`
-            : 'VPC — no active resources',
-        })
-      } else {
-        netEnforced++
-        networkItems.push({
-          name: vpc.name,
-          status: 'enforced',
-          detail: `VPC — ${connections} resources`,
-        })
-      }
-    }
-
-    // ── Subnets: public vs private ──
-    for (const subnet of subnetResources) {
-      netTotal++
-      const isPublic = subnet.name.toLowerCase().includes('public')
-      const isPrivate = subnet.name.toLowerCase().includes('private')
-      const connections = subnet.connections || 0
-
-      if (isPublic) {
-        // Public subnets are exposure points — resources inside are internet-accessible
-        networkItems.push({
-          name: subnet.name,
-          status: connections > 2 ? 'exposed' : 'partial',
-          detail: `Subnet — public, ${connections > 2 ? `${connections - 1} resources internet-exposed` : 'internet-routable'}`,
-        })
-      } else if (isPrivate) {
-        netEnforced++
-        networkItems.push({
-          name: subnet.name,
-          status: 'enforced',
-          detail: `Subnet — private, ${Math.max(0, connections - 1)} resources isolated`,
-        })
-      } else {
-        // Unknown subnet — flag if it has resources
-        if (connections > 2) {
-          networkItems.push({
-            name: subnet.name,
-            status: 'partial',
-            detail: `Subnet — ${connections - 1} resources, public/private unknown`,
-          })
-        } else {
-          netEnforced++
-          networkItems.push({
-            name: subnet.name,
-            status: 'enforced',
-            detail: 'Subnet — minimal exposure',
-          })
-        }
-      }
-    }
-
-    // ── Internet Gateways: each is an exposure entry point ──
-    const igwResources = resources.filter((r: any) => r.type === 'InternetGateway')
-    for (const igw of igwResources) {
-      netTotal++
-      // IGW is always an exposure point — it creates a path from internet to VPC
-      networkItems.push({
-        name: igw.name,
-        status: 'partial',
-        detail: 'Internet Gateway — entry point from public internet',
-      })
-    }
-
-    // ── Route Tables: public routes = exposure ──
-    const rtResources = resources.filter((r: any) => r.type === 'RouteTable')
-    for (const rt of rtResources) {
-      netTotal++
-      const isPublicRT = rt.name.toLowerCase().includes('public')
-      if (isPublicRT) {
-        networkItems.push({
-          name: rt.name,
-          status: 'partial',
-          detail: 'Route Table — routes traffic to Internet Gateway',
-        })
-      } else {
-        netEnforced++
-        networkItems.push({
-          name: rt.name,
-          status: 'enforced',
-          detail: 'Route Table — private routing',
-        })
-      }
-    }
-
-    const networkScore = netTotal > 0 ? Math.round((netEnforced / netTotal) * 100) : 0
-    const netGap = netTotal - netEnforced
-
-    // Sort network items: exposed first, then partial, then enforced
-    const statusOrder = { exposed: 0, partial: 1, enforced: 2 }
-    networkItems.sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
-
-    const exposedCount = networkItems.filter(i => i.status === 'exposed').length
-    const partialCount = networkItems.filter(i => i.status === 'partial').length
-
-    const network: LayerScore = {
-      score: networkScore,
-      enforced: netEnforced,
-      total: netTotal,
-      gap: netGap,
-      gapPercent: netTotal > 0 ? Math.round((netGap / netTotal) * 100) : 100,
-      details: netTotal > 0
-        ? `${netEnforced} of ${netTotal} network controls enforced — ${exposedCount} exposed, ${partialCount} partial`
-        : 'No network controls detected — lateral exposure unmonitored',
-      riskLabel: '',
-      items: networkItems,
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // LAYER 3: DATA ENFORCEMENT
-    // ═══════════════════════════════════════════════════════════════
-    // Score = (encrypted + not-publicly-accessible) / total data resources
-    const dataResourceTypes = new Set(['S3', 'S3Bucket', 'RDS', 'RDSInstance', 'DynamoDB', 'DynamoDBTable', 'KMS'])
-    const dataResources = resources.filter((r: any) => dataResourceTypes.has(r.type))
-
-    let dataEnforced = 0
-    let dataTotal = dataResources.length
-    const dataItems: LayerScore['items'] = []
-
-    for (const dr of dataResources) {
-      const drRisk = risks[dr.name]
-      const encrypted = dr.properties?.encrypted || dr.properties?.sse_enabled || drRisk?.has_encryption || false
-      const publicAccess = dr.properties?.publicly_accessible || dr.properties?.has_public_policy || drRisk?.is_internet_facing || false
-
-      const isEnforced = encrypted && !publicAccess
-      const isPartial = encrypted || !publicAccess
-      if (isEnforced) dataEnforced++
-      else if (isPartial) dataEnforced += 0.5  // Partial credit
-
-      dataItems.push({
-        name: dr.name,
-        status: isEnforced ? 'enforced' : isPartial ? 'partial' : 'exposed',
-        detail: `${encrypted ? 'Encrypted' : 'NOT encrypted'}${publicAccess ? ' · PUBLIC ACCESS' : ''}`,
-      })
-    }
-
-    dataEnforced = Math.round(dataEnforced)
-    const dataGap = dataTotal - dataEnforced
-    const dataScore = dataTotal > 0 ? Math.round((dataEnforced / dataTotal) * 100) : 100
-
-    const data_layer: LayerScore = {
-      score: dataScore,
-      enforced: dataEnforced,
-      total: dataTotal,
-      gap: dataGap,
-      gapPercent: dataTotal > 0 ? Math.round((dataGap / dataTotal) * 100) : 0,
-      details: `${dataEnforced} of ${dataTotal} data resources encrypted and access-controlled`,
-      riskLabel: '',
-      items: dataItems,
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // TOTAL SCORE (weighted composite)
-    // ═══════════════════════════════════════════════════════════════
-    // Weights: Privilege 50%, Network 30%, Data 20%
-    const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
-    const totalScore = Math.round(
-      privilege.score * weights.privilege +
-      network.score * weights.network +
-      data_layer.score * weights.data
+    const network: LayerScore = transformLayer(
+      backendNetwork,
+      scoreData.per_resource?.filter((r: any) =>
+        ['SecurityGroup', 'EC2', 'Lambda', 'Subnet', 'VPC', 'InternetGateway', 'RouteTable', 'NetworkACL'].includes(r.resource_type)
+      ) || [],
     )
+
+    const data_layer: LayerScore = transformLayer(
+      backendData,
+      scoreData.per_resource?.filter((r: any) =>
+        ['S3', 'S3Bucket', 'RDS', 'RDSInstance', 'DynamoDB', 'DynamoDBTable', 'KMS'].includes(r.resource_type)
+      ) || [],
+    )
+
+    // ── Total score (from backend) ──────────────────────────────────
+    const totalScore = scoreData.total_score ?? 0
     const totalGap = 100 - totalScore
 
-    // ═══════════════════════════════════════════════════════════════
-    // PROJECTED SCORE (with Cyntro enforcement)
-    // ═══════════════════════════════════════════════════════════════
-    // What the score would be if Cyntro enforced recommendations:
-    // - Privilege: remove all unused permissions → close ~90% of gap
-    // - Network: restrict zero-traffic rules → close ~85% of gap
-    // - Data: encrypt + block public access → close ~80% of gap
+    // ── Projected scores (presentation logic) ───────────────────────
+    const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
     const projectedPrivilege = Math.min(100, Math.round(privilege.score + privilege.gapPercent * 0.90))
     const projectedNetwork = Math.min(100, Math.round(network.score + network.gapPercent * 0.85))
     const projectedData = Math.min(100, Math.round(data_layer.score + data_layer.gapPercent * 0.80))
@@ -480,252 +159,47 @@ export async function GET(request: NextRequest) {
     )
     const projectedImprovement = projectedTotal - totalScore
 
-    // ═══════════════════════════════════════════════════════════════
-    // RISK LABELS (which layer is the biggest risk driver)
-    // ═══════════════════════════════════════════════════════════════
+    // ── Risk labels (which layer is the biggest driver) ─────────────
     const layerRisks = [
-      { key: 'privilege', gap: privilege.gapPercent, weight: weights.privilege },
-      { key: 'network', gap: network.gapPercent, weight: weights.network },
-      { key: 'data', gap: data_layer.gapPercent, weight: weights.data },
+      { key: 'privilege' as const, gap: privilege.gapPercent, weight: weights.privilege },
+      { key: 'network' as const, gap: network.gapPercent, weight: weights.network },
+      { key: 'data' as const, gap: data_layer.gapPercent, weight: weights.data },
     ].sort((a, b) => (b.gap * b.weight) - (a.gap * a.weight))
 
-    const riskLabels: Record<string, string> = {}
     layerRisks.forEach((lr, i) => {
+      const layer = lr.key === 'privilege' ? privilege : lr.key === 'network' ? network : data_layer
       if (lr.gap === 0) {
-        riskLabels[lr.key] = lr.key === 'network' && netTotal === 0
+        layer.riskLabel = layer.total === 0 && lr.key === 'network'
           ? 'No lateral exposure detected'
           : 'Fully enforced'
       } else if (i === 0) {
-        riskLabels[lr.key] = 'Primary risk driver'
+        layer.riskLabel = 'Primary risk driver'
       } else if (lr.gap > 20) {
-        riskLabels[lr.key] = 'Significant exposure'
+        layer.riskLabel = 'Significant exposure'
       } else {
-        riskLabels[lr.key] = 'Low contribution to risk'
+        layer.riskLabel = 'Low contribution to risk'
       }
     })
-    privilege.riskLabel = riskLabels['privilege']
-    network.riskLabel = riskLabels['network']
-    data_layer.riskLabel = riskLabels['data']
 
-    // ═══════════════════════════════════════════════════════════════
-    // TOP ENFORCEMENT ACTIONS
-    // ═══════════════════════════════════════════════════════════════
-    const actions: EnforcementAction[] = []
+    // ── Transform backend actions → frontend shape ──────────────────
+    const actions: EnforcementAction[] = transformActions(
+      scoreData.ranked_actions || [],
+      privilege,
+      network,
+      data_layer,
+      privUnused,
+      privAllowed,
+      issuesData,
+    )
 
-    // Privilege actions — from IAM issues
-    if (privUnused > 0) {
-      // Group by confidence based on observation
-      const highConfidenceIssues = iamIssues.filter((i: any) => {
-        const days = i.observationDays || i.observation_days || 90
-        return days >= 90
-      })
-      const medConfidenceIssues = iamIssues.filter((i: any) => {
-        const days = i.observationDays || i.observation_days || 90
-        return days >= 30 && days < 90
-      })
-
-      const highUnused = highConfidenceIssues.reduce((sum: number, i: any) =>
-        sum + (i.unusedCount || i.unused_count || 0), 0
-      )
-      const medUnused = medConfidenceIssues.reduce((sum: number, i: any) =>
-        sum + (i.unusedCount || i.unused_count || 0), 0
-      )
-
-      if (highUnused > 0 || highConfidenceIssues.length === 0) {
-        const count = highUnused || privUnused
-        const avgDays = highConfidenceIssues.length > 0
-          ? Math.round(highConfidenceIssues.reduce((s: number, i: any) =>
-              s + (i.observationDays || i.observation_days || 90), 0) / highConfidenceIssues.length)
-          : 90
-        actions.push({
-          id: 'priv-remove-unused',
-          layer: 'privilege',
-          title: `Remove ${count} unused IAM permissions`,
-          detail: `${highConfidenceIssues.length || iamIssues.length} roles with over-provisioned access`,
-          impact: `Reduces blast radius by ${privilege.gapPercent}%`,
-          risk: `${count} permissions remain exploitable — any compromised credential inherits full access`,
-          confidence: 'high',
-          observationDays: avgDays,
-          rollback: 'Instant — Cyntro snapshots policy before change',
-          count,
-        })
-      }
-
-      if (medUnused > 0) {
-        actions.push({
-          id: 'priv-review-medium',
-          layer: 'privilege',
-          title: `Review ${medUnused} permissions with limited observation`,
-          detail: `${medConfidenceIssues.length} roles observed for 30-90 days`,
-          impact: `Could reduce an additional ${Math.round((medUnused / privAllowed) * 100)}% of privilege surface`,
-          risk: 'Moderate — some usage may not yet be observed',
-          confidence: 'medium',
-          observationDays: 60,
-          rollback: 'Instant — policy snapshot + canary deployment',
-          count: medUnused,
-        })
-      }
-    }
-
-    // Network actions — from real SG / EC2 / Lambda risk factors
-    const exposedSGItems = networkItems.filter(i => i.status === 'exposed' && !i.detail.includes('EC2') && !i.detail.includes('Lambda') && !i.detail.includes('NACL'))
-    const exposedEC2Items = networkItems.filter(i => (i.status === 'exposed' || i.status === 'partial') && i.detail.includes('EC2'))
-    const exposedLambdaItems = networkItems.filter(i => (i.status === 'exposed' || i.status === 'partial') && i.detail.includes('Lambda'))
-
-    if (exposedSGItems.length > 0) {
-      const totalOpenRules = exposedSGItems.reduce((sum, sg) => {
-        const match = sg.detail.match(/(\d+) inbound/)
-        return sum + (match ? parseInt(match[1]) : 1)
-      }, 0)
-      actions.push({
-        id: 'net-restrict-sgs',
-        layer: 'network',
-        title: `Lock down ${exposedSGItems.length} over-permissive security groups`,
-        detail: exposedSGItems.map(s => s.name).slice(0, 3).join(', ') + (exposedSGItems.length > 3 ? ` + ${exposedSGItems.length - 3} more` : ''),
-        impact: `Closes ${totalOpenRules || exposedSGItems.length} inbound rules open to 0.0.0.0/0 — eliminates lateral movement paths`,
-        risk: `${exposedSGItems.length} SGs allow unrestricted ingress from the internet — any port scan finds open high-risk ports`,
-        confidence: 'high',
-        observationDays: 90,
-        rollback: 'Instant — security group rules restored from snapshot',
-        count: exposedSGItems.length,
-      })
-    }
-
-    if (exposedEC2Items.length > 0) {
-      const publicIPs = exposedEC2Items.filter(i => i.detail.includes('Public IP'))
-      const noSG = exposedEC2Items.filter(i => i.detail.includes('No SG'))
-      actions.push({
-        id: 'net-harden-instances',
-        layer: 'network',
-        title: `Harden ${exposedEC2Items.length} internet-exposed instances`,
-        detail: exposedEC2Items.map(s => s.name).slice(0, 3).join(', ') + (exposedEC2Items.length > 3 ? ` + ${exposedEC2Items.length - 3} more` : ''),
-        impact: `Removes public exposure from ${publicIPs.length} instances with public IPs${noSG.length > 0 ? ` and adds SG protection to ${noSG.length}` : ''}`,
-        risk: `${exposedEC2Items.length} instances reachable from the internet — direct attack surface for RCE, credential theft`,
-        confidence: 'high',
-        observationDays: 90,
-        rollback: 'Instant — EIP and SG associations restored from snapshot',
-        count: exposedEC2Items.length,
-      })
-    }
-
-    if (exposedLambdaItems.length > 0) {
-      actions.push({
-        id: 'net-isolate-lambdas',
-        layer: 'network',
-        title: `Isolate ${exposedLambdaItems.length} Lambdas with no network boundary`,
-        detail: exposedLambdaItems.map(s => s.name).slice(0, 3).join(', ') + (exposedLambdaItems.length > 3 ? ` + ${exposedLambdaItems.length - 3} more` : ''),
-        impact: `Places VPC boundaries on ${exposedLambdaItems.length} functions — limits blast radius to designated subnets only`,
-        risk: `${exposedLambdaItems.length} Lambdas can reach every AWS service (DynamoDB, S3, KMS) — a compromised function has unlimited lateral movement`,
-        confidence: 'high',
-        observationDays: 90,
-        rollback: 'Instant — VPC config and SG associations removed',
-        count: exposedLambdaItems.length,
-      })
-    }
-
-    // VPC actions — flow logs, public subnets
-    const vpcsWithoutFlowLogs = networkItems.filter(i => i.detail.includes('VPC') && i.detail.includes('no flow logs'))
-    if (vpcsWithoutFlowLogs.length > 0) {
-      actions.push({
-        id: 'net-enable-flowlogs',
-        layer: 'network',
-        title: `Enable flow logs on ${vpcsWithoutFlowLogs.length} VPC${vpcsWithoutFlowLogs.length > 1 ? 's' : ''}`,
-        detail: vpcsWithoutFlowLogs.map(v => v.name).join(', '),
-        impact: 'Enables lateral movement detection — see every connection between resources',
-        risk: `${vpcsWithoutFlowLogs.length} VPC${vpcsWithoutFlowLogs.length > 1 ? 's' : ''} with no traffic visibility — attacker movement is invisible`,
-        confidence: 'high',
-        observationDays: 0,
-        rollback: 'Instant — flow logs can be disabled anytime',
-        count: vpcsWithoutFlowLogs.length,
-      })
-    }
-
-    const publicSubnets = networkItems.filter(i => i.detail.includes('Subnet') && i.detail.includes('public') && i.status !== 'enforced')
-    if (publicSubnets.length > 0) {
-      actions.push({
-        id: 'net-review-public-subnets',
-        layer: 'network',
-        title: `Review ${publicSubnets.length} public subnets with exposed resources`,
-        detail: publicSubnets.map(s => s.name).slice(0, 3).join(', ') + (publicSubnets.length > 3 ? ` + ${publicSubnets.length - 3} more` : ''),
-        impact: 'Move non-public workloads to private subnets — reduces internet-facing surface',
-        risk: `${publicSubnets.length} subnets route directly to the internet — all resources inside are reachable`,
-        confidence: 'medium',
-        observationDays: 0,
-        rollback: 'Subnet routing changes are reversible',
-        count: publicSubnets.length,
-      })
-    }
-
-    if (netTotal === 0) {
-      actions.push({
-        id: 'net-enable-analysis',
-        layer: 'network',
-        title: 'Enable network path analysis',
-        detail: 'No enforceable network paths detected yet — connect VPC flow logs for lateral exposure scoring',
-        impact: 'Reveals hidden lateral movement paths between resources',
-        risk: 'Blind spot — lateral exposure is unmonitored',
-        confidence: 'low',
-        observationDays: 0,
-        rollback: 'N/A — read-only analysis',
-        count: 0,
-      })
-    }
-
-    // Data actions — from exposed data resources
-    const exposedData = dataItems.filter(i => i.status === 'exposed' || i.status === 'partial')
-    if (exposedData.length > 0) {
-      const unencrypted = dataItems.filter(i => i.detail.includes('NOT encrypted'))
-      const publicAccess = dataItems.filter(i => i.detail.includes('PUBLIC'))
-
-      if (unencrypted.length > 0) {
-        actions.push({
-          id: 'data-encrypt',
-          layer: 'data',
-          title: `Encrypt ${unencrypted.length} unprotected data resources`,
-          detail: unencrypted.map(d => d.name).slice(0, 3).join(', ') + (unencrypted.length > 3 ? ` + ${unencrypted.length - 3} more` : ''),
-          impact: `Protects ${unencrypted.length} data stores from unauthorized read access`,
-          risk: `${unencrypted.length} data stores readable in plaintext if accessed`,
-          confidence: 'high',
-          observationDays: 0,
-          rollback: 'Encryption is non-destructive — can be disabled if needed',
-          count: unencrypted.length,
-        })
-      }
-      if (publicAccess.length > 0) {
-        actions.push({
-          id: 'data-restrict-public',
-          layer: 'data',
-          title: `Block public access on ${publicAccess.length} data resources`,
-          detail: publicAccess.map(d => d.name).slice(0, 3).join(', ') + (publicAccess.length > 3 ? ` + ${publicAccess.length - 3} more` : ''),
-          impact: `Eliminates ${publicAccess.length} internet-accessible data paths`,
-          risk: `${publicAccess.length} resources reachable from the public internet`,
-          confidence: 'high',
-          observationDays: 0,
-          rollback: 'Instant — access policy restored from snapshot',
-          count: publicAccess.length,
-        })
-      }
-    }
-
-    // Sort actions by impact (highest gap contribution first)
-    actions.sort((a, b) => {
-      const layerOrder = { privilege: 0, network: 1, data: 2 }
-      const confOrder = { high: 0, medium: 1, low: 2 }
-      if (confOrder[a.confidence] !== confOrder[b.confidence]) return confOrder[a.confidence] - confOrder[b.confidence]
-      return layerOrder[a.layer] - layerOrder[b.layer]
-    })
-
-    // ═══════════════════════════════════════════════════════════════
-    // RISK / IMPACT FRAMING
-    // ═══════════════════════════════════════════════════════════════
-    const attackPathsExposed = privUnused + netGap + dataGap
+    // ── Impact framing (presentation) ───────────────────────────────
     const primaryDriver = layerRisks[0]
     const primaryDriverLabel = primaryDriver.key === 'privilege' ? 'Over-provisioned IAM'
       : primaryDriver.key === 'network' ? 'Unrestricted network paths'
       : 'Unprotected data resources'
 
     const impact = {
-      attackPathsExposed,
+      attackPathsExposed: privUnused + network.gap + data_layer.gap,
       reductionPercent: projectedImprovement,
       primaryDriver: primaryDriverLabel,
       riskStatement: totalGap > 0
@@ -733,7 +207,7 @@ export async function GET(request: NextRequest) {
         : 'All enforcements active — monitoring for drift',
     }
 
-    // Sales headlines — risk-framed
+    // ── Sales headlines ─────────────────────────────────────────────
     let headline: string
     if (totalScore < 40) headline = `${totalGap}% of your attack paths remain exploitable`
     else if (totalScore < 60) headline = `${totalGap}% of your attack surface remains exploitable`
@@ -755,11 +229,7 @@ export async function GET(request: NextRequest) {
         data: projectedData,
         improvement: projectedImprovement,
       },
-      layers: {
-        privilege,
-        network,
-        data: data_layer,
-      },
+      layers: { privilege, network, data: data_layer },
       actions,
       impact,
       headline,
@@ -770,23 +240,195 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('[enforcement-score] Error:', error)
-    return NextResponse.json(
-      {
-        systemName,
-        totalScore: 0,
-        totalGap: 100,
-        layers: {
-          privilege: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
-          network: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
-          data: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
-        },
-        actions: [],
-        impact: { attackPathsExposed: 0, reductionPercent: 0, primaryDriver: '', riskStatement: 'Unable to compute' },
-        headline: 'Unable to compute enforcement score',
-        canClose: '',
-        error: error.message,
-      },
-      { status: 500 }
+    return NextResponse.json(emptyResult(systemName, error.message), { status: 500 })
+  }
+}
+
+
+// ─── Transform helpers ──────────────────────────────────────────────────
+
+function transformLayer(
+  backendLayer: any,
+  perResource: any[],
+  overrideDetails?: string,
+  overrideCounts?: { enforced: number; total: number },
+): LayerScore {
+  const score = backendLayer.score ?? 100
+  const enforced = overrideCounts?.enforced ?? backendLayer.enforced_count ?? 0
+  const total = overrideCounts?.total ?? backendLayer.resource_count ?? 0
+  const gap = total - enforced
+  const gapPercent = total > 0 ? Math.round((gap / total) * 100) : (score < 100 ? 100 - score : 0)
+
+  // Build items from per-resource results
+  const items: LayerScore['items'] = perResource.map((r: any) => {
+    const resourceScore = r.score ?? 100
+    const status: 'enforced' | 'exposed' | 'partial' =
+      resourceScore >= 70 ? 'enforced' : resourceScore >= 40 ? 'partial' : 'exposed'
+
+    // Build detail from reasons or signals
+    const detail = r.reasons?.length > 0
+      ? r.reasons.slice(0, 3).join(' · ')
+      : r.signals?.filter((s: any) => s.value === true && !s.is_missing)
+          .slice(0, 2)
+          .map((s: any) => s.detail)
+          .join(' · ')
+        || `Score: ${resourceScore}`
+
+    return {
+      name: r.resource_id || r.resource_name || 'Unknown',
+      status,
+      detail,
+    }
+  })
+
+  // Sort: exposed first, then partial, then enforced
+  const statusOrder = { exposed: 0, partial: 1, enforced: 2 }
+  items.sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
+
+  // Default details from top issues
+  const defaultDetails = backendLayer.top_issues?.length > 0
+    ? `${enforced} of ${total} resources enforced — ${backendLayer.exposed_count || gap} exposed`
+    : `${enforced} of ${total} resources enforced`
+
+  return {
+    score,
+    enforced,
+    total,
+    gap,
+    gapPercent,
+    details: overrideDetails || defaultDetails,
+    riskLabel: '', // Set after all layers computed
+    items,
+  }
+}
+
+
+function transformActions(
+  backendActions: any[],
+  privilege: LayerScore,
+  network: LayerScore,
+  data_layer: LayerScore,
+  privUnused: number,
+  privAllowed: number,
+  issuesData: any,
+): EnforcementAction[] {
+  const actions: EnforcementAction[] = []
+
+  // ── Privilege action from issues-summary (permission ratio) ──────
+  if (privUnused > 0) {
+    const iamIssues = issuesData.issues?.filter((i: any) =>
+      i.type === 'iam_unused_permissions' || i.type === 'unused_permission'
+    ) || []
+
+    const highConfidence = iamIssues.filter((i: any) => {
+      const days = i.observationDays || i.observation_days || 90
+      return days >= 90
+    })
+
+    const highUnused = highConfidence.reduce((sum: number, i: any) =>
+      sum + (i.unusedCount || i.unused_count || 0), 0
     )
+
+    const count = highUnused || privUnused
+    const avgDays = highConfidence.length > 0
+      ? Math.round(highConfidence.reduce((s: number, i: any) =>
+          s + (i.observationDays || i.observation_days || 90), 0) / highConfidence.length)
+      : 90
+
+    actions.push({
+      id: 'priv-remove-unused',
+      layer: 'privilege',
+      title: `Remove ${count} unused IAM permissions`,
+      detail: `${highConfidence.length || iamIssues.length} roles with over-provisioned access`,
+      impact: `Reduces blast radius by ${privilege.gapPercent}%`,
+      risk: `${count} permissions remain exploitable — any compromised credential inherits full access`,
+      confidence: 'high',
+      observationDays: avgDays,
+      rollback: 'Instant — Cyntro snapshots policy before change',
+      count,
+    })
+  }
+
+  // ── Group backend actions by layer + type for aggregation ────────
+  const LAYER_MAP: Record<string, 'privilege' | 'network' | 'data'> = {
+    IAMRole: 'privilege', IAMPolicy: 'privilege', IAMUser: 'privilege',
+    SecurityGroup: 'network', EC2: 'network', Lambda: 'network',
+    Subnet: 'network', VPC: 'network', InternetGateway: 'network',
+    RouteTable: 'network', NetworkACL: 'network',
+    S3: 'data', S3Bucket: 'data', RDS: 'data', RDSInstance: 'data',
+    DynamoDB: 'data', DynamoDBTable: 'data', KMS: 'data',
+  }
+
+  // Group by action ID to aggregate counts
+  const grouped: Record<string, {
+    action: any
+    resources: string[]
+    layer: 'privilege' | 'network' | 'data'
+  }> = {}
+
+  for (const action of backendActions) {
+    const key = action.id
+    const layer = LAYER_MAP[action.resource_type] || 'network'
+
+    if (!grouped[key]) {
+      grouped[key] = { action, resources: [], layer }
+    }
+    grouped[key].resources.push(action.resource_id || action.resource_name || '')
+  }
+
+  // Convert grouped actions to frontend shape
+  for (const [actionId, group] of Object.entries(grouped)) {
+    // Skip privilege actions already handled from issues-summary
+    if (group.layer === 'privilege' && actions.some(a => a.layer === 'privilege')) continue
+
+    const a = group.action
+    const count = group.resources.length
+    const resourceList = group.resources.slice(0, 3).join(', ')
+      + (count > 3 ? ` + ${count - 3} more` : '')
+
+    actions.push({
+      id: actionId,
+      layer: group.layer,
+      title: count > 1 ? `${a.title} (${count} resources)` : a.title,
+      detail: resourceList,
+      impact: a.impact || '',
+      risk: a.risk_if_skipped || '',
+      confidence: (a.confidence || 'medium').toLowerCase() as 'high' | 'medium' | 'low',
+      observationDays: a.observation_days ?? 0,
+      rollback: a.rollback || '',
+      count,
+    })
+  }
+
+  // Sort: high confidence first, then by layer importance
+  const confOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
+  const layerOrder: Record<string, number> = { privilege: 0, network: 1, data: 2 }
+  actions.sort((a, b) => {
+    if (confOrder[a.confidence] !== confOrder[b.confidence]) {
+      return confOrder[a.confidence] - confOrder[b.confidence]
+    }
+    return layerOrder[a.layer] - layerOrder[b.layer]
+  })
+
+  return actions
+}
+
+
+function emptyResult(systemName: string, errorMessage?: string): any {
+  return {
+    systemName,
+    totalScore: 0,
+    totalGap: 100,
+    projected: { totalScore: 0, privilege: 0, network: 0, data: 0, improvement: 0 },
+    layers: {
+      privilege: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
+      network: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
+      data: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
+    },
+    actions: [],
+    impact: { attackPathsExposed: 0, reductionPercent: 0, primaryDriver: '', riskStatement: 'Unable to compute' },
+    headline: 'Unable to compute enforcement score',
+    canClose: '',
+    ...(errorMessage ? { error: errorMessage } : {}),
   }
 }
