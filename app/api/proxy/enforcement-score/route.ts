@@ -243,6 +243,21 @@ export async function GET(request: NextRequest) {
         gapCount: i.gapCount || 0,
       }))
     const remediableIssueCount = remediableLP.length
+    const privilegeLPIssues = remediableLP.filter((lp) =>
+      ['iamrole', 'iampolicy', 'iamuser'].includes(lp.type)
+    )
+    const remediablePrivilegePermissions = privilegeLPIssues.reduce(
+      (sum, lp) => sum + Math.max(0, lp.gapCount || 0),
+      0,
+    )
+    const projectedPrivilegePermissionScore = privAllowed > 0
+      ? Math.round(
+          Math.min(
+            100,
+            ((privUsed + Math.min(privUnused, remediablePrivilegePermissions)) / privAllowed) * 100,
+          ),
+        )
+      : null
 
     function matchesLPIdentifier(id: string, candidate: string): boolean {
       if (!id || !candidate) return false
@@ -344,7 +359,7 @@ export async function GET(request: NextRequest) {
     const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
 
     // Projected coverage (simple average — back-compat)
-    const projCoveragePriv = projectedLayerScore(privResources)
+    const projCoveragePriv = projectedPrivilegePermissionScore ?? projectedLayerScore(privResources)
     const projCoverageNet = projectedLayerScore(netResources)
     const projCoverageData = projectedLayerScore(dataResources)
     const projectedCoverage = weightedLayerMix([
@@ -354,7 +369,7 @@ export async function GET(request: NextRequest) {
     ], 0)
 
     // Projected customer score (risk-weighted — the sales number)
-    const projCustPriv = projectedCustomerLayerScore(privResources)
+    const projCustPriv = projectedPrivilegePermissionScore ?? projectedCustomerLayerScore(privResources)
     const projCustNet = projectedCustomerLayerScore(netResources)
     const projCustData = projectedCustomerLayerScore(dataResources)
     const projectedCustomer = weightedLayerMix([
