@@ -134,10 +134,11 @@ function ScoreRing({ score, size = 120, strokeWidth = 10 }: {
   const circumference = 2 * Math.PI * radius
   const progress = (score / 100) * circumference
   const color = getScoreColor(score)
+  const trackColor = "#ede7dc"
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={trackColor} strokeWidth={strokeWidth} />
       <circle
         cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color}
         strokeWidth={strokeWidth} strokeDasharray={circumference}
@@ -440,8 +441,13 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
             <div className="relative inline-flex items-center justify-center">
               <ScoreRing score={data.customerScore} size={128} strokeWidth={9} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[28px] font-bold" style={{ color: '#111827' }}>{data.customerScore}</span>
-                <span className="text-[10px]" style={{ color: '#9ca3af' }}>out of 100</span>
+                <div className="flex items-end gap-1">
+                  <span className="text-[30px] font-bold leading-none" style={{ color: '#111827' }}>{data.customerScore}</span>
+                  <span className="text-[13px] font-semibold leading-none mb-0.5" style={{ color: '#9ca3af' }}>/100</span>
+                </div>
+                <span className="text-[10px] mt-1" style={{ color: '#9ca3af' }}>
+                  {Math.max(0, 100 - data.customerScore)} points of enforcement gap remain
+                </span>
               </div>
             </div>
           </div>
