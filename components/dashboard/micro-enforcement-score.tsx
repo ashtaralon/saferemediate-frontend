@@ -438,18 +438,16 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
             <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">
               Current Enforcement Score
             </p>
-            <div className="relative inline-flex items-center justify-center">
+            <div className="inline-flex items-center justify-center">
               <ScoreRing score={data.customerScore} size={128} strokeWidth={9} />
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="flex items-end gap-1">
-                  <span className="text-[30px] font-bold leading-none" style={{ color: '#111827' }}>{data.customerScore}</span>
-                  <span className="text-[13px] font-semibold leading-none mb-0.5" style={{ color: '#9ca3af' }}>/100</span>
-                </div>
-                <span className="text-[10px] mt-1" style={{ color: '#9ca3af' }}>
-                  {Math.max(0, 100 - data.customerScore)} points of enforcement gap remain
-                </span>
-              </div>
             </div>
+            <div className="mt-3 flex items-end justify-center gap-1">
+              <span className="text-[30px] font-bold leading-none" style={{ color: '#111827' }}>{data.customerScore}</span>
+              <span className="text-[13px] font-semibold leading-none mb-0.5" style={{ color: '#9ca3af' }}>/100</span>
+            </div>
+            <p className="text-[10px] mt-1 text-[var(--muted-foreground,#9ca3af)]">
+              {Math.max(0, 100 - data.customerScore)} points of enforcement gap remain
+            </p>
           </div>
         </div>
 
