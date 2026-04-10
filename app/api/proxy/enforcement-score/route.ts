@@ -5,16 +5,32 @@ const BACKEND_URL = process.env.BACKEND_URL || 'https://saferemediate-backend-f.
 /**
  * Enforcement Score API — Thin Proxy
  *
- * All scoring intelligence lives in the backend at:
- *   /api/service-risk-scores/{system_name}
+ * Backend computes 3 scores:
+ *   1. coverage_score  (total_score) — simple avg of ALL resources (hygiene)
+ *   2. customer_score  — risk-weighted avg of customer-controlled resources
+ *   3. critical_score  — risk-weighted avg of critical-path resources
  *
- * This proxy only:
- *   1. Fetches the backend scoring + issues-summary (for permission ratios)
+ * This proxy:
+ *   1. Fetches backend scoring + issues-summary + LP issues
  *   2. Transforms backend shape → frontend EnforcementScore shape
- *   3. Computes presentation-only values (projected scores, risk labels, headlines)
+ *   3. Computes projected scores from LP data (customer-controlled only)
+ *   4. Builds presentation values (headlines, risk labels)
  */
 
 // ── Frontend types (UI contract) ──────────────────────────────────────
+
+interface SeverityBuckets {
+  strongly_enforced: number
+  enforced_with_gaps: number
+  weakly_enforced: number
+  critically_exposed: number
+}
+
+interface LayerClassification {
+  provider_managed: number
+  critical_path: number
+  customer: number
+}
 
 interface LayerScore {
   score: number
@@ -24,7 +40,16 @@ interface LayerScore {
   gapPercent: number
   details: string
   riskLabel: string
-  items: Array<{ name: string; status: 'enforced' | 'exposed' | 'partial'; detail: string }>
+  severityBuckets: SeverityBuckets
+  classification: LayerClassification
+  items: Array<{
+    name: string
+    status: 'enforced' | 'partial' | 'exposed' | 'critical'
+    detail: string
+    resourceClass: 'provider_managed' | 'critical_path' | 'customer'
+    tier: string
+    riskWeight: number
+  }>
 }
 
 interface EnforcementAction {
@@ -42,27 +67,57 @@ interface EnforcementAction {
 
 interface EnforcementScore {
   systemName: string
+
+  // 3 scores
+  coverageScore: number       // Overall hygiene (all resources)
+  customerScore: number       // Customer-controlled only (risk-weighted)
+  criticalScore: number | null  // Critical attack surface only
+
+  // Back-compat
   totalScore: number
   totalGap: number
+
+  // Projected (computed on customer-controlled + remediable only)
   projected: {
-    totalScore: number
+    coverageScore: number
+    customerScore: number
+    criticalScore: number | null
+    improvement: number       // customerScore delta (the sales number)
     privilege: number
     network: number
     data: number
-    improvement: number
+    // Back-compat
+    totalScore: number
   }
+
+  // Resource classification
+  resourceClassification: {
+    provider_managed: number
+    critical_path: number
+    customer: number
+    total: number
+  }
+
+  // 4-tier severity buckets
+  enforcementTiers: SeverityBuckets
+
   layers: {
     privilege: LayerScore
     network: LayerScore
     data: LayerScore
   }
+
   actions: EnforcementAction[]
+
   impact: {
     attackPathsExposed: number
     reductionPercent: number
     primaryDriver: string
     riskStatement: string
+    criticalGaps: number
+    remediableGaps: number
   }
+
   headline: string
   canClose: string
 }
@@ -112,57 +167,67 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(emptyResult(systemName, 'Backend scoring unavailable'), { status: 502 })
     }
 
-    // ── Extract backend layers ──────────────────────────────────────
+    // ── Extract backend data ───────────────────────────────────────
     const backendLayers = scoreData.layers || {}
     const backendPrivilege = backendLayers.privilege || {}
     const backendNetwork = backendLayers.network || {}
     const backendData = backendLayers.data || {}
 
-    // ── Permission ratio from issues-summary (for privilege details) ─
+    const perResource: any[] = scoreData.per_resource || []
+
+    // New backend fields
+    const coverageScore = scoreData.total_score ?? 0
+    const customerScore = scoreData.customer_score ?? coverageScore
+    const criticalScore = scoreData.critical_score ?? null
+    const resourceClassification = scoreData.resource_classification || {
+      provider_managed: 0, critical_path: 0, customer: 0, total: perResource.length,
+    }
+    const enforcementTiers = scoreData.enforcement_tiers || {
+      strongly_enforced: 0, enforced_with_gaps: 0, weakly_enforced: 0, critically_exposed: 0,
+    }
+
+    // ── Permission ratio from issues-summary ───────────────────────
     const permissions = issuesData.byCategory?.permissions || {}
     const privAllowed = permissions.allowed || 0
     const privUsed = permissions.used || 0
     const privUnused = permissions.unused || (privAllowed - privUsed)
 
-    // ── Transform: Backend layer → Frontend LayerScore ──────────────
+    // ── Transform layers ───────────────────────────────────────────
+
+    const privResources = perResource.filter((r: any) =>
+      ['IAMRole', 'IAMPolicy', 'IAMUser'].includes(r.resource_type)
+    )
+    const netResources = perResource.filter((r: any) =>
+      ['SecurityGroup', 'EC2', 'Lambda', 'Subnet', 'VPC', 'InternetGateway', 'RouteTable', 'NetworkACL'].includes(r.resource_type)
+    )
+    const dataResources = perResource.filter((r: any) =>
+      ['S3', 'S3Bucket', 'RDS', 'RDSInstance', 'DynamoDB', 'DynamoDBTable', 'KMS'].includes(r.resource_type)
+    )
 
     const privilege: LayerScore = transformLayer(
       backendPrivilege,
-      scoreData.per_resource?.filter((r: any) =>
-        ['IAMRole', 'IAMPolicy', 'IAMUser'].includes(r.resource_type)
-      ) || [],
-      // Override details with permission ratio if available
+      privResources,
       privAllowed > 0
         ? `${privUsed} of ${privAllowed} permissions actively used — ${privUnused} can be removed`
         : undefined,
-      // Override enforced/total with permission counts for IAM
       privAllowed > 0 ? { enforced: privUsed, total: privAllowed } : undefined,
     )
 
     const network: LayerScore = transformLayer(
       backendNetwork,
-      scoreData.per_resource?.filter((r: any) =>
-        ['SecurityGroup', 'EC2', 'Lambda', 'Subnet', 'VPC', 'InternetGateway', 'RouteTable', 'NetworkACL'].includes(r.resource_type)
-      ) || [],
+      netResources,
     )
 
     const data_layer: LayerScore = transformLayer(
       backendData,
-      scoreData.per_resource?.filter((r: any) =>
-        ['S3', 'S3Bucket', 'RDS', 'RDSInstance', 'DynamoDB', 'DynamoDBTable', 'KMS'].includes(r.resource_type)
-      ) || [],
+      dataResources,
     )
 
-    // ── Total score (from backend) ──────────────────────────────────
-    const totalScore = scoreData.total_score ?? 0
-    const totalGap = 100 - totalScore
+    const totalGap = 100 - coverageScore
 
-    // ── Projected scores (from real LP remediation data) ──────────────
-    // Build lookup of ALL LP issues (the actual resources on the LP page)
-    // and which ones are remediable with an actual gap to close
-    const lpResourceNames = new Set<string>(
-      lpIssues.map((i: any) => (i.resourceName || i.name || '').toLowerCase()).filter(Boolean)
-    )
+    // ── Projected scores (from real LP remediation data) ───────────
+    // Only project on customer-controlled resources (exclude provider_managed)
+
     const remediableNames = new Set<string>(
       lpIssues
         .filter((i: any) => i.remediable && (i.gapPercent || i.gapCount || 0) > 0)
@@ -179,47 +244,99 @@ export async function GET(request: NextRequest) {
       return false
     }
 
-    // Compute projected score for a layer using only LP-tracked resources.
-    // Resources NOT on the LP page keep their current score (they're outside
-    // Cyntro's LP scope). Resources ON the LP page that are remediable get
-    // projected to 100. This ensures the projection reflects only what
-    // Cyntro can actually fix — no hardcoded multipliers.
-    function projectedLayerScore(perResource: any[]): number {
-      if (perResource.length === 0) return 100
+    // Project only on customer-controlled + remediable resources.
+    // Provider-managed resources keep their current score.
+    // Customer resources not on the LP page keep their current score.
+    // Customer resources on LP page + remediable → projected to 100.
+    function projectedLayerScore(layerResources: any[]): number {
+      if (layerResources.length === 0) return 100
       let sum = 0
-      for (const r of perResource) {
+      for (const r of layerResources) {
         const id = r.resource_id || r.resource_name || ''
-        if (matchesLPResource(id, remediableNames)) {
+        const isCustomer = r.resource_class !== 'provider_managed'
+        if (isCustomer && matchesLPResource(id, remediableNames)) {
           sum += 100  // Cyntro can fix this — project full enforcement
         } else {
           sum += r.score ?? 100
         }
       }
-      return Math.round(sum / perResource.length)
+      return Math.round(sum / layerResources.length)
     }
 
-    const privResources = scoreData.per_resource?.filter((r: any) =>
-      ['IAMRole', 'IAMPolicy', 'IAMUser'].includes(r.resource_type)
-    ) || []
-    const netResources = scoreData.per_resource?.filter((r: any) =>
-      ['SecurityGroup', 'EC2', 'Lambda', 'Subnet', 'VPC', 'InternetGateway', 'RouteTable', 'NetworkACL'].includes(r.resource_type)
-    ) || []
-    const dataResources = scoreData.per_resource?.filter((r: any) =>
-      ['S3', 'S3Bucket', 'RDS', 'RDSInstance', 'DynamoDB', 'DynamoDBTable', 'KMS'].includes(r.resource_type)
-    ) || []
+    // Risk-weighted projected score for customer resources only
+    function projectedCustomerLayerScore(layerResources: any[]): number {
+      const customerResources = layerResources.filter(
+        (r: any) => r.resource_class !== 'provider_managed'
+      )
+      if (customerResources.length === 0) return 100
+
+      let weightedSum = 0
+      let totalWeight = 0
+      for (const r of customerResources) {
+        const w = r.risk_weight || 1.0
+        const id = r.resource_id || r.resource_name || ''
+        const projectedScore = matchesLPResource(id, remediableNames) ? 100 : (r.score ?? 100)
+        weightedSum += projectedScore * w
+        totalWeight += w
+      }
+      return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 100
+    }
+
+    // Risk-weighted projected score for critical-path resources only
+    function projectedCriticalLayerScore(layerResources: any[]): number {
+      const critResources = layerResources.filter(
+        (r: any) => r.resource_class === 'critical_path'
+      )
+      if (critResources.length === 0) return 100
+
+      let weightedSum = 0
+      let totalWeight = 0
+      for (const r of critResources) {
+        const w = r.risk_weight || 1.0
+        const id = r.resource_id || r.resource_name || ''
+        const projectedScore = matchesLPResource(id, remediableNames) ? 100 : (r.score ?? 100)
+        weightedSum += projectedScore * w
+        totalWeight += w
+      }
+      return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 100
+    }
 
     const weights = { privilege: 0.50, network: 0.30, data: 0.20 }
-    const projectedPrivilege = projectedLayerScore(privResources)
-    const projectedNetwork = projectedLayerScore(netResources)
-    const projectedData = projectedLayerScore(dataResources)
-    const projectedTotal = Math.round(
-      projectedPrivilege * weights.privilege +
-      projectedNetwork * weights.network +
-      projectedData * weights.data
-    )
-    const projectedImprovement = Math.max(0, projectedTotal - totalScore)
 
-    // ── Risk labels (which layer is the biggest driver) ─────────────
+    // Projected coverage (simple average — back-compat)
+    const projCoveragePriv = projectedLayerScore(privResources)
+    const projCoverageNet = projectedLayerScore(netResources)
+    const projCoverageData = projectedLayerScore(dataResources)
+    const projectedCoverage = Math.round(
+      projCoveragePriv * weights.privilege +
+      projCoverageNet * weights.network +
+      projCoverageData * weights.data
+    )
+
+    // Projected customer score (risk-weighted — the sales number)
+    const projCustPriv = projectedCustomerLayerScore(privResources)
+    const projCustNet = projectedCustomerLayerScore(netResources)
+    const projCustData = projectedCustomerLayerScore(dataResources)
+    const projectedCustomer = Math.round(
+      projCustPriv * weights.privilege +
+      projCustNet * weights.network +
+      projCustData * weights.data
+    )
+
+    // Projected critical score (risk-weighted)
+    const projCritPriv = projectedCriticalLayerScore(privResources)
+    const projCritNet = projectedCriticalLayerScore(netResources)
+    const projCritData = projectedCriticalLayerScore(dataResources)
+    const hasCritical = criticalScore !== null
+    const projectedCritical = hasCritical ? Math.round(
+      projCritPriv * weights.privilege +
+      projCritNet * weights.network +
+      projCritData * weights.data
+    ) : null
+
+    const customerImprovement = Math.max(0, projectedCustomer - customerScore)
+
+    // ── Risk labels ────────────────────────────────────────────────
     const layerRisks = [
       { key: 'privilege' as const, gap: privilege.gapPercent, weight: weights.privilege },
       { key: 'network' as const, gap: network.gapPercent, weight: weights.network },
@@ -241,7 +358,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // ── Transform backend actions → frontend shape ──────────────────
+    // ── Transform backend actions → frontend shape ─────────────────
     const actions: EnforcementAction[] = transformActions(
       scoreData.ranked_actions || [],
       privilege,
@@ -252,43 +369,65 @@ export async function GET(request: NextRequest) {
       issuesData,
     )
 
-    // ── Impact framing (presentation) ───────────────────────────────
+    // ── Impact framing (presentation) ──────────────────────────────
     const primaryDriver = layerRisks[0]
     const primaryDriverLabel = primaryDriver.key === 'privilege' ? 'Over-provisioned IAM'
       : primaryDriver.key === 'network' ? 'Unrestricted network paths'
       : 'Unprotected data resources'
 
+    const criticalGaps = resourceClassification.critical_path || 0
+    const remediableGaps = remediableNames.size
+    const customerGap = 100 - customerScore
+
     const impact = {
       attackPathsExposed: privUnused + network.gap + data_layer.gap,
-      reductionPercent: projectedImprovement,
+      reductionPercent: customerImprovement,
       primaryDriver: primaryDriverLabel,
-      riskStatement: totalGap > 0
-        ? `${totalGap}% of your attack surface remains exploitable — ${primaryDriverLabel.toLowerCase()} is the primary driver`
-        : 'All enforcements active — monitoring for drift',
+      riskStatement: customerGap > 0
+        ? `${customerGap}% of your customer-controlled attack surface is exposed — ${primaryDriverLabel.toLowerCase()} is the primary driver`
+        : 'All customer-controlled enforcements active — monitoring for drift',
+      criticalGaps,
+      remediableGaps,
     }
 
-    // ── Sales headlines ─────────────────────────────────────────────
+    // ── Headlines (based on customer score, not coverage) ──────────
     let headline: string
-    if (totalScore < 40) headline = `${totalGap}% of your attack paths remain exploitable`
-    else if (totalScore < 60) headline = `${totalGap}% of your attack surface remains exploitable`
-    else if (totalScore < 80) headline = `${totalGap}% enforcement gap — blast radius still reachable`
-    else headline = `Strong enforcement at ${totalScore}% — ${totalGap}% gap remaining`
+    if (customerScore < 40) headline = `${customerGap}% of your attack surface is critically exposed`
+    else if (customerScore < 60) headline = `${customerGap}% of your resources remain exploitable`
+    else if (customerScore < 80) headline = `${customerGap}% enforcement gap in customer-controlled resources`
+    else headline = `Strong enforcement at ${customerScore}% — ${customerGap}% gap remaining`
 
-    const canClose = projectedImprovement > 0
-      ? `Cyntro can reduce exposure from ${totalGap}% to ${100 - projectedTotal}% — eliminating ${projectedImprovement}% of exploitable paths`
+    const canClose = customerImprovement > 0
+      ? `Cyntro can improve customer enforcement from ${customerScore}% to ${projectedCustomer}% — closing ${customerImprovement}% of exploitable gaps`
       : 'Fully enforced — monitoring for drift'
 
     const result: EnforcementScore = {
       systemName,
-      totalScore,
+
+      // 3 scores
+      coverageScore,
+      customerScore,
+      criticalScore,
+
+      // Back-compat
+      totalScore: coverageScore,
       totalGap,
+
       projected: {
-        totalScore: projectedTotal,
-        privilege: projectedPrivilege,
-        network: projectedNetwork,
-        data: projectedData,
-        improvement: projectedImprovement,
+        coverageScore: projectedCoverage,
+        customerScore: projectedCustomer,
+        criticalScore: projectedCritical,
+        improvement: customerImprovement,
+        privilege: projCustPriv,
+        network: projCustNet,
+        data: projCustData,
+        // Back-compat
+        totalScore: projectedCoverage,
       },
+
+      resourceClassification,
+      enforcementTiers,
+
       layers: { privilege, network, data: data_layer },
       actions,
       impact,
@@ -319,11 +458,23 @@ function transformLayer(
   const gap = total - enforced
   const gapPercent = total > 0 ? Math.round((gap / total) * 100) : (score < 100 ? 100 - score : 0)
 
+  const severityBuckets: SeverityBuckets = backendLayer.severity_buckets || {
+    strongly_enforced: 0, enforced_with_gaps: 0, weakly_enforced: 0, critically_exposed: 0,
+  }
+
+  const classification: LayerClassification = backendLayer.classification || {
+    provider_managed: 0, critical_path: 0, customer: 0,
+  }
+
   // Build items from per-resource results
   const items: LayerScore['items'] = perResource.map((r: any) => {
     const resourceScore = r.score ?? 100
-    const status: 'enforced' | 'exposed' | 'partial' =
-      resourceScore >= 70 ? 'enforced' : resourceScore >= 40 ? 'partial' : 'exposed'
+    const tier = r.enforcement_tier || 'strongly_enforced'
+    let status: 'enforced' | 'exposed' | 'partial' | 'critical'
+    if (resourceScore >= 90) status = 'enforced'
+    else if (resourceScore >= 70) status = 'partial'
+    else if (resourceScore >= 40) status = 'exposed'
+    else status = 'critical'
 
     // Build detail from reasons or signals
     const detail = r.reasons?.length > 0
@@ -338,11 +489,14 @@ function transformLayer(
       name: r.resource_id || r.resource_name || 'Unknown',
       status,
       detail,
+      resourceClass: r.resource_class || 'customer',
+      tier,
+      riskWeight: r.risk_weight || 1.0,
     }
   })
 
-  // Sort: exposed first, then partial, then enforced
-  const statusOrder = { exposed: 0, partial: 1, enforced: 2 }
+  // Sort: critical first, then exposed, then partial, then enforced
+  const statusOrder = { critical: 0, exposed: 1, partial: 2, enforced: 3 }
   items.sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
 
   // Default details from top issues
@@ -358,6 +512,8 @@ function transformLayer(
     gapPercent,
     details: overrideDetails || defaultDetails,
     riskLabel: '', // Set after all layers computed
+    severityBuckets,
+    classification,
     items,
   }
 }
@@ -477,16 +633,24 @@ function transformActions(
 function emptyResult(systemName: string, errorMessage?: string): any {
   return {
     systemName,
+    coverageScore: 0,
+    customerScore: 0,
+    criticalScore: null,
     totalScore: 0,
     totalGap: 100,
-    projected: { totalScore: 0, privilege: 0, network: 0, data: 0, improvement: 0 },
+    projected: {
+      coverageScore: 0, customerScore: 0, criticalScore: null,
+      improvement: 0, privilege: 0, network: 0, data: 0, totalScore: 0,
+    },
+    resourceClassification: { provider_managed: 0, critical_path: 0, customer: 0, total: 0 },
+    enforcementTiers: { strongly_enforced: 0, enforced_with_gaps: 0, weakly_enforced: 0, critically_exposed: 0 },
     layers: {
-      privilege: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
-      network: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
-      data: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', items: [] },
+      privilege: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', severityBuckets: { strongly_enforced: 0, enforced_with_gaps: 0, weakly_enforced: 0, critically_exposed: 0 }, classification: { provider_managed: 0, critical_path: 0, customer: 0 }, items: [] },
+      network: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', severityBuckets: { strongly_enforced: 0, enforced_with_gaps: 0, weakly_enforced: 0, critically_exposed: 0 }, classification: { provider_managed: 0, critical_path: 0, customer: 0 }, items: [] },
+      data: { score: 0, enforced: 0, total: 0, gap: 0, gapPercent: 0, details: 'Error loading', riskLabel: '', severityBuckets: { strongly_enforced: 0, enforced_with_gaps: 0, weakly_enforced: 0, critically_exposed: 0 }, classification: { provider_managed: 0, critical_path: 0, customer: 0 }, items: [] },
     },
     actions: [],
-    impact: { attackPathsExposed: 0, reductionPercent: 0, primaryDriver: '', riskStatement: 'Unable to compute' },
+    impact: { attackPathsExposed: 0, reductionPercent: 0, primaryDriver: '', riskStatement: 'Unable to compute', criticalGaps: 0, remediableGaps: 0 },
     headline: 'Unable to compute enforcement score',
     canClose: '',
     ...(errorMessage ? { error: errorMessage } : {}),

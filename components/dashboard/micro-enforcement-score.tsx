@@ -3,8 +3,24 @@
 import { useState, useEffect } from "react"
 import {
   Shield, Lock, Globe, Database, TrendingUp, ChevronDown, ChevronUp,
-  AlertTriangle, Zap, RotateCcw, Eye, AlertCircle, CheckCircle2, Target
+  AlertTriangle, Zap, RotateCcw, Eye, AlertCircle, CheckCircle2, Target,
+  ShieldAlert, ShieldCheck, Users, Crosshair
 } from "lucide-react"
+
+// ── Types ─────────────────────────────────────────────────────────────
+
+interface SeverityBuckets {
+  strongly_enforced: number
+  enforced_with_gaps: number
+  weakly_enforced: number
+  critically_exposed: number
+}
+
+interface LayerClassification {
+  provider_managed: number
+  critical_path: number
+  customer: number
+}
 
 interface LayerScore {
   score: number
@@ -14,7 +30,16 @@ interface LayerScore {
   gapPercent: number
   details: string
   riskLabel: string
-  items: Array<{ name: string; status: 'enforced' | 'exposed' | 'partial'; detail: string }>
+  severityBuckets: SeverityBuckets
+  classification: LayerClassification
+  items: Array<{
+    name: string
+    status: 'enforced' | 'exposed' | 'partial' | 'critical'
+    detail: string
+    resourceClass: 'provider_managed' | 'critical_path' | 'customer'
+    tier: string
+    riskWeight: number
+  }>
 }
 
 interface EnforcementAction {
@@ -32,15 +57,28 @@ interface EnforcementAction {
 
 interface EnforcementData {
   systemName: string
+  coverageScore: number
+  customerScore: number
+  criticalScore: number | null
   totalScore: number
   totalGap: number
   projected: {
-    totalScore: number
+    coverageScore: number
+    customerScore: number
+    criticalScore: number | null
+    improvement: number
     privilege: number
     network: number
     data: number
-    improvement: number
+    totalScore: number
   }
+  resourceClassification: {
+    provider_managed: number
+    critical_path: number
+    customer: number
+    total: number
+  }
+  enforcementTiers: SeverityBuckets
   layers: {
     privilege: LayerScore
     network: LayerScore
@@ -52,10 +90,14 @@ interface EnforcementData {
     reductionPercent: number
     primaryDriver: string
     riskStatement: string
+    criticalGaps: number
+    remediableGaps: number
   }
   headline: string
   canClose: string
 }
+
+// ── Constants ─────────────────────────────────────────────────────────
 
 const LAYER_CONFIG = {
   privilege: { label: "Privilege", icon: Lock, color: "#8B5CF6" },
@@ -69,6 +111,13 @@ const CONFIDENCE_CONFIG = {
   low: { label: "Low", color: "#f97316", bg: "bg-[#f9731615]", border: "border-[#f9731640]" },
 }
 
+const TIER_CONFIG = {
+  strongly_enforced: { label: "Strong", color: "#22c55e" },
+  enforced_with_gaps: { label: "Gaps", color: "#3b82f6" },
+  weakly_enforced: { label: "Weak", color: "#f97316" },
+  critically_exposed: { label: "Critical", color: "#ef4444" },
+}
+
 function getScoreColor(score: number): string {
   if (score >= 80) return "#22c55e"
   if (score >= 60) return "#eab308"
@@ -76,24 +125,76 @@ function getScoreColor(score: number): string {
   return "#ef4444"
 }
 
-function ScoreRing({ score, size = 120, strokeWidth = 10 }: { score: number; size?: number; strokeWidth?: number }) {
+// ── Score Ring ────────────────────────────────────────────────────────
+
+function ScoreRing({ score, size = 120, strokeWidth = 10, label }: {
+  score: number; size?: number; strokeWidth?: number; label?: string
+}) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const progress = (score / 100) * circumference
   const color = getScoreColor(score)
 
   return (
-    <svg width={size} height={size} className="transform -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
-      <circle
-        cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color}
-        strokeWidth={strokeWidth} strokeDasharray={circumference}
-        strokeDashoffset={circumference - progress} strokeLinecap="round"
-        className="transition-all duration-1000 ease-out"
-      />
-    </svg>
+    <div className="text-center">
+      {label && (
+        <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">{label}</p>
+      )}
+      <div className="relative inline-flex items-center justify-center">
+        <svg width={size} height={size} className="transform -rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
+          <circle
+            cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color}
+            strokeWidth={strokeWidth} strokeDasharray={circumference}
+            strokeDashoffset={circumference - progress} strokeLinecap="round"
+            className="transition-all duration-1000 ease-out"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-bold" style={{ color }}>{score}%</span>
+        </div>
+      </div>
+    </div>
   )
 }
+
+// ── Tier Bar (horizontal severity distribution) ──────────────────────
+
+function TierBar({ tiers }: { tiers: SeverityBuckets }) {
+  const total = tiers.strongly_enforced + tiers.enforced_with_gaps + tiers.weakly_enforced + tiers.critically_exposed
+  if (total === 0) return null
+
+  const segments = [
+    { key: "critically_exposed", count: tiers.critically_exposed, config: TIER_CONFIG.critically_exposed },
+    { key: "weakly_enforced", count: tiers.weakly_enforced, config: TIER_CONFIG.weakly_enforced },
+    { key: "enforced_with_gaps", count: tiers.enforced_with_gaps, config: TIER_CONFIG.enforced_with_gaps },
+    { key: "strongly_enforced", count: tiers.strongly_enforced, config: TIER_CONFIG.strongly_enforced },
+  ].filter(s => s.count > 0)
+
+  return (
+    <div>
+      <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
+        {segments.map(s => (
+          <div
+            key={s.key}
+            className="rounded-full transition-all duration-700"
+            style={{ width: `${(s.count / total) * 100}%`, backgroundColor: s.config.color }}
+          />
+        ))}
+      </div>
+      <div className="flex items-center justify-between mt-1.5">
+        {segments.map(s => (
+          <span key={s.key} className="flex items-center gap-1 text-[10px] text-[var(--muted-foreground,#6b7280)]">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.config.color }} />
+            {s.count} {s.config.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Action Card ──────────────────────────────────────────────────────
 
 function ActionCard({ action }: { action: EnforcementAction }) {
   const [expanded, setExpanded] = useState(false)
@@ -168,6 +269,8 @@ function ActionCard({ action }: { action: EnforcementAction }) {
   )
 }
 
+// ── Layer Row ────────────────────────────────────────────────────────
+
 function LayerRow({ layer, config, projected }: {
   layer: LayerScore
   config: typeof LAYER_CONFIG.privilege
@@ -189,7 +292,14 @@ function LayerRow({ layer, config, projected }: {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-semibold text-[var(--foreground,#111827)]">{config.label}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-[var(--foreground,#111827)]">{config.label}</span>
+              {layer.classification && layer.classification.critical_path > 0 && (
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-[#ef444415] text-[#ef4444] border border-[#ef444430]">
+                  {layer.classification.critical_path} critical
+                </span>
+              )}
+            </div>
             {!isNoData ? (
               <span className="text-base font-bold" style={{ color: getScoreColor(layer.score) }}>
                 {layer.score}%
@@ -233,15 +343,28 @@ function LayerRow({ layer, config, projected }: {
       {expanded && layer.items.length > 0 && (
         <div className="border-t border-[var(--border,#e5e7eb)] bg-[var(--muted,#f9fafb)] px-4 py-3 space-y-1.5">
           {layer.items.map((item, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs">
+            <div key={i} className={`flex items-center gap-2 text-xs ${
+              item.resourceClass === 'provider_managed' ? 'opacity-40' : ''
+            }`}>
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                 item.status === 'enforced' ? 'bg-[#22c55e]' :
-                item.status === 'partial' ? 'bg-[#eab308]' : 'bg-[#ef4444]'
+                item.status === 'partial' ? 'bg-[#3b82f6]' :
+                item.status === 'exposed' ? 'bg-[#f97316]' :
+                'bg-[#ef4444]'
               }`} />
               <span className="font-medium text-[var(--foreground,#374151)] truncate flex-1" title={item.name}>
                 {item.name}
               </span>
-              <span className="text-[var(--muted-foreground,#6b7280)] flex-shrink-0">{item.detail}</span>
+              {item.resourceClass === 'critical_path' && (
+                <Crosshair className="w-3 h-3 text-[#ef4444] flex-shrink-0" />
+              )}
+              {item.resourceClass === 'provider_managed' && (
+                <span className="text-[9px] text-[var(--muted-foreground,#9ca3af)] flex-shrink-0">AWS</span>
+              )}
+              <span className="text-[var(--muted-foreground,#6b7280)] flex-shrink-0 text-right max-w-[200px] truncate"
+                title={item.detail}>
+                {item.detail}
+              </span>
             </div>
           ))}
         </div>
@@ -249,6 +372,8 @@ function LayerRow({ layer, config, projected }: {
     </div>
   )
 }
+
+// ── Main Component ──────────────────────────────────────────────────
 
 interface MicroEnforcementScoreProps {
   systemName?: string
@@ -300,8 +425,10 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
     )
   }
 
-  const scoreColor = getScoreColor(data.totalScore)
-  const projectedColor = getScoreColor(data.projected.totalScore)
+  const customerColor = getScoreColor(data.customerScore)
+  const projectedColor = getScoreColor(data.projected.customerScore)
+  const rc = data.resourceClassification
+  const customerCount = rc.customer + rc.critical_path
 
   return (
     <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] shadow-sm overflow-hidden">
@@ -311,57 +438,125 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
           <div className="flex items-center gap-2">
             <Shield className="w-5 h-5 text-[#8b5cf6]" />
             <h3 className="text-sm font-semibold text-[var(--foreground,#111827)] uppercase tracking-wide">
-              Micro-Enforcement Score
+              Enforcement Score
             </h3>
           </div>
           <span className="text-xs bg-[#8b5cf6] text-white px-2 py-1 rounded-full font-medium">LIVE</span>
         </div>
-        {/* Risk statement instead of bland headline */}
         <p className="text-xs text-[#ef4444] font-medium mt-1">{data.impact?.riskStatement || data.headline}</p>
       </div>
 
-      {/* ── Score Hero + Risk Summary ── */}
+      {/* ── 3-Score Hero ── */}
       <div className="px-6 py-5 border-b border-[var(--border,#e5e7eb)]">
-        <div className="flex items-center justify-center gap-8">
+        {/* Primary: Customer Score → Projected */}
+        <div className="flex items-center justify-center gap-8 mb-4">
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">Today</p>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">
+              Your Resources
+            </p>
             <div className="relative inline-flex items-center justify-center">
-              <ScoreRing score={data.totalScore} size={110} strokeWidth={8} />
+              <ScoreRing score={data.customerScore} size={110} strokeWidth={8} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold" style={{ color: scoreColor }}>{data.totalScore}%</span>
+                <span className="text-2xl font-bold" style={{ color: customerColor }}>{data.customerScore}%</span>
                 <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">enforced</span>
               </div>
             </div>
           </div>
+
           <div className="flex flex-col items-center gap-1">
             <TrendingUp className="w-5 h-5 text-[#22c55e]" />
             <span className="text-xs font-bold text-[#22c55e]">+{data.projected.improvement}%</span>
           </div>
+
           <div className="text-center">
-            <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">With Cyntro</p>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">
+              With Cyntro
+            </p>
             <div className="relative inline-flex items-center justify-center">
-              <ScoreRing score={data.projected.totalScore} size={110} strokeWidth={8} />
+              <ScoreRing score={data.projected.customerScore} size={110} strokeWidth={8} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold" style={{ color: projectedColor }}>{data.projected.totalScore}%</span>
+                <span className="text-2xl font-bold" style={{ color: projectedColor }}>{data.projected.customerScore}%</span>
                 <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">projected</span>
               </div>
             </div>
           </div>
         </div>
-        {data.impact && data.impact.reductionPercent > 0 && (
-          <div className="mt-3 flex items-center justify-center gap-4 text-[11px]">
-            <span className="flex items-center gap-1 text-[#22c55e] font-medium">
-              <Target className="w-3.5 h-3.5" />
-              Reduces exposure by {data.impact.reductionPercent}%
-            </span>
-            <span className="text-[var(--border,#d1d5db)]">|</span>
-            <span className="flex items-center gap-1 text-[var(--muted-foreground,#6b7280)]">
-              <Zap className="w-3.5 h-3.5" />
-              Primary driver: {data.impact.primaryDriver}
+
+        {/* Secondary scores row */}
+        <div className="flex items-center justify-center gap-6 mb-4">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--muted,#f9fafb)] border border-[var(--border,#e5e7eb)]">
+            <ShieldCheck className="w-3.5 h-3.5 text-[var(--muted-foreground,#9ca3af)]" />
+            <span className="text-[11px] text-[var(--muted-foreground,#6b7280)]">
+              Overall Coverage: <span className="font-semibold text-[var(--foreground,#374151)]">{data.coverageScore}%</span>
             </span>
           </div>
-        )}
+          {data.criticalScore !== null && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#ef444408] border border-[#ef444420]">
+              <ShieldAlert className="w-3.5 h-3.5 text-[#ef4444]" />
+              <span className="text-[11px] text-[var(--muted-foreground,#6b7280)]">
+                Critical Surface: <span className="font-semibold text-[#ef4444]">{data.criticalScore}%</span>
+                {data.projected.criticalScore !== null && data.projected.criticalScore > data.criticalScore && (
+                  <span className="text-[#22c55e] ml-1">
+                    → {data.projected.criticalScore}%
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Resource classification summary */}
+        <div className="flex items-center justify-center gap-4 text-[10px] text-[var(--muted-foreground,#9ca3af)]">
+          <span className="flex items-center gap-1">
+            <Users className="w-3 h-3" />
+            {customerCount} customer resources
+          </span>
+          <span className="text-[var(--border,#d1d5db)]">|</span>
+          <span className="flex items-center gap-1">
+            <Crosshair className="w-3 h-3 text-[#ef4444]" />
+            {rc.critical_path} on attack path
+          </span>
+          <span className="text-[var(--border,#d1d5db)]">|</span>
+          <span>{rc.provider_managed} AWS-managed (excluded)</span>
+        </div>
       </div>
+
+      {/* ── Severity Distribution ── */}
+      {data.enforcementTiers && (
+        <div className="px-6 py-3 border-b border-[var(--border,#e5e7eb)]">
+          <TierBar tiers={data.enforcementTiers} />
+        </div>
+      )}
+
+      {/* ── Improvement Detail (only if there's meaningful improvement) ── */}
+      {data.impact && data.impact.reductionPercent > 0 && (
+        <div className="px-6 py-3 border-b border-[var(--border,#e5e7eb)] bg-[#22c55e08]">
+          <div className="flex items-center justify-center gap-4 text-[11px]">
+            <span className="flex items-center gap-1 text-[#22c55e] font-medium">
+              <Target className="w-3.5 h-3.5" />
+              Closes {data.impact.reductionPercent}% of customer gaps
+            </span>
+            {data.impact.criticalGaps > 0 && (
+              <>
+                <span className="text-[var(--border,#d1d5db)]">|</span>
+                <span className="flex items-center gap-1 text-[var(--muted-foreground,#6b7280)]">
+                  <Crosshair className="w-3.5 h-3.5 text-[#ef4444]" />
+                  {data.impact.criticalGaps} critical-path resources
+                </span>
+              </>
+            )}
+            {data.impact.remediableGaps > 0 && (
+              <>
+                <span className="text-[var(--border,#d1d5db)]">|</span>
+                <span className="flex items-center gap-1 text-[var(--muted-foreground,#6b7280)]">
+                  <Zap className="w-3.5 h-3.5" />
+                  {data.impact.remediableGaps} auto-remediable
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Top Enforcement Actions ── */}
       {data.actions && data.actions.length > 0 && (
