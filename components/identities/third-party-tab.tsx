@@ -37,7 +37,7 @@ interface ThirdPartyIdentity {
   confidence: number
 }
 
-export function ThirdPartyTab({ onRequestRemediation }: { onRequestRemediation?: (data: any) => void }) {
+export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestRemediation?: (data: any) => void; systemName?: string }) {
   const [identities, setIdentities] = useState<ThirdPartyIdentity[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -73,7 +73,11 @@ export function ThirdPartyTab({ onRequestRemediation }: { onRequestRemediation?:
     }
   }
 
-  const filtered = identities.filter((i) => {
+  const scopedIdentities = systemName
+    ? identities.filter((i) => (i.system_name || "").trim().toLowerCase() === systemName.trim().toLowerCase())
+    : identities
+
+  const filtered = scopedIdentities.filter((i) => {
     if (!searchQuery) return true
     const q = searchQuery.toLowerCase()
     return i.name.toLowerCase().includes(q) || i.arn.toLowerCase().includes(q) || (i.system_name || "").toLowerCase().includes(q)
@@ -86,7 +90,7 @@ export function ThirdPartyTab({ onRequestRemediation }: { onRequestRemediation?:
 
   // Extract unique external account IDs from trust principals
   const externalAccounts = new Set<string>()
-  identities.forEach(i => {
+  scopedIdentities.forEach(i => {
     i.trust_principals.forEach(p => {
       const match = p.match(/arn:aws:iam::(\d+):/)
       if (match) externalAccounts.add(match[1])
@@ -113,7 +117,7 @@ export function ThirdPartyTab({ onRequestRemediation }: { onRequestRemediation?:
             <ExternalLink className="w-5 h-5" style={{ color: "#06b6d4" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Cross-Account Roles</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{identities.length}</div>
+          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{scopedIdentities.length}</div>
         </div>
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
@@ -127,19 +131,19 @@ export function ThirdPartyTab({ onRequestRemediation }: { onRequestRemediation?:
             <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Admin Cross-Account</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{identities.filter(i => i.is_admin).length}</div>
+          <div className="text-2xl font-bold" style={{ color: "#ef4444" }}>{scopedIdentities.filter(i => i.is_admin).length}</div>
         </div>
       </div>
 
       {/* Info Banner */}
-      {identities.length > 0 && (
+      {scopedIdentities.length > 0 && (
         <div className="rounded-xl p-5 border-2" style={{ background: "#06b6d410", borderColor: "#06b6d4" }}>
           <div className="flex items-start gap-3">
             <Globe className="w-6 h-6 flex-shrink-0" style={{ color: "#06b6d4" }} />
             <div>
               <h3 className="font-semibold mb-1" style={{ color: "#06b6d4" }}>External Access Detected</h3>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {identities.length} roles can be assumed by external AWS accounts or third-party services.
+                {scopedIdentities.length} roles can be assumed by external AWS accounts or third-party services.
                 Review these regularly to ensure only authorized access is maintained.
               </p>
             </div>

@@ -10,6 +10,7 @@ interface CreateAutomationWizardProps {
   onClose: () => void
   onSave: (data: CreateRuleData) => Promise<void>
   editingRule?: AutomationRule | null
+  lockedSystemName?: string
 }
 
 interface SystemItem {
@@ -36,7 +37,7 @@ const CRITICALITIES = [
 
 const TOTAL_STEPS = 5
 
-export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }: CreateAutomationWizardProps) {
+export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule, lockedSystemName }: CreateAutomationWizardProps) {
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
   const [systems, setSystems] = useState<SystemItem[]>([])
@@ -85,7 +86,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
           name: "",
           selectedEnvironments: [],
           selectedCriticalities: [],
-          selectedSystems: [],
+          selectedSystems: lockedSystemName ? [lockedSystemName] : [],
           minSeverity: "Critical",
           minConfidence: 95,
           useCanary: false,
@@ -99,7 +100,7 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
         })
       }
     }
-  }, [isOpen, editingRule])
+  }, [isOpen, editingRule, lockedSystemName])
 
   // Normalize backend environment values to wizard filter IDs
   const normalizeEnvironment = (env: string): string => {
@@ -146,18 +147,20 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
 
   if (!isOpen || !mounted) return null
 
-  const filteredSystems = systems.filter(
-    (s) =>
-      (formData.selectedEnvironments.length === 0 || formData.selectedEnvironments.includes(s.environment)) &&
-      (formData.selectedCriticalities.length === 0 || formData.selectedCriticalities.includes(s.criticality))
-  )
+  const filteredSystems = (lockedSystemName
+    ? systems.filter((s) => s.name === lockedSystemName)
+    : systems.filter(
+        (s) =>
+          (formData.selectedEnvironments.length === 0 || formData.selectedEnvironments.includes(s.environment)) &&
+          (formData.selectedCriticalities.length === 0 || formData.selectedCriticalities.includes(s.criticality))
+      ))
 
   const handleSubmit = async () => {
     setSaving(true)
     try {
       await onSave({
         name: formData.name,
-        target_systems: formData.selectedSystems,
+        target_systems: lockedSystemName ? [lockedSystemName] : formData.selectedSystems,
         system_tags: [],
         selected_environments: formData.selectedEnvironments,
         selected_criticalities: formData.selectedCriticalities,
@@ -313,7 +316,9 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                   Step 3: Select Systems
                 </h3>
                 <p className="text-sm mb-4" style={{ color: "#94a3b8" }}>
-                  {loadingSystems
+                  {lockedSystemName
+                    ? `New rules from this view are scoped to ${lockedSystemName}`
+                    : loadingSystems
                     ? "Loading systems..."
                     : `${filteredSystems.length} system(s) matching your filters`}
                 </p>
@@ -337,7 +342,16 @@ export function CreateAutomationWizard({ isOpen, onClose, onSave, editingRule }:
                   </div>
                 ) : null}
 
-                {loadingSystems ? (
+                {lockedSystemName ? (
+                  <div className="space-y-2">
+                    <div className="p-4 rounded-lg border" style={{ borderColor: "#8B5CF6", background: "rgba(139, 92, 246, 0.08)" }}>
+                      <div className="font-medium" style={{ color: "#f1f5f9" }}>{lockedSystemName}</div>
+                      <div className="text-sm mt-1" style={{ color: "#94a3b8" }}>
+                        This rule will be created for the current system only.
+                      </div>
+                    </div>
+                  </div>
+                ) : loadingSystems ? (
                   <div className="space-y-2">
                     {[1, 2, 3].map((i) => (
                       <div key={i} className="p-3 rounded-lg animate-pulse" style={{ background: "#374151" }}>

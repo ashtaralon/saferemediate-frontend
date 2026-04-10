@@ -43,7 +43,7 @@ interface HumanIdentity {
   confidence: number
 }
 
-export function HumanIdentitiesTab({ onRequestRemediation }: { onRequestRemediation?: (data: any) => void }) {
+export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onRequestRemediation?: (data: any) => void; systemName?: string }) {
   const [identities, setIdentities] = useState<HumanIdentity[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -80,7 +80,11 @@ export function HumanIdentitiesTab({ onRequestRemediation }: { onRequestRemediat
     }
   }
 
-  const filtered = identities.filter((i) => {
+  const scopedIdentities = systemName
+    ? identities.filter((i) => (i.system_name || "").trim().toLowerCase() === systemName.trim().toLowerCase())
+    : identities
+
+  const filtered = scopedIdentities.filter((i) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       if (!i.name.toLowerCase().includes(q) && !i.arn.toLowerCase().includes(q) && !(i.system_name || "").toLowerCase().includes(q)) return false
@@ -94,10 +98,10 @@ export function HumanIdentitiesTab({ onRequestRemediation }: { onRequestRemediat
     setShowPermissionModal(true)
   }
 
-  const totalHumans = identities.length
-  const adminCount = identities.filter(i => i.is_admin).length
-  const federatedCount = identities.filter(i => i.sub_type === "Federated User").length
-  const inactiveCount = identities.filter(i => i.last_activity === "Never" || !i.last_activity).length
+  const totalHumans = scopedIdentities.length
+  const adminCount = scopedIdentities.filter(i => i.is_admin).length
+  const federatedCount = scopedIdentities.filter(i => i.sub_type === "Federated User").length
+  const inactiveCount = scopedIdentities.filter(i => i.last_activity === "Never" || !i.last_activity).length
 
   if (loading) {
     return (

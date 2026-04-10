@@ -29,9 +29,10 @@ type TabId = typeof TABS[number]["id"]
 
 interface IdentitiesSectionProps {
   onRequestRemediation?: (data: any) => void
+  systemName?: string
 }
 
-export function IdentitiesSection({ onRequestRemediation }: IdentitiesSectionProps) {
+export function IdentitiesSection({ onRequestRemediation, systemName }: IdentitiesSectionProps) {
   const [activeTab, setActiveTab] = useState<TabId>("overview")
   const [syncing, setSyncing] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
@@ -92,15 +93,15 @@ export function IdentitiesSection({ onRequestRemediation }: IdentitiesSectionPro
   const renderTab = () => {
     switch (activeTab) {
       case "overview":
-        return <IdentitiesOverviewTab onTabChange={(tab) => setActiveTab(tab as TabId)} />
+        return <IdentitiesOverviewTab systemName={systemName} onTabChange={(tab) => setActiveTab(tab as TabId)} />
       case "nhi":
-        return <NHITab onRequestRemediation={onRequestRemediation} />
+        return <NHITab systemName={systemName} onRequestRemediation={onRequestRemediation} />
       case "human":
-        return <HumanIdentitiesTab onRequestRemediation={onRequestRemediation} />
+        return <HumanIdentitiesTab systemName={systemName} onRequestRemediation={onRequestRemediation} />
       case "third-party":
-        return <ThirdPartyTab onRequestRemediation={onRequestRemediation} />
+        return <ThirdPartyTab systemName={systemName} onRequestRemediation={onRequestRemediation} />
       case "privileged":
-        return <PrivilegedAccessTab onRequestRemediation={onRequestRemediation} />
+        return <PrivilegedAccessTab systemName={systemName} onRequestRemediation={onRequestRemediation} />
       default:
         return null
     }
@@ -112,10 +113,12 @@ export function IdentitiesSection({ onRequestRemediation }: IdentitiesSectionPro
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold mb-2" style={{ color: "var(--text-primary)" }}>
-            Identity & Access Management
+            {systemName ? `${systemName} Identities` : "Identity & Access Management"}
           </h1>
           <p style={{ color: "var(--text-secondary)" }}>
-            Discover, classify, and secure all identities — human and non-human — across your cloud environment
+            {systemName
+              ? `Discover, classify, and secure all identities connected to ${systemName}`
+              : "Discover, classify, and secure all identities — human and non-human — across your cloud environment"}
           </p>
         </div>
         <div className="flex items-center gap-3">

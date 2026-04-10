@@ -71,6 +71,7 @@ interface IdentityDetail {
 
 interface NHITabProps {
   onRequestRemediation?: (data: any) => void
+  systemName?: string
 }
 
 const SUB_TYPE_ICONS: Record<string, any> = {
@@ -103,7 +104,7 @@ const DAMAGE_COLORS: Record<string, string> = {
   READ: "#3b82f6",
 }
 
-export function NHITab({ onRequestRemediation }: NHITabProps) {
+export function NHITab({ onRequestRemediation, systemName }: NHITabProps) {
   const router = useRouter()
   const [identities, setIdentities] = useState<NHIdentity[]>([])
   const [loading, setLoading] = useState(true)
@@ -276,9 +277,13 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
 
   const getSubTypeIcon = (subType: string) => SUB_TYPE_ICONS[subType] || Bot
 
-  const subTypes = [...new Set(identities.map(i => i.sub_type))].sort()
+  const scopedIdentities = systemName
+    ? identities.filter((i) => (i.system_name || "").trim().toLowerCase() === systemName.trim().toLowerCase())
+    : identities
 
-  const filtered = identities.filter((i) => {
+  const subTypes = [...new Set(scopedIdentities.map(i => i.sub_type))].sort()
+
+  const filtered = scopedIdentities.filter((i) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       if (
@@ -303,11 +308,11 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
   }
 
   // Stats
-  const totalNHIs = identities.length
-  const criticalCount = identities.filter(i => i.risk_level === "Critical").length
-  const totalUnused = identities.reduce((s, i) => s + i.unused_permissions_count, 0)
-  const avgGap = identities.length > 0
-    ? Math.round(identities.reduce((s, i) => s + i.gap_percentage, 0) / identities.length)
+  const totalNHIs = scopedIdentities.length
+  const criticalCount = scopedIdentities.filter(i => i.risk_level === "Critical").length
+  const totalUnused = scopedIdentities.reduce((s, i) => s + i.unused_permissions_count, 0)
+  const avgGap = scopedIdentities.length > 0
+    ? Math.round(scopedIdentities.reduce((s, i) => s + i.gap_percentage, 0) / scopedIdentities.length)
     : 0
 
   if (loading) {
@@ -392,7 +397,7 @@ export function NHITab({ onRequestRemediation }: NHITabProps) {
             <option value="all">All NHI Types</option>
             {subTypes.map((st) => <option key={st} value={st}>{st}</option>)}
           </select>
-          <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{filtered.length} of {identities.length}</span>
+          <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{filtered.length} of {scopedIdentities.length}</span>
         </div>
       </div>
 

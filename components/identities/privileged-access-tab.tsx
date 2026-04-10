@@ -41,7 +41,7 @@ interface PrivilegedIdentity {
   confidence: number
 }
 
-export function PrivilegedAccessTab({ onRequestRemediation }: { onRequestRemediation?: (data: any) => void }) {
+export function PrivilegedAccessTab({ onRequestRemediation, systemName }: { onRequestRemediation?: (data: any) => void; systemName?: string }) {
   const [identities, setIdentities] = useState<PrivilegedIdentity[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -90,7 +90,11 @@ export function PrivilegedAccessTab({ onRequestRemediation }: { onRequestRemedia
     return "#8b5cf6"
   }
 
-  const filtered = identities.filter((i) => {
+  const scopedIdentities = systemName
+    ? identities.filter((i) => (i.system_name || "").trim().toLowerCase() === systemName.trim().toLowerCase())
+    : identities
+
+  const filtered = scopedIdentities.filter((i) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       if (!i.name.toLowerCase().includes(q) && !i.arn.toLowerCase().includes(q) && !(i.system_name || "").toLowerCase().includes(q)) return false
@@ -107,10 +111,10 @@ export function PrivilegedAccessTab({ onRequestRemediation }: { onRequestRemedia
     setShowPermissionModal(true)
   }
 
-  const adminCount = identities.filter(i => i.is_admin).length
-  const wildcardCount = identities.filter(i => i.has_wildcard).length
-  const nhiPriv = identities.filter(i => i.identity_type === "NHI").length
-  const totalUnused = identities.reduce((s, i) => s + i.unused_permissions_count, 0)
+  const adminCount = scopedIdentities.filter(i => i.is_admin).length
+  const wildcardCount = scopedIdentities.filter(i => i.has_wildcard).length
+  const nhiPriv = scopedIdentities.filter(i => i.identity_type === "NHI").length
+  const totalUnused = scopedIdentities.reduce((s, i) => s + i.unused_permissions_count, 0)
 
   if (loading) {
     return (
@@ -132,7 +136,7 @@ export function PrivilegedAccessTab({ onRequestRemediation }: { onRequestRemedia
             <Crown className="w-5 h-5" style={{ color: "#ef4444" }} />
             <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Total Privileged</span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{identities.length}</div>
+          <div className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>{scopedIdentities.length}</div>
         </div>
         <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
           <div className="flex items-center gap-2 mb-2">
@@ -158,14 +162,14 @@ export function PrivilegedAccessTab({ onRequestRemediation }: { onRequestRemedia
       </div>
 
       {/* Warning */}
-      {identities.length > 0 && (
+      {scopedIdentities.length > 0 && (
         <div className="rounded-xl p-5 border-2" style={{ background: "#ef444410", borderColor: "#ef4444" }}>
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-6 h-6 flex-shrink-0" style={{ color: "#ef4444" }} />
             <div>
               <h3 className="font-semibold mb-1" style={{ color: "#ef4444" }}>Privileged Access Alert</h3>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                {identities.length} identities have admin-level or wildcard permissions.
+                {scopedIdentities.length} identities have admin-level or wildcard permissions.
                 {nhiPriv > 0 && ` ${nhiPriv} are non-human (machine) identities — high-priority for review.`}
                 {totalUnused > 0 && ` ${totalUnused.toLocaleString()} unused privileged permissions can be removed.`}
               </p>

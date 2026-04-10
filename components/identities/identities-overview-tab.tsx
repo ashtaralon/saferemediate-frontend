@@ -36,23 +36,89 @@ interface OverviewData {
 
 interface IdentitiesOverviewTabProps {
   onTabChange?: (tab: string) => void
+  systemName?: string
 }
 
-export function IdentitiesOverviewTab({ onTabChange }: IdentitiesOverviewTabProps) {
+export function IdentitiesOverviewTab({ onTabChange, systemName }: IdentitiesOverviewTabProps) {
   const [data, setData] = useState<OverviewData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchOverview()
-  }, [])
+  }, [systemName])
+
+  const matchesSystem = (identitySystemName: string | null | undefined) => {
+    if (!systemName) return true
+    return (identitySystemName || "").trim().toLowerCase() === systemName.trim().toLowerCase()
+  }
 
   const fetchOverview = async () => {
     try {
       setLoading(true)
-      const res = await fetch("/api/proxy/identities/overview")
-      if (!res.ok) throw new Error("Failed to fetch overview")
-      const json = await res.json()
-      setData(json)
+      if (!systemName) {
+        const res = await fetch("/api/proxy/identities/overview")
+        if (!res.ok) throw new Error("Failed to fetch overview")
+        const json = await res.json()
+        setData(json)
+        return
+      }
+
+      const [nhiRes, humanRes, thirdPartyRes, privilegedRes] = await Promise.all([
+        fetch("/api/proxy/identities/nhi"),
+        fetch("/api/proxy/identities/human"),
+        fetch("/api/proxy/identities/third-party"),
+        fetch("/api/proxy/identities/privileged"),
+      ])
+
+      const [nhiRaw, humanRaw, thirdPartyRaw, privilegedRaw] = await Promise.all([
+        nhiRes.ok ? nhiRes.json() : [],
+        humanRes.ok ? humanRes.json() : [],
+        thirdPartyRes.ok ? thirdPartyRes.json() : [],
+        privilegedRes.ok ? privilegedRes.json() : [],
+      ])
+
+      const nhi = (Array.isArray(nhiRaw) ? nhiRaw : []).filter((i: any) => matchesSystem(i.system_name))
+      const human = (Array.isArray(humanRaw) ? humanRaw : []).filter((i: any) => matchesSystem(i.system_name))
+      const thirdParty = (Array.isArray(thirdPartyRaw) ? thirdPartyRaw : []).filter((i: any) => matchesSystem(i.system_name))
+      const privileged = (Array.isArray(privilegedRaw) ? privilegedRaw : []).filter((i: any) => matchesSystem(i.system_name))
+
+      const baseIdentities = [...nhi, ...human, ...thirdParty]
+      const riskCounts = baseIdentities.reduce((acc: Record<string, number>, identity: any) => {
+        const risk = String(identity.risk_level || "low").toLowerCase()
+        acc[risk] = (acc[risk] || 0) + 1
+        return acc
+      }, {})
+
+      const nhiBreakdown = nhi.reduce((acc: Record<string, number>, identity: any) => {
+        const subType = identity.sub_type || "Other"
+        acc[subType] = (acc[subType] || 0) + 1
+        return acc
+      }, {})
+
+      const totalPermissions = baseIdentities.reduce((sum: number, identity: any) => sum + (identity.permissions_count || 0), 0)
+      const totalUnusedPermissions = baseIdentities.reduce((sum: number, identity: any) => sum + (identity.unused_permissions_count || 0), 0)
+
+      setData({
+        total_identities: baseIdentities.length,
+        nhi_count: nhi.length,
+        human_count: human.length,
+        third_party_count: thirdParty.length,
+        privileged_count: privileged.length,
+        critical_risk_count: riskCounts.critical || 0,
+        high_risk_count: riskCounts.high || 0,
+        medium_risk_count: riskCounts.medium || 0,
+        low_risk_count: riskCounts.low || 0,
+        total_permissions: totalPermissions,
+        total_unused_permissions: totalUnusedPermissions,
+        avg_gap_percentage: baseIdentities.length > 0
+          ? baseIdentities.reduce((sum: number, identity: any) => sum + (identity.gap_percentage || 0), 0) / baseIdentities.length
+          : 0,
+        admin_identities: baseIdentities.filter((identity: any) => identity.is_admin).length,
+        wildcard_identities: baseIdentities.filter((identity: any) => identity.has_wildcard).length,
+        cross_account_identities: baseIdentities.filter((identity: any) => identity.is_cross_account).length,
+        nhi_breakdown: nhiBreakdown,
+        risk_distribution: riskCounts,
+      })
     } catch (err) {
       console.error("Error fetching identity overview:", err)
     } finally {

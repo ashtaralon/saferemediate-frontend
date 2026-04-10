@@ -12,6 +12,7 @@ import {
   Server,
   Database,
   Shield,
+  Users,
   Network,
   Tag,
   Activity,
@@ -64,6 +65,45 @@ const LeastPrivilegeTab = dynamic(() => import("./LeastPrivilegeTab"), {
     </div>
   ),
 })
+
+const IdentitiesSectionTab = dynamic(
+  () => import("./identities-section").then((mod) => ({ default: mod.IdentitiesSection })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading identities...</span>
+      </div>
+    ),
+  }
+)
+
+const SharedResourceTab = dynamic(
+  () => import("./per-resource-analysis").then((mod) => ({ default: mod.PerResourceAnalysis })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading shared resources...</span>
+      </div>
+    ),
+  }
+)
+
+const AutomationSectionTab = dynamic(
+  () => import("./automation-section").then((mod) => ({ default: mod.AutomationSection })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+        <span className="ml-3 text-slate-600">Loading automation...</span>
+      </div>
+    ),
+  }
+)
 
 const VulnerabilitiesSection = dynamic(
   () => import("./vulnerabilities-section").then((mod) => ({ default: mod.VulnerabilitiesSection })),
@@ -1002,14 +1042,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture + Behavioral Intelligence
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "issues", label: "Issues", icon: AlertTriangle },
-    { id: "cloud-graph", label: "Cloud Graph", icon: Cloud },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
+    { id: "identities", label: "Identities", icon: Users },
+    { id: "resource", label: "Resource", icon: Wrench },
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "orphan-services", label: "Orphan Services", icon: Unplug },
     { id: "dependency-map", label: "Dependency Map", icon: Map },
-    { id: "snapshots", label: "Snapshots & Recovery", icon: Camera },
+    { id: "automation", label: "Automation", icon: Zap },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
   ]
 
@@ -1801,35 +1841,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </>
       )}
 
-      {/* Issues Tab Content */}
-      {activeTab === "issues" && (
-        <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
-          {/* All Issues - Only Real Issues from Backend */}
-          <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">All Issues</h3>
-                <span className="px-2 py-1 bg-gray-100 text-[var(--foreground,#374151)] text-xs font-medium rounded-full">
-                  {securityFindings.length} total
-                </span>
-              </div>
-              {loadingFindings && (
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-              )}
-            </div>
-            {securityFindings.length > 0 ? (
-              <SecurityFindingsList findings={securityFindings} />
-            ) : (
-              <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
-                <p>No security issues found for this system.</p>
-              </div>
-            )}
-          </div>
-
-        </div>
-      )}
-
       {/* Render the LeastPrivilegeTab component */}
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
@@ -1837,15 +1848,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </div>
       )}
 
-      {activeTab === "vulnerabilities" && (
-        <div className="max-w-[1800px] mx-auto px-8 py-3">
-          <VulnerabilitiesSection key={refreshKey} systemName={systemName} />
+      {activeTab === "identities" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <IdentitiesSectionTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 
-      {activeTab === "cloud-graph" && (
+      {activeTab === "resource" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <CloudGraphTab key={refreshKey} systemName={systemName} />
+          <SharedResourceTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "vulnerabilities" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-3">
+          <VulnerabilitiesSection key={refreshKey} systemName={systemName} />
         </div>
       )}
 
@@ -1880,9 +1897,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         </div>
       )}
 
-      {activeTab === "snapshots" && (
+
+      {activeTab === "automation" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SnapshotsRecoveryTab key={refreshKey} systemName={systemName} />
+          <AutomationSectionTab
+            key={`${systemName}-${refreshKey}`}
+            systemName={systemName}
+            systemEnvironment={systemMeta.environment}
+            systemCriticality={systemMeta.criticality}
+          />
         </div>
       )}
 
