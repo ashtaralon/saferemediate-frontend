@@ -127,8 +127,8 @@ function getScoreColor(score: number): string {
 
 // ── Score Ring ────────────────────────────────────────────────────────
 
-function ScoreRing({ score, size = 120, strokeWidth = 10, label }: {
-  score: number; size?: number; strokeWidth?: number; label?: string
+function ScoreRing({ score, size = 120, strokeWidth = 10 }: {
+  score: number; size?: number; strokeWidth?: number
 }) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
@@ -136,24 +136,14 @@ function ScoreRing({ score, size = 120, strokeWidth = 10, label }: {
   const color = getScoreColor(score)
 
   return (
-    <div className="text-center">
-      {label && (
-        <p className="text-[10px] uppercase tracking-widest text-[var(--muted-foreground,#9ca3af)] mb-2 font-medium">{label}</p>
-      )}
-      <div className="relative inline-flex items-center justify-center">
-        <svg width={size} height={size} className="transform -rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
-          <circle
-            cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color}
-            strokeWidth={strokeWidth} strokeDasharray={circumference}
-            strokeDashoffset={circumference - progress} strokeLinecap="round"
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[22px] font-bold" style={{ color: '#111827' }}>{score}%</span>
-        </div>
-      </div>
-    </div>
+    <svg width={size} height={size} className="transform -rotate-90">
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
+      <circle
+        cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={color}
+        strokeWidth={strokeWidth} strokeDasharray={circumference}
+        strokeDashoffset={circumference - progress} strokeLinecap="round"
+      />
+    </svg>
   )
 }
 
@@ -456,8 +446,8 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
             <div className="relative inline-flex items-center justify-center">
               <ScoreRing score={data.customerScore} size={110} strokeWidth={8} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold" style={{ color: customerColor }}>{data.customerScore}%</span>
-                <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">enforced</span>
+                <span className="text-[22px] font-bold" style={{ color: '#111827' }}>{data.customerScore}%</span>
+                <span className="text-[10px]" style={{ color: '#9ca3af' }}>enforced</span>
               </div>
             </div>
           </div>
@@ -474,8 +464,8 @@ export function MicroEnforcementScore({ systemName = "alon-prod" }: MicroEnforce
             <div className="relative inline-flex items-center justify-center">
               <ScoreRing score={data.projected.customerScore} size={110} strokeWidth={8} />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold" style={{ color: projectedColor }}>{data.projected.customerScore}%</span>
-                <span className="text-[10px] text-[var(--muted-foreground,#9ca3af)]">projected</span>
+                <span className="text-[22px] font-bold" style={{ color: '#111827' }}>{data.projected.customerScore}%</span>
+                <span className="text-[10px]" style={{ color: '#9ca3af' }}>projected</span>
               </div>
             </div>
           </div>
