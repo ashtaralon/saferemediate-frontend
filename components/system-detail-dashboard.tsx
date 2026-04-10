@@ -1042,9 +1042,9 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture + Behavioral Intelligence
   const tabs = [
     { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "identities", label: "Identities", icon: Users },
-    { id: "resource", label: "Resource", icon: Wrench },
+    { id: "resource", label: "Shared Resource", icon: Wrench },
+    { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "orphan-services", label: "Orphan Services", icon: Unplug },
