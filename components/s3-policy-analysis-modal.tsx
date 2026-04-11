@@ -16,6 +16,9 @@ interface PolicyAnalysis {
   access_count: number
   last_accessed?: string
   is_public?: boolean
+  principal?: string
+  actions?: string[]
+  actions_used?: string[]
 }
 
 interface S3GapAnalysisData {
@@ -758,6 +761,8 @@ export function S3PolicyAnalysisModal({
             <AnalysisTab
               bucketName={bucketName}
               gapData={gapData}
+              accessData={accessData}
+              policyData={policyData}
               usedCount={usedCount}
               unusedCount={unusedCount}
               usedPercent={usedPercent}
@@ -888,6 +893,8 @@ export function S3PolicyAnalysisModal({
 function AnalysisTab({
   bucketName,
   gapData,
+  accessData,
+  policyData,
   usedCount,
   unusedCount,
   usedPercent,
@@ -904,6 +911,8 @@ function AnalysisTab({
 }: {
   bucketName: string
   gapData: S3GapAnalysisData | null
+  accessData: AccessData | null
+  policyData: BucketPolicyData | null
   usedCount: number
   unusedCount: number
   usedPercent: number
@@ -918,6 +927,22 @@ function AnalysisTab({
   startDate: Date
   endDate: Date
 }) {
+  const publicUsedPolicies = usedPolicies.filter(policy => policy.is_public)
+  const observedPrincipals = (accessData?.topPrincipals ?? []).map(principal => principal.principal).filter(Boolean)
+  const observedActions = Array.from(new Set(
+    (accessData?.topPrincipals ?? []).flatMap(principal =>
+      (principal.actionCounts ?? []).map(action => action.action)
+    )
+  ))
+  const publicPolicyActions = Array.from(new Set(
+    publicUsedPolicies.flatMap(policy => policy.actions_used?.length ? policy.actions_used : (policy.actions ?? []))
+  ))
+  const publicAccessBlockDisabled = policyData?.public_access_block
+    ? Object.entries(policyData.public_access_block)
+        .filter(([, enabled]) => !enabled)
+        .map(([key]) => key)
+    : []
+
   return (
     <>
       {/* Recording Period Banner */}
@@ -1002,6 +1027,60 @@ function AnalysisTab({
                 This bucket has no unused policies based on {observationDays} days of access analysis.
                 No remediation is needed.
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasPublicAccess && (
+        <div className="mx-6 mt-4 p-5 bg-[#fff7ed] border-2 border-[#fdba74] rounded-xl">
+          <div className="flex items-start gap-3">
+            <Shield className="w-7 h-7 text-[#c2410c] flex-shrink-0 mt-0.5" />
+            <div className="w-full">
+              <h3 className="text-xl font-bold text-[#c2410c]">Evidence-Based Public Access Recommendation</h3>
+              <p className="mt-2 text-[var(--foreground,#374151)]">
+                This bucket is public because its policy grants access to <strong>principal <code>*</code></strong> and/or Block Public Access is disabled.
+                S3 does <strong>not</strong> use <code>0.0.0.0/0</code> rules like a security group. The equivalent exposure here is a public principal or disabled public-access protections.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="rounded-xl border border-amber-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-[#92400e] mb-2">Observed Evidence</div>
+                  <ul className="space-y-2 text-sm text-[var(--foreground,#374151)]">
+                    <li><strong>{gapData?.summary?.s3_events?.toLocaleString() || 0}</strong> S3 events observed in the 365-day least-privilege window</li>
+                    <li><strong>{accessData?.totalRequests?.toLocaleString() || 0}</strong> requests observed in the 90-day access view</li>
+                    <li>
+                      Observed principals:
+                      <strong>{observedPrincipals.length > 0 ? ` ${observedPrincipals.join(', ')}` : ' no tracked principals in the 90-day access view'}</strong>
+                    </li>
+                    <li>
+                      Observed actions:
+                      <strong>{observedActions.length > 0 ? ` ${observedActions.join(', ')}` : ' no tracked actions in the 90-day access view'}</strong>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-[#92400e] mb-2">Recommended Hardening</div>
+                  <ul className="space-y-2 text-sm text-[var(--foreground,#374151)]">
+                    <li>
+                      Replace public principal <code>*</code> with only the principals that actually need access
+                      {observedPrincipals.length > 0 ? `: ${observedPrincipals.join(', ')}` : ''}.
+                    </li>
+                    <li>
+                      Scope the bucket policy to the observed S3 actions
+                      {publicPolicyActions.length > 0 ? `: ${publicPolicyActions.join(', ')}` : observedActions.length > 0 ? `: ${observedActions.join(', ')}` : ''}.
+                    </li>
+                    <li>
+                      Re-enable all S3 Block Public Access settings
+                      {publicAccessBlockDisabled.length > 0 ? ` (currently disabled: ${publicAccessBlockDisabled.join(', ')})` : ''}.
+                    </li>
+                    <li>
+                      If public internet delivery is intentional, prefer CloudFront with OAC or another controlled edge instead of a directly public bucket.
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </div>
