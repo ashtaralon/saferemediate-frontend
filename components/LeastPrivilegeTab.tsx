@@ -30,6 +30,9 @@ interface GapResource {
   // Remediation metadata
   remediatedAt?: string
   remediatedBy?: string
+  snapshotId?: string | null
+  eventId?: string | null
+  rollbackAvailable?: boolean
   // Orphan status for Security Groups
   isOrphan?: boolean
   attachmentCount?: number
@@ -143,6 +146,8 @@ interface LeastPrivilegeResponse {
   summary: LeastPrivilegeSummary
   resources: GapResource[]
   timestamp: string
+  fromCache?: boolean
+  cacheAge?: number
 }
 
 export default function LeastPrivilegeTab({ systemName }: { systemName?: string }) {
@@ -178,6 +183,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
   const { toast } = useToast()
+  const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
+  const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
 
   // Traffic Simulator state
   const [showTrafficSimulator, setShowTrafficSimulator] = useState(false)
@@ -611,6 +618,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             // Remediation metadata
             remediatedAt: r.remediatedAt ?? r.remediated_at ?? null,
             remediatedBy: r.remediatedBy ?? r.remediated_by ?? null,
+            snapshotId: r.snapshotId ?? r.snapshot_id ?? null,
+            eventId: r.eventId ?? r.event_id ?? null,
+            rollbackAvailable: r.rollbackAvailable ?? r.rollback_available ?? false,
             // Orphan status (for Security Groups)
             isOrphan: r.isOrphan ?? r.is_orphan ?? false,
             attachmentCount: r.attachmentCount ?? r.attachment_count ?? 0,
@@ -645,7 +655,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           // The user can see which ones need remediation
           return true
         }),
-        timestamp: result.timestamp || new Date().toISOString()
+        timestamp: result.timestamp || new Date().toISOString(),
+        fromCache: !!result.fromCache,
+        cacheAge: safeNumber(result.cacheAge, 0),
       }
 
       setData(transformed)
@@ -671,110 +683,230 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     await fetchGaps(true, true) // Force cache refresh
   }
 
-  // Handle successful remediation - remove resource from list and update counts
-  const handleRemediationSuccess = (resourceName: string) => {
-    console.log('[LeastPrivilegeTab] Remediation successful for:', resourceName)
+  const isRemediatedResource = (resource: GapResource) =>
+    !!(resource.remediatedAt || (resource.resourceType === 'IAMRole' && resource.allowedCount === 0))
 
-    // Persist remediated roles in localStorage so they stay hidden after refresh
-    try {
-      const remediatedKey = `remediated_roles_${systemName}`
-      const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-      if (!existing.includes(resourceName)) {
-        existing.push(resourceName)
-        localStorage.setItem(remediatedKey, JSON.stringify(existing))
-        console.log('[LeastPrivilegeTab] Stored remediated role in localStorage:', resourceName)
+  const getUsageMetricsForResource = (resource: GapResource) => {
+    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
+      const totalRules = resource.networkExposure.totalRules || 0
+      const exposedRules = resource.networkExposure.internetExposedRules || 0
+      const secureRules = totalRules - exposedRules
+      return {
+        usedCount: secureRules,
+        unusedCount: exposedRules,
+        total: totalRules,
+        gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0
       }
-    } catch (e) {
-      console.warn('[LeastPrivilegeTab] Failed to persist remediation to localStorage:', e)
     }
 
-    // Remove the remediated resource from the displayed list
-    setData(prev => {
-      if (!prev) return prev
-      
-      const removedResource = prev.resources.find(r => r.resourceName === resourceName || r.id === resourceName)
-      if (!removedResource) {
-        console.warn('[LeastPrivilegeTab] Resource not found:', resourceName)
-        return prev
-      }
-      
-      const filteredResources = prev.resources.filter(r => r.resourceName !== resourceName && r.id !== resourceName)
-      
-      // Update summary counts based on resource type
-      const resourceType = removedResource.resourceType
-      const newSummary = {
-        ...prev.summary,
-        totalResources: filteredResources.length,
-        // Decrement the appropriate count based on resource type
-        iamIssuesCount: resourceType === 'IAMRole' 
-          ? Math.max(0, (prev.summary.iamIssuesCount || 0) - 1) 
-          : prev.summary.iamIssuesCount,
-        networkIssuesCount: resourceType === 'SecurityGroup' 
-          ? Math.max(0, (prev.summary.networkIssuesCount || 0) - 1) 
-          : prev.summary.networkIssuesCount,
-        s3IssuesCount: resourceType === 'S3Bucket' 
-          ? Math.max(0, (prev.summary.s3IssuesCount || 0) - 1) 
-          : prev.summary.s3IssuesCount,
-        // Update severity counts
-        criticalCount: removedResource.severity === 'critical' 
-          ? Math.max(0, (prev.summary.criticalCount || 0) - 1) 
-          : prev.summary.criticalCount,
-        highCount: removedResource.severity === 'high' 
-          ? Math.max(0, (prev.summary.highCount || 0) - 1) 
-          : prev.summary.highCount,
-        mediumCount: removedResource.severity === 'medium' 
-          ? Math.max(0, (prev.summary.mediumCount || 0) - 1) 
-          : prev.summary.mediumCount,
-        lowCount: removedResource.severity === 'low' 
-          ? Math.max(0, (prev.summary.lowCount || 0) - 1) 
-          : prev.summary.lowCount,
-      }
-      
-      console.log('[LeastPrivilegeTab] Updated resources:', {
-        before: prev.resources.length,
-        after: filteredResources.length,
-        removed: removedResource?.resourceName,
-        resourceType: resourceType,
-        newTotalResources: newSummary.totalResources
-      })
-      
-      return {
-        ...prev,
-        resources: filteredResources,
-        summary: newSummary
-      }
-    })
-    
-    // Also clear the cache for this resource
-    setIamGapAnalysisCache(prev => {
-      const { [resourceName]: _, ...rest } = prev
-      return rest
-    })
+    const used = resource.usedCount ?? 0
+    const unused = resource.gapCount ?? 0
+    const total = resource.resourceType === 'S3Bucket'
+      ? (used + unused || 1)
+      : (resource.allowedCount || (used + unused) || 1)
 
-    // Also clear SG cache if it's a Security Group
-    setSgGapAnalysisCache(prev => {
-      const { [resourceName]: _, ...rest } = prev
-      return rest
-    })
+    return {
+      usedCount: used,
+      unusedCount: unused,
+      total,
+      gapPct: Math.round((unused / total) * 100)
+    }
   }
 
-  // Handle successful rollback - remove resource from remediated list and re-fetch
+  const recalculateSummary = (resources: GapResource[], previousSummary: LeastPrivilegeSummary): LeastPrivilegeSummary => {
+    const activeResources = resources.filter(resource => !isRemediatedResource(resource))
+    const severityCounts = activeResources.reduce((acc, resource) => {
+      acc[resource.severity] = (acc[resource.severity] || 0) + 1
+      return acc
+    }, { critical: 0, high: 0, medium: 0, low: 0 } as Record<'critical' | 'high' | 'medium' | 'low', number>)
+
+    const totalExcessPermissions = activeResources.reduce((total, resource) => {
+      const metrics = getUsageMetricsForResource(resource)
+      return total + metrics.unusedCount
+    }, 0)
+
+    const avgLPScore = resources.length > 0
+      ? resources.reduce((total, resource) => total + (100 - getUsageMetricsForResource(resource).gapPct), 0) / resources.length
+      : 100
+
+    const confidenceLevel = resources.length > 0
+      ? resources.reduce((total, resource) => total + safeNumber(resource.confidence, 0), 0) / resources.length
+      : previousSummary.confidenceLevel
+
+    const attackSurfaceReduction = resources.length > 0
+      ? resources.reduce((total, resource) => total + getUsageMetricsForResource(resource).gapPct, 0) / resources.length
+      : 0
+
+    return {
+      ...previousSummary,
+      totalResources: resources.length,
+      totalExcessPermissions,
+      avgLPScore,
+      iamIssuesCount: activeResources.filter(resource => resource.resourceType === 'IAMRole').length,
+      networkIssuesCount: activeResources.filter(resource => resource.resourceType === 'SecurityGroup').length,
+      s3IssuesCount: activeResources.filter(resource => resource.resourceType === 'S3Bucket').length,
+      criticalCount: severityCounts.critical,
+      highCount: severityCounts.high,
+      mediumCount: severityCounts.medium,
+      lowCount: severityCounts.low,
+      confidenceLevel,
+      attackSurfaceReduction,
+    }
+  }
+
+  const readStoredDismissedResources = (): string[] => {
+    if (typeof window === 'undefined') return []
+
+    try {
+      const stored = JSON.parse(localStorage.getItem(dismissedResourcesStorageKey) || '[]')
+      if (Array.isArray(stored) && stored.length > 0) return stored
+
+      const legacy = JSON.parse(localStorage.getItem(legacyDismissedResourcesStorageKey) || '[]')
+      return Array.isArray(legacy) ? legacy : []
+    } catch {
+      return []
+    }
+  }
+
+  const writeStoredDismissedResources = (values: string[]) => {
+    if (typeof window === 'undefined') return
+
+    localStorage.setItem(dismissedResourcesStorageKey, JSON.stringify(values))
+    localStorage.removeItem(legacyDismissedResourcesStorageKey)
+  }
+
+  const handleRemediationSuccess = (
+    resource: GapResource,
+    metadata?: {
+      snapshotId?: string | null
+      eventId?: string | null
+      rollbackAvailable?: boolean
+      remediatedBy?: string
+      afterTotal?: number | null
+      removedCount?: number | null
+    }
+  ) => {
+    const resourceIdentifier = resource.resourceName || resource.id
+    console.log('[LeastPrivilegeTab] Remediation successful for:', resourceIdentifier, metadata)
+
+    setData(prev => {
+      if (!prev) return prev
+
+      const remediatedAt = new Date().toISOString()
+      const nextResources = prev.resources.map<GapResource>(existing => {
+        const matches = existing.id === resource.id || existing.resourceName === resource.resourceName
+        if (!matches) return existing
+
+        if (existing.resourceType === 'SecurityGroup') {
+          const totalRules = existing.networkExposure?.totalRules || existing.allowedCount || 0
+          return {
+            ...existing,
+            remediatedAt,
+            remediatedBy: metadata?.remediatedBy || 'user@cyntro.io',
+            snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
+            eventId: metadata?.eventId ?? existing.eventId ?? null,
+            rollbackAvailable: metadata?.rollbackAvailable ?? !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
+            allowedCount: totalRules,
+            usedCount: totalRules,
+            gapCount: 0,
+            gapPercent: 0,
+            lpScore: 100,
+            severity: 'low',
+            networkExposure: existing.networkExposure ? {
+              ...existing.networkExposure,
+              score: 100,
+              severity: 'LOW' as const,
+              internetExposedRules: 0,
+              highRiskPorts: [] as number[],
+              details: {
+                ...existing.networkExposure.details,
+                findingsCount: 0,
+                criticalFindings: 0,
+                highFindings: 0,
+              }
+            } : existing.networkExposure,
+          }
+        }
+
+        const currentUsed = existing.usedCount ?? 0
+        const currentAllowed = existing.allowedCount || currentUsed
+        const afterTotal = metadata?.afterTotal ?? currentUsed
+        const nextAllowed = Math.max(0, safeNumber(afterTotal, currentUsed))
+        const removedCount = metadata?.removedCount ?? Math.max(0, currentAllowed - nextAllowed)
+
+        return {
+          ...existing,
+          remediatedAt,
+          remediatedBy: metadata?.remediatedBy || 'user@cyntro.io',
+          snapshotId: metadata?.snapshotId ?? existing.snapshotId ?? null,
+          eventId: metadata?.eventId ?? existing.eventId ?? null,
+          rollbackAvailable: metadata?.rollbackAvailable ?? !!(metadata?.snapshotId || metadata?.eventId || existing.rollbackAvailable),
+          allowedCount: nextAllowed,
+          usedCount: nextAllowed,
+          gapCount: 0,
+          gapPercent: 0,
+          lpScore: 100,
+          severity: 'low',
+          unusedList: [],
+          highRiskUnused: [],
+          title: `${existing.resourceName} remediated`,
+          description: removedCount > 0
+            ? `Removed ${removedCount} unused permissions from ${existing.resourceName}.`
+            : existing.description,
+        }
+      })
+
+      return {
+        ...prev,
+        resources: nextResources,
+        summary: recalculateSummary(nextResources, prev.summary),
+      }
+    })
+
+    setIamGapAnalysisCache(prev => {
+      const next = { ...prev }
+      delete next[resource.resourceName]
+      if (resource.id) delete next[resource.id]
+      return next
+    })
+
+    setSgGapAnalysisCache(prev => {
+      const next = { ...prev }
+      delete next[resource.resourceName]
+      if (resource.id) delete next[resource.id]
+      return next
+    })
+
+    void fetchGaps(false, false)
+  }
+
   const handleRollbackSuccess = (resourceName: string) => {
     console.log('[LeastPrivilegeTab] Rollback successful for:', resourceName)
 
-    // Remove from remediated localStorage list
-    try {
-      const remediatedKey = `remediated_roles_${systemName}`
-      const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]')
-      const updated = existing.filter((name: string) => name !== resourceName)
-      localStorage.setItem(remediatedKey, JSON.stringify(updated))
-      console.log('[LeastPrivilegeTab] Removed rolled-back role from localStorage:', resourceName)
-    } catch (e) {
-      console.warn('[LeastPrivilegeTab] Failed to update localStorage after rollback:', e)
-    }
+    setData(prev => {
+      if (!prev) return prev
 
-    // Re-fetch data to get updated LP values from backend
-    fetchGaps(true, true)
+      const nextResources = prev.resources.map(resource => {
+        if (resource.resourceName !== resourceName && resource.id !== resourceName) return resource
+
+        return {
+          ...resource,
+          remediatedAt: undefined,
+          remediatedBy: undefined,
+          snapshotId: null,
+          eventId: null,
+          rollbackAvailable: false,
+        }
+      })
+
+      return {
+        ...prev,
+        resources: nextResources,
+        summary: recalculateSummary(nextResources, prev.summary),
+      }
+    })
+
+    void fetchGaps(true, true)
   }
 
   // ---------- Rollback from remediated tab ----------
@@ -787,13 +919,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const resourceId = resource.id || resource.resourceName
       console.log('[Rollback] Starting for:', resourceName, 'type:', resource.resourceType)
 
-      // Step 1: Find snapshot/event for this resource using multiple strategies
-      let snapshotId: string | null = null
-      let eventId: string | null = null
+      // Step 1: Prefer stored remediation metadata, then fall back to discovery
+      let snapshotId: string | null = resource.snapshotId || null
+      let eventId: string | null = resource.eventId || null
       let eventSource: string | null = null
       let sgId: string | null = null
 
-      if (resource.resourceType === 'IAMRole') {
+      if (resource.resourceType === 'IAMRole' && !snapshotId && !eventId) {
         // Strategy A: Fetch all IAM snapshots, find matching one
         try {
           const snapRes = await fetch('/api/proxy/iam-snapshots')
@@ -801,7 +933,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             const snapshots = await snapRes.json()
             const arr = Array.isArray(snapshots) ? snapshots : (snapshots.snapshots || [])
             console.log('[Rollback] Found', arr.length, 'IAM snapshots, searching for:', resourceName)
-            const match = arr.find((s: any) =>
+            const match = arr
+              .filter((s: any) =>
               s.rollback_available !== false &&
               !s.rolled_back_at &&
               s.status !== 'restored' &&
@@ -809,7 +942,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                s.resource_id === resourceName ||
                s.role_name === resourceName ||
                s.original_role === resourceId)
-            )
+              )
+              .sort((a: any, b: any) =>
+                new Date(b.created_at || b.timestamp || 0).getTime() - new Date(a.created_at || a.timestamp || 0).getTime()
+              )[0]
             if (match) {
               snapshotId = match.snapshot_id || match.id
               console.log('[Rollback] Found IAM snapshot:', snapshotId)
@@ -821,25 +957,31 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       } else if (resource.resourceType === 'SecurityGroup') {
         sgId = resource.id?.startsWith('sg-') ? resource.id : resource.resourceName
         // Strategy A for SG: Fetch SG snapshots
-        try {
-          const sgSnapRes = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`)
-          if (sgSnapRes.ok) {
-            const sgSnapData = await sgSnapRes.json()
-            const sgSnaps = sgSnapData.snapshots || []
-            console.log('[Rollback] Found', sgSnaps.length, 'SG snapshots for:', sgId)
-            const sgMatch = sgSnaps.find((s: any) => !s.rolled_back)
-            if (sgMatch) {
-              snapshotId = sgMatch.id || sgMatch.snapshot_id
-              console.log('[Rollback] Found SG snapshot:', snapshotId)
+        if (!snapshotId && !eventId) {
+          try {
+            const sgSnapRes = await fetch(`/api/proxy/sg-least-privilege/${sgId}/snapshots`)
+            if (sgSnapRes.ok) {
+              const sgSnapData = await sgSnapRes.json()
+              const sgSnaps = sgSnapData.snapshots || []
+              console.log('[Rollback] Found', sgSnaps.length, 'SG snapshots for:', sgId)
+              const sgMatch = sgSnaps
+                .filter((s: any) => !s.rolled_back)
+                .sort((a: any, b: any) =>
+                  new Date(b.created_at || b.timestamp || 0).getTime() - new Date(a.created_at || a.timestamp || 0).getTime()
+                )[0]
+              if (sgMatch) {
+                snapshotId = sgMatch.id || sgMatch.snapshot_id
+                console.log('[Rollback] Found SG snapshot:', snapshotId)
+              }
             }
+          } catch (e) {
+            console.warn('[Rollback] SG snapshots fetch failed:', e)
           }
-        } catch (e) {
-          console.warn('[Rollback] SG snapshots fetch failed:', e)
         }
       }
 
       // Strategy B: Query remediation timeline for this resource
-      if (!snapshotId) {
+      if (!snapshotId && !eventId) {
         try {
           // Try multiple resource ID formats
           const idsToTry = [resourceName, resourceId, resource.resourceArn].filter(Boolean)
@@ -849,11 +991,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const historyData = await historyRes.json()
               const events = historyData.events || []
               console.log('[Rollback] Timeline query for', tryId, '→', events.length, 'events')
-              const remEvent = events.find((e: any) =>
-                e.status === 'completed' &&
-                e.action_type !== 'ROLLBACK' &&
-                e.rollback_available !== false
-              )
+              const remEvent = events
+                .filter((e: any) =>
+                  e.status === 'completed' &&
+                  e.action_type !== 'ROLLBACK' &&
+                  e.rollback_available !== false &&
+                  (!systemName || !e.system_name || e.system_name === systemName)
+                )
+                .sort((a: any, b: any) =>
+                  new Date(b.completed_at || b.created_at || b.timestamp || 0).getTime() -
+                  new Date(a.completed_at || a.created_at || a.timestamp || 0).getTime()
+                )[0]
               if (remEvent) {
                 snapshotId = remEvent.snapshot_id || null
                 eventId = remEvent.event_id || null
@@ -871,27 +1019,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       const canRollback = snapshotId || eventId
 
       if (!canRollback) {
-        // No snapshot exists — offer to reset remediation status instead
-        const resetConfirmed = window.confirm(
-          `No remediation snapshot found for "${resourceName}".\n\nThis may have been remediated before snapshot tracking was enabled. Would you like to move it back to Active Issues so you can re-analyze and remediate it properly?`
-        )
-        if (!resetConfirmed) return
-
-        try {
-          const resetEndpoint = resource.resourceType === 'SecurityGroup'
-            ? `/api/proxy/sg-least-privilege/${resourceId}/reset-remediation`
-            : `/api/proxy/iam-gap/${resourceId}/reset-remediation`
-          const resetRes = await fetch(resetEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-          const resetData = await resetRes.json().catch(() => ({}))
-          if (resetRes.ok && resetData.success !== false) {
-            toast({ title: "Moved to Active", description: `${resourceName} moved back to Active Issues for re-analysis.` })
-            handleRollbackSuccess(resourceName)
-          } else {
-            throw new Error(resetData.detail || resetData.error || 'Reset failed')
-          }
-        } catch (resetErr: any) {
-          toast({ title: "Reset Failed", description: resetErr.message, variant: "destructive" })
-        }
+        toast({
+          title: "Rollback Unavailable",
+          description: `${resourceName} has no stored remediation snapshot yet. Please use Remediation History for authoritative rollback records.`,
+          variant: "destructive"
+        })
         return
       }
 
@@ -1081,25 +1213,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (pct >= 20) return 'Medium'
     return 'Low'
   }
-  const getUsageMetricsForResource = (resource: GapResource) => {
-    if (resource.resourceType === 'SecurityGroup' && resource.networkExposure) {
-      const totalRules = resource.networkExposure.totalRules || 0
-      const exposedRules = resource.networkExposure.internetExposedRules || 0
-      const secureRules = totalRules - exposedRules
-      return { usedCount: secureRules, unusedCount: exposedRules, total: totalRules, gapPct: totalRules > 0 ? Math.round((exposedRules / totalRules) * 100) : 0 }
-    } else if (resource.resourceType === 'S3Bucket') {
-      const used = resource.usedCount ?? 0
-      const unused = resource.gapCount ?? 0
-      const total = used + unused || 1
-      return { usedCount: used, unusedCount: unused, total, gapPct: Math.round((unused / total) * 100) }
-    } else {
-      const used = resource.usedCount ?? 0
-      const unused = resource.gapCount ?? 0
-      const total = resource.allowedCount || (used + unused) || 1
-      return { usedCount: used, unusedCount: unused, total, gapPct: Math.round((unused / total) * 100) }
-    }
-  }
-
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
     if (resource.resourceType === 'IAMRole') {
@@ -1129,7 +1242,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   }
 
   // ---------- Identify remediated resources ----------
-  const isRemediated = (r: LeastPrivilegeResource) => !!(r.remediatedAt || (r.resourceType === 'IAMRole' && r.allowedCount === 0))
+  const isRemediated = (r: GapResource) => isRemediatedResource(r)
 
   // ---------- Compute filtered resources ----------
   const nonDeletedResources = resources.filter(r => !deletedResources.has(r.id) && !deletedResources.has(r.resourceName))
@@ -1332,7 +1445,13 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           )}
           {deletedResources.size > 0 && (
             <button
-              onClick={() => { setDeletedResources(new Set()); try { localStorage.removeItem(`remediated_roles_${systemName}`) } catch {} }}
+              onClick={() => {
+                setDeletedResources(new Set())
+                try {
+                  localStorage.removeItem(dismissedResourcesStorageKey)
+                  localStorage.removeItem(legacyDismissedResourcesStorageKey)
+                } catch {}
+              }}
               className="text-xs underline whitespace-nowrap"
               style={{ color: "#3b82f6" }}
             >
@@ -1577,6 +1696,14 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               <span>Current Permissions</span>
                               <span className="font-medium" style={{ color: "#10b981" }}>{metrics.usedCount}</span>
                             </div>
+                            {(resource.snapshotId || resource.eventId) && (
+                              <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
+                                <span>Rollback Artifact</span>
+                                <span className="font-medium truncate max-w-[150px]" style={{ color: "var(--text-primary)" }}>
+                                  {resource.snapshotId || resource.eventId}
+                                </span>
+                              </div>
+                            )}
                             {resource.region && (
                               <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                 <span>Region</span>
@@ -1608,10 +1735,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                   if (resource.id) next.add(resource.id)
                                   if (resource.resourceName) next.add(resource.resourceName)
                                   try {
-                                    const k = `remediated_roles_${systemName}`
-                                    const ex = JSON.parse(localStorage.getItem(k) || '[]')
+                                    const ex = readStoredDismissedResources()
                                     if (resource.resourceName && !ex.includes(resource.resourceName)) ex.push(resource.resourceName)
-                                    localStorage.setItem(k, JSON.stringify(ex))
+                                    writeStoredDismissedResources(ex)
                                   } catch {}
                                   return next
                                 })
@@ -1626,7 +1752,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <div className="pt-1 mt-1 border-t" style={{ borderColor: "var(--border-subtle)" }}>
                               <button
                                 onClick={() => handleRollbackFromRemediatedTab(resource)}
-                                disabled={rollingBack === (resource.id || resource.resourceName)}
+                                disabled={rollingBack === (resource.id || resource.resourceName) || (!resource.rollbackAvailable && !resource.snapshotId && !resource.eventId)}
                                 className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ color: "#F59E0B", borderColor: "#F59E0B40", background: "#F59E0B08" }}
                               >
@@ -1752,11 +1878,11 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                   </div>
                                 </>
                               )}
-                              {resource.networkExposure?.highRiskPorts?.length > 0 && (
+                              {(resource.networkExposure?.highRiskPorts?.length ?? 0) > 0 && (
                                 <div>
                                   <div className="text-xs font-medium mb-1" style={{ color: "#ef4444" }}>High-Risk Ports:</div>
                                   <div className="flex flex-wrap gap-1">
-                                    {resource.networkExposure.highRiskPorts.slice(0, 5).map((port, i) => (
+                                    {resource.networkExposure?.highRiskPorts?.slice(0, 5).map((port, i) => (
                                       <span key={i} className="px-2 py-0.5 rounded text-xs font-mono" style={{ background: "#ef444415", color: "#ef4444" }}>{port}</span>
                                     ))}
                                   </div>
@@ -1816,7 +1942,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 {resource.evidence?.confidence || 'LOW'}
                               </span>
                             </div>
-                            {(resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence)) && resource.gapCount > 0 && (
+                            {(resource.evidence?.confidence === 'LOW' || (!resource.evidence?.confidence)) && (resource.gapCount ?? 0) > 0 && (
                               <div className="mt-2 p-2 rounded text-xs" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
                                 <span style={{ color: "#991b1b" }}>
                                   No usage data collected — permissions may be used by services not tracked by CloudTrail. Enable data events before remediating.
@@ -1880,10 +2006,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                               if (resource.id) next.add(resource.id)
                               if (resource.resourceName) next.add(resource.resourceName)
                               try {
-                                const k = `remediated_roles_${systemName}`
-                                const ex = JSON.parse(localStorage.getItem(k) || '[]')
+                                const ex = readStoredDismissedResources()
                                 if (resource.resourceName && !ex.includes(resource.resourceName)) ex.push(resource.resourceName)
-                                localStorage.setItem(k, JSON.stringify(ex))
+                                writeStoredDismissedResources(ex)
                               } catch {}
                               return next
                             })
@@ -2170,10 +2295,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                     return newCache
                   })
 
-                  // Remove the remediated SG from the list immediately
-                  // Use the resource name or ID to find and remove it
-                  const sgIdentifier = selectedResource.resourceName || selectedResource.id || sgId
-                  handleRemediationSuccess(sgIdentifier)
+                  handleRemediationSuccess(selectedResource, {
+                    snapshotId: result.snapshot?.snapshot_id || result.snapshot_id || null,
+                    eventId: result.event_id || null,
+                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot?.snapshot_id || result.snapshot_id || result.event_id),
+                    remediatedBy: 'user@cyntro.io',
+                  })
 
                   // Close the drawer if open
                   setDrawerOpen(false)
@@ -2241,18 +2368,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
               const result = await response.json()
 
               if (result.success) {
+                const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
                 toast({
                   title: dryRun ? 'Preview Complete' : 'Remediation Complete',
                   description: dryRun
                     ? `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0}`
-                    : `Snapshot: ${result.snapshot_id || 'Created'}. Permissions reduced to ${result.new_role?.permissions_count || 0}`
+                    : `Snapshot: ${result.snapshot_id || 'Created'}. Removed ${removedPermissions} unused permissions.`
                 })
 
                 if (!dryRun) {
-                  // Close modal and remove from list on live execution
                   setSimulationModalOpen(false)
                   setSimulationResult(null)
-                  handleRemediationSuccess(roleName)
+                  handleRemediationSuccess(selectedResource, {
+                    snapshotId: result.snapshot_id || null,
+                    eventId: result.event_id || null,
+                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
+                    remediatedBy: 'user@cyntro.io',
+                    afterTotal: result.summary?.after_total ?? null,
+                    removedCount: removedPermissions,
+                  })
                   setDrawerOpen(false)
                   setSelectedResource(null)
                 }
@@ -2282,11 +2416,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           setSelectedIAMRole(null)
         }}
         roleName={selectedIAMRole || ''}
-        systemName={systemName}
+        systemName={systemName || ''}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}
-        onRemediationSuccess={handleRemediationSuccess}
+        onRemediationSuccess={(roleName) => {
+          const resource = data?.resources.find(candidate =>
+            candidate.resourceType === 'IAMRole' &&
+            (candidate.resourceName === roleName || candidate.id === roleName)
+          )
+
+          if (resource) {
+            handleRemediationSuccess(resource, { remediatedBy: 'user@cyntro.io' })
+          } else {
+            void fetchGaps(false, false)
+          }
+        }}
         onRollbackSuccess={handleRollbackSuccess}
       />
 
@@ -2299,12 +2444,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           setSelectedS3Resource(null)
         }}
         bucketName={selectedS3Bucket || ''}
-        systemName={systemName}
+        systemName={systemName || ''}
         resourceData={selectedS3Resource}
         onApplyFix={(data) => {
           console.log('[S3] Apply fix requested:', data)
         }}
-        onRemediationSuccess={handleRemediationSuccess}
+        onRemediationSuccess={(bucketName) => {
+          const resource = data?.resources.find(candidate =>
+            candidate.resourceType === 'S3Bucket' &&
+            (candidate.resourceName === bucketName || candidate.id === bucketName)
+          )
+
+          if (resource) {
+            handleRemediationSuccess(resource, { remediatedBy: 'user@cyntro.io' })
+          } else {
+            void fetchGaps(false, false)
+          }
+        }}
       />
 
       {/* Security Group Least Privilege Modal */}
@@ -2317,11 +2473,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         }}
         sgId={selectedSGId || ''}
         sgName={selectedSGName || undefined}
-        systemName={systemName}
+        systemName={systemName || ''}
         onRemediate={(sgId, rules) => {
           console.log('[SG] Remediate requested:', sgId, rules)
-          // Remove remediated SG from the list using sgId or sgName
-          handleRemediationSuccess(selectedSGId || selectedSGName || sgId)
+          const sgResource = data?.resources.find(resource =>
+            resource.resourceType === 'SecurityGroup' &&
+            (resource.id === sgId || resource.resourceName === sgId || resource.resourceName === selectedSGName || resource.id === selectedSGId)
+          )
+
+          if (sgResource) {
+            handleRemediationSuccess(sgResource, {
+              remediatedBy: 'user@cyntro.io',
+            })
+          } else {
+            void fetchGaps(false, false)
+          }
+
           // Also clear the SG cache
           setSgGapAnalysisCache(prev => {
             const { [sgId]: _, ...rest } = prev
@@ -4038,7 +4205,7 @@ function SGSimulationResultsModal({
                 Warnings
               </h3>
               <ul className="space-y-1">
-                {safeArray(result?.warnings).map((warning: string, i: number) => (
+                {safeArray<string>(result?.warnings).map((warning, i) => (
                   <li key={i} className="text-sm text-[#eab308]">• {warning}</li>
                 ))}
               </ul>

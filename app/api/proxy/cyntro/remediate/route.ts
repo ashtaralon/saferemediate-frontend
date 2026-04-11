@@ -94,15 +94,22 @@ export async function POST(req: NextRequest) {
     // - managed_policies_detached: string[]
     // - inline_policies_modified: string[]
     // - message: string
+    const beforeTotal = gapData.summary?.total_permissions || gapData.allowed_count || (usedPermissions.length + unusedPermissions.length)
+    const removedPermissions = remediateData.permissions_removed || permsToRemove.length
+    const afterTotal = typeof remediateData.after_total === 'number'
+      ? remediateData.after_total
+      : Math.max(0, beforeTotal - removedPermissions)
+
     const response = {
       dry_run,
       success: remediateData.success !== false,  // Default to true if not explicitly false
-      message: remediateData.message || `Removed ${remediateData.permissions_removed || permsToRemove.length} permissions`,
+      message: remediateData.message || `Removed ${removedPermissions} permissions`,
       snapshot_id: remediateData.snapshot_id,
-      rollback_available: !!remediateData.snapshot_id,
+      event_id: remediateData.event_id || remediateData.execution_id || null,
+      rollback_available: !!(remediateData.snapshot_id || remediateData.event_id || remediateData.execution_id),
 
       // Direct remediation info (modified in place, no new role)
-      permissions_removed: remediateData.permissions_removed || permsToRemove.length,
+      permissions_removed: removedPermissions,
       managed_policies_detached: remediateData.managed_policies_detached || [],
       inline_policies_modified: remediateData.inline_policies_modified || [],
 
@@ -111,11 +118,11 @@ export async function POST(req: NextRequest) {
 
       // Summary
       summary: {
-        before_total: gapData.summary?.total_permissions || gapData.allowed_count || (usedPermissions.length + unusedPermissions.length),
-        after_total: usedPermissions.length,
-        reduction: permsToRemove.length,
-        unused_removed: permsToRemove.length,
-        reduction_percentage: ((permsToRemove.length) / Math.max(1, gapData.summary?.total_permissions || gapData.allowed_count || 1)) * 100
+        before_total: beforeTotal,
+        after_total: afterTotal,
+        reduction: removedPermissions,
+        unused_removed: removedPermissions,
+        reduction_percentage: (removedPermissions / Math.max(1, beforeTotal)) * 100
       },
 
       // Raw data for debugging
