@@ -82,7 +82,7 @@ interface S3PolicyAnalysisModalProps {
   }) => void
 }
 
-type TabType = 'analysis' | 'policies' | 'evidence' | 'access' | 'simulate'
+type TabType = 'analysis' | 'policies' | 'evidence' | 'access' | 'remediation'
 
 interface AccessData {
   dataEventsStatus: string
@@ -723,7 +723,7 @@ export function S3PolicyAnalysisModal({
               { id: 'access' as const, label: 'Who Accessed', icon: Users },
               { id: 'policies' as const, label: 'Policy', icon: FileText },
               { id: 'evidence' as const, label: 'Context', icon: Shield },
-              { id: 'simulate' as const, label: 'Simulate', icon: Zap }
+              { id: 'remediation' as const, label: 'Remediation', icon: Zap }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -786,38 +786,48 @@ export function S3PolicyAnalysisModal({
               confidence={gapData?.confidence || 'MEDIUM'}
             />
           )}
-          {activeTab === 'simulate' && (
+          {activeTab === 'remediation' && (
             <div className="p-8 text-center">
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#22c55e20] flex items-center justify-center">
                 <Zap className="w-8 h-8 text-[#22c55e]" />
               </div>
-              <h3 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Remediation Simulation</h3>
+              <h3 className="text-xl font-bold text-[var(--foreground,#111827)] mb-2">Remediation Process</h3>
               <p className="text-[var(--muted-foreground,#4b5563)] max-w-md mx-auto mb-6">
                 {unusedCount > 0
-                  ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy' : 'policies'} that can be safely removed. Click the REMEDIATE button below to preview the changes before applying.`
+                  ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy statement' : 'policy statements'} that can be safely removed. Review the exact change set, create a rollback checkpoint, and preview the result before applying it.`
                   : 'No unused policies detected. This bucket is following least privilege principles.'
                 }
               </p>
               {unusedCount > 0 ? (
-                <div className="bg-white border border-[#ef444440] rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-[#ef4444] mb-2">Remediation Preview:</h4>
-                  <ul className="text-sm text-[#ef4444] text-left space-y-1">
-                    <li>• Remove {unusedCount} unused {unusedCount === 1 ? 'policy' : 'policies'}</li>
-                    <li>• Reduce attack surface by ~{Math.round((unusedCount / Math.max(totalPolicies, 1)) * 100)}%</li>
-                    <li>• Create rollback checkpoint before changes</li>
-                    <li>• Improve LP score to 100%</li>
+                <div className="bg-white border border-[#ef444440] rounded-lg p-5 max-w-2xl mx-auto text-left">
+                  <h4 className="font-semibold text-[#ef4444] mb-3">Remediation Plan</h4>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="rounded-lg bg-[#f8fafc] border border-slate-200 p-4">
+                      <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Statements selected</div>
+                      <div className="text-2xl font-bold text-[var(--foreground,#111827)]">{selectedPoliciesToRemove.size}</div>
+                    </div>
+                    <div className="rounded-lg bg-[#f8fafc] border border-slate-200 p-4">
+                      <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Rollback protection</div>
+                      <div className="text-base font-semibold text-[#16a34a]">Checkpoint before apply</div>
+                    </div>
+                  </div>
+                  <ul className="text-sm text-[var(--foreground,#374151)] text-left space-y-2">
+                    <li>1. Review the selected public or unused bucket policy statements.</li>
+                    <li>2. Run a preview against the same selected statement set.</li>
+                    <li>3. Create a rollback checkpoint automatically before the bucket policy changes.</li>
+                    <li>4. Apply the remediation only if the preview and safety checks pass.</li>
                   </ul>
                   <button
                     onClick={handleSimulate}
-                    className="mt-4 px-6 py-2.5 bg-white hover:from-red-700 hover:to-orange-700 text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
+                    className="mt-5 px-6 py-2.5 bg-[#16a34a] hover:bg-[#15803d] text-white rounded-lg font-bold flex items-center gap-2 mx-auto"
                   >
                     <Zap className="w-4 h-4" />
-                    START SIMULATION
+                    PREVIEW REMEDIATION
                   </button>
                 </div>
               ) : (
                 <div className="bg-[#22c55e10] border border-[#22c55e40] rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-[#22c55e] mb-2">Bucket Status:</h4>
+                  <h4 className="font-semibold text-[#22c55e] mb-2">Bucket Status</h4>
                   <ul className="text-sm text-[#22c55e] text-left space-y-1">
                     <li>✓ All policies are actively used</li>
                     <li>✓ No remediation needed</li>
@@ -838,16 +848,16 @@ export function S3PolicyAnalysisModal({
             CLOSE
           </button>
           <button
-            onClick={handleSimulate}
+            onClick={() => setActiveTab('remediation')}
             disabled={!gapData || unusedCount === 0}
             className={`px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-all ${
               gapData && unusedCount > 0
-                ? 'bg-white hover:from-red-700 hover:to-orange-700 text-white shadow-lg hover:shadow-xl'
+                ? 'bg-[#16a34a] hover:bg-[#15803d] text-white shadow-lg hover:shadow-xl'
                 : 'bg-slate-400 text-white cursor-not-allowed'
             }`}
           >
             <Zap className="w-4 h-4" />
-            {unusedCount > 0 ? `REMEDIATE (${unusedCount})` : 'NO ISSUES'}
+            {unusedCount > 0 ? `OPEN REMEDIATION (${unusedCount})` : 'NO ISSUES'}
           </button>
         </div>
       </div>
