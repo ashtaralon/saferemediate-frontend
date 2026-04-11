@@ -1130,6 +1130,23 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     action: () => void
     tone: "critical" | "high" | "medium"
   } => item !== null)
+  const overviewIssuePreview = issues
+    .filter((issue) => issue.severity !== "low")
+    .slice(0, 3)
+    .map((issue) => ({
+      id: issue.id,
+      title: issue.title,
+      impact: issue.impact,
+      affected: issue.affected,
+    }))
+  const overviewFindingsPreview = securityFindings
+    .slice(0, 3)
+    .map((finding) => ({
+      id: finding.id,
+      title: finding.title,
+      description: finding.description,
+      severity: String(finding.severity || "unknown").toUpperCase(),
+    }))
 
   // =============================================================================
   // RENDER
