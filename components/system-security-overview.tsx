@@ -663,25 +663,23 @@ export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }
       let usedRules = 0, unusedRules = 0, totalHits = 0
       
       try {
-        // Step 1: Get list of SG IDs for this system - v2 fixed 2026-01-03
-        // Call backend directly (CORS enabled) to bypass Vercel CDN cache issues
+        // Step 1: Get list of SG IDs for this system through the internal proxy
         let sgList: { id: string, name: string }[] = []
-        const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
         
         try {
-          console.log(`[SG] Fetching security groups from backend for ${systemName}`)
-          const backendRes = await fetch(`${BACKEND_URL}/api/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`, {
+          console.log(`[SG] Fetching security groups from proxy for ${systemName}`)
+          const backendRes = await fetch(`/api/proxy/security-groups/by-system?system_name=${encodeURIComponent(systemName)}`, {
             headers: { "Accept": "application/json" }
           })
           if (backendRes.ok) {
             const backendData = await backendRes.json()
             sgList = backendData.security_groups || []
-            console.log(`[SG] Found ${sgList.length} security groups from backend`)
+            console.log(`[SG] Found ${sgList.length} security groups from proxy`)
           } else {
-            console.warn(`[SG] Backend returned ${backendRes.status}`)
+            console.warn(`[SG] Proxy returned ${backendRes.status}`)
           }
         } catch (e) {
-          console.warn("[SG] Backend fetch failed:", e)
+          console.warn("[SG] Proxy fetch failed:", e)
         }
         
         console.log(`[SG] Processing ${sgList.length} security groups for system ${systemName}`)

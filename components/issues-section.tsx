@@ -10,8 +10,6 @@ import { SGInspectorSheet } from "@/components/inspector/SGInspectorSheet"
 import { fetchSecurityFindings, triggerScan, getScanStatus } from "@/lib/api-client"
 import type { SecurityFinding } from "@/lib/types"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
-
 interface Finding {
   id: string
   finding_id?: string

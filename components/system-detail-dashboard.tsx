@@ -241,11 +241,6 @@ const BehavioralIntelligence = dynamic(
   }
 )
 // =============================================================================
-// API CONFIGURATION
-// =============================================================================
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://your-ngrok-url.ngrok-free.dev"
-
-// =============================================================================
 // TYPES
 // =============================================================================
 
@@ -792,44 +787,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           throw new Error(`Proxy returned ${proxyResponse.status}`)
         }
       } catch (proxyErr: any) {
-        // If proxy fails (404, timeout, network error), try direct backend call as fallback
         if (proxyErr.name === 'AbortError') {
-          console.warn('[SystemDetail] ⚠️ Proxy request timed out, trying direct backend call...')
+          console.warn('[SystemDetail] ⚠️ Proxy request timed out')
+          error = 'Diagnostic request timed out through the internal proxy'
         } else {
-          console.warn('[SystemDetail] ⚠️ Proxy failed:', proxyErr.message || proxyErr, '- trying direct backend call...')
-        }
-        
-        try {
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-          console.log(`[SystemDetail] 🔄 Calling backend directly: ${backendUrl}/api/auto-tagger/diagnostic`)
-          
-          const directResponse = await fetch(`${backendUrl}/api/auto-tagger/diagnostic`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            mode: 'cors',
-            cache: 'no-store',
-            signal: AbortSignal.timeout(35000) // 35 second timeout for Render cold start
-          })
-          
-          if (directResponse.ok) {
-            data = await directResponse.json()
-            console.log('[SystemDetail] ✅ Diagnostic from direct backend:', data)
-          } else {
-            const errorText = await directResponse.text().catch(() => '')
-            error = `Backend returned ${directResponse.status}${errorText ? ': ' + errorText.substring(0, 100) : ''}`
-            console.error(`[SystemDetail] ❌ Direct backend failed: ${directResponse.status}`, errorText.substring(0, 200))
-          }
-        } catch (directErr: any) {
-          if (directErr.name === 'AbortError') {
-            error = 'Backend request timed out (Render may be sleeping - cold start takes ~30s)'
-          } else if (directErr.message?.includes('CORS')) {
-            error = 'CORS error: Backend may not allow direct browser requests'
-          } else {
-            error = `Direct backend failed: ${directErr instanceof Error ? directErr.message : 'Unknown error'}`
-          }
-          console.error('[SystemDetail] ❌ Direct backend call error:', directErr)
+          console.warn('[SystemDetail] ⚠️ Proxy failed:', proxyErr.message || proxyErr)
+          error = `Diagnostic proxy failed: ${proxyErr.message || 'Unknown error'}`
         }
       }
       
@@ -837,11 +800,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         // Add metadata about which source was used
         setAutoTaggerDiagnostic({
           ...data,
-          _source: usedProxy ? 'proxy' : 'direct_backend'
+          _source: usedProxy ? 'proxy' : 'proxy'
         })
       } else {
         setAutoTaggerDiagnostic({ 
-          error: error || 'Failed to fetch diagnostic (both proxy and direct backend failed)',
+          error: error || 'Failed to fetch diagnostic through the internal proxy',
           tagged_count: 0,
           untagged_count: 0,
           potential_connections: 0,
@@ -1122,6 +1085,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         ? "Needs stronger enforcement"
         : "High enforcement gap"
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
+  const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
 
   // =============================================================================
   // RENDER

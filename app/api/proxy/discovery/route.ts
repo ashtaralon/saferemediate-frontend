@@ -1,7 +1,10 @@
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-  const backendUrl = process.env.BACKEND_API_URL || "http://127.0.0.1:5001"
+  const backendUrl =
+    process.env.BACKEND_API_URL ||
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "https://saferemediate-backend-f.onrender.com"
 
   try {
     console.log("[API Proxy] Fetching systems from:", `${backendUrl}/api/systems/discovered/complete`)
@@ -37,8 +40,8 @@ export async function GET() {
         errorCode: error.code,
         hint:
           error.name === "AbortError"
-            ? "Backend connection timeout - verify Python server is running on port 5000"
-            : "Failed to connect to backend. Start with: python3 get-real-infrastructure-data.py",
+            ? "Backend connection timed out while loading discovered systems"
+            : "Failed to connect to the configured backend for discovered systems",
       },
       { status: 500 },
     )

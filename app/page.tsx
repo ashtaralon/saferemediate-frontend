@@ -28,7 +28,6 @@ import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, Tren
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
 // Helper function to fetch with timeout
@@ -449,7 +448,7 @@ export default function HomePage() {
         operations: "s3:GetObject,s3:PutObject,s3:GetObjectTagging,s3:ListBucket,s3:DeleteObject,s3:HeadObject"
       })
 
-      const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, { method: 'POST' })
+      const response = await fetch(`/api/proxy/debug/simulate-traffic?${params}`, { method: 'POST' })
       const data = await response.json()
 
       if (data.success) {

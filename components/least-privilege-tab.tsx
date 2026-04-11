@@ -4,9 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { SGGapCard } from './sg-gap-card';
 import { IAMPermissionAnalysisModal } from './iam-permission-analysis-modal';
 
-// Use environment variable for backend URL
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-
 // ============================================================================
 // Types & Interfaces
 // ============================================================================
@@ -371,7 +368,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
           protocol: simProtocol,
         });
 
-        const response = await fetch(`${BACKEND_URL}/api/debug/simulate-network-traffic?${params}`, {
+        const response = await fetch(`/api/proxy/debug/simulate-network-traffic?${params}`, {
           method: 'POST',
         });
 
@@ -398,7 +395,7 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
           operations: simApiOperations.join(','),
         });
 
-        const response = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${params}`, {
+        const response = await fetch(`/api/proxy/debug/simulate-traffic?${params}`, {
           method: 'POST',
         });
 
@@ -1298,4 +1295,3 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
 };
 
 export default LeastPrivilegeTab;
-

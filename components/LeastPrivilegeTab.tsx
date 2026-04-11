@@ -196,8 +196,6 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [availableServices, setAvailableServices] = useState<Array<{id: string, name: string, type: string}>>([])
   const [servicesLoading, setServicesLoading] = useState(false)
 
-  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
-
   // Common ports for network traffic
   const COMMON_PORTS = [
     { port: 443, name: 'HTTPS', protocol: 'TCP' },
@@ -284,7 +282,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           protocol: simProtocol,
         })
 
-        const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-network-traffic?${trafficParams}`, {
+        const trafficResponse = await fetch(`/api/proxy/debug/simulate-network-traffic?${trafficParams}`, {
           method: 'POST'
         })
 
@@ -302,7 +300,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           operations: operations
         })
 
-        const trafficResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-traffic?${trafficParams}`, {
+        const trafficResponse = await fetch(`/api/proxy/debug/simulate-traffic?${trafficParams}`, {
           method: 'POST'
         })
 
@@ -320,7 +318,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           events_per_action: Math.max(100, simEventsPerDay * 10).toString()
         })
 
-        const iamResponse = await fetch(`${BACKEND_URL}/api/debug/simulate-iam-usage?${iamParams}`, {
+        const iamResponse = await fetch(`/api/proxy/debug/simulate-iam-usage?${iamParams}`, {
           method: 'POST'
         })
 
@@ -389,7 +387,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         clear_traffic: 'true'
       })
 
-      const response = await fetch(`${BACKEND_URL}/api/debug/reset-demo?${params}`, {
+      const response = await fetch(`/api/proxy/debug/reset-demo?${params}`, {
         method: 'POST'
       })
 
