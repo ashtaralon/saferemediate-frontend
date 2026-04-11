@@ -1086,6 +1086,50 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         : "High enforcement gap"
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
   const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
+  const topPriorityItems = [
+    severityCounts.critical > 0
+      ? {
+          title: `${severityCounts.critical} critical finding${severityCounts.critical === 1 ? "" : "s"} need immediate review`,
+          detail: "Critical issues are the fastest path to material risk for this system.",
+          cta: "Open vulnerabilities",
+          action: () => setActiveTab("vulnerabilities"),
+          tone: "critical" as const,
+        }
+      : null,
+    severityCounts.high > 0
+      ? {
+          title: `${severityCounts.high} high-severity finding${severityCounts.high === 1 ? "" : "s"} still open`,
+          detail: "These findings are raising pressure on the system even if nothing is critical right now.",
+          cta: "Review findings",
+          action: () => setActiveTab("vulnerabilities"),
+          tone: "high" as const,
+        }
+      : null,
+    gapAnalysis.gap > 0
+      ? {
+          title: `${gapAnalysis.gap} unused permission${gapAnalysis.gap === 1 ? "" : "s"} can likely be removed`,
+          detail: `${gapAnalysis.gapPercent}% of observed access looks removable based on current telemetry.`,
+          cta: "Open least privilege",
+          action: () => setActiveTab("least-privilege"),
+          tone: gapAnalysis.gapPercent >= 50 ? ("high" as const) : ("medium" as const),
+        }
+      : null,
+    !hasEnforcementTelemetry
+      ? {
+          title: "This system is missing current enforcement telemetry",
+          detail: "Run a sync or refresh to calculate a system-scoped enforcement score from live checks.",
+          cta: "Refresh overview",
+          action: () => setRefreshKey((k) => k + 1),
+          tone: "medium" as const,
+        }
+      : null,
+  ].filter((item): item is {
+    title: string
+    detail: string
+    cta: string
+    action: () => void
+    tone: "critical" | "high" | "medium"
+  } => item !== null)
 
   // =============================================================================
   // RENDER
