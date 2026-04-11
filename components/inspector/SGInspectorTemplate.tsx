@@ -173,8 +173,7 @@ function OrphanWarningBanner({ sgId }: OrphanWarningBannerProps) {
   React.useEffect(() => {
     const fetchOrphanStatus = async () => {
       try {
-        const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://saferemediate-backend-f.onrender.com'
-        const response = await fetch(`${API_BASE}/api/sg-least-privilege/${sgId}/analysis`)
+        const response = await fetch(`/api/proxy/sg-least-privilege/${sgId}/analysis`)
         if (response.ok) {
           const data = await response.json()
           if (data.orphan_status) {

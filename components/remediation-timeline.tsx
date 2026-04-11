@@ -733,7 +733,6 @@ export function RemediationTimeline({
   systemId,
   resourceId,
   onRollback,
-  apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "https://saferemediate-backend.onrender.com",
 }: RemediationTimelineProps) {
   const [events, setEvents] = useState<RemediationEvent[]>([])
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
@@ -1094,7 +1093,7 @@ export function RemediationTimeline({
     }
 
     fetchTimeline()
-  }, [selectedPeriod, systemId, resourceId, apiBaseUrl, refreshKey])
+  }, [selectedPeriod, systemId, resourceId, refreshKey])
 
   // Handle rollback - uses correct endpoint based on source and resource type
   const handleRollback = async (eventId: string, selectedItems?: string[]) => {

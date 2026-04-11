@@ -33,8 +33,6 @@ export default function RecoveryTab() {
   const [restoring, setRestoring] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com';
-
   useEffect(() => {
     fetchSnapshots();
   }, []);

@@ -73,11 +73,6 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
     setShowSimulateModal(true)
   }
 
-  const handleExecute = async (findingId: string) => {
-    // This will be handled by SimulateFixModal
-    console.log("Execute remediation for:", findingId)
-  }
-
   // Render IAM Role finding
   if (findingType === "iam_unused_permissions" || findingType === "unused_permission") {
     const iamData = finding as any
@@ -275,8 +270,6 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             isOpen={showSimulateModal}
             onClose={() => setShowSimulateModal(false)}
             finding={finding}
-            onExecute={handleExecute}
-            backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"}
           />
         )}
       </>
@@ -456,8 +449,6 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             isOpen={showSimulateModal}
             onClose={() => setShowSimulateModal(false)}
             finding={finding}
-            onExecute={handleExecute}
-            backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"}
           />
         )}
       </>
@@ -601,8 +592,6 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
             isOpen={showSimulateModal}
             onClose={() => setShowSimulateModal(false)}
             finding={finding}
-            onExecute={handleExecute}
-            backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"}
           />
         )}
       </>
@@ -721,8 +710,6 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
           isOpen={showSimulateModal}
           onClose={() => setShowSimulateModal(false)}
           finding={finding}
-          onExecute={handleExecute}
-          backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"}
         />
       )}
     </>

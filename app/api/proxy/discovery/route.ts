@@ -1,10 +1,9 @@
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
+
 export const dynamic = "force-dynamic"
 
 export async function GET() {
-  const backendUrl =
-    process.env.BACKEND_API_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "https://saferemediate-backend-f.onrender.com"
+  const backendUrl = getBackendBaseUrl()
 
   try {
     console.log("[API Proxy] Fetching systems from:", `${backendUrl}/api/systems/discovered/complete`)

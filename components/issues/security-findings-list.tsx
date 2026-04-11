@@ -1,16 +1,12 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle, Shield, CheckCircle2, Zap } from "lucide-react"
+import { CheckCircle2 } from "lucide-react"
 import type { SecurityFinding } from "@/lib/types"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
-import { FindingTemplates } from "./FindingTemplates"
 import { FindingCard } from "@/components/FindingCard"
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
 
 interface SecurityFindingsListProps {
   findings: SecurityFinding[]
@@ -46,29 +42,6 @@ export function SecurityFindingsList({ findings, onRefreshFindings }: SecurityFi
         <p className="text-[var(--muted-foreground,#4b5563)]">Your infrastructure is secure with no open security findings.</p>
       </Card>
     )
-  }
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case "CRITICAL": return "bg-red-600 text-white"
-      case "HIGH": return "bg-orange-600 text-white"
-      case "MEDIUM": return "bg-[#8b5cf6] text-white"
-      case "LOW": return "bg-gray-400 text-white"
-      default: return "bg-gray-200 text-[var(--foreground,#1f2937)]"
-    }
-  }
-
-  const getSeverityIcon = (severity: string) => {
-    if (severity === "CRITICAL" || severity === "HIGH") {
-      return <AlertTriangle className="w-5 h-5" />
-    }
-    return <Shield className="w-5 h-5" />
-  }
-
-  const handleSimulate = (finding: SecurityFinding) => {
-    console.log("[LIST] Button clicked, opening modal for:", finding.id)
-    setSelectedFinding(finding)
-    setShowModal(true)
   }
 
   const handleClose = () => {
