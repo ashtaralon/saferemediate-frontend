@@ -1091,6 +1091,45 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // Use health score from API, fallback to calculated if not set
   const healthScore = healthScoreFromApi
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
+  const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
+  const topPriorityItems = [
+    severityCounts.critical > 0 ? {
+      title: `${severityCounts.critical} critical findings`,
+      detail: "Immediate investigation required to reduce active exposure.",
+      tone: "critical",
+      action: () => setActiveTab("vulnerabilities"),
+      cta: "Open vulnerabilities",
+    } : null,
+    severityCounts.high > 0 ? {
+      title: `${severityCounts.high} high-severity issues`,
+      detail: "High-risk issues are still open and should be remediated next.",
+      tone: "high",
+      action: () => setActiveTab("least-privilege"),
+      cta: "Review access gaps",
+    } : null,
+    gapAnalysis.gap > 0 ? {
+      title: `${gapAnalysis.gap} unused permissions`,
+      detail: `${gapAnalysis.gapPercent}% of granted access appears removable from observed usage.`,
+      tone: "warning",
+      action: () => setActiveTab("least-privilege"),
+      cta: "Inspect least privilege",
+    } : null,
+    cveSummary.totalCves > 0 ? {
+      title: `${cveSummary.totalCves} CVEs on exposed paths`,
+      detail: "Open vulnerable services are contributing to system risk.",
+      tone: "warning",
+      action: () => setActiveTab("vulnerabilities"),
+      cta: "View CVEs",
+    } : null,
+  ].filter(Boolean) as Array<{
+    title: string
+    detail: string
+    tone: "critical" | "high" | "warning"
+    action: () => void
+    cta: string
+  }>
+  const overviewIssuePreview = issues.slice(0, 3)
+  const overviewFindingsPreview = securityFindings.slice(0, 5)
 
   // =============================================================================
   // RENDER
@@ -1219,6 +1258,314 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "overview" && (
         <>
+          <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <div className="flex items-center justify-between mb-5">
+                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">System Health</p>
+                  <ShieldCheck className={`w-4 h-4 ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-[#f59e0b]" : "text-[#ef4444]"}`} />
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="relative w-20 h-20 flex-shrink-0">
+                    <svg className="w-20 h-20 transform -rotate-90">
+                      <circle cx="40" cy="40" r="32" stroke="#E5E7EB" strokeWidth="8" fill="none" />
+                      <circle
+                        cx="40"
+                        cy="40"
+                        r="32"
+                        stroke={healthScore >= 80 ? "#10B981" : healthScore >= 60 ? "#F59E0B" : "#EF4444"}
+                        strokeWidth="8"
+                        fill="none"
+                        strokeDasharray={`${2 * Math.PI * 32}`}
+                        strokeDashoffset={`${2 * Math.PI * 32 * (1 - healthScore / 100)}`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xl font-bold text-[var(--foreground,#111827)]">{healthScore}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className={`text-sm font-semibold ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-[#f59e0b]" : "text-[#ef4444]"}`}>
+                      {healthScore >= 80 ? "Stable posture" : healthScore >= 60 ? "Needs attention" : "Active risk"}
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{totalChecks} checks across current telemetry</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <div className="flex items-center justify-between mb-5">
+                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
+                  <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
+                </div>
+                <div className="flex items-end gap-2">
+                  <span className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalFindings}</span>
+                  <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">open findings</span>
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-xs">
+                  <span className="px-2 py-1 rounded-full bg-[#ef444410] text-[#ef4444]">{severityCounts.critical} critical</span>
+                  <span className="px-2 py-1 rounded-full bg-[#f9731610] text-[#f97316]">{severityCounts.high} high</span>
+                  <span className="px-2 py-1 rounded-full bg-[#eab30810] text-[#a16207]">{severityCounts.medium} medium</span>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <div className="flex items-center justify-between mb-5">
+                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Access Exposure</p>
+                  <Zap className="w-4 h-4 text-[#8b5cf6]" />
+                </div>
+                <div className="flex items-end gap-2">
+                  <span className="text-4xl font-bold text-[#8b5cf6]">{gapAnalysis.gap}</span>
+                  <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">unused permissions</span>
+                </div>
+                <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">{gapAnalysis.gapPercent}% removable from observed usage</p>
+                <div className="mt-4 h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full rounded-full bg-[#8b5cf6]" style={{ width: `${Math.min(100, actualPercent)}%` }} />
+                </div>
+                <button onClick={() => setActiveTab("least-privilege")} className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline">
+                  Open access workflow →
+                </button>
+              </div>
+
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                <div className="flex items-center justify-between mb-5">
+                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">System Footprint</p>
+                  <Server className="w-4 h-4 text-[#3b82f6]" />
+                </div>
+                <div className="flex items-end gap-2">
+                  <span className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalResourcesCount}</span>
+                  <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">tracked resources</span>
+                </div>
+                <div className="mt-4 space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[var(--muted-foreground,#6b7280)]">Environment</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">{systemMeta.environment || "Production"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[var(--muted-foreground,#6b7280)]">Criticality</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">{systemMeta.criticality || "Standard"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-4 space-y-6">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ShieldAlert className="w-5 h-5 text-[#ef4444]" />
+                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Immediate Priorities</h3>
+                  </div>
+                  {topPriorityItems.length === 0 ? (
+                    <div className="rounded-lg border border-[#22c55e30] bg-[#22c55e08] p-4">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-[#22c55e] mt-0.5" />
+                        <div>
+                          <p className="text-sm font-semibold text-[#166534]">No urgent drivers detected</p>
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
+                            This system currently looks stable from the summary signals we track here.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {topPriorityItems.map((item) => (
+                        <div key={item.title} className={`rounded-lg border p-4 ${item.tone === "critical" ? "border-[#ef444430] bg-[#ef444408]" : item.tone === "high" ? "border-[#f9731630] bg-[#f9731608]" : "border-[#eab30830] bg-[#eab30808]"}`}>
+                          <p className="text-sm font-semibold text-[var(--foreground,#111827)]">{item.title}</p>
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{item.detail}</p>
+                          <button onClick={item.action} className="mt-3 text-sm font-medium text-[#2D51DA] hover:underline">
+                            {item.cta} →
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Activity className="w-5 h-5 text-[#3b82f6]" />
+                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Context</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[var(--muted-foreground,#6b7280)]">Account</span>
+                      <span className="font-medium text-[var(--foreground,#111827)]">745783559495</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[var(--muted-foreground,#6b7280)]">Region</span>
+                      <span className="font-medium text-[var(--foreground,#111827)]">eu-west-1</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[var(--muted-foreground,#6b7280)]">Last behavioral sync</span>
+                      <span className="font-medium text-[var(--foreground,#111827)]">{autoTagStatus.lastSync}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[var(--muted-foreground,#6b7280)]">Auto-tag cycles</span>
+                      <span className="font-medium text-[var(--foreground,#111827)]">{autoTagStatus.totalCycles}</span>
+                    </div>
+                  </div>
+                  <div className="mt-5 pt-5 border-t border-[var(--border,#eef2f7)] space-y-3">
+                    {resourceTypes.map((resource) => (
+                      <div key={resource.name} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${resource.color}`}>
+                            <resource.icon className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-[var(--foreground,#111827)]">{resource.name}</p>
+                            <p className="text-xs text-[var(--muted-foreground,#6b7280)]">{resource.description}</p>
+                          </div>
+                        </div>
+                        <span className="text-sm font-semibold text-[var(--foreground,#111827)]">{resource.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="xl:col-span-8 space-y-6">
+                <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] overflow-hidden">
+                  <div className="px-6 py-5 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Map</h3>
+                      <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
+                        Operational view of how identity, network, and data resources connect in this system.
+                      </p>
+                    </div>
+                    <button onClick={() => setActiveTab("dependency-map")} className="text-sm font-medium text-[#2D51DA] hover:underline">
+                      Open full dependency map →
+                    </button>
+                  </div>
+                  <div className="p-4">
+                    <SystemDependencyMap systemName={systemName} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-[#8b5cf6]" />
+                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Access Posture</h3>
+                      </div>
+                      <span className="text-xs px-2 py-1 rounded-full bg-[#8b5cf615] text-[#7c3aed]">
+                        {loadingGap ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
+                      </span>
+                    </div>
+                    {gapError ? (
+                      <div className="rounded-lg border border-[#ef444430] bg-[#ef444408] p-4">
+                        <p className="text-sm font-medium text-[#ef4444]">Unable to load access posture</p>
+                        <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{gapError}</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Granted</span>
+                              <span className="font-medium text-[var(--foreground,#111827)]">{gapAnalysis.allowed}</span>
+                            </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-gray-300 rounded-full w-full" />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-[var(--muted-foreground,#6b7280)]">Observed used</span>
+                              <span className="font-medium text-[#8b5cf6]">{gapAnalysis.actual}</span>
+                            </div>
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-[#8b5cf6] rounded-full" style={{ width: `${Math.min(100, actualPercent)}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-4 rounded-lg border border-[#ef444430] bg-[#ef444408] p-4">
+                          <p className="text-sm font-semibold text-[#ef4444]">{gapAnalysis.gap} permissions remain unused</p>
+                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
+                            {gapAnalysis.gapPercent}% of current grants look removable based on observed behavior.
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Issue Preview</h3>
+                      </div>
+                      <button onClick={() => setActiveTab("vulnerabilities")} className="text-sm font-medium text-[#2D51DA] hover:underline">
+                        Open full workflow →
+                      </button>
+                    </div>
+                    {overviewIssuePreview.length > 0 ? (
+                      <div className="space-y-3">
+                        {overviewIssuePreview.map((issue) => (
+                          <div key={issue.id} className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
+                            <p className="text-sm font-semibold text-[var(--foreground,#111827)]">{issue.title}</p>
+                            <p className="text-xs text-[#ef4444] mt-1">{issue.impact}</p>
+                            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{issue.affected}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : overviewFindingsPreview.length > 0 ? (
+                      <div className="space-y-3">
+                        {overviewFindingsPreview.map((finding) => (
+                          <div key={finding.id} className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-[var(--foreground,#111827)] line-clamp-1">{finding.title}</p>
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-[#ef444410] text-[#ef4444]">{finding.severity}</span>
+                            </div>
+                            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2 line-clamp-2">{finding.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-[#22c55e30] bg-[#22c55e08] p-5 text-center">
+                        <CheckCircle className="w-8 h-8 text-[#22c55e] mx-auto mb-2" />
+                        <p className="text-sm font-semibold text-[#166534]">No urgent issues in preview</p>
+                        <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
+                          The system summary is currently not surfacing urgent findings here.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-4">
+                <PendingApprovals systemName={systemName} />
+              </div>
+              <div className="xl:col-span-8">
+                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-blue-500" />
+                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Security Findings</h3>
+                    </div>
+                    {loadingFindings && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+                    )}
+                  </div>
+                  {securityFindings.length > 0 ? (
+                    <SecurityFindingsList findings={securityFindings} />
+                  ) : (
+                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
+                      <p>No security findings found for this system.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {false && (
           {/* Main Content - Overview Tab */}
           <div className="max-w-[1800px] mx-auto px-8 py-6">
             {/* Stats Row - Updated with real severity counts */}
@@ -1838,6 +2185,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             )}
           </div>
+          )}
         </>
       )}
 
