@@ -99,6 +99,10 @@ interface AccessData {
   }>
 }
 
+function formatObservedAccessLabel(count: number, observationDays: number) {
+  return `${count.toLocaleString()} observed accesses in ${observationDays}-day window`
+}
+
 export function S3PolicyAnalysisModal({
   isOpen,
   onClose,
@@ -617,7 +621,9 @@ export function S3PolicyAnalysisModal({
                       <div key={i} className="flex items-center gap-2">
                         <Check className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
                         <span className="font-mono text-sm text-[var(--foreground,#374151)]">{policy.policy_name}</span>
-                        <span className="text-[#22c55e] text-sm">{policy.access_count || 0} accesses/day</span>
+                        <span className="text-[#22c55e] text-sm">
+                          {formatObservedAccessLabel(policy.access_count || 0, observationDays)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -795,7 +801,9 @@ export function S3PolicyAnalysisModal({
               <p className="text-[var(--muted-foreground,#4b5563)] max-w-md mx-auto mb-6">
                 {unusedCount > 0
                   ? `Found ${unusedCount} unused ${unusedCount === 1 ? 'policy statement' : 'policy statements'} that can be safely removed. Review the exact change set, create a rollback checkpoint, and preview the result before applying it.`
-                  : 'No unused policies detected. This bucket is following least privilege principles.'
+                  : hasPublicAccess
+                    ? 'No unused policy statements were found, but this bucket still has active public exposure. Least-privilege removal is not available for the current statement set.'
+                    : 'No unused policies detected. No least-privilege remediation is currently needed for this bucket policy.'
                 }
               </p>
               {unusedCount > 0 ? (
@@ -826,12 +834,23 @@ export function S3PolicyAnalysisModal({
                   </button>
                 </div>
               ) : (
-                <div className="bg-[#22c55e10] border border-[#22c55e40] rounded-lg p-4 max-w-md mx-auto">
-                  <h4 className="font-semibold text-[#22c55e] mb-2">Bucket Status</h4>
-                  <ul className="text-sm text-[#22c55e] text-left space-y-1">
-                    <li>✓ All policies are actively used</li>
-                    <li>✓ No remediation needed</li>
-                    <li>✓ Following least privilege principles</li>
+                <div className={`rounded-lg p-4 max-w-md mx-auto ${hasPublicAccess ? 'bg-[#fff7ed] border border-[#fdba74]' : 'bg-[#22c55e10] border border-[#22c55e40]'}`}>
+                  <h4 className={`font-semibold mb-2 ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`}>
+                    {hasPublicAccess ? 'Bucket Status' : 'Bucket Status'}
+                  </h4>
+                  <ul className={`text-sm text-left space-y-1 ${hasPublicAccess ? 'text-[#9a3412]' : 'text-[#22c55e]'}`}>
+                    <li>✓ All configured bucket policy statements are actively used</li>
+                    {hasPublicAccess ? (
+                      <>
+                        <li>• No least-privilege removal is available for the current policy</li>
+                        <li>• Public exposure remains and should be reviewed separately</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>✓ No least-privilege remediation needed</li>
+                        <li>✓ Bucket policy is aligned with observed usage</li>
+                      </>
+                    )}
                   </ul>
                 </div>
               )}
@@ -1008,7 +1027,9 @@ function AnalysisTab({
               <div key={i} className="flex items-center gap-2 text-sm">
                 <span className="text-[#22c55e]">✓</span>
                 <span className="font-mono text-[var(--foreground,#1f2937)]">{policy.policy_name}</span>
-                <span className="text-[var(--muted-foreground,#9ca3af)]">- {policy.access_count || 0} accesses/day</span>
+                <span className="text-[var(--muted-foreground,#9ca3af)]">
+                  - {formatObservedAccessLabel(policy.access_count || 0, observationDays)}
+                </span>
               </div>
             )) : (
               <p className="text-[var(--muted-foreground,#9ca3af)] text-sm italic">No policies currently in use</p>
@@ -1053,13 +1074,18 @@ function AnalysisTab({
             </p>
           </div>
         ) : (
-          <div className="border-2 border-[#22c55e40] bg-[#22c55e10] rounded-xl p-4">
+          <div className={`border-2 rounded-xl p-4 ${hasPublicAccess ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#22c55e40] bg-[#22c55e10]'}`}>
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-[#22c55e]" />
-              <span className="font-semibold text-[#22c55e]">No Issues Found</span>
+              <CheckCircle className={`w-5 h-5 ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`} />
+              <span className={`font-semibold ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`}>
+                {hasPublicAccess ? 'No LP Removal Available' : 'No Issues Found'}
+              </span>
             </div>
-            <p className="mt-2 text-sm text-[#22c55e]">
-              All bucket policies are actively used. No remediation needed.
+            <p className={`mt-2 text-sm ${hasPublicAccess ? 'text-[#9a3412]' : 'text-[#22c55e]'}`}>
+              {hasPublicAccess
+                ? 'All bucket policy statements are actively used, so least-privilege removal is not recommended. Public exposure is still present and should be reviewed as a separate security concern.'
+                : 'All bucket policies are actively used. No least-privilege remediation is needed.'
+              }
             </p>
           </div>
         )}
@@ -1086,10 +1112,15 @@ function AnalysisTab({
           </p>
         </div>
       ) : (
-        <div className="mx-6 mb-6 p-4 border border-[#22c55e40] bg-[#22c55e10] rounded-xl">
-          <h3 className="font-bold text-[#22c55e]">No Action Required</h3>
-          <p className="text-[#22c55e] mt-1">
-            This bucket is already following least privilege principles. All configured policies are being actively used.
+        <div className={`mx-6 mb-6 p-4 border rounded-xl ${hasPublicAccess ? 'border-[#fdba74] bg-[#fff7ed]' : 'border-[#22c55e40] bg-[#22c55e10]'}`}>
+          <h3 className={`font-bold ${hasPublicAccess ? 'text-[#c2410c]' : 'text-[#22c55e]'}`}>
+            {hasPublicAccess ? 'No LP Remediation Available' : 'No Action Required'}
+          </h3>
+          <p className={`mt-1 ${hasPublicAccess ? 'text-[#9a3412]' : 'text-[#22c55e]'}`}>
+            {hasPublicAccess
+              ? 'All configured bucket policy statements are actively used in the 365-day observation window. Least-privilege removal is not appropriate here, but the bucket still has public exposure that should be reviewed separately.'
+              : 'This bucket policy is aligned with observed usage in the 365-day observation window.'
+            }
           </p>
         </div>
       )}
@@ -1395,7 +1426,7 @@ function AccessTab({
           <div>
             <h4 className="font-medium text-[#3b82f6]">Observed Access Patterns</h4>
             <p className="text-sm text-[#3b82f6] mt-1">
-              These principals have actively accessed this bucket. This data helps identify which permissions are actually being used for safe remediation.
+              These principals were observed accessing this bucket in the 90-day analysis view. The Summary tab uses the 365-day least-privilege window, so counts can differ between tabs while still being accurate.
             </p>
           </div>
         </div>
