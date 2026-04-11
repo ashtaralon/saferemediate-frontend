@@ -1262,7 +1262,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                 <div className="flex items-center justify-between mb-5">
-                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">System Health</p>
+                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Enforcement Score</p>
                   <ShieldCheck className={`w-4 h-4 ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-[#f59e0b]" : "text-[#ef4444]"}`} />
                 </div>
                 <div className="flex items-center gap-4">
@@ -1287,9 +1287,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
                   <div>
                     <p className={`text-sm font-semibold ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-[#f59e0b]" : "text-[#ef4444]"}`}>
-                      {healthScore >= 80 ? "Stable posture" : healthScore >= 60 ? "Needs attention" : "Active risk"}
+                      {healthScore >= 80 ? "Strong system enforcement" : healthScore >= 60 ? "Needs stronger enforcement" : "High enforcement gap"}
                     </p>
-                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{totalChecks} checks across current telemetry</p>
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
+                      Calculated for this system only from {totalChecks} current checks
+                    </p>
                   </div>
                 </div>
               </div>
