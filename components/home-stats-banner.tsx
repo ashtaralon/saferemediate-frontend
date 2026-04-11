@@ -37,9 +37,14 @@ export function HomeStatsBanner({
 
       <div className="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-2xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/90 backdrop-blur">
-            <ScanSearch className="h-3.5 w-3.5" />
-            Home Command
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center gap-2 text-lg font-semibold text-white">
+              <ScanSearch className="h-5 w-5 text-white/90" />
+              Home Command
+            </div>
+            <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/80 backdrop-blur">
+              Live
+            </span>
           </div>
           <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white xl:text-4xl">
             Security posture across your active cloud environment
