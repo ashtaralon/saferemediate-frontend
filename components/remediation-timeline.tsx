@@ -135,6 +135,8 @@ const getActionIcon = (actionType: string) => {
     case "ROLLBACK":
       return <RotateCcw className="w-4 h-4" />
     case "SG_RULE_REMOVED":
+    case "SG_RULE_TIGHTENED":
+    case "SG_RULE_REMEDIATED":
       return <Shield className="w-4 h-4" />
     case "S3_POLICY_REMOVED":
       return <Database className="w-4 h-4" />
