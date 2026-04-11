@@ -72,7 +72,14 @@ interface S3PolicyAnalysisModalProps {
   resourceData?: any
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
-  onRemediationSuccess?: (bucketName: string) => void
+  onRemediationSuccess?: (result: {
+    bucketName: string
+    snapshotId?: string | null
+    eventId?: string | null
+    rollbackAvailable?: boolean
+    afterTotal?: number | null
+    removedCount?: number | null
+  }) => void
 }
 
 type TabType = 'analysis' | 'policies' | 'evidence' | 'access' | 'simulate'
@@ -113,8 +120,10 @@ export function S3PolicyAnalysisModal({
   const [error, setError] = useState<string | null>(null)
   const [showSimulation, setShowSimulation] = useState(false)
   const [simulating, setSimulating] = useState(false)
+  const [simulationPreview, setSimulationPreview] = useState<any>(null)
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
+  const [selectedPoliciesToRemove, setSelectedPoliciesToRemove] = useState<Set<string>>(new Set())
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -130,8 +139,19 @@ export function S3PolicyAnalysisModal({
     if (!isOpen) {
       setActiveTab('analysis')
       setShowSimulation(false)
+      setSimulationPreview(null)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const defaults = new Set(
+      (gapData?.policies_analysis ?? [])
+        .filter(p => p.policy_type === 'unused' || p.policy_type === 'overly_permissive')
+        .map(p => p.policy_name)
+    )
+    setSelectedPoliciesToRemove(defaults)
+  }, [gapData, isOpen])
 
   const fetchGapAnalysis = async () => {
     setLoading(true)
@@ -225,33 +245,79 @@ export function S3PolicyAnalysisModal({
 
   const handleClose = () => {
     setShowSimulation(false)
+    setSimulationPreview(null)
     setGapData(null)
     setPolicyData(null)
     setError(null)
     setActiveTab('analysis')
+    setSelectedPoliciesToRemove(new Set())
     onClose()
   }
 
   const handleSimulate = async () => {
+    if (selectedPoliciesToRemove.size === 0) {
+      toast({
+        title: "Select statements first",
+        description: "Choose at least one S3 policy statement to include in the remediation preview.",
+        variant: "destructive"
+      })
+      return
+    }
     setSimulating(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setSimulating(false)
-    setShowSimulation(true)
-  }
-
-  const handleApplyFix = async () => {
-    if (!gapData) return
-    
-    setApplying(true)
     try {
+      const selectedPolicies = Array.from(selectedPoliciesToRemove)
       const response = await fetch('/api/proxy/s3-buckets/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bucket_name: bucketName,
-          policies_to_remove: unusedPolicies.map(p => p.policy_name),
-          create_snapshot: createSnapshot,
-          snapshot_reason: `Pre-remediation backup - removing ${unusedCount} policies`
+          policies_to_remove: selectedPolicies,
+          create_snapshot: true,
+          dry_run: true,
+          snapshot_reason: `Dry-run preview for ${selectedPolicies.length} S3 policy statements`
+        })
+      })
+
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to run S3 remediation preview')
+      }
+
+      setSimulationPreview(result)
+      setShowSimulation(true)
+    } catch (err: any) {
+      toast({
+        title: "Preview failed",
+        description: err.message || 'Could not generate the S3 remediation preview.',
+        variant: "destructive"
+      })
+    } finally {
+      setSimulating(false)
+    }
+  }
+
+  const handleApplyFix = async () => {
+    if (!gapData) return
+    if (selectedPoliciesToRemove.size === 0) {
+      toast({
+        title: "No statements selected",
+        description: "Select at least one policy statement to remediate.",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    setApplying(true)
+    try {
+      const selectedPolicies = Array.from(selectedPoliciesToRemove)
+      const response = await fetch('/api/proxy/s3-buckets/remediate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bucket_name: bucketName,
+          policies_to_remove: selectedPolicies,
+          create_snapshot: true,
+          snapshot_reason: `Pre-remediation backup - removing ${selectedPolicies.length} S3 policy statements`
         })
       })
       
@@ -268,7 +334,7 @@ export function S3PolicyAnalysisModal({
           onApplyFix({
             bucketName,
             systemName,
-            policiesToRemove: gapData.unused_policies,
+            policiesToRemove: selectedPolicies,
             createSnapshot,
             confidence: calculateSafetyScore(),
             result
@@ -276,7 +342,14 @@ export function S3PolicyAnalysisModal({
         }
         
         if (onRemediationSuccess) {
-          onRemediationSuccess(bucketName)
+          onRemediationSuccess({
+            bucketName,
+            snapshotId: result.snapshot_id ?? null,
+            eventId: result.event_id ?? null,
+            rollbackAvailable: result.rollback_available ?? !!result.snapshot_id,
+            afterTotal: result.statements_remaining ?? null,
+            removedCount: result.policies_removed ?? selectedPolicies.length,
+          })
         }
         
         onSuccess?.()
@@ -336,6 +409,25 @@ export function S3PolicyAnalysisModal({
   }
 
   const safetyScore = calculateSafetyScore()
+  const previewWouldBlock = !!simulationPreview?.safety_gate?.would_block
+  const previewWarnings: string[] = simulationPreview?.safety_gate?.warnings ?? []
+  const toggleSelectedPolicy = (policyName: string) => {
+    setSelectedPoliciesToRemove(prev => {
+      const next = new Set(prev)
+      if (next.has(policyName)) {
+        next.delete(policyName)
+      } else {
+        next.add(policyName)
+      }
+      return next
+    })
+  }
+  const selectAllPolicies = () => {
+    setSelectedPoliciesToRemove(new Set(unusedPolicies.map(policy => policy.policy_name)))
+  }
+  const clearSelectedPolicies = () => {
+    setSelectedPoliciesToRemove(new Set())
+  }
 
   // Loading state
   if (loading) {
@@ -425,7 +517,7 @@ export function S3PolicyAnalysisModal({
           <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between bg-gray-50">
             <div>
               <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
-              <p className="text-[var(--muted-foreground,#6b7280)]">Policy Removal Analysis</p>
+              <p className="text-[var(--muted-foreground,#6b7280)]">S3 bucket policy remediation preview</p>
             </div>
             <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
               <X className="w-6 h-6" />
@@ -435,13 +527,19 @@ export function S3PolicyAnalysisModal({
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* Safety Score Banner */}
-            <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
+            <div className={`p-6 bg-white border-2 rounded-2xl text-center ${previewWouldBlock ? 'border-[#f59e0b66]' : 'border-[#22c55e40]'}`}>
               <div className="flex items-center justify-center gap-3">
-                <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
-                <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
+                <CheckSquare className={`w-10 h-10 ${previewWouldBlock ? 'text-[#f59e0b]' : 'text-[#22c55e]'}`} />
+                <span className={`text-5xl font-bold ${previewWouldBlock ? 'text-[#f59e0b]' : 'text-[#22c55e]'}`}>{safetyScore}%</span>
+                <span className={`text-2xl font-bold ${previewWouldBlock ? 'text-[#f59e0b]' : 'text-[#22c55e]'}`}>
+                  {previewWouldBlock ? 'REVIEW BEFORE APPLY' : 'SAFE TO APPLY'}
+                </span>
               </div>
-              <p className="text-[#22c55e] mt-2">No applications will be affected</p>
+              <p className={`mt-2 ${previewWouldBlock ? 'text-[#b45309]' : 'text-[#22c55e]'}`}>
+                {previewWouldBlock
+                  ? (simulationPreview?.safety_gate?.would_block_reason || 'The safety gate would block this exact change set during execution.')
+                  : 'No applications will be affected'}
+              </p>
             </div>
 
             {/* What Will Change */}
@@ -450,11 +548,11 @@ export function S3PolicyAnalysisModal({
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Remove {unusedCount} unused policies from {bucketName}</span>
+                  <span>Remove {selectedPoliciesToRemove.size} selected policy statements from {bucketName}</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Reduce attack surface by {unusedPercent}%</span>
+                  <span>Reduce attack surface by {unusedCount > 0 ? Math.round((selectedPoliciesToRemove.size / unusedCount) * unusedPercent) : 0}%</span>
                 </div>
                 {hasPublicAccess && (
                   <div className="flex items-center gap-3 p-3 bg-[#ef444410] rounded-lg">
@@ -464,26 +562,46 @@ export function S3PolicyAnalysisModal({
                 )}
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                  <span>Improve LP score to 100%</span>
+                  <span>Apply an explicit rollback-backed S3 remediation change set</span>
                 </div>
               </div>
             </div>
 
             {/* Policies to Remove */}
             <div>
-              <h3 className="font-bold text-lg text-[var(--foreground,#111827)] mb-3">Policies to Remove ({unusedCount}):</h3>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="font-bold text-lg text-[var(--foreground,#111827)]">Policies to Remove ({selectedPoliciesToRemove.size} of {unusedCount} selected)</h3>
+                <div className="flex items-center gap-3 text-sm">
+                  <button onClick={selectAllPolicies} className="text-[#16a34a] font-medium hover:text-[#15803d]">Select All</button>
+                  <span className="text-[var(--border,#d1d5db)]">|</span>
+                  <button onClick={clearSelectedPolicies} className="text-[var(--muted-foreground,#6b7280)] font-medium hover:text-[var(--foreground,#111827)]">Clear All</button>
+                </div>
+              </div>
               <div className="p-4 bg-[#ef444410] border border-[#ef444440] rounded-xl max-h-48 overflow-y-auto">
                 <div className="grid grid-cols-2 gap-2">
                   {unusedPolicies.map((policy, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <XCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                    <button
+                      type="button"
+                      key={i}
+                      onClick={() => toggleSelectedPolicy(policy.policy_name)}
+                      className={`flex items-center gap-2 text-sm rounded-lg border px-3 py-2 text-left transition ${
+                        selectedPoliciesToRemove.has(policy.policy_name)
+                          ? 'border-[#ef4444] bg-white'
+                          : 'border-transparent bg-transparent opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      {selectedPoliciesToRemove.has(policy.policy_name) ? (
+                        <CheckSquare className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-[#ef4444] flex-shrink-0" />
+                      )}
                       <span className="font-mono text-[var(--foreground,#374151)] truncate">{policy.policy_name}</span>
                       {policy.is_public && (
                         <span className="px-1.5 py-0.5 bg-red-600 text-white text-xs rounded font-medium">
                           PUBLIC
                         </span>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -531,6 +649,20 @@ export function S3PolicyAnalysisModal({
                 ))}
               </div>
             </div>
+
+            {previewWarnings.length > 0 && (
+              <div className="p-4 bg-[#fff7ed] border border-[#fdba74] rounded-xl">
+                <h3 className="font-bold text-[var(--foreground,#111827)] mb-3">Safety Gate Warnings</h3>
+                <div className="space-y-2">
+                  {previewWarnings.map((warning, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-[#9a3412]">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span>{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -543,20 +675,13 @@ export function S3PolicyAnalysisModal({
               ← BACK
             </button>
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="checkbox" 
-                  checked={createSnapshot}
-                  onChange={(e) => setCreateSnapshot(e.target.checked)}
-                  disabled={applying}
-                  className="rounded border-[var(--border,#d1d5db)] text-[#22c55e] focus:ring-green-500"
-                />
-                <span className="text-sm text-[var(--muted-foreground,#4b5563)]">Create rollback checkpoint first</span>
-              </label>
+              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">
+                Rollback checkpoint will be created automatically before the bucket policy is changed
+              </div>
               <button 
                 onClick={handleApplyFix}
-                disabled={applying}
-                className="px-6 py-2.5 bg-white text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                disabled={applying || selectedPoliciesToRemove.size === 0 || previewWouldBlock}
+                className="px-6 py-2.5 bg-[#16a34a] text-white rounded-lg font-bold hover:bg-[#15803d] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {applying ? (
                   <>
@@ -582,8 +707,8 @@ export function S3PolicyAnalysisModal({
         {/* Header */}
         <div className="px-6 py-4 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">S3 Bucket Analysis</h2>
-            <p className="text-[var(--muted-foreground,#6b7280)]">{bucketName} - S3Bucket - {systemName}</p>
+            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">S3 Policy Analysis</h2>
+            <p className="text-[var(--muted-foreground,#6b7280)]">{bucketName} - S3 bucket - {systemName}</p>
           </div>
           <button onClick={handleClose} className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)]">
             <X className="w-6 h-6" />
@@ -594,10 +719,10 @@ export function S3PolicyAnalysisModal({
         <div className="border-b border-[var(--border,#e5e7eb)] px-6">
           <div className="flex gap-1">
             {[
-              { id: 'analysis' as const, label: 'Usage Analysis', icon: Eye },
+              { id: 'analysis' as const, label: 'Summary', icon: Eye },
               { id: 'access' as const, label: 'Who Accessed', icon: Users },
-              { id: 'policies' as const, label: 'Policies', icon: FileText },
-              { id: 'evidence' as const, label: 'Evidence', icon: Shield },
+              { id: 'policies' as const, label: 'Policy', icon: FileText },
+              { id: 'evidence' as const, label: 'Context', icon: Shield },
               { id: 'simulate' as const, label: 'Simulate', icon: Zap }
             ].map((tab) => (
               <button

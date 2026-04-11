@@ -22,7 +22,8 @@ export async function POST(request: NextRequest) {
           bucket_name: body.bucket_name,
           policies_to_remove: body.policies_to_remove || [],
           create_snapshot: body.create_snapshot !== false,
-          snapshot_reason: body.snapshot_reason || `Pre-remediation backup for ${body.bucket_name}`
+          snapshot_reason: body.snapshot_reason || `Pre-remediation backup for ${body.bucket_name}`,
+          dry_run: body.dry_run === true
         })
       }
     )

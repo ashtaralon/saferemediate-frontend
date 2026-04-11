@@ -2459,14 +2459,22 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         onApplyFix={(data) => {
           console.log('[S3] Apply fix requested:', data)
         }}
-        onRemediationSuccess={(bucketName) => {
+        onRemediationSuccess={(result) => {
+          const bucketName = result.bucketName
           const resource = data?.resources.find(candidate =>
             candidate.resourceType === 'S3Bucket' &&
             (candidate.resourceName === bucketName || candidate.id === bucketName)
           )
 
           if (resource) {
-            handleRemediationSuccess(resource, { remediatedBy: 'user@cyntro.io' })
+            handleRemediationSuccess(resource, {
+              remediatedBy: 'user@cyntro.io',
+              snapshotId: result.snapshotId ?? null,
+              eventId: result.eventId ?? null,
+              rollbackAvailable: result.rollbackAvailable,
+              afterTotal: result.afterTotal ?? null,
+              removedCount: result.removedCount ?? null,
+            })
           } else {
             void fetchGaps(false, false)
           }
