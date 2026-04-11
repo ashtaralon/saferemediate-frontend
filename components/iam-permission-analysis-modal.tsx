@@ -847,7 +847,14 @@ export function IAMPermissionAnalysisModal({
                   : unusedCount
                 const reductionPct = totalPermissions > 0 ? Math.round((removalCount / totalPermissions) * 100) : 0
                 const newTotal = totalPermissions - removalCount
-                const newLpScore = newTotal > 0 ? Math.round((usedCount / newTotal) * 100) : 100
+                const remediableUnusedBefore = Math.max(0, removableCount)
+                const remediableUnusedAfter = Math.max(0, remediableUnusedBefore - removalCount)
+                const remediableOverprivBefore = totalPermissions > 0
+                  ? Math.round((remediableUnusedBefore / totalPermissions) * 100)
+                  : 0
+                const remediableOverprivAfter = newTotal > 0
+                  ? Math.round((remediableUnusedAfter / newTotal) * 100)
+                  : 0
 
                 return (
                   <div className="space-y-2">
@@ -861,7 +868,7 @@ export function IAMPermissionAnalysisModal({
                     </div>
                     <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
                       <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                      <span>Reduce over-privileged from <strong>{unusedPercent}%</strong> to <strong>{newTotal > 0 ? Math.round(((newTotal - usedCount) / newTotal) * 100) : 0}%</strong></span>
+                      <span>Reduce remediable over-privileged from <strong>{remediableOverprivBefore}%</strong> to <strong>{remediableOverprivAfter}%</strong></span>
                     </div>
                     {!hasPermissionLists && unusedCount > 0 && (
                       <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-300" style={{ background: "#fef3c710" }}>
