@@ -24,7 +24,7 @@ import { fetchInfrastructure, fetchSecurityFindings, type InfrastructureData } f
 import type { SecurityFinding } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
-import { RefreshCw, Shield, TrendingDown, AlertOctagon } from "lucide-react"
+import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 
@@ -393,6 +393,13 @@ export default function HomePage() {
   })
 
   const complianceSystems = data?.complianceSystems || []
+  const totalTrackedResources =
+    data?.resources?.length ||
+    Object.values(infrastructureStats).reduce((sum, count) => sum + Number(count || 0), 0)
+  const urgentIssueCount = (securityIssuesData.critical || 0) + (securityIssuesData.high || 0)
+  const removableGapPercent = gapData.allowed > 0 ? Math.round((gapData.unused / gapData.allowed) * 100) : 0
+  const lastRefreshLabel = lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  const securityHubHighlights = Object.entries(securityHubData.byProduct).slice(0, 3)
 
   const handleSystemSelect = (systemName: string) => {
     setSelectedSystem(systemName)
@@ -478,29 +485,111 @@ export default function HomePage() {
 
         return (
           <div className="space-y-6">
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowSimulator(true)}
-                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Simulate Traffic
-              </button>
-              <AutoRefreshToggle />
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-[#2D51DA]/15 bg-[#2D51DA]/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#2D51DA]">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Main Dashboard
+                </div>
+                <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground,#111827)] xl:text-3xl">
+                  Cloud security command center
+                </h1>
+                <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                  Live view of enforcement, findings pressure, and the systems that need attention first.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setShowSimulator(true)}
+                  className="flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-green-700"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Simulate Traffic
+                </button>
+                <AutoRefreshToggle />
+              </div>
             </div>
-            <HomeStatsBanner {...statsData} />
-            <MicroEnforcementScore systemName={selectedSystem || "alon-prod"} />
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-              <div className="lg:col-span-2">
-                <InfrastructureOverview stats={infrastructureStats} />
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-8">
+                <HomeStatsBanner
+                  {...statsData}
+                  resourceCount={totalTrackedResources}
+                  urgentFindings={urgentIssueCount}
+                  lastRefreshLabel={lastRefreshLabel}
+                />
               </div>
-              <div className="lg:col-span-1">
-                <PostureScoreCard systemName="Eltro" />
+              <div className="xl:col-span-4">
+                <Card className="h-full overflow-hidden rounded-[28px] border-[#dbe4ff] bg-[linear-gradient(180deg,#ffffff_0%,#f8faff_100%)] shadow-[0_25px_70px_-45px_rgba(37,99,235,0.35)]">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-lg font-semibold text-[var(--foreground,#111827)] flex items-center gap-2">
+                          <Activity className="h-5 w-5 text-[#2D51DA]" />
+                          Operations Pulse
+                        </CardTitle>
+                        <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                          Focus the team on the hottest signals across the environment.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[#2D51DA]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#2D51DA]">
+                        Live
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] p-4">
+                        <div className="text-xs uppercase tracking-[0.2em] text-[#b91c1c]">Urgent Issues</div>
+                        <div className="mt-2 text-3xl font-bold text-[#111827]">{urgentIssueCount}</div>
+                        <p className="mt-2 text-xs text-[#7f1d1d]">Critical and high findings needing fast triage</p>
+                      </div>
+                      <div className="rounded-2xl border border-[#ddd6fe] bg-[#f5f3ff] p-4">
+                        <div className="text-xs uppercase tracking-[0.2em] text-[#6d28d9]">Access Gap</div>
+                        <div className="mt-2 text-3xl font-bold text-[#111827]">{removableGapPercent}%</div>
+                        <p className="mt-2 text-xs text-[#5b21b6]">Of granted permissions appear removable</p>
+                      </div>
+                      <div className="rounded-2xl border border-[#bfdbfe] bg-[#eff6ff] p-4">
+                        <div className="text-xs uppercase tracking-[0.2em] text-[#1d4ed8]">Telemetry</div>
+                        <div className="mt-2 text-3xl font-bold text-[#111827]">{totalTrackedResources}</div>
+                        <p className="mt-2 text-xs text-[#1e40af]">Tracked resources contributing to the dashboard</p>
+                      </div>
+                      <div className="rounded-2xl border border-[#fde68a] bg-[#fffbeb] p-4">
+                        <div className="text-xs uppercase tracking-[0.2em] text-[#b45309]">Coverage</div>
+                        <div className="mt-2 text-3xl font-bold text-[#111827]">{complianceSystems.length}</div>
+                        <p className="mt-2 text-xs text-[#92400e]">Systems represented in compliance coverage</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Refresh State</div>
+                          <div className="mt-1 text-sm font-medium text-[var(--foreground,#111827)]">Updated {lastRefreshLabel}</div>
+                        </div>
+                        <button
+                          onClick={() => setActiveSection("issues")}
+                          className="inline-flex items-center gap-1 text-sm font-medium text-[#2D51DA] hover:underline"
+                        >
+                          Review issues
+                          <ArrowUpRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-              <div className="lg:col-span-1">
-                <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-[#8b5cf640]">
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-8">
+                <MicroEnforcementScore systemName={selectedSystem || "alon-prod"} />
+              </div>
+              <div className="xl:col-span-4 space-y-6">
+                <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg font-semibold text-[#8b5cf6] flex items-center gap-2">
@@ -538,77 +627,150 @@ export default function HomePage() {
                     {gapUnused > 0 && gapAllowed > 0 && (
                       <div className="mt-3 p-2 bg-[#f9731620] rounded-lg text-center">
                         <span className="text-xs font-medium text-[#f97316]">
-                          {Math.round((gapUnused / gapAllowed) * 100)}% permissions can be removed
+                          {removableGapPercent}% permissions can be removed
                         </span>
                       </div>
                     )}
                   </CardContent>
                 </Card>
+
+                {securityHubData.total > 0 ? (
+                  <Card className="rounded-[24px] border-[#ef444430] bg-gradient-to-br from-red-50 to-orange-50 shadow-[0_20px_60px_-42px_rgba(239,68,68,0.4)]">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg font-semibold text-red-900 flex items-center gap-2">
+                          <AlertOctagon className="h-5 w-5 text-[#ef4444]" />
+                          Security Hub Findings
+                        </CardTitle>
+                        <span className="text-xs bg-red-600 text-white px-2 py-1 rounded-full font-medium">
+                          {securityHubData.total} Active
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#ef4444]">
+                        AWS Security Hub aggregated findings
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-red-600">
+                          <div className="text-2xl font-bold text-[#ef4444]">{securityHubData.critical}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Critical</div>
+                        </div>
+                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-orange-500">
+                          <div className="text-2xl font-bold text-orange-500">{securityHubData.high}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">High</div>
+                        </div>
+                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-amber-500">
+                          <div className="text-2xl font-bold text-amber-500">{securityHubData.medium}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Medium</div>
+                        </div>
+                        <div className="bg-white/70 rounded-xl p-3 text-center border-l-4 border-blue-400">
+                          <div className="text-2xl font-bold text-blue-500">{securityHubData.low}</div>
+                          <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Low</div>
+                        </div>
+                      </div>
+                      {securityHubHighlights.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {securityHubHighlights.map(([product, count]) => (
+                            <span key={product} className="rounded-full bg-white/80 px-3 py-1 text-xs text-[var(--foreground,#374151)]">
+                              {product}: {count}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="rounded-[24px] border-[#dbeafe] bg-gradient-to-br from-sky-50 to-white">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-[#2D51DA]" />
+                        Security Hub Status
+                      </CardTitle>
+                      <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
+                        No Security Hub findings are currently being surfaced into the dashboard.
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="rounded-2xl border border-[#dbeafe] bg-white p-4">
+                        <div className="text-sm font-medium text-slate-900">Hub ingestion looks quiet</div>
+                        <p className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">
+                          Once findings arrive, this card will highlight the active products and severities here.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </div>
-            {/* Security Hub Findings Card */}
-            {securityHubData.total > 0 && (
-              <Card className="bg-gradient-to-br from-red-50 to-orange-50 border-[#ef444440]">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg font-semibold text-red-900 flex items-center gap-2">
-                      <AlertOctagon className="h-5 w-5 text-[#ef4444]" />
-                      Security Hub Findings
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-7">
+                <InfrastructureOverview stats={infrastructureStats} />
+              </div>
+              <div className="xl:col-span-5 space-y-6">
+                <PostureScoreCard systemName="Eltro" />
+                <Card className="rounded-[24px] border-slate-200 bg-white shadow-[0_18px_45px_-35px_rgba(15,23,42,0.4)]">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg font-semibold text-[var(--foreground,#111827)]">
+                      Environment Snapshot
                     </CardTitle>
-                    <span className="text-xs bg-red-600 text-white px-2 py-1 rounded-full font-medium">
-                      {securityHubData.total} Active
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#ef4444]">
-                    AWS Security Hub aggregated findings
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-red-600">
-                      <div className="text-2xl font-bold text-[#ef4444]">{securityHubData.critical}</div>
-                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Critical</div>
+                    <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
+                      Quick read on platform scale and what is driving today&apos;s work.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Systems</div>
+                        <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{complianceSystems.length}</div>
+                        <div className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">Systems represented in governance</div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground,#6b7280)]">Findings Feed</div>
+                        <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{securityFindings.length}</div>
+                        <div className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)]">Detailed findings loaded into the console</div>
+                      </div>
                     </div>
-                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-orange-500">
-                      <div className="text-2xl font-bold text-orange-500">{securityHubData.high}</div>
-                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">High</div>
+                    <div className="mt-4 rounded-2xl border border-[#dbeafe] bg-[#f8fbff] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.2em] text-[#2D51DA]">Current Focus</div>
+                          <div className="mt-1 text-sm font-medium text-slate-900">
+                            {urgentIssueCount > 0
+                              ? `${urgentIssueCount} urgent findings are leading the queue`
+                              : "No urgent findings are leading the queue right now"}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActiveSection("systems")}
+                          className="inline-flex items-center gap-1 text-sm font-medium text-[#2D51DA] hover:underline"
+                        >
+                          Open systems
+                          <ArrowUpRight className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-amber-500">
-                      <div className="text-2xl font-bold text-amber-500">{securityHubData.medium}</div>
-                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Medium</div>
-                    </div>
-                    <div className="bg-white/60 rounded-lg p-3 text-center border-l-4 border-blue-400">
-                      <div className="text-2xl font-bold text-blue-500">{securityHubData.low}</div>
-                      <div className="text-xs text-[var(--muted-foreground,#4b5563)]">Low</div>
-                    </div>
-                  </div>
-                  {Object.keys(securityHubData.byProduct).length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {Object.entries(securityHubData.byProduct).slice(0, 4).map(([product, count]) => (
-                        <span key={product} className="text-xs bg-white/80 px-2 py-1 rounded-full text-[var(--foreground,#374151)]">
-                          {product}: {count}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {(securityHubData.critical > 0 || securityHubData.high > 0) && (
-                    <div className="mt-3 p-2 bg-[#ef444420] rounded-lg text-center">
-                      <span className="text-xs font-medium text-[#ef4444]">
-                        {securityHubData.critical + securityHubData.high} findings need immediate attention
-                      </span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-            <SecurityIssuesOverview {...securityIssuesData} />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-7">
+                <SecurityIssuesOverview {...securityIssuesData} />
+              </div>
+              <div className="xl:col-span-5">
+                <ComplianceCards systems={complianceSystems} />
+              </div>
+            </div>
+
             {securityFindings.length > 0 && (
               <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
                 <h2 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-4">Security Findings Details</h2>
                 <SecurityFindingsList findings={securityFindings} />
               </div>
             )}
-            <ComplianceCards systems={complianceSystems} />
             <TrendsActivity />
           </div>
         )

@@ -334,8 +334,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     passing: 0,
   })
 
-  // Health score from issues summary API
-  const [healthScoreFromApi, setHealthScore] = useState<number>(100)
+  // Enforcement score from issues summary API
+  const [healthScoreFromApi, setHealthScore] = useState<number | null>(null)
 
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
@@ -433,9 +433,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             medium: data.medium || 0,
             passing: 100 - (data.critical || 0) - (data.high || 0) - (data.medium || 0),
           })
-          setTotalChecks(data.resources?.total || data.total || 0)
-          if (data.avg_health_score !== undefined) {
-            setHealthScore(data.avg_health_score)
+          const checksCount = Number(data.resources?.total || data.total || 0)
+          setTotalChecks(checksCount)
+          if (checksCount > 0 && data.avg_health_score !== undefined) {
+            setHealthScore(Number(data.avg_health_score))
+          } else {
+            setHealthScore(null)
           }
         }
       }
@@ -1088,8 +1091,36 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // }
 
   const totalFindings = severityCounts.critical + severityCounts.high + severityCounts.medium
-  // Use health score from API, fallback to calculated if not set
-  const healthScore = healthScoreFromApi
+  const hasEnforcementTelemetry = totalChecks > 0 && healthScoreFromApi !== null
+  const healthScore = hasEnforcementTelemetry ? healthScoreFromApi : null
+  const enforcementAccent = !hasEnforcementTelemetry
+    ? "#94A3B8"
+    : healthScore >= 80
+      ? "#10B981"
+      : healthScore >= 60
+        ? "#F59E0B"
+        : "#EF4444"
+  const enforcementSurface = !hasEnforcementTelemetry
+    ? "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100"
+    : healthScore >= 80
+      ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50"
+      : healthScore >= 60
+        ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50"
+        : "border-rose-200 bg-gradient-to-br from-rose-50 via-white to-orange-50"
+  const enforcementPill = !hasEnforcementTelemetry
+    ? "text-slate-600 bg-slate-200/70"
+    : healthScore >= 80
+      ? "text-emerald-700 bg-emerald-100"
+      : healthScore >= 60
+        ? "text-amber-700 bg-amber-100"
+        : "text-rose-700 bg-rose-100"
+  const enforcementTitle = !hasEnforcementTelemetry
+    ? "Telemetry not available"
+    : healthScore >= 80
+      ? "Strong system enforcement"
+      : healthScore >= 60
+        ? "Needs stronger enforcement"
+        : "High enforcement gap"
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
   const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
   const topPriorityItems = [
@@ -1260,38 +1291,74 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                <div className="flex items-center justify-between mb-5">
-                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Enforcement Score</p>
-                  <ShieldCheck className={`w-4 h-4 ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-[#f59e0b]" : "text-[#ef4444]"}`} />
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="relative w-20 h-20 flex-shrink-0">
-                    <svg className="w-20 h-20 transform -rotate-90">
-                      <circle cx="40" cy="40" r="32" stroke="#E5E7EB" strokeWidth="8" fill="none" />
-                      <circle
-                        cx="40"
-                        cy="40"
-                        r="32"
-                        stroke={healthScore >= 80 ? "#10B981" : healthScore >= 60 ? "#F59E0B" : "#EF4444"}
-                        strokeWidth="8"
-                        fill="none"
-                        strokeDasharray={`${2 * Math.PI * 32}`}
-                        strokeDashoffset={`${2 * Math.PI * 32 * (1 - healthScore / 100)}`}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xl font-bold text-[var(--foreground,#111827)]">{healthScore}</span>
+              <div className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] ${enforcementSurface}`}>
+                <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
+                <div className="absolute bottom-0 left-0 h-20 w-20 rounded-full bg-white/30 blur-2xl" />
+                <div className="relative">
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">
+                        Enforcement Score
+                      </p>
+                      <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                        Calculated for this system only
+                      </p>
+                    </div>
+                    <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${enforcementPill}`}>
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      {hasEnforcementTelemetry ? "Live telemetry" : "No telemetry"}
                     </div>
                   </div>
-                  <div>
-                    <p className={`text-sm font-semibold ${healthScore >= 80 ? "text-[#22c55e]" : healthScore >= 60 ? "text-[#f59e0b]" : "text-[#ef4444]"}`}>
-                      {healthScore >= 80 ? "Strong system enforcement" : healthScore >= 60 ? "Needs stronger enforcement" : "High enforcement gap"}
-                    </p>
-                    <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                      Calculated for this system only from {totalChecks} current checks
-                    </p>
+
+                  <div className="flex items-center gap-5">
+                    <div className="relative w-24 h-24 flex-shrink-0">
+                      <svg className="w-24 h-24 -rotate-90">
+                        <circle cx="48" cy="48" r="38" stroke="rgba(255,255,255,0.72)" strokeWidth="10" fill="none" />
+                        <circle
+                          cx="48"
+                          cy="48"
+                          r="38"
+                          stroke={enforcementAccent}
+                          strokeWidth="10"
+                          fill="none"
+                          strokeDasharray={`${2 * Math.PI * 38}`}
+                          strokeDashoffset={`${2 * Math.PI * 38 * (1 - ((healthScore ?? 0) / 100))}`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="flex items-end gap-0.5 leading-none">
+                          <span className="text-[32px] font-bold tracking-tight text-[var(--foreground,#111827)]">
+                            {healthScore ?? "—"}
+                          </span>
+                          {hasEnforcementTelemetry && (
+                            <span className="mb-1 text-sm font-semibold text-[var(--muted-foreground,#6b7280)]">%</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-base font-semibold text-[var(--foreground,#111827)]">
+                        {enforcementTitle}
+                      </p>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                        {hasEnforcementTelemetry
+                          ? `${totalChecks} current checks contributing to this score`
+                          : "We need current checks to calculate this system's enforcement score"}
+                      </p>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
+                          System scoped
+                        </span>
+                        {hasEnforcementTelemetry && (
+                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
+                            {totalChecks} active checks
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1434,7 +1501,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     <div>
                       <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Map</h3>
                       <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                        Operational view of how identity, network, and data resources connect in this system.
+                        Static architecture snapshot of how identity, network, and data resources connect in this system.
                       </p>
                     </div>
                     <button onClick={() => setActiveTab("dependency-map")} className="text-sm font-medium text-[#2D51DA] hover:underline">
@@ -1442,7 +1509,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     </button>
                   </div>
                   <div className="p-4">
-                    <SystemDependencyMap systemName={systemName} />
+                    <SystemDependencyMap systemName={systemName} variant="compact" />
                   </div>
                 </div>
 

@@ -58,6 +58,7 @@ interface DependencyPath {
 
 interface Props {
   systemName: string
+  variant?: 'full' | 'compact'
 }
 
 // Custom node components
@@ -193,7 +194,7 @@ const nodeTypes = {
   External: InternetNode,
 }
 
-export default function SystemDependencyMap({ systemName }: Props) {
+export default function SystemDependencyMap({ systemName, variant = 'full' }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showPaths, setShowPaths] = useState(false)
@@ -453,9 +454,11 @@ export default function SystemDependencyMap({ systemName }: Props) {
     }
   }
 
+  const isCompact = variant === 'compact'
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-slate-900 rounded-xl">
+      <div className={`flex items-center justify-center ${isCompact ? 'h-[460px]' : 'h-[600px]'} bg-slate-900 rounded-xl`}>
         <div className="flex flex-col items-center gap-4">
           <RefreshCw className="w-10 h-10 text-blue-400 animate-spin" />
           <span className="text-white text-lg">Building system dependency map...</span>
@@ -466,7 +469,7 @@ export default function SystemDependencyMap({ systemName }: Props) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-slate-900 rounded-xl">
+      <div className={`flex items-center justify-center ${isCompact ? 'h-[460px]' : 'h-[600px]'} bg-slate-900 rounded-xl`}>
         <div className="flex flex-col items-center gap-4 text-center">
           <AlertTriangle className="w-12 h-12 text-red-400" />
           <span className="text-white text-lg">Failed to load dependency map</span>
@@ -484,70 +487,74 @@ export default function SystemDependencyMap({ systemName }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Layers className="w-6 h-6 text-purple-500" />
-            System Architecture
-          </h2>
-          <p className="text-slate-500">
-            Real-time dependency visualization • {nodes.length} components • {edges.length} connections
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowPaths(!showPaths)}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-              showPaths ? 'bg-[#8b5cf6] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <Eye className="w-4 h-4" />
-            {showPaths ? 'Hide' : 'Show'} Paths
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      {!isCompact && (
+        <>
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Layers className="w-6 h-6 text-purple-500" />
+                System Architecture
+              </h2>
+              <p className="text-slate-500">
+                Real-time dependency visualization • {nodes.length} components • {edges.length} connections
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowPaths(!showPaths)}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                  showPaths ? 'bg-[#8b5cf6] text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Eye className="w-4 h-4" />
+                {showPaths ? 'Hide' : 'Show'} Paths
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+          </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-6 text-sm bg-slate-50 rounded-lg p-3">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#ef444410]0" />
-          <span>Critical (Public)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#f9731610]0" />
-          <span>High Risk</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#eab30810]0" />
-          <span>Medium</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#22c55e10]0" />
-          <span>Secured</span>
-        </div>
-        <div className="flex items-center gap-2 ml-4">
-          <div className="w-6 h-0.5 bg-[#22c55e10]0" style={{ animation: 'pulse 1s infinite' }} />
-          <span>Active Traffic</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-0.5 bg-[#f9731610]0" />
-          <span>Unused Rule</span>
-        </div>
-      </div>
+          {/* Legend */}
+          <div className="flex items-center gap-6 text-sm bg-slate-50 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#ef444410]0" />
+              <span>Critical (Public)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#f9731610]0" />
+              <span>High Risk</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#eab30810]0" />
+              <span>Medium</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#22c55e10]0" />
+              <span>Secured</span>
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              <div className="w-6 h-0.5 bg-[#22c55e10]0" style={{ animation: 'pulse 1s infinite' }} />
+              <span>Active Traffic</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-0.5 bg-[#f9731610]0" />
+              <span>Unused Rule</span>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Main content */}
       <div className="flex gap-4">
         {/* Graph */}
-        <div className={`bg-slate-900 rounded-xl overflow-hidden border border-slate-700 ${showPaths ? 'flex-1' : 'w-full'}`} style={{ height: '600px' }}>
+        <div className={`bg-slate-900 rounded-xl overflow-hidden border border-slate-700 ${showPaths && !isCompact ? 'flex-1' : 'w-full'}`} style={{ height: isCompact ? '460px' : '600px' }}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -560,23 +567,35 @@ export default function SystemDependencyMap({ systemName }: Props) {
             minZoom={0.3}
             maxZoom={1.5}
             defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+            nodesDraggable={!isCompact}
+            nodesConnectable={false}
+            elementsSelectable={!isCompact}
+            panOnDrag={!isCompact}
+            zoomOnScroll={!isCompact}
+            zoomOnPinch={!isCompact}
+            zoomOnDoubleClick={!isCompact}
+            preventScrolling={false}
           >
             <Background color="#475569" gap={20} />
-            <Controls className="!bg-slate-800 !border-slate-600 [&>button]:!bg-slate-700 [&>button]:!border-slate-600 [&>button]:!text-white" />
-            <MiniMap 
-              className="!bg-slate-800 !border-slate-600" 
-              nodeColor={(node) => {
-                if (node.type === 'internet') return '#ef4444'
-                if (node.type === 'storage') return '#10b981'
-                if (node.type === 'database') return '#3b82f6'
-                return '#64748b'
-              }}
-            />
+            {!isCompact && (
+              <>
+                <Controls className="!bg-slate-800 !border-slate-600 [&>button]:!bg-slate-700 [&>button]:!border-slate-600 [&>button]:!text-white" />
+                <MiniMap
+                  className="!bg-slate-800 !border-slate-600"
+                  nodeColor={(node) => {
+                    if (node.type === 'internet') return '#ef4444'
+                    if (node.type === 'storage') return '#10b981'
+                    if (node.type === 'database') return '#3b82f6'
+                    return '#64748b'
+                  }}
+                />
+              </>
+            )}
           </ReactFlow>
         </div>
 
         {/* Paths Panel */}
-        {showPaths && (
+        {!isCompact && showPaths && (
           <div className="w-80 bg-white border rounded-xl p-4 overflow-y-auto" style={{ height: '600px' }}>
             <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
               <Zap className="w-5 h-5 text-purple-500" />
@@ -630,40 +649,40 @@ export default function SystemDependencyMap({ systemName }: Props) {
         )}
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-[#ef4444]">
-            {edges.filter(e => e.animated).length}
+      {!isCompact && (
+        <div className="grid grid-cols-5 gap-4">
+          <div className="bg-white border rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-[#ef4444]">
+              {edges.filter(e => e.animated).length}
+            </div>
+            <div className="text-slate-500 text-sm">Active Flows</div>
           </div>
-          <div className="text-slate-500 text-sm">Active Flows</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-orange-600">
-            {paths.filter(p => p.overallRisk === 'critical').length}
+          <div className="bg-white border rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-orange-600">
+              {paths.filter(p => p.overallRisk === 'critical').length}
+            </div>
+            <div className="text-slate-500 text-sm">Critical Paths</div>
           </div>
-          <div className="text-slate-500 text-sm">Critical Paths</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-[#3b82f6]">
-            {nodes.filter(n => n.type === 'securityGroup').length}
+          <div className="bg-white border rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-[#3b82f6]">
+              {nodes.filter(n => n.type === 'securityGroup').length}
+            </div>
+            <div className="text-slate-500 text-sm">Security Groups</div>
           </div>
-          <div className="text-slate-500 text-sm">Security Groups</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-[#8b5cf6]">
-            {rawData?.summary?.byType?.IAMRole || 0}
+          <div className="bg-white border rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-[#8b5cf6]">
+              {rawData?.summary?.byType?.IAMRole || 0}
+            </div>
+            <div className="text-slate-500 text-sm">IAM Roles</div>
           </div>
-          <div className="text-slate-500 text-sm">IAM Roles</div>
-        </div>
-        <div className="bg-white border rounded-xl p-4 text-center">
-          <div className="text-3xl font-bold text-[#22c55e]">
-            {rawData?.summary?.byType?.S3Bucket || 0}
+          <div className="bg-white border rounded-xl p-4 text-center">
+            <div className="text-3xl font-bold text-[#22c55e]">
+              {rawData?.summary?.byType?.S3Bucket || 0}
+            </div>
+            <div className="text-slate-500 text-sm">S3 Buckets</div>
           </div>
-          <div className="text-slate-500 text-sm">S3 Buckets</div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
-
