@@ -1566,6 +1566,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           </div>
 
           {false && (
+          <>
           {/* Main Content - Overview Tab */}
           <div className="max-w-[1800px] mx-auto px-8 py-6">
             {/* Stats Row - Updated with real severity counts */}
@@ -2185,6 +2186,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             )}
           </div>
+          </>
           )}
         </>
       )}
