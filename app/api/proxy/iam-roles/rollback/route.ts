@@ -47,12 +47,15 @@ export async function POST(req: NextRequest) {
         headers: { 'Content-Type': 'application/json' }
       });
     } else if (snapshotId) {
-      // Use remediation rollback with snapshot_id
-      console.log(`[IAM-ROLLBACK] Using remediation rollback endpoint`);
-      response = await fetch(`${BACKEND_URL}/api/remediation/rollback`, {
+      // Legacy IAM checkpoints must use the dedicated IAM rollback endpoint.
+      console.log(`[IAM-ROLLBACK] Using dedicated IAM rollback endpoint`);
+      response = await fetch(`${BACKEND_URL}/api/iam-roles/rollback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ snapshot_id: snapshotId })
+        body: JSON.stringify({
+          checkpoint_id: snapshotId,
+          role_name: body.role_name || undefined,
+        })
       });
     } else {
       return NextResponse.json(
