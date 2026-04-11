@@ -28,6 +28,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "role_name is required" }, { status: 400 })
     }
 
+    if (permissions_to_remove !== undefined && !Array.isArray(permissions_to_remove)) {
+      return NextResponse.json({ error: "permissions_to_remove must be an array when provided" }, { status: 400 })
+    }
+
     console.log(`[CYNTRO-REMEDIATE] Starting remediation for: ${role_name}`)
     console.log(`[CYNTRO-REMEDIATE] Options: dry_run=${dry_run}, create_snapshot=${create_snapshot}, detach_managed_policies=${detach_managed_policies}, detach_all=${detach_all_managed_policies}`)
 
@@ -47,8 +51,26 @@ export async function POST(req: NextRequest) {
     const usedPermissions = gapData.used_permissions || []
     const unusedPermissions = gapData.unused_permissions || []
 
-    // Use the permissions_to_remove if provided, otherwise use all unused permissions
-    const permsToRemove = permissions_to_remove || unusedPermissions
+    const explicitPermissions = Array.isArray(permissions_to_remove)
+      ? Array.from(new Set(
+          permissions_to_remove
+            .map((perm: unknown) => String(perm || "").trim())
+            .filter(Boolean)
+        ))
+      : null
+
+    if (!dry_run && (!explicitPermissions || explicitPermissions.length === 0)) {
+      return NextResponse.json(
+        {
+          error: "permissions_to_remove is required for live IAM remediation",
+          detail: "Refusing to default to the full unused-permission set during execution. Pass the exact permission list chosen by the user.",
+        },
+        { status: 400 }
+      )
+    }
+
+    // Dry runs may still preview the backend's current unused set, but live execution must be explicit.
+    const permsToRemove = explicitPermissions ?? unusedPermissions
 
     console.log(`[CYNTRO-REMEDIATE] Permissions to remove: ${permsToRemove.length}`)
 

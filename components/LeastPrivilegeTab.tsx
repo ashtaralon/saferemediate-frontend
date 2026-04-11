@@ -2349,6 +2349,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             try {
               // Get role name from resource
               const roleName = selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || ''
+              const permissionsToRemove = Array.from(new Set(
+                (selectedResource.unusedList || [])
+                  .map((permission) => String(permission || '').trim())
+                  .filter(Boolean)
+              ))
+
+              if (!dryRun && permissionsToRemove.length === 0) {
+                throw new Error('No explicit permissions were selected for remediation')
+              }
 
               // Call remediation API
               const response = await fetch('/api/proxy/cyntro/remediate', {
@@ -2356,7 +2365,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   role_name: roleName,
-                  dry_run: dryRun
+                  dry_run: dryRun,
+                  permissions_to_remove: permissionsToRemove
                 })
               })
 
