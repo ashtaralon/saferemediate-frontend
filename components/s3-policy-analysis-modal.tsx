@@ -106,6 +106,20 @@ function formatObservedAccessLabel(count: number, observationDays: number) {
   return `${count.toLocaleString()} observed accesses in ${observationDays}-day window`
 }
 
+function getS3UsedLabel(usedCount: number, usedPercent: number, hasPublicAccess: boolean) {
+  if (hasPublicAccess && usedCount > 0) {
+    return `Policy In Use (${usedPercent}%)`
+  }
+  return `Actually Used (${usedPercent}%)`
+}
+
+function getS3UnusedLabel(unusedCount: number, unusedPercent: number, hasPublicAccess: boolean) {
+  if (hasPublicAccess && unusedCount === 0) {
+    return `LP Removable (0%)`
+  }
+  return `Unused (${unusedPercent}%)`
+}
+
 export function S3PolicyAnalysisModal({
   isOpen,
   onClose,
@@ -881,7 +895,7 @@ export function S3PolicyAnalysisModal({
             }`}
           >
             <Zap className="w-4 h-4" />
-            {unusedCount > 0 ? `OPEN REMEDIATION (${unusedCount})` : 'NO ISSUES'}
+            {unusedCount > 0 ? `OPEN REMEDIATION (${unusedCount})` : hasPublicAccess ? 'NO LP GAP' : 'NO ISSUES'}
           </button>
         </div>
       </div>
@@ -964,11 +978,11 @@ function AnalysisTab({
         </div>
         <div className="border-2 border-[#22c55e40] bg-[#22c55e10] rounded-xl p-4 text-center">
           <div className="text-4xl font-bold text-[#22c55e]">{usedCount}</div>
-          <div className="text-[#22c55e] mt-1">Actually Used ({usedPercent}%)</div>
+          <div className="text-[#22c55e] mt-1">{getS3UsedLabel(usedCount, usedPercent, hasPublicAccess)}</div>
         </div>
         <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4 text-center">
           <div className="text-4xl font-bold text-[#ef4444]">{unusedCount}</div>
-          <div className="text-[#ef4444] mt-1">Unused ({unusedPercent}%)</div>
+          <div className="text-[#ef4444] mt-1">{getS3UnusedLabel(unusedCount, unusedPercent, hasPublicAccess)}</div>
         </div>
       </div>
 
@@ -1200,6 +1214,15 @@ function AnalysisTab({
               ? 'All configured bucket policy statements are actively used in the 365-day observation window. Least-privilege removal is not appropriate here, but the bucket still has public exposure that should be reviewed separately.'
               : 'This bucket policy is aligned with observed usage in the 365-day observation window.'
             }
+          </p>
+        </div>
+      )}
+
+      {hasPublicAccess && unusedCount === 0 && (
+        <div className="mx-6 mb-6 p-4 border border-[#fecaca] bg-[#fef2f2] rounded-xl">
+          <h3 className="font-bold text-[#b91c1c]">Public Exposure Still Requires Action</h3>
+          <p className="text-[#991b1b] mt-1">
+            `0` removable statements here means Cyntro did not find an unused bucket-policy statement to delete. It does not mean the bucket is safe. The current public statement is actively used and should be hardened, not ignored.
           </p>
         </div>
       )}
