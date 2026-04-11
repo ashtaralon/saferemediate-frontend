@@ -1,6 +1,5 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
 import { ArrowUpRight, ScanSearch, TrendingDown, TrendingUp } from "lucide-react"
 
 interface HomeStatsBannerProps {
@@ -11,7 +10,6 @@ interface HomeStatsBannerProps {
   criticalIssues?: number
   averageScore?: number
   averageScoreTrend?: number
-  lastScanTime?: string
   resourceCount?: number
   urgentFindings?: number
   lastRefreshLabel?: string
@@ -25,7 +23,6 @@ export function HomeStatsBanner({
   criticalIssues = 0,
   averageScore = 0,
   averageScoreTrend = 0,
-  lastScanTime = "No scans yet",
   resourceCount = 0,
   urgentFindings = 0,
   lastRefreshLabel = "Just now",
@@ -35,7 +32,7 @@ export function HomeStatsBanner({
       <div className="absolute -top-14 right-10 h-40 w-40 rounded-full bg-[#bfdbfe]/40 blur-3xl" />
       <div className="absolute bottom-0 left-10 h-32 w-32 rounded-full bg-[#dbeafe]/70 blur-3xl" />
 
-      <div className="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
+      <div className="relative">
         <div className="max-w-2xl">
           <div className="flex items-center gap-3">
             <div className="inline-flex items-center gap-2 text-lg font-semibold text-[var(--foreground,#111827)]">
@@ -64,15 +61,6 @@ export function HomeStatsBanner({
               Refreshed {lastRefreshLabel}
             </div>
           </div>
-        </div>
-
-        <div className="min-w-[260px] rounded-2xl border border-[#dbe4ff] bg-white/90 p-5 backdrop-blur">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#2D51DA]">Most Recent Scan</div>
-          <div className="mt-3 text-2xl font-semibold leading-tight text-[var(--foreground,#111827)]">{lastScanTime}</div>
-          <div className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">Latest telemetry snapshot across the connected environment.</div>
-          <Button size="sm" className="mt-4 bg-[#2D51DA] text-white hover:bg-[#2343B8]">
-            View Scan
-          </Button>
         </div>
       </div>
 
