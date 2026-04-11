@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   const systemName = url.searchParams.get("systemName") ?? "alon-prod";
   const includeUnused = url.searchParams.get("includeUnused") ?? "true";
   const maxNodes = url.searchParams.get("maxNodes") ?? url.searchParams.get("max_nodes") ?? "500";
-  const cacheKey = "dependency-map-full-" + systemName;
+  const cacheKey = `dependency-map-full-${systemName}-${includeUnused}-${maxNodes}`;
 
   // Check cache first
   const cached = cache[cacheKey];
