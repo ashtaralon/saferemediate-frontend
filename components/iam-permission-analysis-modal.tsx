@@ -171,6 +171,7 @@ export function IAMPermissionAnalysisModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showSimulation, setShowSimulation] = useState(false)
+  const [analysisTab, setAnalysisTab] = useState<'summary' | 'permissions' | 'context'>('summary')
   const [simulating, setSimulating] = useState(false)
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
@@ -365,6 +366,7 @@ export function IAMPermissionAnalysisModal({
 
   const handleClose = () => {
     setShowSimulation(false)
+    setAnalysisTab('summary')
     setGapData(null)
     setError(null)
     onClose()
@@ -554,6 +556,24 @@ export function IAMPermissionAnalysisModal({
 
   const usedPercent = totalPermissions > 0 ? Math.round((usedCount / totalPermissions) * 100) : 0
   const unusedPercent = totalPermissions > 0 ? Math.round((unusedCount / totalPermissions) * 100) : 0
+  const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
+  const serviceAnalysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
+  const confidenceGroups = gapData?.confidence_groups
+  const dependencyContext = gapData?.dependency_context
+  const protectedSet = new Set(
+    (confidenceGroups?.groups ?? [])
+      .filter(g => g.protected || g.action === 'protected')
+      .flatMap(g => g.permissions.map(p => p.permission))
+  )
+  const warnSet = new Set(
+    (confidenceGroups?.groups ?? [])
+      .filter(g => g.warn || g.action === 'warn_before_removing')
+      .flatMap(g => g.permissions.map(p => p.permission))
+  )
+  const removablePerms = unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission))
+  const warnPerms = unusedPermissions.filter(p => warnSet.has(p.permission))
+  const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
+  const removableCount = unusedCount - protectedPerms.length - warnPerms.length
   
   // Calculate dates
   const endDate = new Date()
@@ -1444,13 +1464,29 @@ export function IAMPermissionAnalysisModal({
             </p>
           </div>
 
-          {/* Service Role Warning - Based on backend trust policy analysis */}
-          {(() => {
-            // Use backend analysis if available, otherwise fallback to client-side
-            const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
-            const analysis = backendAnalysis?.analysis || fallbackAnalyzeRole(roleName, cloudtrailEvents, unusedCount)?.analysis
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border,#e5e7eb)] pb-3">
+            {([
+              { id: 'summary', label: 'Summary' },
+              { id: 'permissions', label: 'Permissions' },
+              { id: 'context', label: 'Context' },
+            ] as const).map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setAnalysisTab(tab.id)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  analysisTab === tab.id
+                    ? 'bg-[#eef2ff] text-[#4338ca] border border-[#c7d2fe]'
+                    : 'bg-white text-[var(--muted-foreground,#6b7280)] border border-[var(--border,#e5e7eb)] hover:bg-gray-50'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-            if (!analysis) return null
+          {/* Service Role Warning - Based on backend trust policy analysis */}
+          {analysisTab === 'summary' && (() => {
+            if (!serviceAnalysis) return null
 
             // Severity-based styling
             const styles = {
@@ -1483,7 +1519,7 @@ export function IAMPermissionAnalysisModal({
               }
             }
 
-            const severity = analysis.severity || 'medium'
+            const severity = serviceAnalysis.severity || 'medium'
             const style = styles[severity] || styles.medium
 
             return (
@@ -1495,7 +1531,7 @@ export function IAMPermissionAnalysisModal({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h4 className={`font-bold ${style.title} text-base`}>
-                          {analysis.title}
+                          {serviceAnalysis.title}
                         </h4>
                         {backendAnalysis?.service_principals && backendAnalysis.service_principals.length > 0 && (
                           <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-0.5 font-mono">
@@ -1510,34 +1546,34 @@ export function IAMPermissionAnalysisModal({
 
                     {/* Description */}
                     <p className={`text-sm ${style.text} mt-2 leading-relaxed`}>
-                      {analysis.description}
+                      {serviceAnalysis.description}
                     </p>
 
                     {/* Why no CloudTrail */}
-                    {analysis.why_no_cloudtrail && (
+                    {serviceAnalysis.why_no_cloudtrail && (
                       <div className="mt-3 p-3 bg-white/50 rounded border border-current/10">
                         <p className="text-xs font-semibold text-[var(--muted-foreground,#4b5563)] mb-1">Why permissions appear unused:</p>
                         <p className={`text-sm ${style.text}`}>
-                          {analysis.why_no_cloudtrail}
+                          {serviceAnalysis.why_no_cloudtrail}
                         </p>
                       </div>
                     )}
 
                     {/* Affected Permissions */}
-                    {analysis.affected_permissions && analysis.affected_permissions.length > 0 && (
+                    {serviceAnalysis.affected_permissions && serviceAnalysis.affected_permissions.length > 0 && (
                       <div className="mt-3">
                         <p className={`text-xs font-semibold ${style.title} mb-1`}>
-                          Permissions used by {analysis.service_name} internally:
+                          Permissions used by {serviceAnalysis.service_name} internally:
                         </p>
                         <div className="flex flex-wrap gap-1">
-                          {analysis.affected_permissions.slice(0, 6).map((perm, i) => (
+                          {serviceAnalysis.affected_permissions.slice(0, 6).map((perm, i) => (
                             <span key={i} className="px-2 py-0.5 bg-white/60 border border-current/20 rounded text-xs font-mono">
                               {perm}
                             </span>
                           ))}
-                          {analysis.affected_permissions.length > 6 && (
+                          {serviceAnalysis.affected_permissions.length > 6 && (
                             <span className="px-2 py-0.5 text-xs">
-                              +{analysis.affected_permissions.length - 6} more
+                              +{serviceAnalysis.affected_permissions.length - 6} more
                             </span>
                           )}
                         </div>
@@ -1545,11 +1581,11 @@ export function IAMPermissionAnalysisModal({
                     )}
 
                     {/* Recommendation */}
-                    {analysis.recommendation && (
+                    {serviceAnalysis.recommendation && (
                       <div className={`mt-3 p-3 rounded ${severity === 'critical' ? 'bg-[#ef444420]' : 'bg-white/50'}`}>
                         <p className={`text-sm font-semibold ${severity === 'critical' ? 'text-[#ef4444]' : style.text}`}>
                           {severity === 'critical' ? '🛑 ' : '💡 '}
-                          {analysis.recommendation}
+                          {serviceAnalysis.recommendation}
                         </p>
                       </div>
                     )}
@@ -1560,7 +1596,7 @@ export function IAMPermissionAnalysisModal({
           })()}
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
-          {totalPermissions === 0 && (
+          {analysisTab === 'summary' && totalPermissions === 0 && (
             <div className="rounded-lg border border-[#86efac] bg-[#f0fdf4] p-6">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-[#10b98120] rounded-full flex items-center justify-center">
@@ -1591,7 +1627,7 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Over-Privileged Banner + Stats Grid - Only show if not remediated */}
-          {totalPermissions > 0 && (
+          {analysisTab === 'summary' && totalPermissions > 0 && (
           <div className="space-y-4">
             {/* Over-Privileged Banner - matches list view format */}
             <div className="flex items-center gap-5 p-5 rounded-lg border" style={{
@@ -1647,7 +1683,7 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Least Privilege Violation Alert - Only show if not remediated */}
-          {unusedCount > 0 && totalPermissions > 0 && (
+          {analysisTab === 'summary' && unusedCount > 0 && totalPermissions > 0 && (
             <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-5">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-7 h-7 flex-shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
@@ -1676,8 +1712,25 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Permission Usage Breakdown - Only show if not remediated */}
-          {totalPermissions > 0 && (
+          {analysisTab === 'permissions' && totalPermissions > 0 && (
           <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Selected</div>
+                <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{selectedPermissionsToRemove.size}</div>
+                <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">permissions queued for removal</div>
+              </div>
+              <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-4">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#b91c1c]">Removable</div>
+                <div className="mt-2 text-3xl font-bold text-[#ef4444]">{Math.max(0, removableCount)}</div>
+                <div className="mt-1 text-sm text-[#b91c1c]">permissions with direct removal path</div>
+              </div>
+              <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-4">
+                <div className="text-xs uppercase tracking-[0.18em] text-[#b45309]">Needs Review</div>
+                <div className="mt-2 text-3xl font-bold text-[#d97706]">{warnPerms.length + protectedPerms.length}</div>
+                <div className="mt-1 text-sm text-[#92400e]">warned or protected permissions</div>
+              </div>
+            </div>
             <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Permission Usage Breakdown</h3>
 
             {/* Actually Used Permissions */}
@@ -1714,23 +1767,7 @@ export function IAMPermissionAnalysisModal({
             </div>
 
             {/* Never Used Permissions — split into removable vs warn vs protected */}
-            {(() => {
-              const protectedSet = new Set(
-                (gapData?.confidence_groups?.groups ?? [])
-                  .filter(g => g.protected || g.action === 'protected')
-                  .flatMap(g => g.permissions.map(p => p.permission))
-              )
-              const warnSet = new Set(
-                (gapData?.confidence_groups?.groups ?? [])
-                  .filter(g => g.warn || g.action === 'warn_before_removing')
-                  .flatMap(g => g.permissions.map(p => p.permission))
-              )
-              const removablePerms = unusedPermissions.filter(p => !protectedSet.has(p.permission) && !warnSet.has(p.permission))
-              const warnPerms = unusedPermissions.filter(p => warnSet.has(p.permission))
-              const protectedPerms = unusedPermissions.filter(p => protectedSet.has(p.permission))
-              const removableCount = unusedCount - protectedPerms.length - warnPerms.length
-
-              return (
+            {(
                 <>
                   {/* Removable permissions */}
                   <div className="border-2 border-[#ef444440] bg-[#ef444410] rounded-xl p-4">
@@ -1839,15 +1876,146 @@ export function IAMPermissionAnalysisModal({
                     </div>
                   )}
                 </>
-              )
-            })()}
+            )}
           </div>
           )}
 
+          {analysisTab === 'context' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Safety Score</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{safetyScore}%</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">current remediation confidence</div>
+                </div>
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Observation</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{observationDays}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">days of behavior in scope</div>
+                </div>
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">CloudTrail</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{cloudtrailEvents.toLocaleString()}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">events analyzed for this role</div>
+                </div>
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">Dependencies</div>
+                  <div className="mt-2 text-3xl font-bold text-[var(--foreground,#111827)]">{dependencyContext?.dependencies?.length || 0}</div>
+                  <div className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                    {dependencyContext?.has_critical_dependencies ? 'critical edges detected' : 'linked resources in view'}
+                  </div>
+                </div>
+              </div>
+
+              {confidenceGroups && (
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-5">
+                  <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Confidence Breakdown</h3>
+                  <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div className="rounded-lg bg-[#f0fdf4] border border-[#86efac] p-3 text-sm">
+                      <div className="font-semibold text-[#166534]">{confidenceGroups.summary.safe_to_remove}</div>
+                      <div className="text-[#166534]">safe to remove</div>
+                    </div>
+                    <div className="rounded-lg bg-[#fff7ed] border border-[#fdba74] p-3 text-sm">
+                      <div className="font-semibold text-[#9a3412]">{confidenceGroups.summary.verify_first}</div>
+                      <div className="text-[#9a3412]">verify first</div>
+                    </div>
+                    <div className="rounded-lg bg-[#fff1f2] border border-[#fecaca] p-3 text-sm">
+                      <div className="font-semibold text-[#b91c1c]">{confidenceGroups.summary.investigate_first}</div>
+                      <div className="text-[#b91c1c]">investigate first</div>
+                    </div>
+                    <div className="rounded-lg bg-[#fefce8] border border-[#fde68a] p-3 text-sm">
+                      <div className="font-semibold text-[#a16207]">{confidenceGroups.summary.warn_before_removing ?? 0}</div>
+                      <div className="text-[#a16207]">warn before removing</div>
+                    </div>
+                    <div className="rounded-lg bg-[#eff6ff] border border-[#bfdbfe] p-3 text-sm">
+                      <div className="font-semibold text-[#1d4ed8]">{confidenceGroups.summary.reserved ?? 0}</div>
+                      <div className="text-[#1d4ed8]">reserved</div>
+                    </div>
+                    <div className="rounded-lg bg-[#f9fafb] border border-[#d1d5db] p-3 text-sm">
+                      <div className="font-semibold text-[#4b5563]">{confidenceGroups.summary.protected ?? 0}</div>
+                      <div className="text-[#4b5563]">protected</div>
+                    </div>
+                  </div>
+                  {confidenceGroups.account_signals && (
+                    <div className="mt-4 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      Account data events:
+                      {' '}S3 {confidenceGroups.account_signals.s3_data_events ? 'enabled' : 'missing'}
+                      {' • '}Lambda {confidenceGroups.account_signals.lambda_data_events ? 'enabled' : 'missing'}
+                      {' • '}DynamoDB {confidenceGroups.account_signals.dynamodb_data_events ? 'enabled' : 'missing'}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-5">
+                  <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Dependency Context</h3>
+                  {dependencyContext?.status === 'ok' ? (
+                    <>
+                      <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                        {dependencyContext.has_critical_dependencies
+                          ? 'Critical dependencies were detected for this role. Review downstream impact before removing permissions.'
+                          : 'No critical dependencies were detected from the current graph context.'}
+                      </p>
+                      {dependencyContext.system?.name && (
+                        <div className="mt-4 text-sm text-[var(--foreground,#374151)]">
+                          System: <span className="font-semibold">{dependencyContext.system.name}</span>
+                        </div>
+                      )}
+                      <div className="mt-4 space-y-2 max-h-52 overflow-y-auto">
+                        {(dependencyContext.dependencies || []).slice(0, 8).map((dep, i) => (
+                          <div key={i} className="rounded-lg border border-[var(--border,#e5e7eb)] p-3 text-sm">
+                            <div className="font-medium text-[var(--foreground,#111827)]">{dep.name || dep.arn || 'Unnamed dependency'}</div>
+                            <div className="text-[var(--muted-foreground,#6b7280)]">{dep.type || 'Unknown type'}{dep.environment ? ` • ${dep.environment}` : ''}</div>
+                          </div>
+                        ))}
+                        {(dependencyContext.dependencies?.length || 0) === 0 && (
+                          <div className="text-sm text-[var(--muted-foreground,#6b7280)]">No linked resources were returned for this role.</div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      {dependencyContext?.status === 'neo4j_unavailable'
+                        ? 'Dependency graph is currently unavailable.'
+                        : dependencyContext?.status === 'not_found'
+                          ? 'This role was not found in the dependency graph.'
+                          : dependencyContext?.error || 'Dependency context is not available yet.'}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-5">
+                  <h3 className="text-lg font-bold text-[var(--foreground,#111827)]">Role Context</h3>
+                  {serviceAnalysis ? (
+                    <>
+                      <p className="mt-2 text-sm text-[var(--foreground,#374151)]">{serviceAnalysis.description}</p>
+                      <div className="mt-4 rounded-lg bg-[var(--background,#f8f9fa)] p-4">
+                        <div className="text-xs uppercase tracking-[0.16em] text-[var(--muted-foreground,#6b7280)]">Recommendation</div>
+                        <div className="mt-2 text-sm text-[var(--foreground,#111827)]">{serviceAnalysis.recommendation}</div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      No special service-role signals were detected for this identity.
+                    </p>
+                  )}
+                  <div className="mt-4 rounded-lg bg-[var(--background,#f8f9fa)] p-4">
+                    <div className="text-xs uppercase tracking-[0.16em] text-[var(--muted-foreground,#6b7280)]">Selection State</div>
+                    <div className="mt-2 text-sm text-[var(--foreground,#111827)]">
+                      {selectedPermissionsToRemove.size} permissions selected for removal
+                      {detachManagedPolicies ? ' • managed policy detach enabled' : ''}
+                      {detachAllManagedPolicies ? ' • detach all enabled' : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Recommended Action */}
-          {(() => {
+          {analysisTab === 'summary' && (() => {
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
-            const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
             const isRemediated = totalPermissions === 0 || !!gapData?.remediated_at
 
