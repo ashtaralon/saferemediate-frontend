@@ -118,16 +118,6 @@ const VulnerabilitiesSection = dynamic(
   }
 )
 
-const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
-      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען מפת קשרים...</span>
-    </div>
-  ),
-})
-
 const SystemDependencyMap = dynamic(() => import("./system-dependency-map"), {
   ssr: false,
   loading: () => (
@@ -311,8 +301,6 @@ const ENVIRONMENT_OPTIONS = [
 
 export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashboardProps) {
   const [activeTab, setActiveTab] = useState("overview")
-  const [highlightPath, setHighlightPath] = useState<{ source: string; target: string; port?: string } | null>(null)
-  const [graphEngine, setGraphEngine] = useState<'logical' | 'architectural'>('architectural')
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
   // System metadata (criticality + environment) from backend
@@ -1014,7 +1002,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "orphan-services", label: "Orphan Services", icon: Unplug },
-    { id: "dependency-map", label: "Dependency Map", icon: Map },
+    { id: "dependency-map", label: "System Map", icon: Map },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
   ]
@@ -1491,7 +1479,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       </p>
                     </div>
                     <button onClick={() => setActiveTab("dependency-map")} className="text-sm font-medium text-[#2D51DA] hover:underline">
-                      Open full dependency map →
+                      Open full system map →
                     </button>
                   </div>
                   <div className="p-4">
@@ -1661,14 +1649,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <DependencyMapTab
-            key={refreshKey}
-            systemName={systemName}
-            highlightPath={highlightPath || undefined}
-            defaultGraphEngine={graphEngine}
-            onGraphEngineChange={setGraphEngine}
-            onHighlightPathClear={() => setHighlightPath(null)}
-          />
+          <SystemDependencyMap key={refreshKey} systemName={systemName} variant="full" />
         </div>
       )}
 
