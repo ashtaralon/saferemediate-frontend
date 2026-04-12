@@ -200,7 +200,13 @@ interface RiskAssessmentData {
     risk: string
     attached_to: string[]
   }>
-  attack_impacts: string[]
+  attack_impacts: Array<
+    string | {
+      severity?: string
+      description?: string
+      type?: string
+    }
+  >
 }
 
 interface SelectedNodeInfo {
