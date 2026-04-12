@@ -13,6 +13,9 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react"
+import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
+import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
 
 type CrownJewel = {
   resourceId: string
@@ -137,6 +140,46 @@ type CrownJewelResponse = {
   error?: string
 }
 
+type LPResource = {
+  id: string
+  resourceType: "IAMRole" | "SecurityGroup" | "S3Bucket" | "NetworkACL"
+  resourceName: string
+  resourceArn: string
+  remediatedAt?: string
+  snapshotId?: string | null
+  eventId?: string | null
+  rollbackAvailable?: boolean
+  lpScore: number | null
+  allowedCount: number
+  usedCount: number | null
+  gapCount: number | null
+  gapPercent: number | null
+  allowedList: string[]
+  usedList: string[]
+  unusedList: string[]
+  highRiskUnused: Array<{
+    permission: string
+    riskLevel: "CRITICAL" | "HIGH" | "MEDIUM"
+    reason: string
+  }>
+  evidence: {
+    dataSources: string[]
+    observationDays: number
+    confidence: "HIGH" | "MEDIUM" | "LOW"
+    coverage: {
+      regions: string[]
+      complete: boolean
+    }
+  }
+  severity: "critical" | "high" | "medium" | "low"
+  confidence: number
+  observationDays: number
+  title: string
+  description: string
+  remediation: string
+  region?: string
+}
+
 function severityTone(severity: string) {
   switch ((severity || "").toUpperCase()) {
     case "CRITICAL":
@@ -184,9 +227,19 @@ export default function CrownJewelProtection({
   onOpenLeastPrivilege?: () => void
 }) {
   const [data, setData] = useState<CrownJewelResponse | null>(null)
+  const [lpResources, setLpResources] = useState<LPResource[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  const [iamModalOpen, setIamModalOpen] = useState(false)
+  const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
+  const [s3ModalOpen, setS3ModalOpen] = useState(false)
+  const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
+  const [selectedS3Resource, setSelectedS3Resource] = useState<LPResource | null>(null)
+  const [sgModalOpen, setSgModalOpen] = useState(false)
+  const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
+  const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -196,18 +249,16 @@ export default function CrownJewelProtection({
       setError(null)
 
       try {
-        const params = new URLSearchParams({
-          systemName,
-          observationDays: "365",
-        })
-        if (targetId) {
-          params.set("targetId", targetId)
-        }
+        const params = new URLSearchParams({ systemName, observationDays: "365" })
+        if (targetId) params.set("targetId", targetId)
 
-        const response = await fetch(`/api/proxy/crown-jewels/protection-plan?${params.toString()}`, {
-          cache: "no-store",
-        })
-        const payload = (await response.json()) as CrownJewelResponse
+        const [crownRes, lpRes] = await Promise.all([
+          fetch(`/api/proxy/crown-jewels/protection-plan?${params.toString()}`, { cache: "no-store" }),
+          fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, { cache: "no-store" }),
+        ])
+
+        const payload = (await crownRes.json()) as CrownJewelResponse
+        const lpPayload = await lpRes.json().catch(() => ({ resources: [] }))
 
         if (cancelled) return
 
@@ -216,6 +267,7 @@ export default function CrownJewelProtection({
         }
 
         setData(payload)
+        setLpResources(Array.isArray(lpPayload?.resources) ? lpPayload.resources : [])
         setSelectedId(payload.selectedId || targetId || null)
       } catch (err: any) {
         if (!cancelled) {
@@ -232,7 +284,7 @@ export default function CrownJewelProtection({
     return () => {
       cancelled = true
     }
-  }, [systemName, selectedId])
+  }, [systemName, selectedId, refreshNonce])
 
   const groupedPlan = useMemo(() => {
     const groups = new Map<string, MitigationItem[]>()
@@ -244,6 +296,49 @@ export default function CrownJewelProtection({
     }
     return Array.from(groups.entries())
   }, [data])
+
+  const handleResourceReview = (segment: PrimaryPathSegment) => {
+    const matchingResource = lpResources.find((resource) => {
+      return (
+        resource.resourceName === segment.resourceName ||
+        resource.id === segment.resourceId ||
+        resource.resourceArn === segment.resourceId
+      )
+    })
+
+    const resourceType = matchingResource?.resourceType || segment.resourceType
+
+    if (resourceType === "IAMRole") {
+      setSelectedIAMRole(matchingResource?.resourceName || segment.resourceName)
+      setIamModalOpen(true)
+      return
+    }
+
+    if (resourceType === "S3Bucket") {
+      setSelectedS3Bucket(matchingResource?.resourceName || segment.resourceName)
+      setSelectedS3Resource(matchingResource || null)
+      setS3ModalOpen(true)
+      return
+    }
+
+    if (resourceType === "SecurityGroup") {
+      const sgId =
+        matchingResource?.id?.startsWith("sg-")
+          ? matchingResource.id
+          : segment.resourceId?.startsWith("sg-")
+            ? segment.resourceId
+            : matchingResource?.resourceName?.startsWith("sg-")
+              ? matchingResource.resourceName
+              : null
+
+      setSelectedSGId(sgId)
+      setSelectedSGName(matchingResource?.resourceName || segment.resourceName)
+      setSgModalOpen(true)
+    }
+  }
+
+  const isActionableSegment = (segment: PrimaryPathSegment) =>
+    ["IAMRole", "S3Bucket", "SecurityGroup"].includes(segment.resourceType)
 
   if (isLoading && !data) {
     return (
@@ -433,11 +528,32 @@ export default function CrownJewelProtection({
                         </div>
                       </div>
 
+                      <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
+                          Live Observed Traffic
+                        </span>
+                        <span className="rounded-full bg-amber-500/10 px-3 py-1 text-amber-300">
+                          Zero-Trust Model: Assume Breach
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">
+                          Click Identity / Networking / Data to open remediation
+                        </span>
+                      </div>
+
                       <div className="mt-5 overflow-x-auto">
                         <div className="flex min-w-max items-start gap-4">
                           {selected.primaryPath.segments.map((segment, index) => (
                             <div key={`${segment.resourceId}-${index}`} className="flex items-start gap-4">
-                              <div className={`w-[230px] rounded-[22px] border p-4 ${getPlaneAccent(segment.plane)}`}>
+                              <button
+                                type="button"
+                                disabled={!isActionableSegment(segment)}
+                                onClick={() => handleResourceReview(segment)}
+                                className={`w-[230px] rounded-[22px] border p-4 text-left transition ${
+                                  isActionableSegment(segment)
+                                    ? "cursor-pointer hover:scale-[1.02] hover:shadow-[0_18px_40px_rgba(15,23,42,0.35)]"
+                                    : "cursor-default opacity-90"
+                                } ${getPlaneAccent(segment.plane)}`}
+                              >
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-700">
                                     {segment.plane}
@@ -453,7 +569,10 @@ export default function CrownJewelProtection({
                                     {segment.edgeLabel}
                                   </div>
                                 )}
-                              </div>
+                                <div className="mt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-700/80">
+                                  {isActionableSegment(segment) ? "Click to review and remediate" : "Context only"}
+                                </div>
+                              </button>
                               {index < selected.primaryPath.segments.length - 1 && (
                                 <div className="flex h-[132px] items-center">
                                   <ArrowRight className="h-6 w-6 text-slate-500" />
@@ -600,6 +719,54 @@ export default function CrownJewelProtection({
           </div>
         </div>
       </section>
+
+      <IAMPermissionAnalysisModal
+        isOpen={iamModalOpen}
+        onClose={() => {
+          setIamModalOpen(false)
+          setSelectedIAMRole(null)
+        }}
+        roleName={selectedIAMRole || ""}
+        systemName={systemName || ""}
+        onApplyFix={() => {}}
+        onRemediationSuccess={() => {
+          setRefreshNonce((value) => value + 1)
+        }}
+        onRollbackSuccess={() => {
+          setRefreshNonce((value) => value + 1)
+        }}
+      />
+
+      <S3PolicyAnalysisModal
+        isOpen={s3ModalOpen}
+        onClose={() => {
+          setS3ModalOpen(false)
+          setSelectedS3Bucket(null)
+          setSelectedS3Resource(null)
+        }}
+        bucketName={selectedS3Bucket || ""}
+        systemName={systemName || ""}
+        resourceData={selectedS3Resource}
+        onApplyFix={() => {}}
+        onRemediationSuccess={() => {
+          setRefreshNonce((value) => value + 1)
+        }}
+      />
+
+      <SGLeastPrivilegeModal
+        isOpen={sgModalOpen}
+        onClose={() => {
+          setSgModalOpen(false)
+          setSelectedSGId(null)
+          setSelectedSGName(null)
+        }}
+        sgId={selectedSGId || ""}
+        sgName={selectedSGName || undefined}
+        systemName={systemName || ""}
+        onRemediate={() => {
+          setRefreshNonce((value) => value + 1)
+        }}
+      />
     </div>
   )
 }
