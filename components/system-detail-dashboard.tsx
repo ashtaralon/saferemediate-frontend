@@ -128,6 +128,16 @@ const SystemDependencyMap = dynamic(() => import("./system-dependency-map"), {
   ),
 })
 
+const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">Loading dependency map...</span>
+    </div>
+  ),
+})
+
 const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"), {
   ssr: false,
   loading: () => (
@@ -1002,7 +1012,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "orphan-services", label: "Orphan Services", icon: Unplug },
-    { id: "dependency-map", label: "System Map", icon: Map },
+    { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
   ]
@@ -1473,13 +1483,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 <div className="bg-white rounded-xl border border-[var(--border,#e5e7eb)] overflow-hidden">
                   <div className="px-6 py-5 border-b border-[var(--border,#e5e7eb)] flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Map</h3>
+                      <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Map Preview</h3>
                       <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
                         Static architecture snapshot of how identity, network, and data resources connect in this system.
                       </p>
                     </div>
                     <button onClick={() => setActiveTab("dependency-map")} className="text-sm font-medium text-[#2D51DA] hover:underline">
-                      Open full system map →
+                      Open dependency map →
                     </button>
                   </div>
                   <div className="p-4">
@@ -1649,7 +1659,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "dependency-map" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <SystemDependencyMap key={refreshKey} systemName={systemName} variant="full" />
+          <DependencyMapTab key={refreshKey} systemName={systemName} />
         </div>
       )}
 
