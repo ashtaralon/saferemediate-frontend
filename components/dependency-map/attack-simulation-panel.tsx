@@ -1,10 +1,24 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
-import { X, Shield, Database, AlertTriangle, ChevronDown, ChevronRight, Lock, Unlock, Server, HardDrive, FileWarning, Zap, Check, ExternalLink, Maximize2, Minimize2 } from "lucide-react"
+import React, { useEffect, useMemo, useState } from "react"
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Database,
+  Key,
+  Layers,
+  Loader2,
+  Network,
+  RotateCcw,
+  Shield,
+  Target,
+  X,
+  Zap,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -14,31 +28,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
-
-interface PortStatus {
-  is_open: boolean
-  exposed_via: string
-  source_allowed: string
-  protocol: string
-}
-
-interface Exploitability {
-  network_exploitable: boolean
-  requires_auth: boolean
-  exploit_available: boolean
-  attack_complexity: string
-}
-
-interface ExploitableVulnerability {
-  cve_id: string
-  cve_name: string
-  severity: string
-  cvss_score: number
-  affected_port: number
-  port_status: PortStatus
-  exploitability: Exploitability
-  current_risk: string
-}
 
 interface AccessibleObject {
   databases?: string[]
@@ -55,14 +44,18 @@ interface DataStore {
   access_level: string
   accessible_objects: AccessibleObject
   permissions_used: string[]
+  classification?: string
 }
 
 interface S3Access {
   bucket: string
+  bucket_id?: string
   accessible_prefixes: string[]
   operations: string[]
   estimated_objects: number
   estimated_size_gb: number
+  contains_pii?: boolean
+  contains_financial?: boolean
 }
 
 interface DataAccessScope {
@@ -72,26 +65,10 @@ interface DataAccessScope {
   s3_access: S3Access[]
 }
 
-interface AffectedData {
-  record_count: number
-  data_types: string[]
-  compliance_violations: string[]
-}
-
-interface AttackImpact {
-  impact_type: string
-  severity: string
-  description: string
-  affected_data: AffectedData
-  attack_steps: string[]
-  likelihood: string
-  business_impact: string
-}
-
 interface SideEffect {
   type: string
   description: string
-  affected_services: string[]
+  affected_services?: string[]
   severity: string
 }
 
@@ -104,6 +81,17 @@ interface ImpactPreview {
   after_score: number
   permissions_removed?: number
   permissions_remaining?: number
+  tables_protected?: number
+}
+
+interface RemediationTarget {
+  scope?: "service" | "chain" | string
+  resource_ids?: string[]
+  resource_names?: string[]
+  roles?: string[]
+  permissions_to_remove?: string[]
+  tables?: string[]
+  new_access_level?: string
 }
 
 interface RemediationOption {
@@ -113,16 +101,100 @@ interface RemediationOption {
   description: string
   effort: string
   automation_available: boolean
+  target?: RemediationTarget
   impact_preview: ImpactPreview
 }
 
 interface SimulationData {
   path_id: string
   simulation_timestamp: string
-  exploitable_vulnerabilities: ExploitableVulnerability[]
   data_access_scope: DataAccessScope
-  potential_impacts: AttackImpact[]
   remediation_options: RemediationOption[]
+  exploitable_vulnerabilities: Array<{ current_risk?: string }>
+}
+
+interface PathContextNode {
+  id: string
+  name: string
+  type: string
+  is_internet_exposed?: boolean
+}
+
+interface PathContextSecurityGroup {
+  sg_id: string
+  sg_name: string
+  open_to_internet: boolean
+  affected_resources: string[]
+  risky_rules: Array<{
+    direction: string
+    port: number | string
+    protocol: string
+    source: string
+    risk: string
+  }>
+}
+
+interface PathContextNetworkHop {
+  from: string
+  to: string
+  port: number
+  protocol: string
+  observed: boolean
+}
+
+interface PathContextRole {
+  role_id: string
+  role_name: string
+  attached_to: string[]
+  policies: string[]
+  permission_count: number
+  observed_actions_count: number
+}
+
+interface PathContextIdentityLayer {
+  roles: PathContextRole[]
+  dangerous_permissions: Array<{
+    role: string
+    permission: string
+    risk: string
+  }>
+  least_privilege_gaps: Array<{
+    role: string
+    allowed: number
+    observed: number
+    gap_percentage: number
+  }>
+}
+
+interface PathContextDataImpact {
+  name: string
+  type: string
+  classification: string
+  sensitivity: string
+  data_types: string[]
+  compliance: string[]
+  contains_pii: boolean
+  contains_financial: boolean
+  estimated_records: number
+  impact_score: number
+  breach_impact: string
+}
+
+interface AttackPathContext {
+  pathType: string
+  entryPoint: string
+  crownJewel: string
+  identityUsed: string
+  pathNodes: PathContextNode[]
+  networkLayer: {
+    security_groups: PathContextSecurityGroup[]
+    open_ports: number[]
+    protocols: string[]
+    internet_exposed: boolean
+    network_path: PathContextNetworkHop[]
+  }
+  identityLayer: PathContextIdentityLayer
+  dataImpact: PathContextDataImpact
 }
 
 interface AttackSimulationPanelProps {
@@ -131,6 +203,145 @@ interface AttackSimulationPanelProps {
   systemName: string
   pathId: string
   pathName?: string
+  pathContext?: AttackPathContext
+}
+
+interface ServiceCard {
+  key: string
+  name: string
+  type: string
+  subtitle: string
+  details: string[]
+  remediationIds: string[]
+  kind: "identity" | "data" | "bucket"
+  roleName?: string
+  store?: DataStore
+  bucket?: S3Access
+  onPrimaryPath: boolean
+  pathIndex: number
+}
+
+function formatResourceName(name: string) {
+  if (!name) return "Unknown"
+  let formatted = name
+  if (formatted.includes(":assumed-role/")) {
+    formatted = formatted.split(":assumed-role/")[1]?.split("/")[0] || formatted
+  }
+  if (formatted.includes(":role/")) {
+    formatted = formatted.split(":role/")[1] || formatted
+  }
+  if (formatted.includes(":table/")) {
+    formatted = formatted.split(":table/")[1] || formatted
+  }
+  if (formatted.includes(":::")) {
+    formatted = formatted.split(":::")[1] || formatted
+  }
+  if (formatted.includes("/")) {
+    const parts = formatted.split("/").filter(Boolean)
+    if (parts.length > 1) {
+      formatted = parts[parts.length - 1]
+    }
+  }
+  return formatted
+}
+
+function getEffortBadgeClass(effort: string) {
+  switch (effort) {
+    case "LOW":
+      return "bg-emerald-500/15 text-emerald-300 border-emerald-400/30"
+    case "MEDIUM":
+      return "bg-amber-500/15 text-amber-300 border-amber-400/30"
+    case "HIGH":
+      return "bg-orange-500/15 text-orange-300 border-orange-400/30"
+    default:
+      return "bg-slate-500/15 text-slate-300 border-slate-400/30"
+  }
+}
+
+function getAccessBadgeClass(accessLevel: string) {
+  switch (accessLevel) {
+    case "ADMIN":
+    case "FULL":
+      return "bg-red-500/15 text-red-300 border-red-400/30"
+    case "READ_ONLY":
+      return "bg-blue-500/15 text-blue-300 border-blue-400/30"
+    case "WRITE_ONLY":
+      return "bg-orange-500/15 text-orange-300 border-orange-400/30"
+    default:
+      return "bg-yellow-500/15 text-yellow-300 border-yellow-400/30"
+  }
+}
+
+function getPlaneTone(plane: "identity" | "network" | "data") {
+  switch (plane) {
+    case "identity":
+      return {
+        icon: Key,
+        header: "bg-violet-500/10 border-violet-500/20",
+        title: "text-violet-300",
+        badge: "bg-violet-500/15 text-violet-300 border-violet-400/30",
+      }
+    case "network":
+      return {
+        icon: Network,
+        header: "bg-sky-500/10 border-sky-500/20",
+        title: "text-sky-300",
+        badge: "bg-sky-500/15 text-sky-300 border-sky-400/30",
+      }
+    default:
+      return {
+        icon: Database,
+        header: "bg-emerald-500/10 border-emerald-500/20",
+        title: "text-emerald-300",
+        badge: "bg-emerald-500/15 text-emerald-300 border-emerald-400/30",
+      }
+  }
+}
+
+function formatCount(value: number | undefined, noun: string) {
+  if (!value) return `No ${noun}`
+  return `${value.toLocaleString()} ${noun}`
+}
+
+function PlaneCard({
+  plane,
+  title,
+  subtitle,
+  children,
+}: {
+  plane: "identity" | "network" | "data"
+  title: string
+  subtitle: string
+  children: React.ReactNode
+}) {
+  const tone = getPlaneTone(plane)
+  const Icon = tone.icon
+
+  return (
+    <div className="rounded-2xl border border-slate-700 bg-white/[0.03] overflow-hidden">
+      <div className={`border-b px-5 py-4 ${tone.header}`}>
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-slate-950/40 p-2">
+            <Icon className={`h-4 w-4 ${tone.title}`} />
+          </div>
+          <div>
+            <div className={`text-sm font-semibold ${tone.title}`}>{title}</div>
+            <div className="text-xs text-slate-400">{subtitle}</div>
+          </div>
+        </div>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  )
+}
+
+function SummaryChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-700 bg-[#1b1f39] px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-medium text-white">{value}</div>
+    </div>
+  )
 }
 
 export function AttackSimulationPanel({
@@ -138,20 +349,16 @@ export function AttackSimulationPanel({
   onClose,
   systemName,
   pathId,
-  pathName
+  pathName,
+  pathContext,
 }: AttackSimulationPanelProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [simulationData, setSimulationData] = useState<SimulationData | null>(null)
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    vulnerabilities: true,
-    dataAccess: true,
-    impacts: true,
-    remediation: true
-  })
   const [selectedRemediations, setSelectedRemediations] = useState<string[]>([])
-  const [expandedImpact, setExpandedImpact] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
+  const [rollingBack, setRollingBack] = useState<string | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [applyResult, setApplyResult] = useState<{
     status: string
     message: string
@@ -159,14 +366,12 @@ export function AttackSimulationPanel({
     riskReduction?: number
   } | null>(null)
   const [appliedRemediations, setAppliedRemediations] = useState<string[]>([])
-  const [rollingBack, setRollingBack] = useState<string | null>(null)
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-  const [chainExpanded, setChainExpanded] = useState(false)
+  const [selectedServiceKey, setSelectedServiceKey] = useState<string | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
     if (isOpen && systemName && pathId) {
-      fetchSimulation()
+      void fetchSimulation()
     }
   }, [isOpen, systemName, pathId])
 
@@ -179,50 +384,39 @@ export function AttackSimulationPanel({
         throw new Error(`Failed to fetch simulation: ${response.status}`)
       }
       const data = await response.json()
-      // Add safety defaults for missing/null fields
-      const ps = data.path_summary || {};
-      const das = data.data_access_scope || {};
+      const dataAccess = data.data_access_scope || {}
       setSimulationData({
         ...data,
         exploitable_vulnerabilities: data.exploitable_vulnerabilities || [],
         data_access_scope: {
-          ...das,
-          data_stores_accessible: (das.data_stores_accessible || []).map((s: any) => ({
-            ...s,
-            accessible_objects: s.accessible_objects || { tables: [], estimated_rows: 0, contains_pii: false, contains_financial: false },
+          ...dataAccess,
+          iam_roles_in_path: dataAccess.iam_roles_in_path || [],
+          combined_permissions: dataAccess.combined_permissions || [],
+          data_stores_accessible: (dataAccess.data_stores_accessible || []).map((store: DataStore) => ({
+            ...store,
+            accessible_objects: store.accessible_objects || {},
+            permissions_used: store.permissions_used || [],
           })),
-          sensitive_data_types: das.sensitive_data_types || [],
+          s3_access: dataAccess.s3_access || [],
         },
-        potential_impacts: data.potential_impacts || [],
-        remediation_options: (data.remediation_options || []).map((r: any) => ({
-          ...r,
+        remediation_options: (data.remediation_options || []).map((option: RemediationOption) => ({
+          ...option,
+          target: option.target || {},
           impact_preview: {
-            ...(r.impact_preview || {}),
-            attack_impacts_prevented: r.impact_preview?.attack_impacts_prevented || [],
-            side_effects: r.impact_preview?.side_effects || [],
-            risk_reduction: r.impact_preview?.risk_reduction || 0,
-            before_score: r.impact_preview?.before_score || ps.risk_score || 0,
-            after_score: r.impact_preview?.after_score || 0,
+            ...(option.impact_preview || {}),
+            side_effects: option.impact_preview?.side_effects || [],
+            attack_impacts_prevented: option.impact_preview?.attack_impacts_prevented || [],
+            risk_reduction: option.impact_preview?.risk_reduction || "0%",
+            before_score: option.impact_preview?.before_score || 0,
+            after_score: option.impact_preview?.after_score || 0,
           },
         })),
-        risk_score: data.risk_score ?? ps.risk_score ?? 0,
-        risk_level: data.risk_level ?? ps.risk_level ?? 'unknown',
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load simulation")
     } finally {
       setLoading(false)
     }
-  }
-
-  const toggleSection = (section: string) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
-  }
-
-  const toggleRemediation = (id: string) => {
-    setSelectedRemediations(prev =>
-      prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]
-    )
   }
 
   const applyRemediations = async () => {
@@ -237,7 +431,7 @@ export function AttackSimulationPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ remediation_ids: selectedRemediations })
+          body: JSON.stringify({ remediation_ids: selectedRemediations }),
         }
       )
 
@@ -250,49 +444,44 @@ export function AttackSimulationPanel({
 
       setApplyResult({
         status: data.status,
-        message: `${data.successful} of ${data.total_requested} remediations applied successfully`,
+        message: `${data.successful} of ${data.total_requested} remediation changes applied successfully`,
         newRiskScore: data.new_risk_score,
-        riskReduction: data.risk_reduction
+        riskReduction: data.risk_reduction,
       })
 
-      // Clear selections and track applied remediations on success
       if (data.status === "SUCCESS" || data.status === "PARTIAL") {
-        setAppliedRemediations(prev => [...prev, ...selectedRemediations.filter(id =>
-          data.results.some((r: { remediation_id: string, status: string }) => r.remediation_id === id && r.status === "SUCCESS")
-        )])
+        setAppliedRemediations((prev) => [
+          ...prev,
+          ...selectedRemediations.filter(
+            (id) => !prev.includes(id) && data.results.some((result: { remediation_id: string; status: string }) => result.remediation_id === id && result.status === "SUCCESS")
+          ),
+        ])
         setSelectedRemediations([])
-
-        // Show success toast
         toast({
-          title: "✓ Remediation Applied Successfully",
-          description: `Risk reduced by ${data.risk_reduction}% (${data.new_risk_score} new score)`,
-          variant: "default",
+          title: "Remediation applied",
+          description: `Risk reduced by ${data.risk_reduction}%`,
         })
-
-        // Refresh simulation data to show updated state
-        setTimeout(() => fetchSimulation(), 1500)
+        setTimeout(() => void fetchSimulation(), 1000)
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to apply remediations"
       setApplyResult({
         status: "FAILED",
-        message: errorMessage
+        message: errorMessage,
       })
-
-      // Show error toast
       toast({
-        title: "✗ Remediation Failed",
+        title: "Remediation failed",
         description: errorMessage,
         variant: "destructive",
       })
     } finally {
       setApplying(false)
+      setShowConfirmDialog(false)
     }
   }
 
   const rollbackRemediation = async (remediationId: string) => {
     setRollingBack(remediationId)
-
     try {
       const response = await fetch(
         `/api/proxy/attack-simulation/${encodeURIComponent(systemName)}/${encodeURIComponent(pathId)}/rollback?remediation_id=${encodeURIComponent(remediationId)}`,
@@ -305,34 +494,24 @@ export function AttackSimulationPanel({
       }
 
       const data = await response.json()
-
-      // Remove from applied remediations
-      setAppliedRemediations(prev => prev.filter(id => id !== remediationId))
-
+      setAppliedRemediations((prev) => prev.filter((id) => id !== remediationId))
       setApplyResult({
         status: "SUCCESS",
-        message: `Rollback successful: ${data.message}`
+        message: `Rollback successful: ${data.message}`,
       })
-
-      // Show success toast
       toast({
-        title: "↩ Rollback Successful",
+        title: "Rollback successful",
         description: data.message,
-        variant: "default",
       })
-
-      // Refresh simulation
-      setTimeout(() => fetchSimulation(), 1500)
+      setTimeout(() => void fetchSimulation(), 1000)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Rollback failed"
       setApplyResult({
         status: "FAILED",
-        message: errorMessage
+        message: errorMessage,
       })
-
-      // Show error toast
       toast({
-        title: "✗ Rollback Failed",
+        title: "Rollback failed",
         description: errorMessage,
         variant: "destructive",
       })
@@ -341,182 +520,192 @@ export function AttackSimulationPanel({
     }
   }
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity?.toUpperCase()) {
-      case "CRITICAL": return "bg-red-500/20 text-red-400 border-red-500/50"
-      case "HIGH": return "bg-orange-500/20 text-orange-400 border-orange-500/50"
-      case "MEDIUM": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/50"
-      case "LOW": return "bg-green-500/20 text-green-400 border-green-500/50"
-      default: return "bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)] border-gray-500/50"
+  const pathNodeLabels = useMemo(() => {
+    if (pathContext?.pathNodes?.length) {
+      return pathContext.pathNodes.map((node) => formatResourceName(node.name))
     }
+
+    return pathName?.split("→").map((part) => formatResourceName(part.trim())).filter(Boolean) || []
+  }, [pathContext, pathName])
+
+  const serviceCards = useMemo<ServiceCard[]>(() => {
+    if (!simulationData) return []
+
+    const options = simulationData.remediation_options || []
+    const pathOrder = new Map<string, number>()
+    pathNodeLabels.forEach((label, index) => pathOrder.set(label, index))
+    const pathNames = new Set(pathNodeLabels)
+    const cards: ServiceCard[] = []
+
+    for (const role of simulationData.data_access_scope.iam_roles_in_path || []) {
+      const formattedRole = formatResourceName(role)
+      const remediationIds = options
+        .filter((option) => option.target?.roles?.includes(role))
+        .map((option) => option.id)
+
+      cards.push({
+        key: `role:${role}`,
+        name: formattedRole,
+        type: "IAMRole",
+        subtitle: "Identity used on this path",
+        details: [
+          formatCount(simulationData.data_access_scope.combined_permissions.length, "permissions in scope"),
+          formattedRole === formatResourceName(pathContext?.identityUsed || "") ? "Primary path identity" : "Identity hop",
+        ],
+        remediationIds,
+        kind: "identity",
+        roleName: role,
+        onPrimaryPath: pathNames.has(formattedRole),
+        pathIndex: pathOrder.get(formattedRole) ?? 999,
+      })
+    }
+
+    for (const store of simulationData.data_access_scope.data_stores_accessible || []) {
+      const formattedName = formatResourceName(store.resource_name)
+      const remediationIds = options
+        .filter((option) =>
+          option.target?.resource_ids?.includes(store.resource_id) ||
+          option.target?.resource_names?.includes(store.resource_name)
+        )
+        .map((option) => option.id)
+
+      const details = [
+        `${store.accessible_objects.tables?.length || 0} reachable tables`,
+        store.accessible_objects.estimated_rows
+          ? `~${store.accessible_objects.estimated_rows.toLocaleString()} rows`
+          : "Row volume unknown",
+      ]
+
+      if (store.accessible_objects.contains_pii) {
+        details.push("Contains PII")
+      }
+
+      cards.push({
+        key: `store:${store.resource_id}`,
+        name: formattedName,
+        type: store.resource_type,
+        subtitle: `${store.access_level} data access`,
+        details,
+        remediationIds,
+        kind: "data",
+        store,
+        onPrimaryPath: pathNames.has(formattedName),
+        pathIndex: pathOrder.get(formattedName) ?? 999,
+      })
+    }
+
+    for (const bucket of simulationData.data_access_scope.s3_access || []) {
+      const formattedName = formatResourceName(bucket.bucket)
+      const remediationIds = options
+        .filter((option) =>
+          option.target?.resource_ids?.includes(bucket.bucket_id || "") ||
+          option.target?.resource_names?.includes(bucket.bucket)
+        )
+        .map((option) => option.id)
+
+      const details = [
+        `${bucket.operations.length || 0} operations in scope`,
+        `~${bucket.estimated_objects.toLocaleString()} objects`,
+      ]
+
+      if (bucket.contains_pii) {
+        details.push("Contains PII")
+      }
+
+      cards.push({
+        key: `bucket:${bucket.bucket_id || bucket.bucket}`,
+        name: formattedName,
+        type: "S3Bucket",
+        subtitle: "Bucket reachable from this path",
+        details,
+        remediationIds,
+        kind: "bucket",
+        bucket,
+        onPrimaryPath: pathNames.has(formattedName),
+        pathIndex: pathOrder.get(formattedName) ?? 999,
+      })
+    }
+
+    return cards.sort((a, b) => {
+      if (a.onPrimaryPath !== b.onPrimaryPath) return a.onPrimaryPath ? -1 : 1
+      if (a.pathIndex !== b.pathIndex) return a.pathIndex - b.pathIndex
+      return a.name.localeCompare(b.name)
+    })
+  }, [pathContext?.identityUsed, pathNodeLabels, simulationData])
+
+  const selectedService = useMemo(
+    () => serviceCards.find((card) => card.key === selectedServiceKey) || null,
+    [selectedServiceKey, serviceCards]
+  )
+
+  const chainOptions = useMemo(
+    () => (simulationData?.remediation_options || []).filter((option) => option.target?.scope === "chain"),
+    [simulationData]
+  )
+
+  const selectedOptions = useMemo(
+    () => (simulationData?.remediation_options || []).filter((option) => selectedRemediations.includes(option.id)),
+    [simulationData, selectedRemediations]
+  )
+
+  const identityOptions = useMemo(
+    () => (simulationData?.remediation_options || []).filter((option) => option.action === "REMOVE_PERMISSION"),
+    [simulationData]
+  )
+
+  const serviceOptions = useMemo(() => {
+    if (!selectedService || !simulationData) return []
+    return simulationData.remediation_options.filter((option) => selectedService.remediationIds.includes(option.id))
+  }, [selectedService, simulationData])
+
+  const identityRoleNames = useMemo(
+    () => (simulationData?.data_access_scope.iam_roles_in_path || []).map((role) => formatResourceName(role)),
+    [simulationData]
+  )
+
+  const relevantNetworkHops = useMemo(() => {
+    if (!selectedService || !pathContext) return []
+    const serviceName = selectedService.name
+    return pathContext.networkLayer.network_path.filter((hop) => {
+      const from = formatResourceName(hop.from)
+      const to = formatResourceName(hop.to)
+      return from === serviceName || to === serviceName
+    })
+  }, [pathContext, selectedService])
+
+  const relevantSecurityGroups = useMemo(() => {
+    if (!selectedService || !pathContext) return []
+    const serviceName = selectedService.name
+    return pathContext.networkLayer.security_groups.filter((sg) => {
+      const affected = (sg.affected_resources || []).map((resource) => formatResourceName(resource))
+      return affected.includes(serviceName) || selectedService.onPrimaryPath
+    })
+  }, [pathContext, selectedService])
+
+  const isSelectedGroup = (ids: string[]) => ids.length > 0 && ids.every((id) => selectedRemediations.includes(id))
+
+  const toggleRemediationGroup = (ids: string[]) => {
+    if (ids.length === 0) return
+    const shouldRemove = ids.every((id) => selectedRemediations.includes(id))
+    setSelectedRemediations((prev) =>
+      shouldRemove ? prev.filter((id) => !ids.includes(id)) : Array.from(new Set([...prev, ...ids]))
+    )
   }
-
-  const getRiskStatusIcon = (status: string) => {
-    switch (status) {
-      case "EXPLOITABLE_NOW": return <Unlock className="h-4 w-4 text-red-400" />
-      case "BLOCKED": return <Lock className="h-4 w-4 text-green-400" />
-      case "REQUIRES_AUTH": return <Shield className="h-4 w-4 text-yellow-400" />
-      default: return <AlertTriangle className="h-4 w-4 text-[var(--muted-foreground,#9ca3af)]" />
-    }
-  }
-
-  const getRiskStatusBadge = (status: string) => {
-    switch (status) {
-      case "EXPLOITABLE_NOW":
-        return <Badge className="bg-red-500/20 text-red-400 border-red-500/50">EXPLOITABLE NOW</Badge>
-      case "BLOCKED":
-        return <Badge className="bg-green-500/20 text-green-400 border-green-500/50">BLOCKED</Badge>
-      case "REQUIRES_AUTH":
-        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/50">REQUIRES AUTH</Badge>
-      default:
-        return <Badge className="bg-gray-500/20 text-[var(--muted-foreground,#9ca3af)]">{status}</Badge>
-    }
-  }
-
-  const getImpactIcon = (impactType: string) => {
-    switch (impactType) {
-      case "DATA_THEFT": return <Database className="h-5 w-5" />
-      case "RANSOMWARE": return <Lock className="h-5 w-5" />
-      case "DATA_DELETION": return <FileWarning className="h-5 w-5" />
-      case "DATA_MODIFICATION": return <HardDrive className="h-5 w-5" />
-      case "PRIVILEGE_ESCALATION": return <Zap className="h-5 w-5" />
-      case "SERVICE_DISRUPTION": return <Server className="h-5 w-5" />
-      default: return <AlertTriangle className="h-5 w-5" />
-    }
-  }
-
-  const getImpactLabel = (impactType: string) => {
-    switch (impactType) {
-      case "DATA_THEFT": return "Data Theft"
-      case "RANSOMWARE": return "Ransomware"
-      case "DATA_DELETION": return "Data Deletion"
-      case "DATA_MODIFICATION": return "Data Modification"
-      case "PRIVILEGE_ESCALATION": return "Privilege Escalation"
-      case "SERVICE_DISRUPTION": return "Service Disruption"
-      case "CREDENTIAL_THEFT": return "Credential Theft"
-      default: return impactType
-    }
-  }
-
-  const getEffortBadge = (effort: string) => {
-    switch (effort) {
-      case "LOW": return <Badge className="bg-green-500/20 text-green-400">Low Effort</Badge>
-      case "MEDIUM": return <Badge className="bg-yellow-500/20 text-yellow-400">Medium Effort</Badge>
-      case "HIGH": return <Badge className="bg-orange-500/20 text-orange-400">High Effort</Badge>
-      default: return <Badge>{effort}</Badge>
-    }
-  }
-
-  const getDamageNarrative = (vuln: ExploitableVulnerability): string => {
-    const cvss = vuln.cvss_score;
-    const name = vuln.cve_name || '';
-    const port = vuln.affected_port;
-    const isNetworkExploitable = vuln.exploitability?.network_exploitable;
-    const hasExploit = vuln.exploitability?.exploit_available;
-
-    if (cvss >= 9) {
-      return `Critical: ${hasExploit ? 'Exploit code is publicly available. ' : ''}Attacker can gain remote code execution via port ${port}${isNetworkExploitable ? ' from the internet' : ''}. Full system compromise leads to shell access → credential theft → lateral movement to connected databases and services.`;
-    }
-    if (cvss >= 7) {
-      return `High: Attacker can escalate privileges${isNetworkExploitable ? ' remotely' : ' with local access'} via port ${port}. ${hasExploit ? 'Known exploit exists. ' : ''}This enables access to IAM credentials → unauthorized data access → potential exfiltration of sensitive records.`;
-    }
-    if (cvss >= 4) {
-      return `Medium: Attacker can read sensitive data through exposed service on port ${port}. Information disclosure may reveal credentials, API keys, or internal architecture details enabling further attacks.`;
-    }
-    return `Low: Limited information disclosure via port ${port}. Minimal direct impact but may assist in reconnaissance for more targeted attacks.`;
-  };
-
-  const buildAttackChain = (data: SimulationData | null): Array<{phase: string; resource: string; action: string; detail?: string; risk: string}> => {
-    if (!data) return [];
-    const chain: Array<{phase: string; resource: string; action: string; detail?: string; risk: string}> = [];
-
-    // Step 1: Entry point
-    const firstVuln = data.exploitable_vulnerabilities?.[0];
-    chain.push({
-      phase: 'Entry Point',
-      resource: pathName?.split(' → ')[0] || 'External',
-      action: firstVuln ? `Exploit ${firstVuln.cve_id} on port ${firstVuln.affected_port}` : 'Network access',
-      detail: firstVuln?.exploitability?.exploit_available ? '⚡ Exploit available' : undefined,
-      risk: firstVuln?.cvss_score >= 9 ? 'critical' : firstVuln?.cvss_score >= 7 ? 'high' : 'medium',
-    });
-
-    // Step 2: Exploitation (for each CVE)
-    if (data.exploitable_vulnerabilities?.length > 1) {
-      data.exploitable_vulnerabilities?.slice(1).forEach(v => {
-        chain.push({
-          phase: 'Exploit',
-          resource: v.cve_id,
-          action: `${v.severity} - ${v.cve_name?.slice(0, 40) || 'Vulnerability'}`,
-          detail: `CVSS ${v.cvss_score}`,
-          risk: v.cvss_score >= 9 ? 'critical' : v.cvss_score >= 7 ? 'high' : 'medium',
-        });
-      });
-    }
-
-    // Step 3: Pivot / Lateral Movement
-    const roles = data.data_access_scope?.iam_roles_in_path || [];
-    if (roles.length > 0) {
-      chain.push({
-        phase: 'Pivot',
-        resource: roles[0]?.split('/')?.pop() || roles[0] || 'IAM Role',
-        action: `Assume role → ${data.data_access_scope?.combined_permissions?.length || 0} permissions`,
-        risk: 'high',
-      });
-    }
-
-    // Step 4: Data Access
-    const stores = data.data_access_scope?.data_stores_accessible || [];
-    stores.forEach(store => {
-      chain.push({
-        phase: 'Data Access',
-        resource: store.resource_name,
-        action: `${store.resource_type} — ${store?.accessible_objects?.tables?.length || 0} tables, ${store?.accessible_objects?.estimated_rows?.toLocaleString() || '?'} rows`,
-        detail: store?.accessible_objects?.contains_pii ? '🔴 Contains PII' : undefined,
-        risk: store?.accessible_objects?.contains_pii ? 'critical' : 'high',
-      });
-    });
-
-    // Step 5: Impact
-    const impacts = data.potential_impacts || [];
-    if (impacts.length > 0) {
-      chain.push({
-        phase: 'Impact',
-        resource: impacts[0]?.impact_type?.replace(/_/g, ' ') || 'Data Breach',
-        action: impacts[0]?.description?.slice(0, 60) || 'Potential data exfiltration',
-        detail: impacts[0]?.affected_data?.compliance_violations?.join(', ') || undefined,
-        risk: 'critical',
-      });
-    } else if (stores.length > 0) {
-      // Fallback impact based on data access
-      const totalRows = stores.reduce((sum, s) => sum + (s?.accessible_objects?.estimated_rows || 0), 0);
-      const hasPII = stores.some(s => s?.accessible_objects?.contains_pii);
-      chain.push({
-        phase: 'Impact',
-        resource: 'Data Exfiltration',
-        action: `${totalRows.toLocaleString()} records at risk${hasPII ? ' including PII' : ''}`,
-        detail: hasPII ? 'GDPR, SOC2 violation' : undefined,
-        risk: 'critical',
-      });
-    }
-
-    return chain;
-  };
 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex justify-end" style={{ zIndex: 9999 }}>
-      <div className="w-[700px] bg-[#1a1a2e] h-full overflow-y-auto border-l border-gray-700">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-[#1a1a2e] border-b border-gray-700 p-4">
+    <div className="fixed inset-0 bg-black/60 flex justify-end" style={{ zIndex: 9999 }}>
+      <div className="w-[860px] max-w-[100vw] bg-[#14162b] h-full overflow-y-auto border-l border-slate-700">
+        <div className="sticky top-0 z-10 bg-[#14162b] border-b border-slate-700 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-red-500/20 rounded-lg">
                 <Zap className="h-5 w-5 text-red-400" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-white">Attack Simulation</h2>
-                <p className="text-sm text-[var(--muted-foreground,#9ca3af)]">{pathName || `Path ${pathId}`}</p>
+                <h2 className="text-lg font-semibold text-white">Least Privilege Plan</h2>
+                <p className="text-sm text-slate-400">{pathName || `Path ${pathId}`}</p>
               </div>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose}>
@@ -525,19 +714,28 @@ export function AttackSimulationPanel({
           </div>
         </div>
 
-        {/* Content */}
         <div className="p-4 space-y-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield className="h-4 w-4 text-cyan-400" />
+              <span className="text-sm font-medium text-white">What this page does</span>
+            </div>
+            <p className="text-sm text-slate-300">
+              Start with the attack path, open any service in the chain, then review the three enforce planes on one page. You can select one service change or execute a whole-chain plan with rollback.
+            </p>
+          </div>
+
           {loading && (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
-              <span className="ml-3 text-[var(--muted-foreground,#9ca3af)]">Running attack simulation...</span>
+              <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
+              <span className="ml-3 text-slate-400">Loading least-privilege plan...</span>
             </div>
           )}
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-              <p className="text-red-400">{error}</p>
-              <Button variant="outline" size="sm" className="mt-2" onClick={fetchSimulation}>
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+              <p className="text-sm text-red-300">{error}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void fetchSimulation()}>
                 Retry
               </Button>
             </div>
@@ -545,736 +743,644 @@ export function AttackSimulationPanel({
 
           {simulationData && !loading && (
             <>
-              {/* Exploitable Vulnerabilities Section */}
-              <div className="bg-[#252540] rounded-lg border border-gray-700">
-                <button
-                  className="w-full p-4 flex items-center justify-between"
-                  onClick={() => toggleSection("vulnerabilities")}
-                >
-                  <div className="flex items-center gap-2">
-                    <Shield className="h-5 w-5 text-red-400" />
-                    <span className="font-medium text-white">Exploitable Vulnerabilities</span>
-                    <Badge className="bg-red-500/20 text-red-400">
-                      {simulationData.exploitable_vulnerabilities?.filter(v => v?.current_risk === "EXPLOITABLE_NOW").length} Active
-                    </Badge>
-                  </div>
-                  {expandedSections.vulnerabilities ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                </button>
-
-                {expandedSections.vulnerabilities && (
-                  <div className="px-4 pb-4 space-y-3">
-                    {simulationData.exploitable_vulnerabilities?.map((vuln, idx) => (
-                      <div key={idx} className="bg-[#1a1a2e] rounded-lg p-3 border border-gray-600">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            {getRiskStatusIcon(vuln.current_risk)}
-                            <span className="font-mono text-sm text-blue-400">{vuln.cve_id}</span>
-                            <Badge className={getSeverityColor(vuln.severity)}>
-                              {vuln.severity} ({vuln.cvss_score})
-                            </Badge>
-                          </div>
-                          {getRiskStatusBadge(vuln.current_risk)}
-                        </div>
-                        <p className="text-sm text-gray-300 mb-2">{vuln.cve_name}</p>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <span className="px-2 py-1 bg-gray-700 rounded">
-                            Port: <span className="text-yellow-400">{vuln.affected_port}</span>
-                          </span>
-                          <span className={cn(
-                            "px-2 py-1 rounded",
-                            vuln.port_status.is_open ? "bg-red-500/20 text-red-400" : "bg-green-500/20 text-green-400"
-                          )}>
-                            {vuln.port_status.is_open ? "Port Open" : "Port Closed"}
-                          </span>
-                          {vuln.port_status.source_allowed && (
-                            <span className="px-2 py-1 bg-gray-700 rounded">
-                              Source: <span className={vuln.port_status.source_allowed === "0.0.0.0/0" ? "text-red-400" : "text-gray-300"}>
-                                {vuln.port_status.source_allowed}
-                              </span>
-                            </span>
-                          )}
-                          <span className="px-2 py-1 bg-gray-700 rounded">
-                            Complexity: {vuln.exploitability.attack_complexity}
-                          </span>
-                        </div>
-                        {/* Damage Scenario */}
-                        <div className="mt-3 p-2.5 bg-red-500/5 border border-red-500/20 rounded-lg">
-                          <div className="text-xs font-semibold text-red-400 mb-1.5 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Damage Scenario
-                          </div>
-                          <p className="text-xs text-gray-300 leading-relaxed">
-                            {getDamageNarrative(vuln)}
-                          </p>
-                          {/* CVSS severity bar */}
-                          <div className="mt-2 flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                              <div
-                                className={cn("h-full rounded-full", vuln.cvss_score >= 9 ? "bg-red-500" : vuln.cvss_score >= 7 ? "bg-orange-500" : vuln.cvss_score >= 4 ? "bg-yellow-500" : "bg-green-500")}
-                                style={{ width: `${(vuln.cvss_score / 10) * 100}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] text-gray-400">{vuln.cvss_score}/10</span>
-                          </div>
-                          {/* Affected data from this CVE */}
-                          {simulationData.data_access_scope?.data_stores_accessible?.length > 0 && (
-                            <div className="mt-2 flex items-center gap-1.5 text-[10px] text-gray-400">
-                              <Database className="h-3 w-3 text-blue-400" />
-                              <span>If exploited, gives access to: </span>
-                              {simulationData.data_access_scope?.data_stores_accessible?.map((s, i) => (
-                                <Badge key={i} className="bg-blue-500/10 text-blue-400 text-[10px] px-1.5 py-0">
-                                  {s.resource_name} ({s?.accessible_objects?.estimated_rows?.toLocaleString() || '?'} rows{s?.accessible_objects?.contains_pii ? ', PII' : ''})
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
+              {!selectedService ? (
+                <>
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div>
+                        <div className="text-sm font-medium text-white">Path to block</div>
+                        <div className="mt-1 text-xs text-slate-400">
+                          Choose a service below to open its remediation page, or execute the whole-chain LP plan.
                         </div>
                       </div>
-                    ))}
-                    {simulationData.exploitable_vulnerabilities?.length === 0 && (
-                      <p className="text-[var(--muted-foreground,#9ca3af)] text-center py-4">No exploitable vulnerabilities found</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Attack Chain Visualization */}
-              <div
-                className="bg-[#252540] rounded-lg border border-gray-700 p-4 cursor-pointer hover:border-orange-500/50 transition-colors group"
-                onClick={() => setChainExpanded(true)}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-orange-400" />
-                    <span className="font-medium text-white">Attack Chain — Step by Step</span>
-                  </div>
-                  <div className="flex items-center gap-1 text-[10px] text-gray-500 group-hover:text-orange-400 transition-colors">
-                    <Maximize2 className="h-3.5 w-3.5" />
-                    <span>Click to expand</span>
-                  </div>
-                </div>
-                <div className="flex items-stretch gap-0 overflow-x-auto pb-2">
-                  {buildAttackChain(simulationData).map((step, idx, arr) => (
-                    <div key={idx} className="flex items-stretch flex-shrink-0">
-                      <div className={cn(
-                        "w-44 rounded-lg border p-3 flex flex-col",
-                        step.risk === 'critical' ? 'bg-red-500/10 border-red-500/40' :
-                        step.risk === 'high' ? 'bg-orange-500/10 border-orange-500/40' :
-                        step.risk === 'medium' ? 'bg-yellow-500/10 border-yellow-500/40' :
-                        'bg-slate-700/50 border-slate-600'
-                      )}>
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                          <span className={cn(
-                            "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white",
-                            step.risk === 'critical' ? 'bg-red-500' : step.risk === 'high' ? 'bg-orange-500' : step.risk === 'medium' ? 'bg-yellow-500' : 'bg-slate-500'
-                          )}>
-                            {idx + 1}
-                          </span>
-                          <span className="text-[10px] font-semibold text-gray-400 uppercase">{step.phase}</span>
-                        </div>
-                        <div className="text-sm font-medium text-white truncate" title={step.resource}>{step.resource}</div>
-                        <div className="text-[10px] text-gray-400 mt-1 leading-relaxed flex-1">{step.action}</div>
-                        {step.detail && <div className="text-[10px] text-red-400 mt-1 font-medium">{step.detail}</div>}
-                      </div>
-                      {idx < arr.length - 1 && (
-                        <div className="flex items-center px-1">
-                          <div className="text-orange-400 text-lg">→</div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Fullscreen Attack Chain Modal */}
-              {chainExpanded && (
-                <div
-                  className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
-                  onClick={() => setChainExpanded(false)}
-                >
-                  <div
-                    className="bg-[#1a1a2e] rounded-2xl border border-orange-500/30 w-full max-w-[95vw] max-h-[90vh] overflow-auto shadow-2xl shadow-orange-500/10"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Modal Header */}
-                    <div className="flex items-center justify-between p-6 border-b border-gray-700">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
-                          <Zap className="h-6 w-6 text-orange-400" />
-                        </div>
-                        <div>
-                          <h2 className="text-xl font-bold text-white">Attack Chain Analysis</h2>
-                          <p className="text-sm text-gray-400">{pathName || 'Attack path progression — from entry to impact'}</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setChainExpanded(false)}
-                        className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
-                      >
-                        <X className="h-5 w-5 text-gray-400" />
-                      </button>
-                    </div>
-
-                    {/* Expanded Chain */}
-                    <div className="p-6">
-                      <div className="flex flex-wrap items-stretch gap-4 justify-center">
-                        {buildAttackChain(simulationData).map((step, idx, arr) => (
-                          <div key={idx} className="flex items-stretch">
-                            <div className={cn(
-                              "w-64 rounded-xl border-2 p-5 flex flex-col",
-                              step.risk === 'critical' ? 'bg-red-500/10 border-red-500/50' :
-                              step.risk === 'high' ? 'bg-orange-500/10 border-orange-500/50' :
-                              step.risk === 'medium' ? 'bg-yellow-500/10 border-yellow-500/50' :
-                              'bg-slate-700/50 border-slate-500'
-                            )}>
-                              <div className="flex items-center gap-2 mb-3">
-                                <span className={cn(
-                                  "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white",
-                                  step.risk === 'critical' ? 'bg-red-500' : step.risk === 'high' ? 'bg-orange-500' : step.risk === 'medium' ? 'bg-yellow-500' : 'bg-slate-500'
-                                )}>
-                                  {idx + 1}
-                                </span>
-                                <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">{step.phase}</span>
-                                <Badge className={cn(
-                                  "ml-auto text-[10px]",
-                                  step.risk === 'critical' ? 'bg-red-500/20 text-red-400' :
-                                  step.risk === 'high' ? 'bg-orange-500/20 text-orange-400' :
-                                  step.risk === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                                  'bg-slate-500/20 text-slate-400'
-                                )}>
-                                  {step.risk}
-                                </Badge>
-                              </div>
-                              <div className="text-base font-semibold text-white mb-2">{step.resource}</div>
-                              <div className="text-sm text-gray-300 leading-relaxed flex-1">{step.action}</div>
-                              {step.detail && (
-                                <div className="mt-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400 font-medium">
-                                  {step.detail}
-                                </div>
-                              )}
-                            </div>
-                            {idx < arr.length - 1 && (
-                              <div className="flex items-center px-2">
-                                <div className="text-orange-400 text-2xl font-bold">→</div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Summary bar at bottom */}
-                      <div className="mt-6 p-4 bg-[#252540] rounded-xl border border-gray-700 flex items-center justify-between">
-                        <div className="flex items-center gap-6">
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-red-400">{buildAttackChain(simulationData).length}</div>
-                            <div className="text-[10px] text-gray-400 uppercase">Steps</div>
-                          </div>
-                          <div className="w-px h-8 bg-gray-700" />
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-orange-400">{simulationData?.exploitable_vulnerabilities?.length || 0}</div>
-                            <div className="text-[10px] text-gray-400 uppercase">CVEs</div>
-                          </div>
-                          <div className="w-px h-8 bg-gray-700" />
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-blue-400">{simulationData?.data_access_scope?.data_stores_accessible?.length || 0}</div>
-                            <div className="text-[10px] text-gray-400 uppercase">Data Stores</div>
-                          </div>
-                          <div className="w-px h-8 bg-gray-700" />
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-purple-400">
-                              {simulationData?.data_access_scope?.data_stores_accessible?.reduce((sum, s) => sum + (s?.accessible_objects?.estimated_rows || 0), 0)?.toLocaleString() || '0'}
-                            </div>
-                            <div className="text-[10px] text-gray-400 uppercase">Records at Risk</div>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => setChainExpanded(false)}
-                          className="px-4 py-2 bg-orange-500/20 text-orange-400 rounded-lg hover:bg-orange-500/30 transition-colors text-sm font-medium"
-                        >
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Data Access Scope Section */}
-              <div className="bg-[#252540] rounded-lg border border-gray-700">
-                <button
-                  className="w-full p-4 flex items-center justify-between"
-                  onClick={() => toggleSection("dataAccess")}
-                >
-                  <div className="flex items-center gap-2">
-                    <Database className="h-5 w-5 text-blue-400" />
-                    <span className="font-medium text-white">Data Access Scope</span>
-                    <Badge className="bg-blue-500/20 text-blue-400">
-                      {simulationData.data_access_scope?.data_stores_accessible?.length} Stores
-                    </Badge>
-                  </div>
-                  {expandedSections.dataAccess ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                </button>
-
-                {expandedSections.dataAccess && (
-                  <div className="px-4 pb-4 space-y-3">
-                    {/* IAM Roles */}
-                    <div className="text-sm">
-                      <span className="text-[var(--muted-foreground,#9ca3af)]">IAM Roles in Path:</span>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {simulationData.data_access_scope?.iam_roles_in_path?.map((role, idx) => (
-                          <Badge key={idx} variant="outline" className="text-purple-400 border-purple-500/50">
-                            {role}
-                          </Badge>
-                        ))}
+                      <div className="flex gap-2 flex-wrap">
+                        <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
+                          {simulationData.exploitable_vulnerabilities.filter((v) => v.current_risk === "EXPLOITABLE_NOW").length} active CVE steps
+                        </Badge>
+                        <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
+                          {serviceCards.length} services in scope
+                        </Badge>
                       </div>
                     </div>
 
-                    {/* Data Stores */}
-                    {simulationData.data_access_scope?.data_stores_accessible?.map((store, idx) => (
-                      <div key={idx} className="bg-[#1a1a2e] rounded-lg p-3 border border-gray-600">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <Database className="h-4 w-4 text-blue-400" />
-                            <span className="font-medium text-white">{store.resource_name}</span>
-                            <Badge variant="outline">{store.resource_type}</Badge>
-                          </div>
-                          <Badge className={
-                            store.access_level === "FULL" || store.access_level === "ADMIN"
-                              ? "bg-red-500/20 text-red-400"
-                              : "bg-yellow-500/20 text-yellow-400"
-                          }>
-                            {store.access_level}
-                          </Badge>
-                        </div>
-
-                        {store?.accessible_objects?.tables && store.accessible_objects.tables.length > 0 && (
-                          <div className="mt-2">
-                            <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Accessible Tables:</span>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {store.accessible_objects.tables.map((table, tIdx) => (
-                                <span key={tIdx} className="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-300">
-                                  {table}
-                                </span>
-                              ))}
+                    <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
+                      {pathNodeLabels.map((node, index) => (
+                        <React.Fragment key={`${node}-${index}`}>
+                          <div className="min-w-[190px] rounded-xl border border-slate-700 bg-[#1b1f39] px-4 py-3">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+                              {index === 0 ? "Entry" : index === pathNodeLabels.length - 1 ? "Crown Jewel" : "Service"}
                             </div>
+                            <div className="text-sm font-semibold text-white">{node}</div>
                           </div>
-                        )}
-
-                        <div className="flex flex-wrap gap-2 mt-2 text-xs">
-                          {store?.accessible_objects?.estimated_rows && (
-                            <span className="px-2 py-1 bg-gray-700 rounded">
-                              ~{store?.accessible_objects?.estimated_rows.toLocaleString()} rows
-                            </span>
-                          )}
-                          {store?.accessible_objects?.contains_pii && (
-                            <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded">
-                              Contains PII
-                            </span>
-                          )}
-                          {store?.accessible_objects?.contains_financial && (
-                            <span className="px-2 py-1 bg-orange-500/20 text-orange-400 rounded">
-                              Financial Data
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* S3 Access */}
-                    {simulationData.data_access_scope?.s3_access?.map((s3, idx) => (
-                      <div key={idx} className="bg-[#1a1a2e] rounded-lg p-3 border border-gray-600">
-                        <div className="flex items-center gap-2 mb-2">
-                          <HardDrive className="h-4 w-4 text-green-400" />
-                          <span className="font-medium text-white">{s3.bucket}</span>
-                          <Badge variant="outline">S3</Badge>
-                        </div>
-                        <div className="text-xs space-y-1">
-                          <div>
-                            <span className="text-[var(--muted-foreground,#9ca3af)]">Prefixes: </span>
-                            {s3.accessible_prefixes.map((prefix, pIdx) => (
-                              <span key={pIdx} className="text-gray-300">{prefix} </span>
-                            ))}
-                          </div>
-                          <div className="flex gap-2">
-                            <span className="px-2 py-1 bg-gray-700 rounded">
-                              ~{s3.estimated_objects.toLocaleString()} objects
-                            </span>
-                            <span className="px-2 py-1 bg-gray-700 rounded">
-                              {s3.estimated_size_gb} GB
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Attack Impacts Section */}
-              <div className="bg-[#252540] rounded-lg border border-gray-700">
-                <button
-                  className="w-full p-4 flex items-center justify-between"
-                  onClick={() => toggleSection("impacts")}
-                >
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-orange-400" />
-                    <span className="font-medium text-white">What Attackers Can Do</span>
-                    <Badge className="bg-orange-500/20 text-orange-400">
-                      {simulationData.potential_impacts?.length} Impacts
-                    </Badge>
-                  </div>
-                  {expandedSections.impacts ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                </button>
-
-                {expandedSections.impacts && (
-                  <div className="px-4 pb-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      {simulationData.potential_impacts?.map((impact, idx) => (
-                        <div
-                          key={idx}
-                          className={cn(
-                            "bg-[#1a1a2e] rounded-lg p-3 border cursor-pointer transition-all",
-                            impact.severity === "CRITICAL" ? "border-red-500/50" : "border-gray-600",
-                            expandedImpact === impact.impact_type && "ring-2 ring-blue-500"
-                          )}
-                          onClick={() => setExpandedImpact(expandedImpact === impact.impact_type ? null : impact.impact_type)}
-                        >
-                          <div className={cn(
-                            "flex items-center gap-2 mb-2",
-                            impact.severity === "CRITICAL" ? "text-red-400" : "text-orange-400"
-                          )}>
-                            {getImpactIcon(impact.impact_type)}
-                            <span className="font-medium">{getImpactLabel(impact.impact_type)}</span>
-                          </div>
-                          <p className="text-xs text-[var(--muted-foreground,#9ca3af)] mb-2 line-clamp-2">{impact.description}</p>
-                          <div className="flex items-center justify-between text-xs">
-                            <Badge className={getSeverityColor(impact.severity)}>{impact.severity}</Badge>
-                            <span className="text-[var(--muted-foreground,#6b7280)]">{impact.likelihood} likelihood</span>
-                          </div>
-
-                          {expandedImpact === impact.impact_type && (
-                            <div className="mt-3 pt-3 border-t border-gray-700 space-y-2">
-                              <div>
-                                <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Attack Steps:</span>
-                                <ol className="list-decimal list-inside text-xs text-gray-300 mt-1 space-y-1">
-                                  {impact.attack_steps.map((step, sIdx) => (
-                                    <li key={sIdx}>{step.replace(/^\d+\.\s*/, "")}</li>
-                                  ))}
-                                </ol>
-                              </div>
-                              {impact.affected_data && (
-                                <div>
-                                  <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Affected Data:</span>
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    <span className="px-2 py-0.5 bg-gray-700 rounded text-xs">
-                                      {impact.affected_data.record_count?.toLocaleString()} records
-                                    </span>
-                                    {impact.affected_data.compliance_violations?.map((v, vIdx) => (
-                                      <span key={vIdx} className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded text-xs">
-                                        {v}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              <p className="text-xs text-yellow-400">{impact.business_impact}</p>
-                            </div>
-                          )}
-                        </div>
+                          {index < pathNodeLabels.length - 1 && <ArrowRight className="h-4 w-4 text-slate-500 shrink-0" />}
+                        </React.Fragment>
                       ))}
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* Remediation Simulator Section */}
-              <div className="bg-[#252540] rounded-lg border border-gray-700">
-                <button
-                  className="w-full p-4 flex items-center justify-between"
-                  onClick={() => toggleSection("remediation")}
-                >
-                  <div className="flex items-center gap-2">
-                    <Shield className="h-5 w-5 text-green-400" />
-                    <span className="font-medium text-white">Remediation Options</span>
-                    <Badge className="bg-green-500/20 text-green-400">
-                      {simulationData.remediation_options?.length} Available
-                    </Badge>
-                  </div>
-                  {expandedSections.remediation ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                </button>
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Layers className="h-4 w-4 text-cyan-400" />
+                      <div>
+                        <div className="text-sm font-medium text-white">Whole-chain LP plan</div>
+                        <div className="text-xs text-slate-400">See the full least-privilege work across the three enforce layers before you execute.</div>
+                      </div>
+                    </div>
 
-                {expandedSections.remediation && (
-                  <div className="px-4 pb-4 space-y-3">
-                    {simulationData.remediation_options?.map((option, idx) => {
-                      const isApplied = appliedRemediations.includes(option.id)
-                      const isRollingBackThis = rollingBack === option.id
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <PlaneCard plane="identity" title="Identity Plane" subtitle="Roles and permissions on the path">
+                        <div className="grid gap-3">
+                          <SummaryChip label="Identity Used" value={pathContext?.identityUsed || identityRoleNames[0] || "Unknown"} />
+                          <SummaryChip label="Roles in Path" value={`${identityRoleNames.length}`} />
+                          <SummaryChip label="Permission Changes" value={`${identityOptions.length} direct actions`} />
+                        </div>
+                      </PlaneCard>
 
-                      return (
-                      <div
-                        key={idx}
-                        className={cn(
-                          "bg-[#1a1a2e] rounded-lg p-3 border transition-all",
-                          isApplied
-                            ? "border-[#3b82f6] ring-1 ring-blue-500/50 bg-blue-500/5"
-                            : selectedRemediations.includes(option.id)
-                            ? "border-green-500 ring-1 ring-green-500/50"
-                            : "border-gray-600"
-                        )}
-                      >
-                        <div className="flex items-start gap-3">
-                          {isApplied ? (
-                            <div className="mt-1 h-5 w-5 rounded bg-blue-500 flex items-center justify-center">
-                              <Check className="h-3 w-3 text-white" />
-                            </div>
-                          ) : (
-                            <button
-                              className={cn(
-                                "mt-1 h-5 w-5 rounded border flex items-center justify-center",
-                                selectedRemediations.includes(option.id)
-                                  ? "bg-green-500 border-green-500"
-                                  : "border-gray-500"
-                              )}
-                              onClick={() => toggleRemediation(option.id)}
-                              disabled={applying}
-                            >
-                              {selectedRemediations.includes(option.id) && (
-                                <Check className="h-3 w-3 text-white" />
-                              )}
-                            </button>
-                          )}
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-white">{option.title}</span>
-                                {isApplied && (
-                                  <Badge className="bg-blue-500/20 text-blue-400">Applied</Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {isApplied && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 px-2 text-xs border-orange-500/50 text-orange-400 hover:bg-orange-500/10"
-                                    onClick={() => rollbackRemediation(option.id)}
-                                    disabled={isRollingBackThis}
-                                  >
-                                    {isRollingBackThis ? (
-                                      <>
-                                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-400 mr-1"></div>
-                                        Rolling back...
-                                      </>
-                                    ) : (
-                                      "Rollback"
-                                    )}
-                                  </Button>
-                                )}
-                                {getEffortBadge(option.effort)}
-                              </div>
-                            </div>
-                            <p className="text-sm text-[var(--muted-foreground,#9ca3af)] mb-2">{option.description}</p>
+                      <PlaneCard plane="network" title="Network Plane" subtitle="Reachability and network controls">
+                        <div className="grid gap-3">
+                          <SummaryChip label="Exposure" value={pathContext?.networkLayer.internet_exposed ? "Internet exposed" : "Internal only"} />
+                          <SummaryChip label="Security Groups" value={`${pathContext?.networkLayer.security_groups.length || 0}`} />
+                          <SummaryChip label="Open Ports" value={`${pathContext?.networkLayer.open_ports.length || 0}`} />
+                        </div>
+                      </PlaneCard>
 
-                            {/* Impact Preview */}
-                            <div className="bg-[#252540] rounded p-2 space-y-2">
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="text-[var(--muted-foreground,#9ca3af)]">Risk Reduction:</span>
-                                <span className="text-green-400 font-medium">{option.impact_preview?.risk_reduction}</span>
-                              </div>
-                              {/* Visual Before/After Risk Gauge */}
-                              <div className="flex items-center gap-3">
-                                <div className="flex-1">
-                                  <div className="flex items-center justify-between text-[10px] mb-1">
-                                    <span className="text-red-400 font-medium">Before: {option.impact_preview?.before_score?.toFixed(1) || '?'}</span>
-                                    <span className="text-green-400 font-medium">After: {option.impact_preview?.after_score?.toFixed(1) || '?'}</span>
-                                  </div>
-                                  <div className="relative h-2.5 bg-gray-700 rounded-full overflow-hidden">
-                                    {/* Before bar (full width, red) */}
-                                    <div
-                                      className="absolute inset-y-0 left-0 bg-red-500/40 rounded-full"
-                                      style={{ width: `${Math.min(100, ((option.impact_preview?.before_score || 0) / 100) * 100)}%` }}
-                                    />
-                                    {/* After bar (shorter, green, on top) */}
-                                    <div
-                                      className="absolute inset-y-0 left-0 bg-green-500 rounded-full transition-all duration-500"
-                                      style={{ width: `${Math.min(100, ((option.impact_preview?.after_score || 0) / 100) * 100)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="text-center px-2 py-1 bg-green-500/20 rounded-lg min-w-[60px]">
-                                  <div className="text-green-400 font-bold text-sm">-{(((option.impact_preview?.before_score || 0) - (option.impact_preview?.after_score || 0))).toFixed(0)}</div>
-                                  <div className="text-[9px] text-gray-400">risk pts</div>
-                                </div>
-                              </div>
+                      <PlaneCard plane="data" title="Data Plane" subtitle="Stores that must be narrowed">
+                        <div className="grid gap-3">
+                          <SummaryChip label="Data Stores" value={`${simulationData.data_access_scope.data_stores_accessible.length}`} />
+                          <SummaryChip label="Buckets" value={`${simulationData.data_access_scope.s3_access.length}`} />
+                          <SummaryChip label="Chain Actions" value={`${chainOptions.length}`} />
+                        </div>
+                      </PlaneCard>
+                    </div>
 
-                              {option.impact_preview?.attack_impacts_prevented && option.impact_preview?.attack_impacts_prevented.length > 0 && (
+                    {chainOptions.length > 0 ? (
+                      <div className="mt-4 space-y-3">
+                        {chainOptions.map((option) => {
+                          const isSelected = selectedRemediations.includes(option.id)
+                          const isApplied = appliedRemediations.includes(option.id)
+                          const isRollingBackThis = rollingBack === option.id
+                          return (
+                            <div key={option.id} className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                              <div className="flex items-start justify-between gap-4">
                                 <div>
-                                  <span className="text-xs text-[var(--muted-foreground,#9ca3af)]">Prevents:</span>
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {option.impact_preview?.attack_impacts_prevented.map((imp, iIdx) => (
-                                      <Badge key={iIdx} className="bg-green-500/20 text-green-400 text-xs">
-                                        {getImpactLabel(imp)}
-                                      </Badge>
-                                    ))}
+                                  <div className="text-base font-semibold text-white">{option.title}</div>
+                                  <div className="mt-1 text-sm text-slate-400">{option.description}</div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Badge className={`border ${getEffortBadgeClass(option.effort)}`}>{option.effort}</Badge>
+                                    <Badge className="bg-cyan-500/15 text-cyan-300 border border-cyan-400/30">
+                                      {option.target?.resource_names?.length || 0} services
+                                    </Badge>
+                                    <Badge className="bg-green-500/15 text-green-300 border border-green-400/30">
+                                      {option.impact_preview.risk_reduction} reduction
+                                    </Badge>
+                                    {isApplied && <Badge className="bg-blue-500/15 text-blue-300 border border-blue-400/30">Applied</Badge>}
                                   </div>
                                 </div>
-                              )}
-
-                              {option.impact_preview?.side_effects && option.impact_preview?.side_effects.length > 0 && (
-                                <div className="pt-2 border-t border-gray-700">
-                                  <span className="text-xs text-yellow-400 flex items-center gap-1">
-                                    <AlertTriangle className="h-3 w-3" />
-                                    Side Effects:
-                                  </span>
-                                  {option.impact_preview?.side_effects.map((se, seIdx) => (
-                                    <div key={seIdx} className="text-xs text-gray-300 mt-1">
-                                      <span className="text-yellow-400">{se.type}:</span> {se.description}
-                                      {se.affected_services?.length > 0 && (
-                                        <span className="text-[var(--muted-foreground,#6b7280)]"> (affects: {se?.affected_services?.join(", ")})</span>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant={isSelected ? "default" : "outline"}
+                                    className={isSelected ? "bg-cyan-600 hover:bg-cyan-700" : ""}
+                                    onClick={() => toggleRemediationGroup([option.id])}
+                                  >
+                                    {isSelected ? "Selected" : "Select whole chain"}
+                                  </Button>
+                                  {isApplied && (
+                                    <Button
+                                      variant="outline"
+                                      className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10"
+                                      onClick={() => rollbackRemediation(option.id)}
+                                      disabled={isRollingBackThis}
+                                    >
+                                      {isRollingBackThis ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          Rolling back
+                                        </>
+                                      ) : (
+                                        <>
+                                          <RotateCcw className="mr-2 h-4 w-4" />
+                                          Rollback
+                                        </>
                                       )}
-                                    </div>
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-xl border border-slate-700 bg-[#1b1f39] p-4 text-sm text-slate-400">
+                        No full-chain LP action was generated yet for this path. You can still open each service and remediate it one by one.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Target className="h-4 w-4 text-cyan-400" />
+                      <div>
+                        <div className="text-sm font-medium text-white">Services on this path</div>
+                        <div className="text-xs text-slate-400">Open any service to see its Identity, Network, and Data remediation page.</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {serviceCards.map((card) => {
+                        const directOptions = (simulationData.remediation_options || []).filter((option) => card.remediationIds.includes(option.id))
+                        return (
+                          <div key={card.key} className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="text-base font-semibold text-white">{card.name}</div>
+                                  <Badge className={`border ${card.kind === "identity" ? "bg-violet-500/15 text-violet-300 border-violet-400/30" : getAccessBadgeClass(card.store?.access_level || "LIMITED")}`}>
+                                    {card.type}
+                                  </Badge>
+                                  {card.onPrimaryPath && (
+                                    <Badge className="bg-cyan-500/15 text-cyan-300 border border-cyan-400/30">
+                                      On primary path
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="mt-1 text-sm text-slate-400">{card.subtitle}</div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {card.details.map((detail) => (
+                                    <Badge key={detail} className="bg-slate-800 text-slate-300 border border-slate-600">
+                                      {detail}
+                                    </Badge>
                                   ))}
                                 </div>
-                              )}
+                              </div>
 
-                              {(!option.impact_preview?.side_effects || option.impact_preview?.side_effects.length === 0) && (
-                                <div className="text-xs text-green-400 flex items-center gap-1">
-                                  <Check className="h-3 w-3" />
-                                  No side effects detected
-                                </div>
-                              )}
+                              <div className="flex flex-col gap-2 items-end">
+                                <Button
+                                  variant="outline"
+                                  className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                                  onClick={() => setSelectedServiceKey(card.key)}
+                                >
+                                  Open 3-layer plan
+                                </Button>
+                                {directOptions.length > 0 ? (
+                                  <Badge className="bg-green-500/15 text-green-300 border border-green-400/30">
+                                    {directOptions.length} direct change{directOptions.length === 1 ? "" : "s"}
+                                  </Badge>
+                                ) : (
+                                  <Badge className="bg-slate-800 text-slate-400 border border-slate-600">
+                                    No direct LP change yet
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-700 bg-slate-900/50 p-5">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-3">
+                        <Button
+                          variant="outline"
+                          className="border-slate-600 bg-[#1b1f39] text-slate-200 hover:bg-slate-800"
+                          onClick={() => setSelectedServiceKey(null)}
+                        >
+                          <ArrowLeft className="mr-2 h-4 w-4" />
+                          Back to path
+                        </Button>
+                        <div>
+                          <div className="text-lg font-semibold text-white">{selectedService.name}</div>
+                          <div className="text-sm text-slate-400">
+                            {selectedService.type} • {selectedService.subtitle}
                           </div>
                         </div>
                       </div>
-                    )})}
+                      <div className="flex gap-2 flex-wrap">
+                        <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
+                          {selectedService.onPrimaryPath ? "Primary path service" : "Reachable from this path"}
+                        </Badge>
+                        <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
+                          {serviceOptions.length} direct LP action{serviceOptions.length === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
+                    </div>
 
-                    {/* Apply Result Message */}
-                    {applyResult && (
-                      <div className={cn(
-                        "p-3 rounded-lg border mb-3",
-                        applyResult.status === "SUCCESS"
-                          ? "bg-green-500/10 border-green-500/30"
-                          : applyResult.status === "PARTIAL"
-                          ? "bg-yellow-500/10 border-yellow-500/30"
-                          : "bg-red-500/10 border-red-500/30"
-                      )}>
-                        <div className="flex items-center gap-2 mb-1">
-                          {applyResult.status === "SUCCESS" ? (
-                            <Check className="h-4 w-4 text-green-400" />
-                          ) : (
-                            <AlertTriangle className="h-4 w-4 text-yellow-400" />
-                          )}
-                          <span className={cn(
-                            "font-medium",
-                            applyResult.status === "SUCCESS" ? "text-green-400" : "text-yellow-400"
-                          )}>
-                            {applyResult.status === "SUCCESS" ? "Remediation Applied!" : applyResult.status}
-                          </span>
+                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                      <SummaryChip label="Path Context" value={pathContext?.pathType || "Attack path"} />
+                      <SummaryChip label="Entry" value={pathContext?.entryPoint || pathNodeLabels[0] || "Unknown"} />
+                      <SummaryChip label="Identity" value={pathContext?.identityUsed || identityRoleNames[0] || "Unknown"} />
+                      <SummaryChip label="Crown Jewel" value={pathContext?.crownJewel || pathNodeLabels[pathNodeLabels.length - 1] || "Unknown"} />
+                    </div>
+                  </div>
+
+                  <PlaneCard plane="identity" title="Identity Plane" subtitle="Who can reach this service and what to narrow first">
+                    <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                          <div className="text-xs uppercase tracking-wide text-slate-500">Identity Summary</div>
+                          <p className="mt-2 text-sm text-slate-300">
+                            {selectedService.kind === "identity"
+                              ? `${selectedService.name} is the identity hop on this route. Tightening its permissions is the fastest way to shrink the path.`
+                              : `${pathContext?.identityUsed || identityRoleNames[0] || "The path identity"} can reach ${selectedService.name}. Start by narrowing that identity before changing the service itself.`}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {identityRoleNames.map((role) => (
+                              <Badge key={role} className="bg-violet-500/15 text-violet-300 border border-violet-400/30">
+                                {role}
+                              </Badge>
+                            ))}
+                            {identityRoleNames.length === 0 && (
+                              <span className="text-sm text-slate-500">No IAM role data stitched into this path.</span>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-300">{applyResult.message}</p>
-                        {applyResult.newRiskScore !== undefined && (
-                          <div className="flex items-center gap-3 mt-2 text-sm">
-                            <span className="text-[var(--muted-foreground,#9ca3af)]">New Risk Score:</span>
-                            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded font-medium">
-                              {applyResult.newRiskScore}
-                            </span>
-                            <span className="text-green-400">
-                              (-{applyResult.riskReduction}% reduction)
-                            </span>
+
+                        <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                          <div className="text-xs uppercase tracking-wide text-slate-500">Permissions in Scope</div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-3">
+                            <SummaryChip label="Allowed" value={`${simulationData.data_access_scope.combined_permissions.length}`} />
+                            <SummaryChip label="Dangerous" value={`${pathContext?.identityLayer.dangerous_permissions.length || 0}`} />
+                            <SummaryChip label="LP Gaps" value={`${pathContext?.identityLayer.least_privilege_gaps.length || 0}`} />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Identity Remediation</div>
+                        {identityOptions.length > 0 ? (
+                          <div className="mt-3 space-y-3">
+                            {identityOptions.map((option) => {
+                              const isSelected = isSelectedGroup([option.id])
+                              const isApplied = appliedRemediations.includes(option.id)
+                              const isRollingBackThis = rollingBack === option.id
+                              return (
+                                <div key={option.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3">
+                                  <div className="text-sm font-medium text-white">{option.title}</div>
+                                  <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Badge className={`border ${getEffortBadgeClass(option.effort)}`}>{option.effort}</Badge>
+                                    <Badge className="bg-green-500/15 text-green-300 border border-green-400/30">
+                                      {option.impact_preview.risk_reduction}
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-3 flex gap-2 flex-wrap">
+                                    <Button
+                                      variant={isSelected ? "default" : "outline"}
+                                      className={isSelected ? "bg-violet-600 hover:bg-violet-700" : "border-violet-500/40 text-violet-300 hover:bg-violet-500/10"}
+                                      onClick={() => toggleRemediationGroup([option.id])}
+                                    >
+                                      {isSelected ? "Selected" : "Select identity change"}
+                                    </Button>
+                                    {isApplied && (
+                                      <Button
+                                        variant="outline"
+                                        className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10"
+                                        onClick={() => rollbackRemediation(option.id)}
+                                        disabled={isRollingBackThis}
+                                      >
+                                        {isRollingBackThis ? (
+                                          <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Rolling back
+                                          </>
+                                        ) : (
+                                          <>
+                                            <RotateCcw className="mr-2 h-4 w-4" />
+                                            Rollback
+                                          </>
+                                        )}
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-sm text-slate-400">
+                            No direct identity change was generated for this service yet. You can still use the whole-chain plan or remediate the data service directly.
                           </div>
                         )}
                       </div>
-                    )}
+                    </div>
+                  </PlaneCard>
 
-                    {selectedRemediations.length > 0 && (
-                      <div className="flex gap-2 pt-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => setSelectedRemediations([])}
-                          disabled={applying}
-                        >
-                          Clear Selection ({selectedRemediations.length})
-                        </Button>
-                        <Button
-                          className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50"
-                          onClick={() => setShowConfirmDialog(true)}
-                          disabled={applying}
-                        >
-                          {applying ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                              Applying...
-                            </>
-                          ) : (
-                            <>Apply Remediation ({selectedRemediations.length})</>
-                          )}
-                        </Button>
+                  <PlaneCard plane="network" title="Network Plane" subtitle="How this service stays reachable on the current route">
+                    <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                          <div className="text-xs uppercase tracking-wide text-slate-500">Path Reachability</div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-3">
+                            <SummaryChip label="Exposure" value={pathContext?.networkLayer.internet_exposed ? "Internet exposed" : "Internal only"} />
+                            <SummaryChip label="Open Ports" value={`${pathContext?.networkLayer.open_ports.length || 0}`} />
+                            <SummaryChip label="Observed Hops" value={`${relevantNetworkHops.length}`} />
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                          <div className="text-xs uppercase tracking-wide text-slate-500">Network Path for This Service</div>
+                          <div className="mt-3 space-y-2">
+                            {relevantNetworkHops.length > 0 ? (
+                              relevantNetworkHops.map((hop, index) => (
+                                <div key={`${hop.from}-${hop.to}-${index}`} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-300">
+                                  <span className="text-white">{formatResourceName(hop.from)}</span>
+                                  <ArrowRight className="mx-2 inline h-3 w-3 text-slate-500" />
+                                  <span className="text-white">{formatResourceName(hop.to)}</span>
+                                  {hop.port ? <span className="ml-2 text-slate-400">:{hop.port}/{hop.protocol || "tcp"}</span> : null}
+                                  {hop.observed ? <span className="ml-2 text-green-400">observed</span> : null}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-sm text-slate-400">
+                                This service is in the reachable blast radius, but the primary path does not include a dedicated network hop for it.
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    )}
+
+                      <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Network Controls</div>
+                        {relevantSecurityGroups.length > 0 ? (
+                          <div className="mt-3 space-y-3">
+                            {relevantSecurityGroups.slice(0, 3).map((sg) => (
+                              <div key={sg.sg_id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-sm font-medium text-white">{sg.sg_name}</div>
+                                  <Badge className={sg.open_to_internet ? "bg-red-500/15 text-red-300 border border-red-400/30" : "bg-sky-500/15 text-sky-300 border border-sky-400/30"}>
+                                    {sg.open_to_internet ? "Internet" : "Internal"}
+                                  </Badge>
+                                </div>
+                                <div className="mt-2 text-xs text-slate-400">
+                                  {sg.risky_rules.length > 0 ? `${sg.risky_rules.length} risky rules on this path` : "No risky rules stitched for this service"}
+                                </div>
+                              </div>
+                            ))}
+                            <div className="text-xs text-slate-500">
+                              No network-specific LP action was generated yet for this service. Use this plane to understand reachability before changing identity or data controls.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-sm text-slate-400">
+                            No security group or NACL detail was stitched directly to this service on the current path.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </PlaneCard>
+
+                  <PlaneCard plane="data" title="Data Plane" subtitle="What this service exposes and the direct least-privilege change">
+                    <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                          <div className="text-xs uppercase tracking-wide text-slate-500">Data Exposure</div>
+                          {selectedService.store ? (
+                            <div className="mt-3 space-y-3">
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <SummaryChip label="Access" value={selectedService.store.access_level} />
+                                <SummaryChip label="Tables" value={`${selectedService.store.accessible_objects.tables?.length || 0}`} />
+                                <SummaryChip label="Rows" value={selectedService.store.accessible_objects.estimated_rows ? `~${selectedService.store.accessible_objects.estimated_rows.toLocaleString()}` : "Unknown"} />
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {(selectedService.store.accessible_objects.tables || []).map((table) => (
+                                  <Badge key={table} className="bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+                                    {table}
+                                  </Badge>
+                                ))}
+                              </div>
+                              <div className="flex gap-3 text-sm">
+                                <span className={selectedService.store.accessible_objects.contains_pii ? "text-red-300" : "text-slate-500"}>
+                                  PII: {selectedService.store.accessible_objects.contains_pii ? "Yes" : "No"}
+                                </span>
+                                <span className={selectedService.store.accessible_objects.contains_financial ? "text-red-300" : "text-slate-500"}>
+                                  Financial: {selectedService.store.accessible_objects.contains_financial ? "Yes" : "No"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : selectedService.bucket ? (
+                            <div className="mt-3 space-y-3">
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <SummaryChip label="Operations" value={`${selectedService.bucket.operations.length}`} />
+                                <SummaryChip label="Objects" value={`~${selectedService.bucket.estimated_objects.toLocaleString()}`} />
+                                <SummaryChip label="Size" value={`${selectedService.bucket.estimated_size_gb} GB`} />
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {selectedService.bucket.operations.length > 0 ? selectedService.bucket.operations.map((op) => (
+                                  <Badge key={op} className="bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+                                    {op}
+                                  </Badge>
+                                )) : (
+                                  <span className="text-sm text-slate-500">No direct bucket operations were inferred for this service.</span>
+                                )}
+                              </div>
+                              <div className="text-sm text-slate-400">
+                                Accessible prefixes: {(selectedService.bucket.accessible_prefixes || []).join(", ") || "Unknown"}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-sm text-slate-400">
+                              This identity does not store data itself, but it is the actor that can unlock downstream data services on the path.
+                            </div>
+                          )}
+                        </div>
+
+                        {pathContext?.dataImpact && selectedService.onPrimaryPath && (
+                          <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                            <div className="text-xs uppercase tracking-wide text-slate-500">Crown Jewel Context</div>
+                            <div className="mt-2 text-sm text-slate-300">
+                              The protected target on this path is <span className="font-medium text-white">{pathContext.crownJewel}</span>. Classification:{" "}
+                              <span className="text-white">{pathContext.dataImpact.classification}</span>.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border border-slate-700 bg-[#1b1f39] p-4">
+                        <div className="text-xs uppercase tracking-wide text-slate-500">Direct Remediation</div>
+                        {serviceOptions.length > 0 ? (
+                          <div className="mt-3 space-y-3">
+                            {serviceOptions.map((option) => {
+                              const isSelected = isSelectedGroup([option.id])
+                              const isApplied = appliedRemediations.includes(option.id)
+                              const isRollingBackThis = rollingBack === option.id
+                              return (
+                                <div key={option.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3">
+                                  <div className="text-sm font-medium text-white">{option.title}</div>
+                                  <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Badge className={`border ${getEffortBadgeClass(option.effort)}`}>{option.effort}</Badge>
+                                    <Badge className="bg-green-500/15 text-green-300 border border-green-400/30">
+                                      {option.impact_preview.risk_reduction}
+                                    </Badge>
+                                  </div>
+                                  {option.target?.tables && option.target.tables.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                      {option.target.tables.slice(0, 6).map((table) => (
+                                        <Badge key={table} className="bg-slate-800 text-slate-300 border border-slate-600">
+                                          {table}
+                                        </Badge>
+                                      ))}
+                                      {option.target.tables.length > 6 && (
+                                        <Badge className="bg-slate-800 text-slate-400 border border-slate-600">
+                                          +{option.target.tables.length - 6} more
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="mt-3 flex gap-2 flex-wrap">
+                                    <Button
+                                      variant={isSelected ? "default" : "outline"}
+                                      className={isSelected ? "bg-emerald-600 hover:bg-emerald-700" : "border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"}
+                                      onClick={() => toggleRemediationGroup([option.id])}
+                                    >
+                                      {isSelected ? "Selected" : "Select service change"}
+                                    </Button>
+                                    {isApplied && (
+                                      <Button
+                                        variant="outline"
+                                        className="border-orange-500/40 text-orange-300 hover:bg-orange-500/10"
+                                        onClick={() => rollbackRemediation(option.id)}
+                                        disabled={isRollingBackThis}
+                                      >
+                                        {isRollingBackThis ? (
+                                          <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Rolling back
+                                          </>
+                                        ) : (
+                                          <>
+                                            <RotateCcw className="mr-2 h-4 w-4" />
+                                            Rollback
+                                          </>
+                                        )}
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-sm text-slate-400">
+                            No direct least-privilege change was generated for this service yet. Use the identity plane or the whole-chain plan to block the route.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </PlaneCard>
+                </div>
+              )}
+
+              {applyResult && (
+                <div
+                  className={`rounded-xl border p-4 ${
+                    applyResult.status === "SUCCESS"
+                      ? "bg-green-500/10 border-green-500/30"
+                      : applyResult.status === "PARTIAL"
+                        ? "bg-yellow-500/10 border-yellow-500/30"
+                        : "bg-red-500/10 border-red-500/30"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-white font-medium">
+                    {applyResult.status === "SUCCESS" ? <Check className="h-4 w-4 text-green-400" /> : <AlertTriangle className="h-4 w-4 text-yellow-400" />}
+                    {applyResult.status === "SUCCESS" ? "Change applied" : applyResult.status}
                   </div>
-                )}
+                  <p className="mt-1 text-sm text-slate-300">{applyResult.message}</p>
+                  {applyResult.newRiskScore !== undefined && (
+                    <p className="mt-2 text-sm text-slate-300">
+                      New risk score: <span className="font-semibold text-white">{applyResult.newRiskScore}</span>
+                      {" · "}
+                      Reduction: <span className="font-semibold text-green-300">{applyResult.riskReduction}%</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="sticky bottom-0 rounded-xl border border-slate-700 bg-[#101427] p-4">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <div className="text-sm font-medium text-white">Selected remediation changes</div>
+                    <div className="text-xs text-slate-400">
+                      Select a service-level change or a whole-chain plan, then apply it here. Rollback stays available inside the same flow.
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
+                      {selectedRemediations.length} selected
+                    </Badge>
+                    <Button variant="outline" onClick={() => setSelectedRemediations([])} disabled={selectedRemediations.length === 0 || applying}>
+                      Clear
+                    </Button>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      disabled={selectedRemediations.length === 0 || applying}
+                      onClick={() => setShowConfirmDialog(true)}
+                    >
+                      {applying ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        "Apply selected changes"
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Confirmation Dialog */}
       <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <DialogContent className="bg-[#1a1a2e] border-gray-700 text-white max-w-md">
+        <DialogContent className="bg-[#14162b] border-slate-700 text-white max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-white">
               <AlertTriangle className="h-5 w-5 text-yellow-400" />
-              Confirm Remediation
+              Confirm remediation
             </DialogTitle>
-            <DialogDescription className="text-[var(--muted-foreground,#9ca3af)]">
-              You are about to apply {selectedRemediations.length} remediation{selectedRemediations.length > 1 ? 's' : ''} to this attack path.
+            <DialogDescription className="text-slate-400">
+              You are about to apply {selectedRemediations.length} least-privilege change{selectedRemediations.length === 1 ? "" : "s"} to this path.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-4">
-            <p className="text-sm text-gray-300">The following actions will be applied:</p>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {simulationData?.remediation_options
-                .filter(opt => selectedRemediations.includes(opt.id))
-                .map((opt, idx) => (
-                  <div key={idx} className="flex items-start gap-2 p-2 bg-[#252540] rounded border border-gray-600">
-                    <Check className="h-4 w-4 text-green-400 mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-white">{opt.title}</p>
-                      <p className="text-xs text-[var(--muted-foreground,#9ca3af)]">{opt.description}</p>
-                    </div>
-                  </div>
-                ))}
-            </div>
-
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mt-4">
-              <p className="text-sm text-yellow-400 flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                <span>
-                  These changes will be applied to your infrastructure. You can rollback after applying if needed.
-                </span>
-              </p>
-            </div>
+          <div className="space-y-2 max-h-72 overflow-y-auto py-2">
+            {selectedOptions.map((option) => (
+              <div key={option.id} className="rounded-lg border border-slate-700 bg-[#1b1f39] p-3">
+                <div className="text-sm font-medium text-white">{option.title}</div>
+                <div className="mt-1 text-xs text-slate-400">{option.description}</div>
+                <div className="mt-2 flex gap-2 flex-wrap">
+                  <Badge className={`border ${getEffortBadgeClass(option.effort)}`}>{option.effort}</Badge>
+                  <Badge className="bg-green-500/15 text-green-300 border border-green-400/30">
+                    {option.impact_preview.risk_reduction} reduction
+                  </Badge>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => setShowConfirmDialog(false)}
-              className="border-gray-600 text-gray-300 hover:bg-gray-700"
-            >
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-200">
+            These changes will be applied to your infrastructure. Use rollback in this panel if you need to undo them.
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConfirmDialog(false)} disabled={applying}>
               Cancel
             </Button>
-            <Button
-              className="bg-green-600 hover:bg-green-700 text-white"
-              onClick={() => {
-                setShowConfirmDialog(false)
-                applyRemediations()
-              }}
-            >
-              Confirm & Apply
+            <Button className="bg-green-600 hover:bg-green-700" onClick={() => void applyRemediations()} disabled={applying}>
+              {applying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Applying...
+                </>
+              ) : (
+                "Apply now"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

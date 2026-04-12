@@ -169,6 +169,24 @@ interface AttackPathDetailPanelProps {
   onClose: () => void
 }
 
+interface AttackPathListItem {
+  id: string
+  nodes: Array<{
+    id: string
+    name: string
+    type: string
+    cve_count: number
+  }>
+  risk_score: number
+  path_length: number
+  source_type: string
+  target_name: string
+  total_cves: number
+  critical_cves: number
+  evidence_type: string
+  path_kind?: string
+}
+
 // Risk Assessment interface for node risk popup
 interface RiskAssessmentData {
   resource_id: string
@@ -348,6 +366,70 @@ function getRiskFactorSummary(factor: "reachability" | "privilege" | "data_impac
   if (severity === "High") return "A compromise here could spread widely."
   if (severity === "Medium") return "A compromise could affect nearby systems."
   return "The likely spread from this path appears contained."
+}
+
+function getSelectedNodeRole(
+  node: SelectedNodeInfo,
+  details: PathDetails,
+  entryPoint: string,
+  identityUsed: string,
+  crownJewel: string
+) {
+  if (node.name === details.path_summary.source.name && node.type === details.path_summary.source.type) {
+    return {
+      label: "Entry point",
+      description: `${entryPoint} is the actor at the start of this path. If it is abused, the route to ${crownJewel} opens from here.`
+    }
+  }
+
+  if (node.name === details.path_summary.target.name && node.type === details.path_summary.target.type) {
+    return {
+      label: "Crown jewel target",
+      description: `${crownJewel} is the protected data asset at the end of this path. This is the resource you are trying to keep out of reach.`
+    }
+  }
+
+  if (node.type === "IAMRole") {
+    return {
+      label: "Identity hop",
+      description: `${identityUsed} is the identity used on this route. Tightening its permissions is usually the fastest way to reduce the path.`
+    }
+  }
+
+  if (node.type.includes("SecurityGroup") || node.type.includes("SG")) {
+    return {
+      label: "Network control",
+      description: "This node represents a network control on the path. Review whether it keeps the route open or can be tightened safely."
+    }
+  }
+
+  if (node.type.includes("S3") || node.type.includes("DynamoDB") || node.type.includes("RDS")) {
+    return {
+      label: "Data resource",
+      description: `${node.name} is a data-bearing resource on the route. Review access scope and confirm only the intended principals can reach it.`
+    }
+  }
+
+  return {
+    label: "Path node",
+    description: `${node.name} is part of the route to ${crownJewel}. Use the path context above to understand whether it is the actor, an identity hop, or the protected target.`
+  }
+}
+
+function isDataNodeType(type: string) {
+  return /S3|Bucket|DynamoDB|RDS|Aurora|Database/i.test(type)
+}
+
+function isIdentityNodeType(type: string) {
+  return /IAMRole|Role/i.test(type)
+}
+
+function isSecurityNodeType(type: string) {
+  return /SecurityGroup|SG/i.test(type)
+}
+
+function isNaclNodeType(type: string) {
+  return /NACL|NetworkACL/i.test(type)
 }
 
 // Attack Path Diagram Component
@@ -777,11 +859,13 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
           const data = await res.json()
           setRiskAssessment(data)
         } else {
-          console.error('[AttackPathDetailPanel] Risk assessment fetch failed:', res.status)
+          if (res.status !== 404 && res.status !== 204) {
+            console.warn("[AttackPathDetailPanel] Risk assessment unavailable:", res.status)
+          }
           setRiskAssessment(null)
         }
       } catch (err) {
-        console.error('[AttackPathDetailPanel] Risk assessment error:', err)
+        console.warn("[AttackPathDetailPanel] Risk assessment request failed", err)
         setRiskAssessment(null)
       } finally {
         setRiskLoading(false)
@@ -1605,6 +1689,9 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
   const entryPoint = formatResourceLabel(details.path_summary.source.name)
   const crownJewel = formatResourceLabel(details.path_summary.target.name)
   const identityUsed = getPrimaryIdentity(details)
+  const selectedNodeRole = selectedNode
+    ? getSelectedNodeRole(selectedNode, details, entryPoint, identityUsed, crownJewel)
+    : null
   const pathExplainer =
     pathType === "Identity Attack Path"
       ? `${entryPoint} can reach ${crownJewel} using ${identityUsed}. This route does not depend on CVEs.`
@@ -1716,7 +1803,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               <div className="flex items-center gap-3">
                 <Target className="w-5 h-5 text-cyan-400" />
                 <div>
-                  <h3 className="text-white font-bold">Risk Assessment</h3>
+                  <h3 className="text-white font-bold">{riskAssessment ? "Risk Assessment" : "Node Details"}</h3>
                   <p className="text-xs text-slate-400">{selectedNode.name} ({selectedNode.type})</p>
                 </div>
               </div>
@@ -1894,10 +1981,34 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   )}
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <AlertTriangle className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                  <p className="text-slate-500">No risk assessment data available</p>
-                  <p className="text-xs text-slate-600 mt-1">This resource may not have enough data for assessment</p>
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+                    <div className="text-sm font-medium text-cyan-300 mb-2">Node role on this path</div>
+                    <div className="text-lg font-semibold text-white">{selectedNodeRole?.label || "Path node"}</div>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {selectedNodeRole?.description || "This service is part of the selected attack path."}
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Service</div>
+                      <div className="text-sm font-semibold text-white break-words">{selectedNode.name}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Type</div>
+                      <div className="text-sm font-semibold text-white">{selectedNode.type}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Path Context</div>
+                      <div className="text-sm font-semibold text-white">{pathType}</div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+                    <div className="text-sm font-medium text-white">Why you do not see a risk score here</div>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Detailed per-node risk data is not available for every service type yet. This is not a runtime error. The path view above is still valid and shows how this service participates in the route to the crown jewel.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -2408,7 +2519,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               <CheckCircle2 className="w-6 h-6 text-green-400" />
               <span className="text-lg font-semibold text-white">Remediation Actions</span>
               <span className="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">
-                {details.remediations.length > 0 ? `${details.remediations.length} actions` : "Guidance"}
+                {details.remediations.length > 0 ? `${details.remediations.length} actions` : "LP plan"}
               </span>
             </div>
             {expandedSections.has("remediation") ? (
@@ -2420,17 +2531,41 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 	          {expandedSections.has("remediation") && (
 	            <div className="p-5 pt-0">
 		              {details.remediations.length === 0 ? (
-		                <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-5">
-		                  <div className="text-sm font-medium text-white">Recommended next step</div>
-		                  <p className="mt-2 text-sm text-slate-400">
-		                    Start by reviewing <span className="font-medium text-white">{identityUsed}</span> and narrow its access to{" "}
-		                    <span className="font-medium text-white">{crownJewel}</span>. This path is already proving reachability even without a CVE-driven exploit chain.
-		                  </p>
-                      <div className="mt-3 text-xs text-slate-500">
-                        No automated remediation package was generated for this route yet, so start with the identity-to-data access path above.
+		                <div className="space-y-4">
+                      <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-5">
+                        <div className="text-sm font-medium text-cyan-300">Open LP simulation</div>
+                        <p className="mt-2 text-sm text-slate-300">
+                          The service-by-service remediation flow lives in the simulation panel. Open it to see exactly which least-privilege changes will block this path.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                            choose one service
+                          </span>
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                            or the whole chain
+                          </span>
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                            apply with rollback
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setShowSimulation(true)}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-cyan-700"
+                        >
+                          <Zap className="w-4 h-4" />
+                          Open LP Simulation
+                        </button>
                       </div>
-		                </div>
-	              ) : (
+
+                      <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-5">
+                        <div className="text-sm font-medium text-white">Recommended first control</div>
+                        <p className="mt-2 text-sm text-slate-400">
+                          Start with <span className="font-medium text-white">{identityUsed}</span> and the data services it can reach, especially{" "}
+                          <span className="font-medium text-white">{crownJewel}</span>. This route already proves reachability without a CVE-driven exploit chain.
+                        </p>
+                      </div>
+                    </div>
+		              ) : (
 	              <div className="grid grid-cols-2 gap-4">
 	                {details.remediations.map((rem, i) => (
 	                  <div key={i} className="bg-slate-800/50 rounded-xl p-4">
@@ -2575,13 +2710,13 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               </>
             )}
           </button>
-          <button
-            onClick={() => setShowSimulation(true)}
-            className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
-          >
-            <Zap className="w-5 h-5" />
-            Run Simulation
-          </button>
+	          <button
+	            onClick={() => setShowSimulation(true)}
+	            className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
+	          >
+	            <Zap className="w-5 h-5" />
+	            Open LP Simulation
+	          </button>
           <button
             onClick={handleExportReport}
             className="px-8 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
@@ -2609,6 +2744,21 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             ? `${details.path_summary.source.name} → ${details.path_summary.target.name}`
             : undefined
           }
+          pathContext={{
+            pathType,
+            entryPoint,
+            crownJewel,
+            identityUsed,
+            pathNodes: details.path_nodes.map((node) => ({
+              id: node.id,
+              name: node.name,
+              type: node.type,
+              is_internet_exposed: node.is_internet_exposed,
+            })),
+            networkLayer: details.network_layer,
+            identityLayer: details.identity_layer,
+            dataImpact: details.data_impact,
+          }}
         />
       )}
     </div>
