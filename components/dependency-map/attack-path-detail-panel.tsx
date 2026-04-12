@@ -828,6 +828,8 @@ interface BlockResult {
 }
 
 export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPathDetailPanelProps) {
+  const [currentPathId, setCurrentPathId] = useState(pathId)
+  const [attackPaths, setAttackPaths] = useState<AttackPathListItem[]>([])
   const [details, setDetails] = useState<PathDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -842,6 +844,25 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
   const [simulationFocusNode, setSimulationFocusNode] = useState<SelectedNodeInfo | null>(null)
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentData | null>(null)
   const [riskLoading, setRiskLoading] = useState(false)
+
+  useEffect(() => {
+    setCurrentPathId(pathId)
+  }, [pathId])
+
+  useEffect(() => {
+    const fetchAttackPaths = async () => {
+      try {
+        const res = await fetch(`/api/proxy/attack-paths/${systemName}`)
+        if (!res.ok) return
+        const data = await res.json()
+        setAttackPaths(data.paths || [])
+      } catch (err) {
+        console.error("Error fetching attack paths:", err)
+      }
+    }
+
+    fetchAttackPaths()
+  }, [systemName])
 
   // Fetch risk assessment when a node is selected
   useEffect(() => {
@@ -880,8 +901,11 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
     const fetchDetails = async () => {
       setLoading(true)
       setError(null)
+      setSelectedNode(null)
+      setShowSimulation(false)
+      setSimulationFocusNode(null)
       try {
-        const res = await fetch(`/api/proxy/attack-paths/${systemName}/${pathId}/details`)
+        const res = await fetch(`/api/proxy/attack-paths/${systemName}/${currentPathId}/details`)
         if (!res.ok) {
           throw new Error("Failed to load attack path details")
         }
@@ -896,14 +920,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
     }
 
     fetchDetails()
-  }, [systemName, pathId])
+  }, [systemName, currentPathId])
 
   const handleBlockPath = async () => {
     if (blocking) return
 
     setBlocking(true)
     try {
-      const res = await fetch(`/api/proxy/attack-paths/${systemName}/${pathId}/block`, {
+      const res = await fetch(`/api/proxy/attack-paths/${systemName}/${currentPathId}/block`, {
         method: 'POST',
       })
 
@@ -1661,7 +1685,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-12 h-12 text-red-400 animate-spin" />
-          <span className="text-slate-400 text-lg">Loading Crown Jewel Analysis...</span>
+          <span className="text-slate-400 text-lg">Loading attack path...</span>
         </div>
       </div>
     )
@@ -1672,7 +1696,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-50 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white">Crown Jewel Risk Analysis</h2>
+            <h2 className="text-xl font-bold text-white">Attack Paths</h2>
             <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg">
               <X className="w-6 h-6 text-slate-400" />
             </button>
@@ -1713,8 +1737,10 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                 <Skull className="w-6 h-6 text-red-400" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Crown Jewel Risk Analysis</h1>
-                <p className="text-sm text-slate-400">{details.path_id} • {details.system_name}</p>
+                <h1 className="text-2xl font-bold text-white">Attack Paths</h1>
+                <p className="text-sm text-slate-400">
+                  {details.system_name} • {attackPaths.length || 1} mapped paths • open a service to remediate it across identity, network, and data
+                </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-xs">
                     Entry: {entryPoint}
@@ -1753,10 +1779,88 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-6 pb-8 space-y-6">
+        <div className="bg-slate-900/60 rounded-2xl border border-slate-700 p-5">
+          <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-bold text-white">All Attack Paths</h2>
+              <p className="text-sm text-slate-400">
+                Start with the exact route to the crown jewel. Pick a path, inspect it end to end, then open any service to remediate it.
+              </p>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-slate-200">
+              {attackPaths.length || 1} paths
+            </div>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {(attackPaths.length > 0 ? attackPaths : [{
+              id: details.path_id,
+              nodes: details.path_nodes.map((node) => ({ id: node.id, name: node.name, type: node.type, cve_count: node.cve_count })),
+              risk_score: details.path_summary.risk_score,
+              path_length: details.path_summary.path_length,
+              source_type: details.path_summary.source.type,
+              target_name: details.path_summary.target.name,
+              total_cves: details.path_summary.total_cves,
+              critical_cves: details.path_summary.critical_cves,
+              evidence_type: details.path_summary.evidence_type,
+              path_kind: details.path_summary.total_cves > 0 ? "hybrid" : "identity",
+            }]).map((path, index) => {
+              const entryNode = formatResourceLabel(path.nodes[0]?.name || details.path_summary.source.name)
+              const targetNode = formatResourceLabel(path.target_name || details.path_summary.target.name)
+              const pathLabel =
+                path.path_kind === "hybrid" ? "Hybrid" :
+                path.path_kind === "identity" ? "Identity" :
+                path.total_cves > 0 ? "Vulnerability" :
+                "Behavioral"
+              const isSelected = path.id === currentPathId
+
+              return (
+                <button
+                  key={path.id}
+                  onClick={() => setCurrentPathId(path.id)}
+                  className={`rounded-2xl border p-4 text-left transition-all ${
+                    isSelected
+                      ? "border-cyan-400 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.2)]"
+                      : "border-slate-700 bg-slate-950/60 hover:border-slate-500 hover:bg-slate-900/80"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Path {index + 1}</div>
+                      <div className="mt-1 text-base font-semibold text-white">
+                        {entryNode} <span className="text-slate-500">→</span> {targetNode}
+                      </div>
+                    </div>
+                    <div className={`rounded-xl px-3 py-2 text-right ${isSelected ? "bg-cyan-500/10" : "bg-slate-800/80"}`}>
+                      <div className="text-xl font-bold text-white">{path.risk_score}</div>
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">{pathLabel}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                      {path.path_length} hops
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                      {path.total_cves > 0 ? `${path.total_cves} CVEs` : "No CVEs required"}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs border border-slate-700">
+                      {path.evidence_type === "observed" ? "Observed" : "Configured"}
+                    </span>
+                    {isSelected && (
+                      <span className="px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 text-xs border border-cyan-400/30">
+                        Selected path
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <div className="bg-slate-900/60 rounded-2xl border border-cyan-500/20 p-5">
           <div className="flex items-center gap-3 mb-4">
             <Target className="w-5 h-5 text-cyan-400" />
-            <h2 className="text-lg font-bold text-white">Understand This Path Fast</h2>
+            <h2 className="text-lg font-bold text-white">Selected Path</h2>
           </div>
           <p className="text-sm text-slate-300 mb-4">{pathExplainer}</p>
           <div className="grid gap-3 md:grid-cols-4">
@@ -2760,7 +2864,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             setSimulationFocusNode(null)
           }}
           systemName={systemName}
-          pathId={pathId}
+          pathId={currentPathId}
           pathName={details?.path_summary?.source?.name && details?.path_summary?.target?.name
             ? `${details.path_summary.source.name} → ${details.path_summary.target.name}`
             : undefined
