@@ -225,6 +225,8 @@ interface ServiceCard {
   nodeId?: string
 }
 
+const WHOLE_PATH_SELECTION = "__whole_path__"
+
 function formatResourceName(name: string) {
   if (!name) return "Unknown"
   let formatted = name
@@ -380,6 +382,12 @@ export function AttackSimulationPanel({
       void fetchSimulation()
     }
   }, [isOpen, systemName, pathId])
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedServiceKey(null)
+    }
+  }, [isOpen])
 
   const fetchSimulation = async () => {
     setLoading(true)
@@ -657,10 +665,10 @@ export function AttackSimulationPanel({
     return cards
   }, [pathContext?.identityUsed, pathContext?.pathNodes, simulationData])
 
-  const selectedService = useMemo(
-    () => serviceCards.find((card) => card.key === selectedServiceKey) || null,
-    [selectedServiceKey, serviceCards]
-  )
+  const selectedService = useMemo(() => {
+    if (selectedServiceKey === WHOLE_PATH_SELECTION) return null
+    return serviceCards.find((card) => card.key === selectedServiceKey) || null
+  }, [selectedServiceKey, serviceCards])
 
   useEffect(() => {
     if (!isOpen || serviceCards.length === 0) return
@@ -682,7 +690,11 @@ export function AttackSimulationPanel({
     ) || serviceCards[serviceCards.length - 1]
 
     const nextKey = byNodeId?.key || byName?.key || defaultTarget?.key || null
-    setSelectedServiceKey(nextKey)
+    setSelectedServiceKey((current) => {
+      if (current === WHOLE_PATH_SELECTION) return current
+      if (current && serviceCards.some((card) => card.key === current)) return current
+      return nextKey
+    })
   }, [initialSelectedServiceId, initialSelectedServiceName, isOpen, pathContext?.crownJewel, serviceCards])
 
   const chainOptions = useMemo(
@@ -994,7 +1006,7 @@ export function AttackSimulationPanel({
                         <Button
                           variant="outline"
                           className="border-slate-600 bg-[#1b1f39] text-slate-200 hover:bg-slate-800"
-                          onClick={() => setSelectedServiceKey(null)}
+                          onClick={() => setSelectedServiceKey(WHOLE_PATH_SELECTION)}
                         >
                           <ArrowLeft className="mr-2 h-4 w-4" />
                           Back to path
@@ -1010,7 +1022,7 @@ export function AttackSimulationPanel({
                         <Button
                           variant="outline"
                           className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
-                          onClick={() => setSelectedServiceKey(null)}
+                          onClick={() => setSelectedServiceKey(WHOLE_PATH_SELECTION)}
                         >
                           Whole-path plan
                         </Button>
