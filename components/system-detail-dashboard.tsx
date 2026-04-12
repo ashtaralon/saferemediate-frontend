@@ -105,6 +105,16 @@ const AutomationSectionTab = dynamic(
   }
 )
 
+const CrownJewelProtection = dynamic(() => import("./crown-jewel-protection"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
+      <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      <span className="ml-3 text-slate-600">Loading crown jewel protection...</span>
+    </div>
+  ),
+})
+
 const GuidedSystemMap = dynamic(() => import("./guided-system-map"), {
   ssr: false,
   loading: () => (
@@ -1019,6 +1029,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "identities", label: "Identities", icon: Users },
     { id: "resource", label: "Shared Resource", icon: Wrench },
     { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
+    { id: "crown-jewels", label: "Crown Jewels", icon: ShieldAlert },
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "orphan-services", label: "Orphan Services", icon: Unplug },
@@ -1635,6 +1646,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "least-privilege" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <LeastPrivilegeTab key={refreshKey} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "crown-jewels" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <CrownJewelProtection
+            key={`${systemName}-${refreshKey}`}
+            systemName={systemName}
+            onOpenLeastPrivilege={() => setActiveTab("least-privilege")}
+          />
         </div>
       )}
 
