@@ -105,6 +105,16 @@ const AutomationSectionTab = dynamic(
   }
 )
 
+const GuidedSystemMap = dynamic(() => import("./guided-system-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[600px] bg-slate-950 rounded-[28px]">
+      <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
+      <span className="ml-3 text-slate-300">Loading guided map...</span>
+    </div>
+  ),
+})
+
 const VulnerabilitiesSection = dynamic(
   () => import("./vulnerabilities-section").then((mod) => ({ default: mod.VulnerabilitiesSection })),
   {
@@ -1012,6 +1022,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "all-services", label: "All Services", icon: Server },
     { id: "orphan-services", label: "Orphan Services", icon: Unplug },
+    { id: "guided-map", label: "Guided Map", icon: Eye },
     { id: "dependency-map", label: "Dependency Map", icon: Map },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
@@ -1654,6 +1665,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "orphan-services" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <OrphanServicesTab key={refreshKey} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "guided-map" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <GuidedSystemMap key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 
