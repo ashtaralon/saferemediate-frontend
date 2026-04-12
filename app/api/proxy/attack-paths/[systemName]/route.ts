@@ -5,7 +5,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediat
 export async function GET(request: Request, { params }: { params: Promise<{ systemName: string }> }) {
   const { systemName } = await params
   const { searchParams } = new URL(request.url)
-  const maxPaths = searchParams.get('max_paths') || '20'
+  const maxPaths = searchParams.get('max_paths') || '100'
   const includeConfigured = searchParams.get('include_configured') !== 'false'
 
   try {

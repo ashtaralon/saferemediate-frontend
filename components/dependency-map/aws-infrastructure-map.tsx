@@ -134,6 +134,7 @@ interface AttackPath {
   total_cves: number;
   critical_cves: number;
   evidence_type: string;
+  path_kind?: string;
 }
 
 interface BlastRadiusData {
@@ -921,9 +922,11 @@ export default function Neo4jAWSMap() {
                     </div>
                     <div className="flex gap-1 mt-0.5">
                       <span className="text-[8px] text-slate-500">{path.path_length} hops</span>
-                      {path.total_cves > 0 && (
+                      {path.total_cves > 0 ? (
                         <span className="text-[8px] text-red-400">{path.total_cves} CVEs</span>
-                      )}
+                      ) : path.path_kind ? (
+                        <span className="text-[8px] text-cyan-400 capitalize">{path.path_kind.replace(/-/g, ' ')}</span>
+                      ) : null}
                       <span className={`text-[8px] ${path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}`}>
                         {path.evidence_type}
                       </span>

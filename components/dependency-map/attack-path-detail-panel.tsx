@@ -1496,7 +1496,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                   <div>
                     <div className="text-sm font-semibold uppercase">{details.path_summary.risk_level} RISK</div>
                     <div className="text-xs opacity-75">
-                      {details.path_summary.path_length} hops • {details.path_summary.total_cves} CVEs
+                      {details.path_summary.path_length} hops • {details.path_summary.total_cves > 0 ? `${details.path_summary.total_cves} CVEs` : 'non-CVE route'}
                     </div>
                   </div>
                 </div>

@@ -100,6 +100,7 @@ interface AttackPath {
   total_cves: number;
   critical_cves: number;
   evidence_type: string;
+  path_kind?: string;
 }
 
 // ============================================
@@ -3466,7 +3467,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                 ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse'
                 : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-500/10'
             }`}
-            title="Show vulnerability attack paths to sensitive data"
+            title="Show attack paths to crown jewels, including identity-based routes"
           >
             {loadingAttackPaths ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
@@ -3490,14 +3491,14 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                 ? 'bg-[#8b5cf6]/50 text-purple-200 cursor-wait'
                 : 'bg-[#8b5cf6] hover:bg-[#8b5cf6] text-white'
             }`}
-            title="Inject simulated CVE data into Neo4j nodes for testing"
+            title="Inject simulated CVE data for testing vulnerability-based paths"
           >
             {injectingCVE ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
             ) : (
               <Target className="w-3 h-3" />
             )}
-            Inject CVEs
+            Inject CVE Test Data
           </button>
 
           {/* Auto-refresh toggle */}
@@ -3663,7 +3664,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                   <div className="text-center">
                     <div className="text-slate-300 text-xs font-medium mb-1">No Attack Paths Found</div>
                     <div className="text-slate-500 text-[10px] leading-relaxed">
-                      No active paths from compute to data stores detected. Try injecting CVEs first to simulate an attack scenario.
+                      No current routes to crown jewels were detected from workload, identity, or public entry points. You can still inject CVE test data to simulate vulnerability-driven paths.
                     </div>
                   </div>
                   <button
@@ -3671,7 +3672,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
                   >
                     <Target className="w-3 h-3" />
-                    Inject CVE Scenario
+                    Inject CVE Test Data
                   </button>
                   <button
                     onClick={() => loadAttackPaths()}
@@ -3700,14 +3701,14 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     </div>
                     <div className="bg-yellow-500/20 rounded-lg p-2 text-center">
                       <div className="text-yellow-400 text-xl font-bold">
-                        {attackPaths.reduce((sum, p) => sum + p.total_cves, 0)}
+                        {attackPaths.filter(p => p.total_cves > 0).length}
                       </div>
-                      <div className="text-[10px] text-slate-400">CVEs</div>
+                      <div className="text-[10px] text-slate-400">With CVEs</div>
                     </div>
                   </div>
 
                   {/* Path List */}
-                  <div className="text-[10px] text-slate-500 uppercase mb-2 font-medium">Vulnerability Paths</div>
+                  <div className="text-[10px] text-slate-500 uppercase mb-2 font-medium">Crown Jewel Paths</div>
                   <div className="space-y-2">
                     {attackPaths.slice(0, 8).map((path) => (
                       <div
@@ -3735,6 +3736,9 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                           <span>{path.path_length} hops</span>
                           {path.total_cves > 0 && (
                             <span className="text-red-400">{path.total_cves} CVEs</span>
+                          )}
+                          {path.total_cves === 0 && path.path_kind && (
+                            <span className="text-cyan-400 capitalize">{path.path_kind.replace(/-/g, ' ')}</span>
                           )}
                           <span className={path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}>
                             {path.evidence_type}
