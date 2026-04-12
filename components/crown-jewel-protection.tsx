@@ -219,41 +219,6 @@ function getPlaneAccent(plane: string) {
   }
 }
 
-function resourceTypeTone(resourceType: string) {
-  switch (resourceType) {
-    case "S3Bucket":
-    case "S3":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700"
-    case "DynamoDB":
-    case "DynamoDBTable":
-      return "border-cyan-200 bg-cyan-50 text-cyan-700"
-    case "RDS":
-    case "RDSInstance":
-    case "RDSCluster":
-    case "AuroraCluster":
-      return "border-indigo-200 bg-indigo-50 text-indigo-700"
-    case "IAMRole":
-      return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"
-    case "SecurityGroup":
-      return "border-amber-200 bg-amber-50 text-amber-700"
-    default:
-      return "border-slate-200 bg-slate-50 text-slate-700"
-  }
-}
-
-function riskTone(riskLevel: string) {
-  switch ((riskLevel || "").toLowerCase()) {
-    case "critical":
-      return "border-rose-200 bg-rose-50 text-rose-700"
-    case "high":
-      return "border-orange-200 bg-orange-50 text-orange-700"
-    case "medium":
-      return "border-amber-200 bg-amber-50 text-amber-700"
-    default:
-      return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  }
-}
-
 export default function CrownJewelProtection({
   systemName,
   onOpenLeastPrivilege,
@@ -332,66 +297,47 @@ export default function CrownJewelProtection({
     return Array.from(groups.entries())
   }, [data])
 
-  const openResourceReview = ({
-    resourceName,
-    resourceType,
-    resourceId,
-  }: {
-    resourceName: string
-    resourceType: string
-    resourceId: string
-  }) => {
+  const handleResourceReview = (segment: PrimaryPathSegment) => {
     const matchingResource = lpResources.find((resource) => {
       return (
-        resource.resourceName === resourceName ||
-        resource.id === resourceId ||
-        resource.resourceArn === resourceId
+        resource.resourceName === segment.resourceName ||
+        resource.id === segment.resourceId ||
+        resource.resourceArn === segment.resourceId
       )
     })
 
-    const resolvedResourceType = matchingResource?.resourceType || resourceType
+    const resourceType = matchingResource?.resourceType || segment.resourceType
 
-    if (resolvedResourceType === "IAMRole") {
-      setSelectedIAMRole(matchingResource?.resourceName || resourceName)
+    if (resourceType === "IAMRole") {
+      setSelectedIAMRole(matchingResource?.resourceName || segment.resourceName)
       setIamModalOpen(true)
       return
     }
 
-    if (resolvedResourceType === "S3Bucket") {
-      setSelectedS3Bucket(matchingResource?.resourceName || resourceName)
+    if (resourceType === "S3Bucket") {
+      setSelectedS3Bucket(matchingResource?.resourceName || segment.resourceName)
       setSelectedS3Resource(matchingResource || null)
       setS3ModalOpen(true)
       return
     }
 
-    if (resolvedResourceType === "SecurityGroup") {
+    if (resourceType === "SecurityGroup") {
       const sgId =
         matchingResource?.id?.startsWith("sg-")
           ? matchingResource.id
-          : resourceId?.startsWith("sg-")
-            ? resourceId
+          : segment.resourceId?.startsWith("sg-")
+            ? segment.resourceId
             : matchingResource?.resourceName?.startsWith("sg-")
               ? matchingResource.resourceName
               : null
 
       setSelectedSGId(sgId)
-      setSelectedSGName(matchingResource?.resourceName || resourceName)
+      setSelectedSGName(matchingResource?.resourceName || segment.resourceName)
       setSgModalOpen(true)
     }
   }
 
-  const handleResourceReview = (segment: PrimaryPathSegment) => {
-    openResourceReview({
-      resourceName: segment.resourceName,
-      resourceType: segment.resourceType,
-      resourceId: segment.resourceId,
-    })
-  }
-
   const isActionableSegment = (segment: PrimaryPathSegment) =>
-    ["IAMRole", "S3Bucket", "SecurityGroup"].includes(segment.resourceType)
-
-  const isActionablePathSegment = (segment: PathSegment) =>
     ["IAMRole", "S3Bucket", "SecurityGroup"].includes(segment.resourceType)
 
   if (isLoading && !data) {
@@ -420,52 +366,51 @@ export default function CrownJewelProtection({
   }
 
   const selected = data?.selected
-  const selectedPaths = selected?.paths || []
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(148,163,184,0.16)]">
-        <div className="border-b border-[#dbe4f3] bg-[linear-gradient(135deg,#fffdf8_0%,#f5f9ff_42%,#e8f0ff_100%)] px-8 py-8">
+      <section className="rounded-[30px] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_55%,#1d4ed8_100%)] px-8 py-8 text-white">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
             <div className="max-w-3xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#cdd8f5] bg-white px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-[#2D51DA] shadow-sm">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-sky-100">
                 <ShieldAlert className="h-3.5 w-3.5" />
                 Crown Jewel Protection
               </div>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">Map every crown jewel and every route to it</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                This tab is now the home for crown-jewel paths. Start from the protected data asset, review every mapped route to it,
-                and then prioritize identity, network, and data micro-enforcement in one place.
+              <h2 className="mt-4 text-3xl font-semibold tracking-tight">Protect the data that matters first</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-200">
+                Start from a likely crown jewel, trace how an attacker can reach it through the behavioral graph,
+                then prioritize micro-enforcement across privilege, network, and data access.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-[22px] border border-white bg-white/90 px-4 py-3 shadow-sm">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Crown Jewels</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">{data?.crownJewels?.length || 0}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.16em] text-slate-300">Crown Jewels</div>
+                <div className="mt-2 text-2xl font-semibold">{data?.crownJewels?.length || 0}</div>
               </div>
-              <div className="rounded-[22px] border border-white bg-white/90 px-4 py-3 shadow-sm">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Mapped Routes</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">{selected?.evidence?.pathCount || 0}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.16em] text-slate-300">Selected Paths</div>
+                <div className="mt-2 text-2xl font-semibold">{selected?.evidence?.pathCount || 0}</div>
               </div>
-              <div className="rounded-[22px] border border-white bg-white/90 px-4 py-3 shadow-sm">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">LP Gaps On Path</div>
-                <div className="mt-2 text-2xl font-semibold text-slate-900">{selected?.evidence?.lpGapCount || 0}</div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.16em] text-slate-300">LP Gaps On Path</div>
+                <div className="mt-2 text-2xl font-semibold">{selected?.evidence?.lpGapCount || 0}</div>
               </div>
-              <div className="rounded-[22px] border border-white bg-white/90 px-4 py-3 shadow-sm">
-                <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Window</div>
-                <div className="mt-2 text-sm font-semibold text-slate-900">{data?.observationDays || 365} day behavioral view</div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.16em] text-slate-300">Window</div>
+                <div className="mt-2 text-sm font-semibold">{data?.observationDays || 365} day behavioral view</div>
               </div>
             </div>
           </div>
         </div>
 
         <div className="grid gap-0 xl:grid-cols-[340px_1fr]">
-          <aside className="border-b border-[#e6edf7] bg-[linear-gradient(180deg,#fbfdff_0%,#f8fbff_100%)] xl:border-b-0 xl:border-r">
+          <aside className="border-b border-slate-200 xl:border-b-0 xl:border-r">
             <div className="p-5">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Crown jewels</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Likely crown jewels</h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Pick the data asset you want to protect first. The tab now keeps the full route list here with the selected crown jewel.
+                Pick the data asset you want to protect first. We rank these from behavior, reachability, and control gaps.
               </p>
             </div>
 
@@ -478,8 +423,8 @@ export default function CrownJewelProtection({
                     onClick={() => setSelectedId(jewel.resourceId)}
                     className={`w-full rounded-[22px] border p-4 text-left transition ${
                       active
-                        ? "border-[#2D51DA]/40 bg-[linear-gradient(135deg,#eef4ff_0%,#f8fbff_100%)] shadow-[0_14px_30px_rgba(45,81,218,0.12)]"
-                        : "border-slate-200 bg-white hover:border-[#c9d7f5] hover:bg-[#fbfdff]"
+                        ? "border-[#2D51DA] bg-[#2D51DA]/5 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -487,7 +432,7 @@ export default function CrownJewelProtection({
                         <div className="text-sm font-semibold text-slate-900">{jewel.resourceName}</div>
                         <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">{jewel.resourceType}</div>
                       </div>
-                      <div className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                      <div className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
                         {jewel.priorityScore}
                       </div>
                     </div>
@@ -506,15 +451,15 @@ export default function CrownJewelProtection({
                     <p className="mt-3 text-sm leading-6 text-slate-600">{jewel.sensitivityReason}</p>
 
                     <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-500">
-                      <div className="rounded-xl border border-slate-200 bg-white px-2 py-2">
+                      <div className="rounded-xl bg-slate-50 px-2 py-2">
                         <div className="font-medium text-slate-900">{jewel.pathCount}</div>
                         <div>paths</div>
                       </div>
-                      <div className="rounded-xl border border-slate-200 bg-white px-2 py-2">
+                      <div className="rounded-xl bg-slate-50 px-2 py-2">
                         <div className="font-medium text-slate-900">{jewel.observedSignals}</div>
                         <div>signals</div>
                       </div>
-                      <div className="rounded-xl border border-slate-200 bg-white px-2 py-2">
+                      <div className="rounded-xl bg-slate-50 px-2 py-2">
                         <div className="font-medium text-slate-900">{jewel.lpGapCount}</div>
                         <div>LP gaps</div>
                       </div>
@@ -534,42 +479,29 @@ export default function CrownJewelProtection({
 
             {selected && (
               <div className="space-y-6">
-                <section className="overflow-hidden rounded-[30px] border border-[#dbe4f3] bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] shadow-[0_18px_60px_rgba(148,163,184,0.18)]">
-                  <div className="border-b border-[#e5ebf5] bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(14,165,233,0.10),_transparent_28%),linear-gradient(135deg,#fffdf8_0%,#f7faff_55%,#eef4ff_100%)] px-6 py-6">
+                <section className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-950 text-white shadow-[0_20px_70px_rgba(15,23,42,0.35)]">
+                  <div className="border-b border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(244,63,94,0.16),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.16),_transparent_30%),linear-gradient(180deg,#0f172a_0%,#020617_100%)] px-6 py-6">
                     <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                       <div className="max-w-3xl">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-[#d6e0f5] bg-white px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-[#2D51DA] shadow-sm">
-                          <Skull className="h-3.5 w-3.5 text-[#2D51DA]" />
-                          Crown jewel route mapping
+                        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-slate-200">
+                          <Skull className="h-3.5 w-3.5 text-rose-300" />
+                          Identity / Data / Networking Path
                         </div>
-                        <h3 className="mt-4 text-3xl font-semibold text-slate-900">{selected.resourceName}</h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                        <h3 className="mt-4 text-3xl font-semibold">{selected.resourceName}</h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-300">
                           {selected.sensitivitySource}: {selected.sensitivityReason}
                         </p>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <span className={`rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${resourceTypeTone(selected.resourceType)}`}>
-                            {selected.resourceType}
-                          </span>
-                          <span className={`rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${severityTone(selected.evidence.lpSeverity)}`}>
-                            {selected.evidence.lpSeverity} LP severity
-                          </span>
-                          {selectedPaths.length > 0 && (
-                            <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-sky-700">
-                              {selectedPaths.length} mapped routes
-                            </span>
-                          )}
-                        </div>
                       </div>
 
-                      <div className="rounded-[24px] border border-white bg-white/90 px-5 py-4 shadow-[0_16px_32px_rgba(45,81,218,0.10)]">
+                      <div className="rounded-[24px] border border-rose-400/20 bg-rose-500/10 px-5 py-4">
                         <div className="flex items-center gap-4">
-                          <div className="text-4xl font-bold text-slate-900">{selected.riskFormula.overallScore}</div>
+                          <div className="text-4xl font-bold text-rose-300">{selected.riskFormula.overallScore}</div>
                           <div>
-                            <div className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${riskTone(selected.riskFormula.riskLevel)}`}>
+                            <div className="text-sm font-semibold uppercase tracking-[0.16em] text-rose-200">
                               {selected.riskFormula.riskLevel} risk
                             </div>
-                            <div className="mt-2 text-xs text-slate-500">
-                              {selected.primaryPath.segments.length} stages • {selected.evidence.pathCount} mapped routes
+                            <div className="mt-1 text-xs text-slate-300">
+                              {selected.primaryPath.segments.length} stages • {selected.evidence.pathCount} candidate paths
                             </div>
                           </div>
                         </div>
@@ -577,152 +509,33 @@ export default function CrownJewelProtection({
                     </div>
                   </div>
 
-                  <div className="p-6 space-y-6">
-                    <div className="grid gap-4 md:grid-cols-4">
-                      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Mapped routes</div>
-                        <div className="mt-3 text-3xl font-semibold text-slate-900">{selectedPaths.length}</div>
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Observed links</div>
-                        <div className="mt-3 text-3xl font-semibold text-slate-900">{selected.primaryPath.observedEvidence.observedLinks}</div>
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Observed principals</div>
-                        <div className="mt-3 text-3xl font-semibold text-slate-900">{selected.evidence.observedPrincipals.length}</div>
-                      </div>
-                      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-xs uppercase tracking-[0.16em] text-slate-500">LP gaps on route</div>
-                        <div className="mt-3 text-3xl font-semibold text-slate-900">{selected.evidence.lpGapCount}</div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-[26px] border border-[#dbe4f3] bg-[linear-gradient(180deg,#ffffff_0%,#f9fbff_100%)] p-5 shadow-sm">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <h4 className="text-xl font-semibold text-slate-900">Mapped routes to this crown jewel</h4>
-                          <p className="mt-1 text-sm text-slate-600">
-                            Every route is shown here. The recommended route is still highlighted below, but this list is now the main paths view.
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
-                            Behavioral confidence {selected.riskFormula.confidence.score}
-                          </span>
-                          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-600">
-                            Click IAM / S3 / SG nodes to remediate
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                        {selectedPaths.map((path, pathIndex) => (
-                          <div
-                            key={path.id}
-                            className={`rounded-[24px] border p-4 transition ${
-                              pathIndex === 0
-                                ? "border-[#2D51DA]/25 bg-[#f5f8ff]"
-                                : "border-slate-200 bg-white"
-                            }`}
-                          >
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="rounded-full border border-[#d6e0f5] bg-white px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-[#2D51DA]">
-                                    {path.title}
-                                  </span>
-                                  {path.observedEvidence.entryExposed && (
-                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
-                                      public entry
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mt-3 text-sm font-semibold text-slate-900">
-                                  {path.segments[0]?.resourceName || "Entry"} to {selected.resourceName}
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
-                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
-                                  {path.segments.length} stages
-                                </span>
-                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
-                                  {path.observedEvidence.observedLinks} observed
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="mt-4 flex flex-wrap items-center gap-2">
-                              {path.segments.map((segment, index) => (
-                                <div key={`${path.id}-${segment.resourceId}-${index}`} className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    disabled={!isActionablePathSegment(segment)}
-                                    onClick={() =>
-                                      openResourceReview({
-                                        resourceName: segment.resourceName,
-                                        resourceType: segment.resourceType,
-                                        resourceId: segment.resourceId,
-                                      })
-                                    }
-                                    className={`rounded-full border px-3 py-2 text-left text-xs font-medium transition ${
-                                      isActionablePathSegment(segment)
-                                        ? `${resourceTypeTone(segment.resourceType)} hover:shadow-sm`
-                                        : "border-slate-200 bg-slate-50 text-slate-600"
-                                    }`}
-                                  >
-                                    <span className="block text-[10px] uppercase tracking-[0.16em] opacity-70">{segment.resourceType}</span>
-                                    <span className="block max-w-[180px] truncate">{segment.resourceName}</span>
-                                  </button>
-                                  {index < path.segments.length - 1 && <ArrowRight className="h-4 w-4 text-slate-400" />}
-                                </div>
-                              ))}
-                            </div>
-
-                            {(path.observedEvidence.protocols.length > 0 || path.observedEvidence.signals.length > 0) && (
-                              <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                                {path.observedEvidence.protocols.length > 0 && (
-                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
-                                    Protocols: {path.observedEvidence.protocols.join(", ")}
-                                  </span>
-                                )}
-                                {path.observedEvidence.signals.length > 0 && (
-                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
-                                    Signals: {path.observedEvidence.signals.join(", ")}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-[26px] border border-[#dbe4f3] bg-white p-5 shadow-sm">
+                  <div className="p-6">
+                    <div className="rounded-[24px] border border-slate-800 bg-slate-900/80 p-5">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <h4 className="text-xl font-semibold text-slate-900">Recommended primary route</h4>
-                          <p className="mt-1 text-sm text-slate-600">
-                            This is the clearest identity, network, and data route to the selected crown jewel.
+                          <h4 className="text-lg font-semibold text-white">{selected.primaryPath.title}</h4>
+                          <p className="mt-1 text-sm text-slate-400">
+                            Assume breach: this is the clearest identity/network/data route to the selected crown jewel.
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                        <div className="flex flex-wrap gap-2 text-xs text-slate-300">
+                          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
                             {selected.primaryPath.observedEvidence.observedLinks} observed links
                           </span>
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
                             {selected.evidence.observedPrincipals.length} principals
                           </span>
                         </div>
                       </div>
 
                       <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
+                        <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
                           Live Observed Traffic
                         </span>
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">
+                        <span className="rounded-full bg-amber-500/10 px-3 py-1 text-amber-300">
                           Zero-Trust Model: Assume Breach
                         </span>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">
                           Click Identity / Networking / Data to open remediation
                         </span>
                       </div>
@@ -737,7 +550,7 @@ export default function CrownJewelProtection({
                                 onClick={() => handleResourceReview(segment)}
                                 className={`w-[230px] rounded-[22px] border p-4 text-left transition ${
                                   isActionableSegment(segment)
-                                    ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_18px_36px_rgba(148,163,184,0.20)]"
+                                    ? "cursor-pointer hover:scale-[1.02] hover:shadow-[0_18px_40px_rgba(15,23,42,0.35)]"
                                     : "cursor-default opacity-90"
                                 } ${getPlaneAccent(segment.plane)}`}
                               >
@@ -770,17 +583,17 @@ export default function CrownJewelProtection({
                         </div>
                       </div>
 
-                      <div className="mt-5 flex flex-wrap gap-2 text-xs text-slate-600">
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
+                      <div className="mt-5 flex flex-wrap gap-2 text-xs text-slate-300">
+                        <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-300">
                           Behavioral confidence {selected.riskFormula.confidence.score}
                         </span>
                         {selected.primaryPath.observedEvidence.protocols.length > 0 && (
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
                             Protocols: {selected.primaryPath.observedEvidence.protocols.join(", ")}
                           </span>
                         )}
                         {selected.primaryPath.observedEvidence.signals.length > 0 && (
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
                             Signals: {selected.primaryPath.observedEvidence.signals.join(", ")}
                           </span>
                         )}
@@ -788,24 +601,24 @@ export default function CrownJewelProtection({
                     </div>
 
                     <div className="mt-6 grid gap-4 xl:grid-cols-4">
-                      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-sm font-semibold text-slate-900">Risk formula</div>
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                      <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
+                        <div className="text-sm font-semibold text-white">Risk formula</div>
+                        <div className="mt-3 rounded-2xl bg-slate-900/80 px-3 py-3 text-sm text-slate-300">
                           {selected.riskFormula.formula}
                         </div>
                       </div>
 
                       {selected.planeAssessments.map((plane) => (
-                        <div key={plane.plane} className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
+                        <div key={plane.plane} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-semibold text-slate-900">{plane.plane}</div>
-                            <div className="text-2xl font-bold text-slate-900">{plane.score}</div>
+                            <div className="text-sm font-semibold text-white">{plane.plane}</div>
+                            <div className="text-2xl font-bold text-white">{plane.score}</div>
                           </div>
-                          <div className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${riskTone(plane.riskLevel)}`}>{plane.riskLevel} risk</div>
-                          <p className="mt-3 text-sm leading-6 text-slate-600">{plane.summary}</p>
+                          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">{plane.riskLevel} risk</div>
+                          <p className="mt-3 text-sm leading-6 text-slate-300">{plane.summary}</p>
                           <div className="mt-3 space-y-2">
                             {plane.drivers.map((driver) => (
-                              <div key={driver} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                              <div key={driver} className="rounded-2xl bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
                                 {driver}
                               </div>
                             ))}
@@ -815,13 +628,13 @@ export default function CrownJewelProtection({
                     </div>
 
                     {selected.recommendedFirstAction && (
-                      <div className="mt-6 rounded-[22px] border border-emerald-200 bg-[linear-gradient(135deg,#f0fdf4_0%,#ecfdf3_100%)] px-4 py-4">
+                      <div className="mt-6 rounded-[22px] border border-emerald-400/20 bg-emerald-500/10 px-4 py-4">
                         <div className="flex items-start gap-3">
-                          <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600" />
+                          <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-300" />
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-emerald-800">Recommended first micro-enforcement</div>
-                            <div className="mt-1 text-sm text-emerald-700">{selected.recommendedFirstAction.title}</div>
-                            <div className="mt-1 text-sm text-emerald-700/90">{selected.recommendedFirstAction.summary}</div>
+                            <div className="text-sm font-semibold text-emerald-100">Recommended first micro-enforcement</div>
+                            <div className="mt-1 text-sm text-emerald-200">{selected.recommendedFirstAction.title}</div>
+                            <div className="mt-1 text-sm text-emerald-100/80">{selected.recommendedFirstAction.summary}</div>
                           </div>
                         </div>
                       </div>

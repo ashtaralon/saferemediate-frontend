@@ -3459,6 +3459,29 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Attack Paths toggle */}
+          <button
+            onClick={() => setShowAttackPaths(!showAttackPaths)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-2 ${
+              showAttackPaths
+                ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse'
+                : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-500/10'
+            }`}
+            title="Show attack paths to crown jewels, including identity-based routes"
+          >
+            {loadingAttackPaths ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <AlertTriangle className="w-3 h-3" />
+            )}
+            Attack Paths
+            {attackPaths.length > 0 && showAttackPaths && (
+              <span className="px-1.5 py-0.5 bg-red-700 rounded text-[10px] font-bold">
+                {attackPaths.length}
+              </span>
+            )}
+          </button>
+
           {/* Inject CVE Scenario */}
           <button
             onClick={injectAttackScenario}
@@ -3519,7 +3542,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
 
           {/* Manual refresh button */}
           <button
-            onClick={handleManualRefresh}
+            onClick={() => handleManualRefresh()}
             disabled={refreshStatus === 'fetching'}
             className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
               refreshStatus === 'fetching'
@@ -3550,7 +3573,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
               setSelectedService({ service, type });
               setSelectedNodeForHops(service.id);
             }}
-            attackPaths={[]}
+            attackPaths={showAttackPaths ? attackPaths : []}
             selectedAttackPath={selectedAttackPath}
             onSelectAttackPath={setSelectedAttackPath}
             heatmapMode={heatmapMode}
@@ -3603,6 +3626,164 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       )}
       </div>{/* Close main content area */}
 
+      {/* Attack Paths Modal - fixed overlay, outside all overflow containers */}
+      {showAttackPaths && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" onClick={() => setShowAttackPaths(false)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative w-[380px] max-h-[80vh] bg-slate-800/95 rounded-xl border border-red-500/50 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-red-500/30 bg-red-500/10 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <span className="text-red-400 font-bold text-sm">Attack Paths</span>
+              </div>
+              <button
+                onClick={() => setShowAttackPaths(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(80vh-52px)]">
+              {/* Loading State */}
+              {loadingAttackPaths && (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <RefreshCw className="w-6 h-6 text-red-400 animate-spin" />
+                  <span className="text-slate-400 text-xs">Analyzing attack paths...</span>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!loadingAttackPaths && attackPaths.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-6 gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-700/50 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-slate-300 text-xs font-medium mb-1">No Attack Paths Found</div>
+                    <div className="text-slate-500 text-[10px] leading-relaxed">
+                      No current routes to crown jewels were detected from workload, identity, or public entry points. You can still inject CVE test data to simulate vulnerability-driven paths.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setShowAttackPaths(false); injectAttackScenario(); }}
+                    className="mt-1 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 border border-[#8b5cf6]/30 rounded-lg text-[#8b5cf6] text-[10px] font-medium flex items-center gap-1.5 transition-colors"
+                  >
+                    <Target className="w-3 h-3" />
+                    Inject CVE Test Data
+                  </button>
+                  <button
+                    onClick={() => loadAttackPaths()}
+                    className="px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 border border-slate-600/30 rounded-lg text-slate-400 text-[10px] font-medium flex items-center gap-1.5 transition-colors"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {/* Results */}
+              {!loadingAttackPaths && attackPaths.length > 0 && (
+                <>
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="bg-red-500/20 rounded-lg p-2 text-center">
+                      <div className="text-red-400 text-xl font-bold">{attackPaths.length}</div>
+                      <div className="text-[10px] text-slate-400">Total</div>
+                    </div>
+                    <div className="bg-orange-500/20 rounded-lg p-2 text-center">
+                      <div className="text-orange-400 text-xl font-bold">
+                        {attackPaths.filter(p => p.risk_score >= 15).length}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Critical</div>
+                    </div>
+                    <div className="bg-yellow-500/20 rounded-lg p-2 text-center">
+                      <div className="text-yellow-400 text-xl font-bold">
+                        {attackPaths.filter(p => p.total_cves > 0).length}
+                      </div>
+                      <div className="text-[10px] text-slate-400">With CVEs</div>
+                    </div>
+                  </div>
+
+                  {/* Path List */}
+                  <div className="text-[10px] text-slate-500 uppercase mb-2 font-medium">Crown Jewel Paths</div>
+                  <div className="space-y-2">
+                    {attackPaths.slice(0, 8).map((path) => (
+                      <div
+                        key={path.id}
+                        className={`p-2.5 rounded-lg cursor-pointer transition-all ${
+                          selectedAttackPath === path.id
+                            ? 'bg-red-500/30 ring-1 ring-red-500'
+                            : 'bg-slate-700/50 hover:bg-slate-700'
+                        }`}
+                        onClick={() => setSelectedAttackPath(selectedAttackPath === path.id ? null : path.id)}
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="text-white text-xs font-medium truncate flex-1">
+                            {path.source_type} → {path.target_name}
+                          </div>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            path.risk_score >= 15 ? 'bg-red-500/30 text-red-400' :
+                            path.risk_score >= 10 ? 'bg-orange-500/30 text-orange-400' :
+                            'bg-yellow-500/30 text-yellow-400'
+                          }`}>
+                            {path.risk_score}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                          <span>{path.path_length} hops</span>
+                          {path.total_cves > 0 && (
+                            <span className="text-red-400">{path.total_cves} CVEs</span>
+                          )}
+                          {path.total_cves === 0 && path.path_kind && (
+                            <span className="text-cyan-400 capitalize">{path.path_kind.replace(/-/g, ' ')}</span>
+                          )}
+                          <span className={path.evidence_type === 'observed' ? 'text-green-400' : 'text-slate-500'}>
+                            {path.evidence_type}
+                          </span>
+                        </div>
+                        {/* Path nodes preview */}
+                        <div className="flex items-center gap-1 mt-1.5 text-[9px] text-slate-500 overflow-hidden">
+                          {path.nodes.slice(0, 4).map((node, i) => (
+                            <React.Fragment key={node.id}>
+                              {i > 0 && <ArrowRight className="w-2 h-2 flex-shrink-0" />}
+                              <span className={`truncate ${node.cve_count > 0 ? 'text-red-400 font-medium' : ''}`}>
+                                {node.name.slice(0, 12)}
+                              </span>
+                            </React.Fragment>
+                          ))}
+                          {path.nodes.length > 4 && <span>...</span>}
+                        </div>
+                        {/* View Details Button */}
+                        {selectedAttackPath === path.id && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowPathDetails(path.id);
+                              setShowAttackPaths(false);
+                            }}
+                            className="mt-2 w-full py-1.5 px-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-red-400 text-[10px] font-medium flex items-center justify-center gap-1 transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View Crown Jewel Analysis
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {attackPaths.length > 8 && (
+                    <div className="text-center text-[10px] text-slate-500 mt-2">
+                      +{attackPaths.length - 8} more paths
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
