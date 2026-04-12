@@ -219,6 +219,8 @@ interface ServiceCard {
   bucket?: S3Access
   onPrimaryPath: boolean
   pathIndex: number
+  rawName?: string
+  nodeId?: string
 }
 
 function formatResourceName(name: string) {
@@ -532,106 +534,124 @@ export function AttackSimulationPanel({
     if (!simulationData) return []
 
     const options = simulationData.remediation_options || []
-    const pathOrder = new Map<string, number>()
-    pathNodeLabels.forEach((label, index) => pathOrder.set(label, index))
-    const pathNames = new Set(pathNodeLabels)
+    const pathNodes = pathContext?.pathNodes || []
     const cards: ServiceCard[] = []
 
-    for (const role of simulationData.data_access_scope.iam_roles_in_path || []) {
-      const formattedRole = formatResourceName(role)
+    for (const [index, node] of pathNodes.entries()) {
+      const formattedName = formatResourceName(node.name)
+      const storeMatch = simulationData.data_access_scope.data_stores_accessible.find(
+        (store) => store.resource_id === node.id || store.resource_name === node.name || formatResourceName(store.resource_name) === formattedName
+      )
+      const bucketMatch = simulationData.data_access_scope.s3_access.find(
+        (bucket) => bucket.bucket_id === node.id || bucket.bucket === node.name || formatResourceName(bucket.bucket) === formattedName
+      )
+      const roleMatch = simulationData.data_access_scope.iam_roles_in_path.find(
+        (role) => role === node.name || formatResourceName(role) === formattedName
+      )
+
       const remediationIds = options
-        .filter((option) => option.target?.roles?.includes(role))
+        .filter((option) => {
+          if (roleMatch && option.target?.roles?.includes(roleMatch)) return true
+          if (storeMatch && (option.target?.resource_ids?.includes(storeMatch.resource_id) || option.target?.resource_names?.includes(storeMatch.resource_name))) return true
+          if (bucketMatch && (option.target?.resource_ids?.includes(bucketMatch.bucket_id || "") || option.target?.resource_names?.includes(bucketMatch.bucket))) return true
+          return false
+        })
         .map((option) => option.id)
 
-      cards.push({
-        key: `role:${role}`,
-        name: formattedRole,
-        type: "IAMRole",
-        subtitle: "Identity used on this path",
-        details: [
-          formatCount(simulationData.data_access_scope.combined_permissions.length, "permissions in scope"),
-          formattedRole === formatResourceName(pathContext?.identityUsed || "") ? "Primary path identity" : "Identity hop",
-        ],
-        remediationIds,
-        kind: "identity",
-        roleName: role,
-        onPrimaryPath: pathNames.has(formattedRole),
-        pathIndex: pathOrder.get(formattedRole) ?? 999,
-      })
-    }
+      if (roleMatch || /IAMRole|Role/i.test(node.type)) {
+        cards.push({
+          key: `path-role:${node.id}`,
+          name: formattedName,
+          type: node.type,
+          subtitle: "Identity used on this path",
+          details: [
+            formatCount(simulationData.data_access_scope.combined_permissions.length, "permissions in scope"),
+            formattedName === formatResourceName(pathContext?.identityUsed || "") ? "Primary path identity" : "Identity hop",
+          ],
+          remediationIds,
+          kind: "identity",
+          roleName: roleMatch || node.name,
+          onPrimaryPath: true,
+          pathIndex: index,
+          rawName: node.name,
+          nodeId: node.id,
+        })
+        continue
+      }
 
-    for (const store of simulationData.data_access_scope.data_stores_accessible || []) {
-      const formattedName = formatResourceName(store.resource_name)
-      const remediationIds = options
-        .filter((option) =>
-          option.target?.resource_ids?.includes(store.resource_id) ||
-          option.target?.resource_names?.includes(store.resource_name)
-        )
-        .map((option) => option.id)
+      if (storeMatch) {
+        const details = [
+          `${storeMatch.accessible_objects.tables?.length || 0} reachable tables`,
+          storeMatch.accessible_objects.estimated_rows
+            ? `~${storeMatch.accessible_objects.estimated_rows.toLocaleString()} rows`
+            : "Row volume unknown",
+        ]
 
-      const details = [
-        `${store.accessible_objects.tables?.length || 0} reachable tables`,
-        store.accessible_objects.estimated_rows
-          ? `~${store.accessible_objects.estimated_rows.toLocaleString()} rows`
-          : "Row volume unknown",
-      ]
+        if (storeMatch.accessible_objects.contains_pii) {
+          details.push("Contains PII")
+        }
 
-      if (store.accessible_objects.contains_pii) {
-        details.push("Contains PII")
+        cards.push({
+          key: `path-store:${node.id}`,
+          name: formattedName,
+          type: node.type,
+          subtitle: `${storeMatch.access_level} data access`,
+          details,
+          remediationIds,
+          kind: "data",
+          store: storeMatch,
+          onPrimaryPath: true,
+          pathIndex: index,
+          rawName: node.name,
+          nodeId: node.id,
+        })
+        continue
+      }
+
+      if (bucketMatch) {
+        const details = [
+          `${bucketMatch.operations.length || 0} operations in scope`,
+          `~${bucketMatch.estimated_objects.toLocaleString()} objects`,
+        ]
+
+        if (bucketMatch.contains_pii) {
+          details.push("Contains PII")
+        }
+
+        cards.push({
+          key: `path-bucket:${node.id}`,
+          name: formattedName,
+          type: node.type,
+          subtitle: "Bucket on this path",
+          details,
+          remediationIds,
+          kind: "bucket",
+          bucket: bucketMatch,
+          onPrimaryPath: true,
+          pathIndex: index,
+          rawName: node.name,
+          nodeId: node.id,
+        })
+        continue
       }
 
       cards.push({
-        key: `store:${store.resource_id}`,
+        key: `path-node:${node.id}`,
         name: formattedName,
-        type: store.resource_type,
-        subtitle: `${store.access_level} data access`,
-        details,
+        type: node.type,
+        subtitle: "Service on the selected path",
+        details: [node.is_internet_exposed ? "Externally reachable" : "Internal path service"],
         remediationIds,
         kind: "data",
-        store,
-        onPrimaryPath: pathNames.has(formattedName),
-        pathIndex: pathOrder.get(formattedName) ?? 999,
+        onPrimaryPath: true,
+        pathIndex: index,
+        rawName: node.name,
+        nodeId: node.id,
       })
     }
 
-    for (const bucket of simulationData.data_access_scope.s3_access || []) {
-      const formattedName = formatResourceName(bucket.bucket)
-      const remediationIds = options
-        .filter((option) =>
-          option.target?.resource_ids?.includes(bucket.bucket_id || "") ||
-          option.target?.resource_names?.includes(bucket.bucket)
-        )
-        .map((option) => option.id)
-
-      const details = [
-        `${bucket.operations.length || 0} operations in scope`,
-        `~${bucket.estimated_objects.toLocaleString()} objects`,
-      ]
-
-      if (bucket.contains_pii) {
-        details.push("Contains PII")
-      }
-
-      cards.push({
-        key: `bucket:${bucket.bucket_id || bucket.bucket}`,
-        name: formattedName,
-        type: "S3Bucket",
-        subtitle: "Bucket reachable from this path",
-        details,
-        remediationIds,
-        kind: "bucket",
-        bucket,
-        onPrimaryPath: pathNames.has(formattedName),
-        pathIndex: pathOrder.get(formattedName) ?? 999,
-      })
-    }
-
-    return cards.sort((a, b) => {
-      if (a.onPrimaryPath !== b.onPrimaryPath) return a.onPrimaryPath ? -1 : 1
-      if (a.pathIndex !== b.pathIndex) return a.pathIndex - b.pathIndex
-      return a.name.localeCompare(b.name)
-    })
-  }, [pathContext?.identityUsed, pathNodeLabels, simulationData])
+    return cards
+  }, [pathContext?.identityUsed, pathContext?.pathNodes, simulationData])
 
   const selectedService = useMemo(
     () => serviceCards.find((card) => card.key === selectedServiceKey) || null,
@@ -758,7 +778,7 @@ export function AttackSimulationPanel({
                           {simulationData.exploitable_vulnerabilities.filter((v) => v.current_risk === "EXPLOITABLE_NOW").length} active CVE steps
                         </Badge>
                         <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
-                          {serviceCards.length} services in scope
+                          {serviceCards.length} services on path
                         </Badge>
                       </div>
                     </div>
@@ -791,7 +811,7 @@ export function AttackSimulationPanel({
                       <PlaneCard plane="identity" title="Identity Plane" subtitle="Roles and permissions on the path">
                         <div className="grid gap-3">
                           <SummaryChip label="Identity Used" value={pathContext?.identityUsed || identityRoleNames[0] || "Unknown"} />
-                          <SummaryChip label="Roles in Path" value={`${identityRoleNames.length}`} />
+                          <SummaryChip label="Roles in Path" value={`${serviceCards.filter((card) => card.kind === "identity").length}`} />
                           <SummaryChip label="Permission Changes" value={`${identityOptions.length} direct actions`} />
                         </div>
                       </PlaneCard>
@@ -806,8 +826,8 @@ export function AttackSimulationPanel({
 
                       <PlaneCard plane="data" title="Data Plane" subtitle="Stores that must be narrowed">
                         <div className="grid gap-3">
-                          <SummaryChip label="Data Stores" value={`${simulationData.data_access_scope.data_stores_accessible.length}`} />
-                          <SummaryChip label="Buckets" value={`${simulationData.data_access_scope.s3_access.length}`} />
+                          <SummaryChip label="Data Stores" value={`${serviceCards.filter((card) => card.kind === "data").length}`} />
+                          <SummaryChip label="Buckets" value={`${serviceCards.filter((card) => card.kind === "bucket").length}`} />
                           <SummaryChip label="Chain Actions" value={`${chainOptions.length}`} />
                         </div>
                       </PlaneCard>
@@ -881,7 +901,7 @@ export function AttackSimulationPanel({
                     <div className="flex items-center gap-2 mb-4">
                       <Target className="h-4 w-4 text-cyan-400" />
                       <div>
-                        <div className="text-sm font-medium text-white">Services on this path</div>
+                        <div className="text-sm font-medium text-white">Services in the selected path</div>
                         <div className="text-xs text-slate-400">Open any service to see its Identity, Network, and Data remediation page.</div>
                       </div>
                     </div>
