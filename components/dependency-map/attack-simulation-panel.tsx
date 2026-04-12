@@ -204,6 +204,8 @@ interface AttackSimulationPanelProps {
   pathId: string
   pathName?: string
   pathContext?: AttackPathContext
+  initialSelectedServiceId?: string | null
+  initialSelectedServiceName?: string | null
 }
 
 interface ServiceCard {
@@ -353,6 +355,8 @@ export function AttackSimulationPanel({
   pathId,
   pathName,
   pathContext,
+  initialSelectedServiceId,
+  initialSelectedServiceName,
 }: AttackSimulationPanelProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -657,6 +661,29 @@ export function AttackSimulationPanel({
     () => serviceCards.find((card) => card.key === selectedServiceKey) || null,
     [selectedServiceKey, serviceCards]
   )
+
+  useEffect(() => {
+    if (!isOpen || serviceCards.length === 0) return
+
+    const byNodeId = initialSelectedServiceId
+      ? serviceCards.find((card) => card.nodeId === initialSelectedServiceId)
+      : null
+    const byName = initialSelectedServiceName
+      ? serviceCards.find(
+          (card) =>
+            card.rawName === initialSelectedServiceName ||
+            card.name === formatResourceName(initialSelectedServiceName)
+        )
+      : null
+    const defaultTarget = serviceCards.find(
+      (card) =>
+        card.rawName === pathContext?.crownJewel ||
+        card.name === formatResourceName(pathContext?.crownJewel || "")
+    ) || serviceCards[serviceCards.length - 1]
+
+    const nextKey = byNodeId?.key || byName?.key || defaultTarget?.key || null
+    setSelectedServiceKey(nextKey)
+  }, [initialSelectedServiceId, initialSelectedServiceName, isOpen, pathContext?.crownJewel, serviceCards])
 
   const chainOptions = useMemo(
     () => (simulationData?.remediation_options || []).filter((option) => option.target?.scope === "chain"),
@@ -980,6 +1007,13 @@ export function AttackSimulationPanel({
                         </div>
                       </div>
                       <div className="flex gap-2 flex-wrap">
+                        <Button
+                          variant="outline"
+                          className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                          onClick={() => setSelectedServiceKey(null)}
+                        >
+                          Whole-path plan
+                        </Button>
                         <Badge className="bg-slate-800 text-slate-200 border border-slate-600">
                           {selectedService.onPrimaryPath ? "Primary path service" : "Reachable from this path"}
                         </Badge>

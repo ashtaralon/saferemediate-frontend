@@ -839,6 +839,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
   const [showBlockSuccess, setShowBlockSuccess] = useState(false)
   const [showSimulation, setShowSimulation] = useState(false)
   const [selectedNode, setSelectedNode] = useState<SelectedNodeInfo | null>(null)
+  const [simulationFocusNode, setSimulationFocusNode] = useState<SelectedNodeInfo | null>(null)
   const [riskAssessment, setRiskAssessment] = useState<RiskAssessmentData | null>(null)
   const [riskLoading, setRiskLoading] = useState(false)
 
@@ -1793,7 +1794,10 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
         <AttackPathDiagram
           details={details}
           selectedNodeId={selectedNode?.id || null}
-          onSelectNode={setSelectedNode}
+          onSelectNode={(node) => {
+            setSimulationFocusNode(node)
+            setShowSimulation(true)
+          }}
         />
 
         {/* Node Risk Assessment Popup - Shows when a node is clicked */}
@@ -2549,7 +2553,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
                           </span>
                         </div>
                         <button
-                          onClick={() => setShowSimulation(true)}
+                          onClick={() => {
+                            setSimulationFocusNode({
+                              id: details.path_summary.target.name,
+                              name: details.path_summary.target.name,
+                              type: details.path_summary.target.type,
+                            })
+                            setShowSimulation(true)
+                          }}
                           className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-cyan-700"
                         >
                           <Zap className="w-4 h-4" />
@@ -2711,7 +2722,14 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             )}
           </button>
 	          <button
-	            onClick={() => setShowSimulation(true)}
+	            onClick={() => {
+                setSimulationFocusNode({
+                  id: details.path_summary.target.name,
+                  name: details.path_summary.target.name,
+                  type: details.path_summary.target.type,
+                })
+                setShowSimulation(true)
+              }}
 	            className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium text-lg transition-colors flex items-center gap-3"
 	          >
 	            <Zap className="w-5 h-5" />
@@ -2737,7 +2755,10 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
       {showSimulation && (
         <AttackSimulationPanel
           isOpen={showSimulation}
-          onClose={() => setShowSimulation(false)}
+          onClose={() => {
+            setShowSimulation(false)
+            setSimulationFocusNode(null)
+          }}
           systemName={systemName}
           pathId={pathId}
           pathName={details?.path_summary?.source?.name && details?.path_summary?.target?.name
@@ -2759,6 +2780,8 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
             identityLayer: details.identity_layer,
             dataImpact: details.data_impact,
           }}
+          initialSelectedServiceId={simulationFocusNode?.id || null}
+          initialSelectedServiceName={simulationFocusNode?.name || details.path_summary.target.name}
         />
       )}
     </div>
