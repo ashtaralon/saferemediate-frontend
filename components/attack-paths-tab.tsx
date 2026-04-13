@@ -689,7 +689,7 @@ function PathScopedArchitecture({
           </div>
         </div>
 
-        <div ref={containerRef} className="relative mt-6 min-h-[320px] overflow-hidden">
+        <div ref={containerRef} className="relative mt-6 overflow-x-auto overflow-y-hidden pb-2">
           <ConnectionLinesSVG
             architecture={architecture}
             hoveredId={hoveredId}
@@ -700,19 +700,25 @@ function PathScopedArchitecture({
             ghostedNodeIds={new Set<string>()}
           />
 
-          <div
-            className="relative grid gap-3 items-start xl:gap-4"
-            style={{ zIndex: 2, gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))` }}
-          >
-            {lanes.map((lane) => (
-              <div key={lane.key} className="min-w-0">
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  {lane.icon}
-                  {lane.title}
+          <div className="mx-auto w-fit min-w-full">
+            <div
+              className="relative grid items-start gap-4 xl:gap-5"
+              style={{
+                zIndex: 2,
+                gridAutoFlow: "column",
+                gridAutoColumns: "minmax(240px, 300px)",
+              }}
+            >
+              {lanes.map((lane) => (
+                <div key={lane.key} className="min-w-0">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    {lane.icon}
+                    {lane.title}
+                  </div>
+                  {lane.content}
                 </div>
-                {lane.content}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -730,52 +736,7 @@ function OperationalRoutePanel({
   const route = details.operational_route
   const routes = route?.routes?.length ? route.routes : route ? [route] : []
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
-  const viewportRef = useRef<HTMLDivElement | null>(null)
-  const contentRef = useRef<HTMLDivElement | null>(null)
-  const [contentScale, setContentScale] = useState(1)
-  const [scaledHeight, setScaledHeight] = useState<number | null>(null)
   const activeRoute = routes[selectedRouteIndex] || routes[0]
-
-  useEffect(() => {
-    if (!activeRoute?.available || !activeRoute.steps?.length) {
-      setContentScale(1)
-      setScaledHeight(null)
-      return
-    }
-
-    const updateLayout = () => {
-      const viewport = viewportRef.current
-      const content = contentRef.current
-      if (!viewport || !content) return
-
-      const availableWidth = viewport.clientWidth
-      const naturalWidth = content.scrollWidth
-      const naturalHeight = content.scrollHeight
-      if (!availableWidth || !naturalWidth || !naturalHeight) return
-
-      const nextScale = Math.min(1, availableWidth / naturalWidth)
-      setContentScale(nextScale)
-      setScaledHeight(Math.ceil(naturalHeight * nextScale))
-    }
-
-    updateLayout()
-
-    const viewport = viewportRef.current
-    const content = contentRef.current
-    if (!viewport || !content || typeof ResizeObserver === "undefined") {
-      return
-    }
-
-    const observer = new ResizeObserver(() => updateLayout())
-    observer.observe(viewport)
-    observer.observe(content)
-    window.addEventListener("resize", updateLayout)
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener("resize", updateLayout)
-    }
-  }, [activeRoute?.source?.id, activeRoute?.target?.id, activeRoute?.steps?.length])
 
   useEffect(() => {
     setSelectedRouteIndex(0)
@@ -963,30 +924,21 @@ function OperationalRoutePanel({
           <span className="font-semibold text-white">{formatName(activeRoute.target?.name || details.path_summary.target.name)}</span>
         </div>
 
-        <div
-          ref={viewportRef}
-          className="mt-6 overflow-hidden"
-          style={{ minHeight: scaledHeight ? `${scaledHeight}px` : undefined }}
-        >
-          <div
-            ref={contentRef}
-            className="inline-flex items-center gap-4 pb-2"
-            style={{
-              transform: `scale(${contentScale})`,
-              transformOrigin: "left top",
-            }}
-          >
-            {activeRoute.steps.map((step, index) => (
-              <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
-                {renderStep(step, index)}
-                {index < activeRoute.steps.length - 1 && (
-                  <div className="flex items-center justify-center text-cyan-300">
-                    <div className="h-[2px] w-10 bg-cyan-400/60" />
-                    <Target className="mx-1 h-4 w-4" />
-                  </div>
-                )}
-              </div>
-            ))}
+        <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
+          <div className="mx-auto w-fit min-w-full">
+            <div className="inline-flex items-center gap-4">
+              {activeRoute.steps.map((step, index) => (
+                <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
+                  {renderStep(step, index)}
+                  {index < activeRoute.steps.length - 1 && (
+                    <div className="flex items-center justify-center text-cyan-300">
+                      <div className="h-[2px] w-10 bg-cyan-400/60" />
+                      <Target className="mx-1 h-4 w-4" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
