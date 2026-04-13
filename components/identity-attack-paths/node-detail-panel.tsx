@@ -150,13 +150,13 @@ export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
       <div className="p-4 border-b" style={{ borderColor: "rgba(148, 163, 184, 0.1)" }}>
         <h4 className="text-xs font-semibold text-slate-300 mb-3">Path Severity</h4>
         <div className="flex items-center gap-2 mb-3">
-          <SeverityBadge severity={path.severity.severity} score={path.severity.overall_score} size="md" />
+          <SeverityBadge severity={path.severity?.severity || "LOW"} score={path.severity?.overall_score} size="md" />
           <span className="text-[10px] text-slate-400">{path.evidence_type} evidence</span>
         </div>
         <div className="space-y-2">
           {(["impact", "internet_exposure", "permission_breadth", "data_sensitivity", "identity_chain", "network_controls"] as const).map((key) => {
-            const score = path.severity[key] as number
-            const weight = path.severity.weights[key]
+            const score = (path.severity?.[key] as number) ?? 0
+            const weight = path.severity?.weights?.[key] ?? 0
             const weighted = (score * weight) / 100
             return (
             <div key={key}>

@@ -820,7 +820,11 @@ export default function HomePage() {
         return <LeastPrivilegeTab systemName={selectedSystem} />
 
       case "attack-paths":
-        return <IdentityAttackPaths systemName={selectedSystem || "alon-prod"} />
+        return (
+          <ErrorBoundary componentName="Attack Paths">
+            <IdentityAttackPaths systemName={selectedSystem || "alon-prod"} />
+          </ErrorBoundary>
+        )
 
       case "vulnerabilities":
         return <BehavioralVulnerabilitiesView systemName={selectedSystem} />

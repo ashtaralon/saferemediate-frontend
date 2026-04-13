@@ -302,7 +302,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
         style={{ background: "rgba(15, 23, 42, 0.95)", borderColor: "rgba(148, 163, 184, 0.15)" }}
       >
         <div className="flex items-center gap-3">
-          <SeverityBadge severity={path.severity.severity} score={path.severity.overall_score} />
+          <SeverityBadge severity={path.severity?.severity || "LOW"} score={path.severity?.overall_score} />
           <span className="text-xs text-slate-400">
             {path.hop_count} hops &middot; {path.evidence_type}
           </span>
