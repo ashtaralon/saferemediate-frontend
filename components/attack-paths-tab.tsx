@@ -1,22 +1,30 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import {
   AlertTriangle,
-  ArrowRight,
   Crown,
   Database,
-  HardDrive,
   Key,
   Loader2,
   Lock,
-  Network,
   Server,
   Shield,
   Target,
   Zap,
 } from "lucide-react"
 import { AttackSimulationPanel } from "./dependency-map/attack-simulation-panel"
+import {
+  ConnectionLinesSVG,
+  IAMRoleNode,
+  NACLNode,
+  SecurityGroupPanel,
+  ServiceNodeBox,
+  type SecurityCheckpoint,
+  type ServiceNode,
+  type SystemArchitecture,
+  type TrafficFlow,
+} from "./dependency-map/traffic-flow-map"
 
 type AttackPathNode = {
   id: string
@@ -84,15 +92,6 @@ type PathDetails = {
     source: { type: string; name: string }
     target: { type: string; name: string }
   }
-  risk_formula: {
-    formula: string
-    model?: string
-    reachability: { score: number; factors: string[] }
-    privilege: { score: number; factors: string[] }
-    data_impact: { score: number; factors: string[] }
-    blast_radius?: { score: number; factors: string[] }
-    combined_risk_score: number
-  }
   network_layer: {
     security_groups: SecurityGroup[]
     open_ports: number[]
@@ -136,113 +135,7 @@ type PathDetails = {
   path_nodes: PathNodeDetails[]
 }
 
-type LaneKey = "compute" | "security_groups" | "nacls" | "iam_roles" | "api_calls" | "resources"
-
-type CanvasNode = {
-  id: string
-  name: string
-  shortName: string
-  type: string
-  lane: LaneKey
-  subtitle: string
-  metrics: string[]
-  badge?: string
-  color: {
-    iconBg: string
-    iconText: string
-    border: string
-    glow: string
-    accent: string
-  }
-  isCrownJewel?: boolean
-}
-
 const CROWN_JEWEL_TYPES = new Set(["S3Bucket", "S3", "DynamoDBTable", "DynamoDB", "RDS", "RDSInstance", "Aurora"])
-
-const LANE_ORDER: LaneKey[] = ["compute", "security_groups", "nacls", "iam_roles", "api_calls", "resources"]
-
-const LANE_META: Record<
-  LaneKey,
-  {
-    label: string
-    icon: typeof Server
-    headerColor: string
-    nodeColor: CanvasNode["color"]
-  }
-> = {
-  compute: {
-    label: "COMPUTE",
-    icon: Server,
-    headerColor: "text-blue-300",
-    nodeColor: {
-      iconBg: "bg-blue-500/15",
-      iconText: "text-blue-300",
-      border: "border-blue-400/40",
-      glow: "shadow-[0_0_0_1px_rgba(96,165,250,0.14)]",
-      accent: "bg-blue-500/20",
-    },
-  },
-  security_groups: {
-    label: "SECURITY GROUPS",
-    icon: Shield,
-    headerColor: "text-orange-300",
-    nodeColor: {
-      iconBg: "bg-orange-500/15",
-      iconText: "text-orange-300",
-      border: "border-orange-400/40",
-      glow: "shadow-[0_0_0_1px_rgba(251,146,60,0.14)]",
-      accent: "bg-orange-500/20",
-    },
-  },
-  nacls: {
-    label: "NACLS",
-    icon: Lock,
-    headerColor: "text-cyan-300",
-    nodeColor: {
-      iconBg: "bg-cyan-500/15",
-      iconText: "text-cyan-300",
-      border: "border-cyan-400/40",
-      glow: "shadow-[0_0_0_1px_rgba(34,211,238,0.14)]",
-      accent: "bg-cyan-500/20",
-    },
-  },
-  iam_roles: {
-    label: "IAM ROLES",
-    icon: Key,
-    headerColor: "text-fuchsia-300",
-    nodeColor: {
-      iconBg: "bg-fuchsia-500/15",
-      iconText: "text-fuchsia-300",
-      border: "border-fuchsia-400/40",
-      glow: "shadow-[0_0_0_1px_rgba(232,121,249,0.14)]",
-      accent: "bg-fuchsia-500/20",
-    },
-  },
-  api_calls: {
-    label: "API CALLS",
-    icon: Zap,
-    headerColor: "text-lime-300",
-    nodeColor: {
-      iconBg: "bg-lime-500/15",
-      iconText: "text-lime-300",
-      border: "border-lime-400/40",
-      glow: "shadow-[0_0_0_1px_rgba(163,230,53,0.14)]",
-      accent: "bg-lime-500/20",
-    },
-  },
-  resources: {
-    label: "RESOURCES",
-    icon: Database,
-    headerColor: "text-violet-300",
-    nodeColor: {
-      iconBg: "bg-violet-500/15",
-      iconText: "text-violet-300",
-      border: "border-violet-400/40",
-      glow: "shadow-[0_0_0_1px_rgba(167,139,250,0.14)]",
-      accent: "bg-violet-500/20",
-    },
-  },
-}
 
 function formatName(name: string) {
   if (!name) return "Unknown"
@@ -268,10 +161,10 @@ function formatName(name: string) {
   return formatted
 }
 
-function shortenLabel(label: string, max = 22) {
-  const formatted = formatName(label)
-  if (formatted.length <= max) return formatted
-  return `${formatted.slice(0, max - 3)}...`
+function shortName(name: string, maxLen = 18) {
+  const formatted = formatName(name)
+  if (formatted.length <= maxLen) return formatted
+  return `${formatted.slice(0, maxLen)}...`
 }
 
 function getPathLabel(path: AttackPathItem) {
@@ -285,7 +178,7 @@ function getPathType(details: PathDetails) {
   const hasIdentityEvidence =
     details.path_summary.source.type.toLowerCase().includes("principal") ||
     details.identity_layer.roles.length > 0 ||
-    details.path_nodes.some((node) => node.type === "IAMRole")
+    details.path_nodes.some((node) => /IAMRole|Role/i.test(node.type))
   const hasCves = details.path_summary.total_cves > 0
 
   if (hasIdentityEvidence && hasCves) return "Hybrid Attack Path"
@@ -298,8 +191,7 @@ function getPathType(details: PathDetails) {
 function getPrimaryIdentity(details: PathDetails) {
   const roleFromIam = details.identity_layer.roles[0]?.role_name
   const roleFromNodes = details.path_nodes.find((node) => /IAMRole|Role/i.test(node.type))?.name
-  const sourceName = details.path_summary.source.name
-  return formatName(roleFromIam || roleFromNodes || sourceName)
+  return formatName(roleFromIam || roleFromNodes || details.path_summary.source.name)
 }
 
 function isSecurityGroupType(type: string) {
@@ -318,15 +210,11 @@ function isDataType(type: string) {
   return /S3|Bucket|DynamoDB|RDS|Aurora|Database/i.test(type)
 }
 
-function getNodeIcon(type: string) {
-  if (isSecurityGroupType(type)) return Shield
-  if (isNaclType(type)) return Lock
-  if (isIdentityType(type)) return Key
-  if (/S3|Bucket/i.test(type)) return HardDrive
-  if (/DynamoDB|RDS|Aurora|Database/i.test(type)) return Database
-  if (/Lambda/i.test(type)) return Zap
-  if (/Network/i.test(type)) return Network
-  return Server
+function mapResourceNodeType(type: string) {
+  if (/S3|Bucket/i.test(type)) return "storage"
+  if (/DynamoDB/i.test(type)) return "dynamodb"
+  if (/RDS|Aurora|Database/i.test(type)) return "database"
+  return "storage"
 }
 
 function buildPathContext(details: PathDetails) {
@@ -342,203 +230,180 @@ function buildPathContext(details: PathDetails) {
   }
 }
 
-function buildCanvasLanes(details: PathDetails) {
-  const lanes: Record<LaneKey, CanvasNode[]> = {
-    compute: [],
-    security_groups: [],
-    nacls: [],
-    iam_roles: [],
-    api_calls: [],
-    resources: [],
+function buildPathArchitecture(details: PathDetails): SystemArchitecture {
+  const source = details.path_nodes[0] || {
+    id: details.path_summary.source.name,
+    name: details.path_summary.source.name,
+    type: details.path_summary.source.type,
   }
-
-  const firstNode = details.path_nodes[0]
-  if (firstNode) {
-    lanes.compute.push({
-      id: firstNode.id,
-      name: firstNode.name,
-      shortName: shortenLabel(firstNode.name),
-      type: firstNode.type,
-      lane: "compute",
-      subtitle: firstNode.type,
-      metrics: [
-        details.path_summary.evidence_type === "observed" ? "Observed" : "Configured",
-        details.path_summary.total_cves > 0 ? `${details.path_summary.total_cves} CVEs` : "No CVEs required",
-      ],
-      badge: "ENTRY",
-      color: LANE_META.compute.nodeColor,
-    })
-  }
-
-  const securityNodesFromPath = details.path_nodes.filter((node) => isSecurityGroupType(node.type))
-  if (securityNodesFromPath.length > 0) {
-    lanes.security_groups.push(
-      ...securityNodesFromPath.map((node) => ({
-        id: node.id,
-        name: node.name,
-        shortName: shortenLabel(node.name),
-        type: node.type,
-        lane: "security_groups" as const,
-        subtitle: node.type,
-        metrics: ["On selected path", `${node.cve_count} CVEs`],
-        color: LANE_META.security_groups.nodeColor,
-      }))
-    )
-  } else if (details.network_layer.security_groups.length > 0) {
-    lanes.security_groups.push(
-      ...details.network_layer.security_groups.slice(0, 2).map((sg) => ({
-        id: sg.sg_id,
-        name: sg.sg_name,
-        shortName: shortenLabel(sg.sg_name),
-        type: "SecurityGroup",
-        lane: "security_groups" as const,
-        subtitle: "Security Group",
-        metrics: [`${sg.risky_rules.length} risky rules`, sg.open_to_internet ? "Internet-facing" : "Internal"],
-        color: LANE_META.security_groups.nodeColor,
-      }))
-    )
-  }
-
-  const naclNodes = details.path_nodes.filter((node) => isNaclType(node.type))
-  lanes.nacls.push(
-    ...naclNodes.map((node) => ({
-      id: node.id,
-      name: node.name,
-      shortName: shortenLabel(node.name),
-      type: node.type,
-      lane: "nacls" as const,
-      subtitle: node.type,
-      metrics: ["On selected path", node.is_internet_exposed ? "External" : "Internal"],
-      color: LANE_META.nacls.nodeColor,
-    }))
-  )
-
-  const identityNodesFromPath = details.path_nodes.filter((node) => isIdentityType(node.type))
-  if (identityNodesFromPath.length > 0) {
-    lanes.iam_roles.push(
-      ...identityNodesFromPath.map((node) => ({
-        id: node.id,
-        name: node.name,
-        shortName: shortenLabel(node.name),
-        type: node.type,
-        lane: "iam_roles" as const,
-        subtitle: node.type,
-        metrics: ["Identity on selected path", node.cve_count > 0 ? `${node.cve_count} CVEs` : "No CVEs required"],
-        badge: "IDENTITY",
-        color: LANE_META.iam_roles.nodeColor,
-      }))
-    )
-  } else if (details.identity_layer.roles.length > 0) {
-    lanes.iam_roles.push(
-      ...details.identity_layer.roles.slice(0, 2).map((role) => ({
-        id: role.role_id || role.role_name,
-        name: role.role_name,
-        shortName: shortenLabel(role.role_name),
-        type: "IAMRole",
-        lane: "iam_roles" as const,
-        subtitle: "IAMRole",
-        metrics: [`${role.permission_count} permissions`, `${role.observed_actions_count} observed actions`],
-        badge: "IDENTITY",
-        color: LANE_META.iam_roles.nodeColor,
-      }))
-    )
-  }
-
-  const protocolLabel = details.network_layer.protocols.length > 0 ? details.network_layer.protocols.join(", ") : "Observed access"
-  lanes.api_calls.push({
-    id: `api-${details.path_id}`,
-    name: formatName(details.path_summary.target.name),
-    shortName: shortenLabel(formatName(details.path_summary.target.name)),
-    type: "APICall",
-    lane: "api_calls",
-    subtitle: protocolLabel,
-    metrics: [
-      details.path_summary.evidence_type === "observed" ? "Live observed traffic" : "Configured path",
-      details.path_summary.total_cves > 0 ? `${details.path_summary.total_cves} CVEs in route` : "No CVEs required",
-    ],
-    badge: "API",
-    color: LANE_META.api_calls.nodeColor,
-  })
 
   const dataNodes = details.path_nodes.filter((node, index) => isDataType(node.type) || index === details.path_nodes.length - 1)
   const uniqueDataNodes = dataNodes.filter((node, index, arr) => arr.findIndex((candidate) => candidate.id === node.id) === index)
-  lanes.resources.push(
-    ...uniqueDataNodes.map((node, index) => ({
+  const targetNode = uniqueDataNodes[uniqueDataNodes.length - 1] || {
+    id: details.path_summary.target.name,
+    name: details.path_summary.target.name,
+    type: details.path_summary.target.type,
+  }
+
+  const computeServices: ServiceNode[] = [
+    {
+      id: source.id,
+      name: formatName(source.name),
+      shortName: shortName(source.name),
+      type: "compute",
+      instanceId: source.type,
+    },
+  ]
+
+  const resources: ServiceNode[] = uniqueDataNodes.map((node) => ({
+    id: node.id,
+    name: formatName(node.name),
+    shortName: shortName(node.name),
+    type: mapResourceNodeType(node.type),
+    instanceId: node.type,
+  }))
+
+  if (resources.length === 0) {
+    resources.push({
+      id: targetNode.id,
+      name: formatName(targetNode.name),
+      shortName: shortName(targetNode.name),
+      type: mapResourceNodeType(targetNode.type),
+      instanceId: targetNode.type,
+    })
+  }
+
+  const securityGroups: SecurityCheckpoint[] = details.network_layer.security_groups.slice(0, 2).map((sg) => ({
+    id: sg.sg_id,
+    type: "security_group",
+    name: sg.sg_name,
+    shortName: shortName(sg.sg_name),
+    usedCount: sg.risky_rules.filter((rule) => rule.risk?.toLowerCase() !== "unused").length,
+    totalCount: sg.risky_rules.length || 0,
+    gapCount: sg.risky_rules.filter((rule) => rule.risk?.toLowerCase() === "high" || rule.risk?.toLowerCase() === "critical").length,
+    connectedSources: [source.id],
+    connectedTargets: resources.map((resource) => resource.id),
+    rules: sg.risky_rules.map((rule) => ({
+      direction: rule.direction === "egress" ? "egress" : "ingress",
+      protocol: rule.protocol || "tcp",
+      fromPort: typeof rule.port === "number" ? rule.port : null,
+      toPort: typeof rule.port === "number" ? rule.port : null,
+      portDisplay: String(rule.port ?? "All"),
+      source: rule.source || "unknown",
+      sourceType: "cidr",
+      status: "used",
+      flowCount: 1,
+      lastSeen: null,
+      isPublic: (rule.source || "").includes("0.0.0.0/0"),
+    })),
+  }))
+
+  const nacls: SecurityCheckpoint[] = details.path_nodes
+    .filter((node) => isNaclType(node.type))
+    .map((node) => ({
       id: node.id,
+      type: "nacl",
       name: node.name,
-      shortName: shortenLabel(node.name),
-      type: node.type,
-      lane: "resources" as const,
-      subtitle: node.type,
-      metrics: [
-        details.data_impact.classification || "Sensitive",
-        details.data_impact.estimated_records > 0 ? `${details.data_impact.estimated_records.toLocaleString()} records` : "Record volume unknown",
-      ],
-      badge: index === uniqueDataNodes.length - 1 ? "CROWN JEWEL" : "DATA",
-      isCrownJewel: index === uniqueDataNodes.length - 1,
-      color: LANE_META.resources.nodeColor,
+      shortName: shortName(node.name),
+      usedCount: 1,
+      totalCount: 1,
+      gapCount: 0,
+      connectedSources: [source.id],
+      connectedTargets: resources.map((resource) => resource.id),
     }))
-  )
 
-  return lanes
+  const iamRoles: SecurityCheckpoint[] =
+    details.identity_layer.roles.length > 0
+      ? details.identity_layer.roles.slice(0, 2).map((role) => {
+          const lpGap = details.identity_layer.least_privilege_gaps.find((gap) => gap.role === role.role_name)
+          return {
+            id: role.role_id || role.role_name,
+            type: "iam_role" as const,
+            name: role.role_name,
+            shortName: shortName(role.role_name),
+            usedCount: role.observed_actions_count || 0,
+            totalCount: role.permission_count || 0,
+            gapCount: lpGap?.allowed && lpGap.observed ? Math.max(lpGap.allowed - lpGap.observed, 0) : 0,
+            connectedSources: [source.id],
+            connectedTargets: resources.map((resource) => resource.id),
+          }
+        })
+      : details.path_nodes
+          .filter((node) => isIdentityType(node.type))
+          .map((node) => ({
+            id: node.id,
+            type: "iam_role" as const,
+            name: node.name,
+            shortName: shortName(node.name),
+            usedCount: 1,
+            totalCount: 1,
+            gapCount: 0,
+            connectedSources: [source.id],
+            connectedTargets: resources.map((resource) => resource.id),
+          }))
+
+  const primaryResource = resources[0]
+  const flows: TrafficFlow[] = primaryResource
+    ? [
+        {
+          sourceId: computeServices[0].id,
+          targetId: primaryResource.id,
+          sgId: securityGroups[0]?.id,
+          naclId: nacls[0]?.id,
+          roleId: iamRoles[0]?.id,
+          ports: details.network_layer.open_ports.length > 0 ? details.network_layer.open_ports.map(String) : [details.network_layer.protocols[0] || "observed"],
+          protocol: details.network_layer.protocols[0] || "observed",
+          bytes: details.path_summary.evidence_type === "observed" ? 512_000_000 : 0,
+          connections: 1,
+          isActive: details.path_summary.evidence_type === "observed",
+        },
+      ]
+    : []
+
+  return {
+    computeServices,
+    resources,
+    securityGroups,
+    nacls,
+    iamRoles,
+    flows,
+    totalBytes: flows.reduce((sum, flow) => sum + flow.bytes, 0),
+    totalConnections: flows.reduce((sum, flow) => sum + flow.connections, 0),
+    totalGaps:
+      securityGroups.reduce((sum, sg) => sum + sg.gapCount, 0) +
+      nacls.reduce((sum, nacl) => sum + nacl.gapCount, 0) +
+      iamRoles.reduce((sum, role) => sum + role.gapCount, 0),
+  }
 }
 
-function PathNodeCard({
-  node,
-  onOpen,
-  registerRef,
+function ApiCallNode({
+  resource,
+  isObserved,
+  onClick,
 }: {
-  node: CanvasNode
-  onOpen: (node: { id: string; name: string }) => void
-  registerRef: (id: string, element: HTMLButtonElement | null) => void
+  resource: ServiceNode
+  isObserved: boolean
+  onClick: () => void
 }) {
-  const Icon = getNodeIcon(node.type)
-
   return (
-    <button
-      ref={(element) => registerRef(node.id, element)}
-      onClick={() => onOpen({ id: node.id, name: node.name })}
-      className={`relative w-[260px] rounded-[22px] border ${node.color.border} ${node.color.glow} bg-slate-900/70 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-cyan-300/50`}
+    <div
+      data-api-id={resource.id}
+      className="relative group cursor-pointer"
+      onClick={onClick}
     >
-      {node.badge && (
-        <div className="absolute -top-3 left-4 rounded-full border border-slate-700 bg-slate-950 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-          {node.badge}
+      <div className="min-w-[160px] rounded-xl border-2 border-lime-500/50 bg-lime-500/10 px-4 py-3 transition-all duration-300 hover:border-lime-400 hover:bg-lime-500/20">
+        <div className="mb-1 flex items-center justify-center gap-2">
+          <Zap className="h-4 w-4 text-lime-400" />
+          <span className="truncate text-sm font-semibold text-white">{resource.shortName}</span>
         </div>
-      )}
-      {node.isCrownJewel && (
-        <div className="absolute -top-3 right-4 flex h-8 w-8 items-center justify-center rounded-full border border-fuchsia-400/50 bg-fuchsia-500/15">
-          <Crown className="h-4 w-4 text-fuchsia-200" />
-        </div>
-      )}
-
-      <div className="flex items-start justify-between gap-3">
-        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${node.color.iconBg}`}>
-          <Icon className={`h-5 w-5 ${node.color.iconText}`} />
-        </div>
+        <div className="text-center text-xs text-lime-400">{isObserved ? "Observed access" : "Configured path"}</div>
+        <div className="mt-1 text-center text-[10px] text-slate-400">{isObserved ? "1 flow (simulated)" : "Path flow"}</div>
       </div>
-
-      <div className="mt-4 text-xl font-semibold text-white">{node.shortName}</div>
-      <div className={`mt-1 text-xs uppercase tracking-[0.16em] ${node.color.iconText}`}>{node.subtitle}</div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        {node.metrics.filter(Boolean).map((metric) => (
-          <span
-            key={metric}
-            className="rounded-lg border border-slate-700 bg-slate-950/80 px-2.5 py-1 text-[11px] font-medium text-slate-300"
-          >
-            {metric}
-          </span>
-        ))}
-      </div>
-
-      <div className="mt-5 inline-flex items-center gap-2 rounded-xl bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-200">
-        Open 3-layer remediation
-      </div>
-    </button>
+    </div>
   )
 }
 
-function PathCanvas({
+function PathScopedArchitecture({
   details,
   onOpenService,
   onOpenWholePlan,
@@ -547,78 +412,42 @@ function PathCanvas({
   onOpenService: (node: { id: string; name: string }) => void
   onOpenWholePlan: () => void
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const nodeRefs = useRef<Record<string, HTMLButtonElement | null>>({})
-  const [lines, setLines] = useState<Array<{ x1: number; y1: number; x2: number; y2: number }>>([])
-
-  const lanes = useMemo(() => buildCanvasLanes(details), [details])
-  const laneSequence = useMemo(() => LANE_ORDER.filter((lane) => lanes[lane].length > 0), [lanes])
-
-  useEffect(() => {
-    const updateLines = () => {
-      if (!containerRef.current) return
-      const containerRect = containerRef.current.getBoundingClientRect()
-      const nextLines: Array<{ x1: number; y1: number; x2: number; y2: number }> = []
-
-      laneSequence.forEach((lane, index) => {
-        const nextLane = laneSequence[index + 1]
-        if (!nextLane) return
-
-        const sourceNodes = lanes[lane]
-        const targetNodes = lanes[nextLane]
-        const pairs = Math.max(sourceNodes.length, targetNodes.length)
-
-        for (let i = 0; i < pairs; i += 1) {
-          const source = sourceNodes[Math.min(i, sourceNodes.length - 1)]
-          const target = targetNodes[Math.min(i, targetNodes.length - 1)]
-          const sourceEl = source ? nodeRefs.current[source.id] : null
-          const targetEl = target ? nodeRefs.current[target.id] : null
-          if (!sourceEl || !targetEl) continue
-
-          const sourceRect = sourceEl.getBoundingClientRect()
-          const targetRect = targetEl.getBoundingClientRect()
-          nextLines.push({
-            x1: sourceRect.right - containerRect.left,
-            y1: sourceRect.top + sourceRect.height / 2 - containerRect.top,
-            x2: targetRect.left - containerRect.left,
-            y2: targetRect.top + targetRect.height / 2 - containerRect.top,
-          })
-        }
-      })
-
-      setLines(nextLines)
-    }
-
-    updateLines()
-    window.addEventListener("resize", updateLines)
-    const resizeObserver = new ResizeObserver(updateLines)
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current)
-    }
-    return () => {
-      window.removeEventListener("resize", updateLines)
-      resizeObserver.disconnect()
-    }
-  }, [laneSequence, lanes])
-
+  const architecture = useMemo(() => buildPathArchitecture(details), [details])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [expandedSG, setExpandedSG] = useState<string | null>(null)
   const entry = formatName(details.path_summary.source.name)
-  const target = formatName(details.path_summary.target.name)
   const identity = getPrimaryIdentity(details)
+  const target = formatName(details.path_summary.target.name)
   const pathType = getPathType(details)
+
+  const computeFlowInfo = useMemo(() => {
+    const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
+    architecture.flows.forEach((flow) => {
+      map.set(flow.sourceId, { bytes: flow.bytes, connections: flow.connections, ports: flow.ports })
+    })
+    return map
+  }, [architecture.flows])
+
+  const resourceFlowInfo = useMemo(() => {
+    const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
+    architecture.flows.forEach((flow) => {
+      map.set(flow.targetId, { bytes: flow.bytes, connections: flow.connections, ports: flow.ports })
+    })
+    return map
+  }, [architecture.flows])
 
   return (
     <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-300">
               <Target className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-2xl font-bold text-white">Path Architecture</h3>
-              <p className="mt-1 text-sm text-slate-400">
-                Same architecture-map language, but filtered to the exact selected attack path.
-              </p>
+              <h3 className="text-2xl font-bold text-white">Selected Attack Path</h3>
+              <p className="mt-1 text-sm text-slate-400">Same map primitives, but scoped to this exact crown-jewel route.</p>
             </div>
           </div>
         </div>
@@ -636,7 +465,7 @@ function PathCanvas({
         </div>
       </div>
 
-      <div className="mt-6 rounded-[24px] border border-slate-800 bg-slate-950/70 p-5">
+      <div className="rounded-[24px] border border-slate-800 bg-slate-950/70 p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="text-sm text-slate-300">
             <span className="font-semibold text-white">{entry}</span>
@@ -653,74 +482,149 @@ function PathCanvas({
           </div>
         </div>
 
-        <div ref={containerRef} className="relative mt-6 overflow-x-auto pb-4">
-          <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" style={{ zIndex: 0 }}>
-            {lines.map((line, index) => (
-              <g key={index}>
-                <line
-                  x1={line.x1}
-                  y1={line.y1}
-                  x2={line.x2}
-                  y2={line.y2}
-                  stroke="#4cc9f0"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  opacity="0.95"
-                />
-                <line
-                  x1={line.x1}
-                  y1={line.y1}
-                  x2={line.x2}
-                  y2={line.y2}
-                  stroke="#67e8f9"
-                  strokeWidth="10"
-                  strokeLinecap="round"
-                  opacity="0.12"
-                />
-                <polygon
-                  points={`${line.x2},${line.y2} ${line.x2 - 10},${line.y2 - 5} ${line.x2 - 10},${line.y2 + 5}`}
-                  fill="#67e8f9"
-                />
-              </g>
-            ))}
-          </svg>
+        <div ref={containerRef} className="relative mt-6 min-h-[450px]">
+          <ConnectionLinesSVG
+            architecture={architecture}
+            hoveredId={hoveredId}
+            containerRef={containerRef as RefObject<HTMLDivElement>}
+            animate
+            attackPathEdges={new Set(architecture.flows.map((flow) => `${flow.sourceId}->${flow.targetId}`))}
+            heatmapMode={false}
+            ghostedNodeIds={new Set<string>()}
+          />
 
-          <div className="relative z-10 grid min-w-[1600px] grid-cols-6 gap-8 px-2 pb-4">
-            {LANE_ORDER.map((lane) => {
-              const laneNodes = lanes[lane]
-              const meta = LANE_META[lane]
-              const LaneIcon = meta.icon
-
-              return (
-                <div key={lane} className="space-y-4">
-                  <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-                    <LaneIcon className={`h-4 w-4 ${meta.headerColor}`} />
-                    <span className={`text-sm font-semibold uppercase tracking-[0.16em] ${meta.headerColor}`}>
-                      {meta.label} ({laneNodes.length})
-                    </span>
-                  </div>
-
-                  <div className="space-y-4">
-                    {laneNodes.length === 0 ? (
-                      <div className="rounded-[18px] border border-dashed border-slate-800 bg-slate-950/40 px-4 py-8 text-center text-xs text-slate-600">
-                        Not on this path
-                      </div>
-                    ) : (
-                      laneNodes.map((node) => (
-                        <PathNodeCard
-                          key={node.id}
-                          node={node}
-                          onOpen={onOpenService}
-                          registerRef={(id, element) => {
-                            nodeRefs.current[id] = element
-                          }}
-                        />
-                      ))
-                    )}
-                  </div>
+          <div className="relative grid grid-cols-[1fr_auto_auto_1fr_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
+            <div className="flex flex-col gap-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Server className="h-4 w-4 text-blue-400" />
+                Compute ({architecture.computeServices.length})
+              </div>
+              {architecture.computeServices.map((node) => (
+                <div key={node.id} data-compute-id={node.id} className="relative">
+                  <ServiceNodeBox
+                    node={node}
+                    position="left"
+                    flowInfo={computeFlowInfo.get(node.id)}
+                    isHighlighted={hoveredId === node.id}
+                    onHover={setHoveredId}
+                    onClick={() => onOpenService({ id: node.id, name: node.name })}
+                  />
                 </div>
-              )
-            })}
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-3 min-w-[180px]">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Shield className="h-4 w-4 text-orange-400" />
+                Security Groups ({architecture.securityGroups.length})
+              </div>
+              {architecture.securityGroups.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-center text-xs text-slate-500">
+                  No SG on this path
+                </div>
+              ) : (
+                architecture.securityGroups.map((sg) => (
+                  <div key={sg.id} data-sg-id={sg.id}>
+                    <SecurityGroupPanel
+                      sg={sg}
+                      isExpanded={expandedSG === sg.id}
+                      onToggle={() => setExpandedSG(expandedSG === sg.id ? null : sg.id)}
+                      isHighlighted={hoveredId === sg.id}
+                      onHover={setHoveredId}
+                      onDetails={() => onOpenService({ id: sg.id, name: sg.name })}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 min-w-[140px]">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Lock className="h-4 w-4 text-cyan-400" />
+                NACLs ({architecture.nacls.length})
+              </div>
+              {architecture.nacls.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-center text-xs text-slate-500">
+                  No NACL on this path
+                </div>
+              ) : (
+                architecture.nacls.map((nacl) => (
+                  <div key={nacl.id} data-nacl-id={nacl.id}>
+                    <NACLNode
+                      nacl={nacl}
+                      isHighlighted={hoveredId === nacl.id}
+                      onHover={setHoveredId}
+                      onClick={() => onOpenService({ id: nacl.id, name: nacl.name })}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 items-center">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Key className="h-4 w-4 text-pink-400" />
+                IAM Roles ({architecture.iamRoles.length})
+              </div>
+              {architecture.iamRoles.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-center text-xs text-slate-500">
+                  No IAM role on this path
+                </div>
+              ) : (
+                architecture.iamRoles.map((role) => (
+                  <div key={role.id} data-role-id={role.id}>
+                    <IAMRoleNode
+                      role={role}
+                      isHighlighted={hoveredId === role.id}
+                      onHover={setHoveredId}
+                      onClick={() => onOpenService({ id: role.id, name: role.name })}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 items-center">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Zap className="h-4 w-4 text-lime-400" />
+                API Calls ({architecture.resources.length})
+              </div>
+              {architecture.resources.map((resource) => (
+                <ApiCallNode
+                  key={`api-${resource.id}`}
+                  resource={resource}
+                  isObserved={details.path_summary.evidence_type === "observed"}
+                  onClick={() => onOpenService({ id: resource.id, name: resource.name })}
+                />
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Database className="h-4 w-4 text-purple-400" />
+                Resources ({architecture.resources.length})
+              </div>
+              {architecture.resources.map((node, index) => {
+                const isTarget = index === architecture.resources.length - 1
+                return (
+                  <div key={node.id} data-resource-id={node.id} className="relative">
+                    {isTarget && (
+                      <div className="absolute -top-2 -right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 shadow-lg animate-pulse">
+                        <Crown className="h-3.5 w-3.5 text-white" />
+                      </div>
+                    )}
+                    <ServiceNodeBox
+                      node={node}
+                      position="right"
+                      flowInfo={resourceFlowInfo.get(node.id)}
+                      isHighlighted={hoveredId === node.id}
+                      onHover={setHoveredId}
+                      onClick={() => onOpenService({ id: node.id, name: node.name })}
+                    />
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
 
@@ -875,7 +779,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
             <div>
               <h2 className="text-2xl font-bold text-slate-900">Attack Paths</h2>
               <p className="mt-1 max-w-3xl text-sm text-slate-500">
-                The main System Architecture map stays untouched. This tab shows the exact attack flows to crown jewels, one path at a time, in the same architecture language.
+                The main System Architecture map stays untouched. This tab shows the exact attack flows to crown jewels, one path at a time, using the same map primitives.
               </p>
             </div>
           </div>
@@ -994,7 +898,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
             )}
 
             {!detailsLoading && !detailsError && selectedDetails && (
-              <PathCanvas
+              <PathScopedArchitecture
                 details={selectedDetails}
                 onOpenService={(node) => {
                   setSelectedService({ id: node.id, name: node.name })

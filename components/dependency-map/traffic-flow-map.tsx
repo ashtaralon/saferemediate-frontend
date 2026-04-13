@@ -12,9 +12,9 @@ import { ExportControls } from './export-controls';
 // ============================================
 // TYPES
 // ============================================
-type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'security_group' | 'nacl' | 'network' | 'api_call';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'security_group' | 'nacl' | 'network' | 'api_call';
 
-interface ServiceNode {
+export interface ServiceNode {
   id: string;
   name: string;
   shortName: string;
@@ -22,7 +22,7 @@ interface ServiceNode {
   instanceId?: string;
 }
 
-interface SGRule {
+export interface SGRule {
   direction: 'ingress' | 'egress';
   protocol: string;
   fromPort: number | null;
@@ -36,7 +36,7 @@ interface SGRule {
   isPublic: boolean;
 }
 
-interface SecurityCheckpoint {
+export interface SecurityCheckpoint {
   id: string;
   type: 'security_group' | 'iam_role' | 'nacl';
   name: string;
@@ -51,7 +51,7 @@ interface SecurityCheckpoint {
   subnetId?: string;
 }
 
-interface TrafficFlow {
+export interface TrafficFlow {
   sourceId: string;
   targetId: string;
   sgId?: string;
@@ -64,7 +64,7 @@ interface TrafficFlow {
   isActive?: boolean;
 }
 
-interface SystemArchitecture {
+export interface SystemArchitecture {
   computeServices: ServiceNode[];
   resources: ServiceNode[];
   securityGroups: SecurityCheckpoint[];
@@ -179,7 +179,7 @@ function mapNodeType(type: string): NodeType {
 // ============================================
 // SERVICE NODE COMPONENT
 // ============================================
-function ServiceNodeBox({
+export function ServiceNodeBox({
   node,
   position,
   flowInfo,
@@ -341,7 +341,7 @@ function RuleRow({ rule }: { rule: SGRule }) {
 // ============================================
 // SECURITY GROUP PANEL
 // ============================================
-function SecurityGroupPanel({
+export function SecurityGroupPanel({
   sg,
   isExpanded,
   onToggle,
@@ -489,7 +489,7 @@ function SecurityGroupPanel({
 // ============================================
 // NACL NODE
 // ============================================
-function NACLNode({
+export function NACLNode({
   nacl,
   isHighlighted,
   onHover,
@@ -539,7 +539,7 @@ function NACLNode({
 // ============================================
 // IAM ROLE NODE
 // ============================================
-function IAMRoleNode({
+export function IAMRoleNode({
   role,
   isHighlighted,
   onHover,
@@ -1642,7 +1642,7 @@ function AnimatedTrafficLine({
 // ============================================
 // CONNECTION LINES SVG
 // ============================================
-function ConnectionLinesSVG({
+export function ConnectionLinesSVG({
   architecture,
   hoveredId,
   containerRef,
