@@ -137,6 +137,8 @@ type PathDetails = {
   operational_route?: {
     available: boolean
     route_type: string
+    score?: number
+    route_count?: number
     reason?: string
     observed?: boolean
     source?: { id: string; name: string; type: string } | null
@@ -161,6 +163,34 @@ type PathDetails = {
           observed?: boolean
         }
     >
+    routes?: Array<{
+      available: boolean
+      route_type: string
+      score?: number
+      observed?: boolean
+      source?: { id: string; name: string; type: string } | null
+      target?: { id: string; name: string; type: string }
+      steps: Array<
+        | {
+            kind: "node"
+            lane: string
+            id: string
+            name: string
+            type: string
+            category?: string
+            internet_exposed?: boolean
+          }
+        | {
+            kind: "action"
+            lane: string
+            edge_type: string
+            name: string
+            action?: string | null
+            protocol?: string | null
+            observed?: boolean
+          }
+      >
+    }>
   }
 }
 
@@ -698,13 +728,16 @@ function OperationalRoutePanel({
   onOpenService: (node: PathServiceTarget) => void
 }) {
   const route = details.operational_route
+  const routes = route?.routes?.length ? route.routes : route ? [route] : []
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [contentScale, setContentScale] = useState(1)
   const [scaledHeight, setScaledHeight] = useState<number | null>(null)
+  const activeRoute = routes[selectedRouteIndex] || routes[0]
 
   useEffect(() => {
-    if (!route?.available || !route.steps?.length) {
+    if (!activeRoute?.available || !activeRoute.steps?.length) {
       setContentScale(1)
       setScaledHeight(null)
       return
@@ -742,9 +775,13 @@ function OperationalRoutePanel({
       observer.disconnect()
       window.removeEventListener("resize", updateLayout)
     }
-  }, [route.source?.id, route.target?.id, route.steps.length])
+  }, [activeRoute?.source?.id, activeRoute?.target?.id, activeRoute?.steps?.length])
 
-  if (!route?.available || !route.steps?.length) {
+  useEffect(() => {
+    setSelectedRouteIndex(0)
+  }, [details.path_id, routes.length])
+
+  if (!activeRoute?.available || !activeRoute.steps?.length) {
     return null
   }
 
@@ -887,22 +924,43 @@ function OperationalRoutePanel({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {route.observed && (
+          {activeRoute.observed && (
             <span className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
               Observed Service Flow
             </span>
           )}
           <span className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm font-medium text-slate-200">
-            {route.steps.length} steps
+            {activeRoute.steps.length} steps
           </span>
         </div>
       </div>
 
+      {routes.length > 1 && (
+        <div className="mb-5 flex flex-wrap gap-2">
+          {routes.map((candidate, index) => {
+            const selected = index === selectedRouteIndex
+            return (
+              <button
+                key={`route-${index}-${candidate.source?.id || "unknown"}`}
+                onClick={() => setSelectedRouteIndex(index)}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  selected
+                    ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-100"
+                    : "border-slate-700 bg-slate-900/50 text-slate-300 hover:bg-slate-900/80"
+                }`}
+              >
+                Route {index + 1}: {formatName(candidate.source?.name || details.path_summary.source.name)}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <div className="rounded-[24px] border border-slate-800 bg-slate-950/70 p-5">
         <div className="text-sm text-slate-300">
-          <span className="font-semibold text-white">{formatName(route.source?.name || details.path_summary.source.name)}</span>
+          <span className="font-semibold text-white">{formatName(activeRoute.source?.name || details.path_summary.source.name)}</span>
           <span className="mx-2 text-slate-600">→</span>
-          <span className="font-semibold text-white">{formatName(route.target?.name || details.path_summary.target.name)}</span>
+          <span className="font-semibold text-white">{formatName(activeRoute.target?.name || details.path_summary.target.name)}</span>
         </div>
 
         <div
@@ -918,10 +976,10 @@ function OperationalRoutePanel({
               transformOrigin: "left top",
             }}
           >
-            {route.steps.map((step, index) => (
+            {activeRoute.steps.map((step, index) => (
               <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
                 {renderStep(step, index)}
-                {index < route.steps.length - 1 && (
+                {index < activeRoute.steps.length - 1 && (
                   <div className="flex items-center justify-center text-cyan-300">
                     <div className="h-[2px] w-10 bg-cyan-400/60" />
                     <Target className="mx-1 h-4 w-4" />
