@@ -19,27 +19,25 @@ export async function GET(request: Request, { params }: { params: Promise<{ syst
     })
 
     if (!response.ok) {
-      // Return empty data when backend returns error
-      console.log("[attack-paths] Backend error, returning empty data")
-      return NextResponse.json({
-        paths: [],
-        total_paths: 0,
-        highest_risk_score: 0,
-        critical_paths: 0,
-        summary: {}
-      })
+      console.log("[attack-paths] Backend error")
+      return NextResponse.json(
+        {
+          error: "Failed to load attack paths",
+          status: response.status,
+        },
+        { status: response.status }
+      )
     }
 
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
     console.error("[attack-paths] Fetch error:", error)
-    return NextResponse.json({
-      paths: [],
-      total_paths: 0,
-      highest_risk_score: 0,
-      critical_paths: 0,
-      summary: {}
-    })
+    return NextResponse.json(
+      {
+        error: "Failed to fetch attack paths",
+      },
+      { status: 500 }
+    )
   }
 }
