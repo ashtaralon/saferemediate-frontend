@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import {
   AlertTriangle,
   Crown,
@@ -450,6 +450,178 @@ function PathScopedArchitecture({
     return map
   }, [architecture.flows])
 
+  const lanes = useMemo(() => {
+    const items: Array<{
+      key: string
+      title: string
+      icon: ReactNode
+      content: ReactNode
+    }> = [
+      {
+        key: "compute",
+        title: `Compute (${architecture.computeServices.length})`,
+        icon: <Server className="h-4 w-4 text-blue-400" />,
+        content: (
+          <div className="space-y-3">
+            {architecture.computeServices.map((node) => (
+              <div key={node.id} data-compute-id={node.id} className="relative">
+                <ServiceNodeBox
+                  node={node}
+                  position="left"
+                  flowInfo={computeFlowInfo.get(node.id)}
+                  isHighlighted={hoveredId === node.id}
+                  onHover={setHoveredId}
+                />
+              </div>
+            ))}
+          </div>
+        ),
+      },
+    ]
+
+    if (architecture.securityGroups.length > 0) {
+      items.push({
+        key: "security-groups",
+        title: `Security Groups (${architecture.securityGroups.length})`,
+        icon: <Shield className="h-4 w-4 text-orange-400" />,
+        content: (
+          <div className="space-y-3">
+            {architecture.securityGroups.map((sg) => (
+              <div key={sg.id} data-sg-id={sg.id}>
+                <SecurityGroupPanel
+                  sg={sg}
+                  isExpanded={false}
+                  onToggle={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
+                  isHighlighted={hoveredId === sg.id}
+                  onHover={setHoveredId}
+                  onDetails={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
+                />
+              </div>
+            ))}
+          </div>
+        ),
+      })
+    }
+
+    if (architecture.nacls.length > 0) {
+      items.push({
+        key: "nacls",
+        title: `NACLs (${architecture.nacls.length})`,
+        icon: <Lock className="h-4 w-4 text-cyan-400" />,
+        content: (
+          <div className="space-y-3">
+            {architecture.nacls.map((nacl) => (
+              <div key={nacl.id} data-nacl-id={nacl.id} className="relative">
+                <NACLNode
+                  nacl={nacl}
+                  isHighlighted={hoveredId === nacl.id}
+                  onHover={setHoveredId}
+                />
+              </div>
+            ))}
+          </div>
+        ),
+      })
+    }
+
+    if (architecture.iamRoles.length > 0) {
+      items.push({
+        key: "iam-roles",
+        title: `IAM Roles (${architecture.iamRoles.length})`,
+        icon: <Key className="h-4 w-4 text-pink-400" />,
+        content: (
+          <div className="space-y-3">
+            {architecture.iamRoles.map((role) => (
+              <div key={role.id} data-role-id={role.id}>
+                <IAMRoleNode
+                  role={role}
+                  isHighlighted={hoveredId === role.id}
+                  onHover={setHoveredId}
+                  onClick={() => onOpenService({ id: role.id, name: role.name, type: "IAMRole" })}
+                />
+              </div>
+            ))}
+          </div>
+        ),
+      })
+    }
+
+    if (architecture.resources.length > 0) {
+      items.push({
+        key: "api-calls",
+        title: `API Calls (${architecture.resources.length})`,
+        icon: <Zap className="h-4 w-4 text-lime-400" />,
+        content: (
+          <div className="space-y-3">
+            {architecture.resources.map((resource) => {
+              const resourceType = resource.instanceId || resource.type
+              return (
+                <ApiCallNode
+                  key={`api-${resource.id}`}
+                  resource={resource}
+                  isObserved={details.path_summary.evidence_type === "observed"}
+                  onClick={
+                    isS3Type(resourceType)
+                      ? () => onOpenService({ id: resource.id, name: resource.name, type: resourceType })
+                      : undefined
+                  }
+                />
+              )
+            })}
+          </div>
+        ),
+      })
+
+      items.push({
+        key: "resources",
+        title: `Resources (${architecture.resources.length})`,
+        icon: <Database className="h-4 w-4 text-purple-400" />,
+        content: (
+          <div className="space-y-3">
+            {architecture.resources.map((node, index) => {
+              const isTarget = index === architecture.resources.length - 1
+              const resourceType = node.instanceId || node.type
+              return (
+                <div key={node.id} data-resource-id={node.id} className="relative">
+                  {isTarget && (
+                    <div className="absolute -top-2 -right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 shadow-lg animate-pulse">
+                      <Crown className="h-3.5 w-3.5 text-white" />
+                    </div>
+                  )}
+                  <ServiceNodeBox
+                    node={node}
+                    position="right"
+                    flowInfo={resourceFlowInfo.get(node.id)}
+                    isHighlighted={hoveredId === node.id}
+                    onHover={setHoveredId}
+                    onClick={
+                      isS3Type(resourceType)
+                        ? () => onOpenService({ id: node.id, name: node.name, type: resourceType })
+                        : undefined
+                    }
+                  />
+                </div>
+              )
+            })}
+          </div>
+        ),
+      })
+    }
+
+    return items
+  }, [
+    architecture.computeServices,
+    architecture.iamRoles,
+    architecture.nacls,
+    architecture.resources,
+    architecture.securityGroups,
+    computeFlowInfo,
+    details.path_summary.evidence_type,
+    hoveredId,
+    onOpenService,
+    resourceFlowInfo,
+  ])
+
   return (
     <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
       <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
@@ -495,7 +667,7 @@ function PathScopedArchitecture({
           </div>
         </div>
 
-        <div ref={containerRef} className="relative mt-6 min-h-[340px] overflow-hidden">
+        <div ref={containerRef} className="relative mt-6 min-h-[320px] overflow-hidden">
           <ConnectionLinesSVG
             architecture={architecture}
             hoveredId={hoveredId}
@@ -506,185 +678,46 @@ function PathScopedArchitecture({
             ghostedNodeIds={new Set<string>()}
           />
 
-          <div className="relative grid grid-cols-6 gap-3 items-start xl:gap-4" style={{ zIndex: 2 }}>
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <Server className="h-4 w-4 text-blue-400" />
-                Compute ({architecture.computeServices.length})
-              </div>
-              <div className="space-y-3">
-                {architecture.computeServices.map((node) => (
-                  <div key={node.id} data-compute-id={node.id} className="relative">
-                    <ServiceNodeBox
-                      node={node}
-                      position="left"
-                      flowInfo={computeFlowInfo.get(node.id)}
-                      isHighlighted={hoveredId === node.id}
-                      onHover={setHoveredId}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <Shield className="h-4 w-4 text-orange-400" />
-                Security Groups ({architecture.securityGroups.length})
-              </div>
-              {architecture.securityGroups.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-center text-xs text-slate-500">
-                  No SG on this path
+          <div
+            className="relative grid gap-3 items-start xl:gap-4"
+            style={{ zIndex: 2, gridTemplateColumns: `repeat(${lanes.length}, minmax(0, 1fr))` }}
+          >
+            {lanes.map((lane) => (
+              <div key={lane.key} className="min-w-0">
+                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  {lane.icon}
+                  {lane.title}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {architecture.securityGroups.map((sg) => (
-                    <div key={sg.id} data-sg-id={sg.id}>
-                      <SecurityGroupPanel
-                        sg={sg}
-                        isExpanded={false}
-                        onToggle={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
-                        isHighlighted={hoveredId === sg.id}
-                        onHover={setHoveredId}
-                        onDetails={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <Lock className="h-4 w-4 text-cyan-400" />
-                NACLs ({architecture.nacls.length})
+                {lane.content}
               </div>
-              {architecture.nacls.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-center text-xs text-slate-500">
-                  No NACL on this path
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {architecture.nacls.map((nacl) => (
-                    <div key={nacl.id} data-nacl-id={nacl.id}>
-                      <NACLNode
-                        nacl={nacl}
-                        isHighlighted={hoveredId === nacl.id}
-                        onHover={setHoveredId}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <Key className="h-4 w-4 text-pink-400" />
-                IAM Roles ({architecture.iamRoles.length})
-              </div>
-              {architecture.iamRoles.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-5 text-center text-xs text-slate-500">
-                  No IAM role on this path
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {architecture.iamRoles.map((role) => (
-                    <div key={role.id} data-role-id={role.id}>
-                      <IAMRoleNode
-                        role={role}
-                        isHighlighted={hoveredId === role.id}
-                        onHover={setHoveredId}
-                        onClick={() => onOpenService({ id: role.id, name: role.name, type: "IAMRole" })}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <Zap className="h-4 w-4 text-lime-400" />
-                API Calls ({architecture.resources.length})
-              </div>
-              <div className="space-y-3">
-                {architecture.resources.map((resource) => {
-                  const resourceType = resource.instanceId || resource.type
-                  return (
-                    <ApiCallNode
-                      key={`api-${resource.id}`}
-                      resource={resource}
-                      isObserved={details.path_summary.evidence_type === "observed"}
-                      onClick={
-                        isS3Type(resourceType)
-                          ? () => onOpenService({ id: resource.id, name: resource.name, type: resourceType })
-                          : undefined
-                      }
-                    />
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <Database className="h-4 w-4 text-purple-400" />
-                Resources ({architecture.resources.length})
-              </div>
-              <div className="space-y-3">
-                {architecture.resources.map((node, index) => {
-                  const isTarget = index === architecture.resources.length - 1
-                  const resourceType = node.instanceId || node.type
-                  return (
-                    <div key={node.id} data-resource-id={node.id} className="relative">
-                      {isTarget && (
-                        <div className="absolute -top-2 -right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 shadow-lg animate-pulse">
-                          <Crown className="h-3.5 w-3.5 text-white" />
-                        </div>
-                      )}
-                      <ServiceNodeBox
-                        node={node}
-                        position="right"
-                        flowInfo={resourceFlowInfo.get(node.id)}
-                        isHighlighted={hoveredId === node.id}
-                        onHover={setHoveredId}
-                        onClick={
-                          isS3Type(resourceType)
-                            ? () => onOpenService({ id: node.id, name: node.name, type: resourceType })
-                            : undefined
-                        }
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
         <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="rounded-[22px] border border-slate-800 bg-slate-950/70 p-5">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Path Summary</div>
-            <div className="mt-4 grid gap-4 md:grid-cols-4">
+            <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Entry</div>
-                <div className="mt-1 text-sm font-semibold text-white">{entry}</div>
+                <div className="mt-1 text-sm font-semibold text-white break-all">{entry}</div>
               </div>
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Identity</div>
-                <div className="mt-1 text-sm font-semibold text-fuchsia-200">{identity}</div>
+                <div className="mt-1 text-sm font-semibold text-fuchsia-200 break-all">{identity}</div>
               </div>
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Crown Jewel</div>
-                <div className="mt-1 text-sm font-semibold text-emerald-200">{target}</div>
+                <div className="mt-1 text-sm font-semibold text-emerald-200 break-all">{target}</div>
               </div>
               <div>
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Why This Matters</div>
-                <div className="mt-1 text-sm text-slate-300">
-                  {identity} can reach {target} through this exact route.
-                </div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Route</div>
+                <div className="mt-1 text-sm text-slate-300">{pathType} • {details.path_summary.path_length} hops</div>
               </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+              <span className="font-semibold text-white">Why this route matters:</span>{" "}
+              {identity} can reach {target} through this exact observed route.
             </div>
           </div>
 
