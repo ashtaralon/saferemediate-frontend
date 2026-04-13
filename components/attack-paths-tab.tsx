@@ -401,9 +401,6 @@ function PathScopedArchitecture({
   const architecture = useMemo(() => buildPathArchitecture(details), [details])
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const entry = formatName(details.path_summary.source.name)
-  const identity = getPrimaryIdentity(details)
-  const target = formatName(details.path_summary.target.name)
   const pathType = getPathType(details)
   const entryTypeLabel = details.path_summary.source.type || "Entry"
 
@@ -595,9 +592,9 @@ function PathScopedArchitecture({
       <div className="rounded-[24px] border border-slate-800 bg-slate-950/70 p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="text-sm text-slate-300">
-            <span className="font-semibold text-white">{entry}</span>
+            <span className="font-semibold text-white">{formatName(details.path_summary.source.name)}</span>
             <span className="mx-2 text-slate-600">→</span>
-            <span className="font-semibold text-white">{target}</span>
+            <span className="font-semibold text-white">{formatName(details.path_summary.target.name)}</span>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <div className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
@@ -633,48 +630,6 @@ function PathScopedArchitecture({
                 {lane.content}
               </div>
             ))}
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="rounded-[22px] border border-slate-800 bg-slate-950/70 p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Path Summary</div>
-            <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Entry</div>
-                <div className="mt-1 text-sm font-semibold text-white break-words">{entry}</div>
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Identity</div>
-                <div className="mt-1 text-sm font-semibold text-fuchsia-200 break-words">{identity}</div>
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Crown Jewel</div>
-                <div className="mt-1 text-sm font-semibold text-emerald-200 break-words">{target}</div>
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Route</div>
-                <div className="mt-1 text-sm text-slate-300">{pathType} • {details.path_summary.path_length} hops</div>
-              </div>
-            </div>
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
-              <span className="font-semibold text-white">Evidence:</span>{" "}
-              {details.path_summary.evidence_type === "observed" ? "Observed" : "Configured"} • {details.path_summary.total_cves > 0 ? `${details.path_summary.total_cves} CVEs` : "No CVEs required"} • Risk {details.path_summary.risk_score}
-            </div>
-          </div>
-
-          <div className="rounded-[22px] border border-cyan-400/20 bg-cyan-500/10 p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Least Privilege</div>
-            <p className="mt-3 text-sm leading-6 text-slate-200">
-              Click an S3 bucket, security group, or IAM role on the path to open its native remediation page. Use the full path plan only when you want the chain-wide LP workflow.
-            </p>
-            <button
-              onClick={onOpenWholePlan}
-              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-900"
-            >
-              <Zap className="h-4 w-4 text-cyan-300" />
-              Open path LP plan
-            </button>
           </div>
         </div>
       </div>
