@@ -224,6 +224,17 @@ function mapResourceNodeType(type: string) {
   return "storage"
 }
 
+function mapEntryNodeType(type: string): ServiceNode["type"] {
+  if (/CloudTrailPrincipal|Principal/i.test(type)) return "principal"
+  if (/IAMRole|Role/i.test(type)) return "iam_role"
+  if (/Lambda/i.test(type)) return "lambda"
+  if (/APIGateway|ApiGateway/i.test(type)) return "api_gateway"
+  if (/LoadBalancer|ALB|NLB/i.test(type)) return "load_balancer"
+  if (/Internet|External/i.test(type)) return "internet"
+  if (/EC2|Instance|Compute/i.test(type)) return "compute"
+  return "principal"
+}
+
 function buildPathContext(details: PathDetails) {
   return {
     pathType: getPathType(details),
@@ -264,7 +275,7 @@ function buildPathArchitecture(details: PathDetails): SystemArchitecture {
       id: source.id,
       name: formatName(source.name),
       shortName: shortName(source.name),
-      type: "compute",
+      type: mapEntryNodeType(source.type),
       instanceId: source.type,
     },
   ]
@@ -433,6 +444,7 @@ function PathScopedArchitecture({
   const identity = getPrimaryIdentity(details)
   const target = formatName(details.path_summary.target.name)
   const pathType = getPathType(details)
+  const entryTypeLabel = details.path_summary.source.type || "Entry"
 
   const computeFlowInfo = useMemo(() => {
     const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
@@ -459,8 +471,8 @@ function PathScopedArchitecture({
     }> = [
       {
         key: "compute",
-        title: `Compute (${architecture.computeServices.length})`,
-        icon: <Server className="h-4 w-4 text-blue-400" />,
+        title: `${entryTypeLabel} (${architecture.computeServices.length})`,
+        icon: <Target className="h-4 w-4 text-cyan-300" />,
         content: (
           <div className="space-y-3">
             {architecture.computeServices.map((node) => (

@@ -12,7 +12,7 @@ import { ExportControls } from './export-controls';
 // ============================================
 // TYPES
 // ============================================
-export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'security_group' | 'nacl' | 'network' | 'api_call';
+export type NodeType = 'internet' | 'compute' | 'database' | 'storage' | 'lambda' | 'api_gateway' | 'load_balancer' | 'dynamodb' | 'sqs' | 'sns' | 'iam_role' | 'security_group' | 'nacl' | 'network' | 'api_call' | 'principal';
 
 export interface ServiceNode {
   id: string;
@@ -122,6 +122,7 @@ const NODE_CONFIG: Record<NodeType, { icon: typeof Globe; color: string; bg: str
   nacl: { icon: Lock, color: 'text-cyan-400', bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'NACL' },
   api_call: { icon: Zap, color: 'text-lime-400', bg: 'bg-lime-500/20', border: 'border-lime-500/50', text: 'API' },
   network: { icon: Network, color: 'text-slate-400', bg: 'bg-slate-500/20', border: 'border-slate-500/50', text: 'Network' },
+  principal: { icon: Target, color: 'text-cyan-300', bg: 'bg-cyan-500/20', border: 'border-cyan-400/50', text: 'Principal' },
 };
 
 // ============================================
