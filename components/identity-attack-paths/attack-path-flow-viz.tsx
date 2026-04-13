@@ -36,7 +36,8 @@ function getNodeIcon(type: string): string {
   return "•"
 }
 
-function getDisplayName(name: string): { line1: string; line2?: string } {
+function getDisplayName(name: string | null | undefined): { line1: string; line2?: string } {
+  if (!name) return { line1: "Unknown" }
   if (name.length <= 24) return { line1: name }
   const breakPoints = ["-", "_", ".", "/"]
   const target = Math.floor(name.length / 2)
@@ -212,7 +213,7 @@ const AnimatedEdge: React.FC<{
         <g transform={`translate(${midX}, ${midY})`}>
           <rect x="-40" y="-10" width="80" height="20" rx="6" fill="rgba(15, 23, 42, 0.95)" stroke={baseColor} strokeWidth={1} opacity={opacity} />
           <text textAnchor="middle" dy="4" fill={isObserved ? "#22c55e" : "#94a3b8"} fontSize="9" fontWeight="600">
-            {edge.label.length > 14 ? edge.label.slice(0, 12) + ".." : edge.label}
+            {(edge.label?.length || 0) > 14 ? edge.label.slice(0, 12) + ".." : edge.label}
           </text>
         </g>
       )}

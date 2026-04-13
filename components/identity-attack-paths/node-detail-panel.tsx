@@ -85,7 +85,7 @@ export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
 
           {/* Port info */}
           <div className="space-y-2">
-            {alert.open_ports.length > 0 && (
+            {alert.open_ports?.length > 0 && (
               <div className="flex items-start gap-2">
                 <XCircle className="w-3 h-3 text-red-400 mt-0.5 flex-shrink-0" />
                 <div>
@@ -98,7 +98,7 @@ export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
                 </div>
               </div>
             )}
-            {alert.observed_ports.length > 0 && (
+            {alert.observed_ports?.length > 0 && (
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
                 <div>
@@ -111,7 +111,7 @@ export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
                 </div>
               </div>
             )}
-            {alert.recommended_ports.length > 0 && (
+            {alert.recommended_ports?.length > 0 && (
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="w-3 h-3 text-green-400 mt-0.5 flex-shrink-0" />
                 <div>
@@ -180,7 +180,7 @@ export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
       </div>
 
       {/* Remediation */}
-      {remediation && remediation.actions.length > 0 && (
+      {remediation && remediation.actions && remediation.actions.length > 0 && (
         <div className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <Shield className="w-4 h-4 text-blue-400" />

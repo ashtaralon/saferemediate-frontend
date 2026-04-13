@@ -33,7 +33,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       const json: IdentityAttackPathsResponse = await res.json()
       if (json.error) throw new Error(json.error)
       setData(json)
-      if (json.crown_jewels.length > 0 && !selectedJewelId) {
+      if (json.crown_jewels?.length > 0 && !selectedJewelId) {
         setSelectedJewelId(json.crown_jewels[0].id)
       }
     } catch (e: any) {
