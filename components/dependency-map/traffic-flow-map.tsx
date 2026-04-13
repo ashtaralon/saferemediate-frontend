@@ -3329,8 +3329,10 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
       const res = await fetch(`/api/proxy/attack-paths/${systemName}`);
       if (res.ok) {
         const data = await res.json();
-        setAttackPaths(data.paths || []);
-        console.log(`[TrafficFlowMap] Loaded ${data.paths?.length || 0} attack paths`);
+        const allPaths = data.paths || [];
+        const vulnerabilityPaths = allPaths.filter((path: AttackPath) => path.total_cves > 0);
+        setAttackPaths(vulnerabilityPaths);
+        console.log(`[TrafficFlowMap] Loaded ${vulnerabilityPaths.length || 0} CVE attack paths (from ${allPaths.length || 0} total paths)`);
       }
     } catch (err) {
       console.error('[TrafficFlowMap] Failed to load attack paths:', err);
@@ -3471,7 +3473,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                 ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse'
                 : 'bg-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-500/10'
             }`}
-            title="Show attack paths to crown jewels, including identity-based routes"
+            title="Show CVE-driven attack paths to crown jewels"
           >
             {loadingAttackPaths ? (
               <RefreshCw className="w-3 h-3 animate-spin" />
@@ -3666,9 +3668,9 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                     <Shield className="w-5 h-5 text-green-400" />
                   </div>
                   <div className="text-center">
-                    <div className="text-slate-300 text-xs font-medium mb-1">No Attack Paths Found</div>
+                    <div className="text-slate-300 text-xs font-medium mb-1">No CVE Attack Paths Found</div>
                     <div className="text-slate-500 text-[10px] leading-relaxed">
-                      No current routes to crown jewels were detected from workload, identity, or public entry points. You can still inject CVE test data to simulate vulnerability-driven paths.
+                      No current CVE-driven routes to crown jewels were detected. You can still inject CVE test data to simulate vulnerability-based paths.
                     </div>
                   </div>
                   <button
@@ -3695,7 +3697,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                   <div className="grid grid-cols-3 gap-2 mb-4">
                     <div className="bg-red-500/20 rounded-lg p-2 text-center">
                       <div className="text-red-400 text-xl font-bold">{attackPaths.length}</div>
-                      <div className="text-[10px] text-slate-400">Total</div>
+                      <div className="text-[10px] text-slate-400">CVE Paths</div>
                     </div>
                     <div className="bg-orange-500/20 rounded-lg p-2 text-center">
                       <div className="text-orange-400 text-xl font-bold">
@@ -3712,7 +3714,7 @@ export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemNam
                   </div>
 
                   {/* Path List */}
-                  <div className="text-[10px] text-slate-500 uppercase mb-2 font-medium">Crown Jewel Paths</div>
+                  <div className="text-[10px] text-slate-500 uppercase mb-2 font-medium">Vulnerability Paths</div>
                   <div className="space-y-2">
                     {attackPaths.slice(0, 8).map((path) => (
                       <div
