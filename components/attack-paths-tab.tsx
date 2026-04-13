@@ -759,6 +759,8 @@ function OperationalRouteArchitecture({
     return null
   }
 
+  const operationalSteps = activeRoute.steps
+
   const renderOperationalStep = (step: OperationalRouteStep, index: number) => {
     if (step.kind === "action") {
       const actionNode: ServiceNode = {
@@ -900,7 +902,7 @@ function OperationalRouteArchitecture({
             </span>
           )}
           <span className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm font-medium text-slate-200">
-            {activeRoute.steps.length} steps
+            {operationalSteps.length} steps
           </span>
         </div>
       </div>
@@ -937,8 +939,8 @@ function OperationalRouteArchitecture({
 
         <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
           <div className="mx-auto flex min-w-full justify-center">
-            <div className="inline-flex items-start gap-4">
-              {activeRoute.steps.map((step, index) => (
+            <div className="inline-flex items-start gap-5">
+              {operationalSteps.map((step, index) => (
                 <div key={`${step.kind}-${index}`} className="flex items-start gap-4">
                   <div className="space-y-2">
                     <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -946,10 +948,16 @@ function OperationalRouteArchitecture({
                     </div>
                     {renderOperationalStep(step, index)}
                   </div>
-                  {index < activeRoute.steps.length - 1 && (
-                    <div className="flex items-center justify-center self-center pt-6 text-cyan-300">
-                      <div className="h-[2px] w-10 bg-cyan-400/60" />
-                      <Target className="mx-1 h-4 w-4" />
+                  {index < operationalSteps.length - 1 && (
+                    <div className="flex min-w-[88px] items-center justify-center self-center pt-6">
+                      <div className="operational-flow-link relative h-8 w-full">
+                        <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-slate-700/80" />
+                        <div className="operational-flow-link__beam absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full" />
+                        <div className="operational-flow-link__pulse absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-cyan-200/80 bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.85)]" />
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 rounded-full border border-cyan-400/20 bg-slate-950/90 p-1 text-cyan-300">
+                          <Target className="h-3.5 w-3.5" />
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -958,6 +966,51 @@ function OperationalRouteArchitecture({
           </div>
         </div>
       </div>
+
+      <style jsx>{`
+        .operational-flow-link__beam {
+          background: linear-gradient(
+            90deg,
+            rgba(34, 211, 238, 0.15) 0%,
+            rgba(34, 211, 238, 0.85) 35%,
+            rgba(110, 231, 183, 0.9) 65%,
+            rgba(34, 211, 238, 0.15) 100%
+          );
+          background-size: 200% 100%;
+          animation: operational-beam 2.2s linear infinite;
+        }
+
+        .operational-flow-link__pulse {
+          left: 0;
+          animation: operational-pulse 2.2s linear infinite;
+        }
+
+        @keyframes operational-beam {
+          0% {
+            background-position: 200% 0;
+          }
+          100% {
+            background-position: -200% 0;
+          }
+        }
+
+        @keyframes operational-pulse {
+          0% {
+            left: 0;
+            opacity: 0.25;
+            transform: translateY(-50%) scale(0.82);
+          }
+          12% {
+            opacity: 1;
+            transform: translateY(-50%) scale(1);
+          }
+          100% {
+            left: calc(100% - 14px);
+            opacity: 0.95;
+            transform: translateY(-50%) scale(0.92);
+          }
+        }
+      `}</style>
     </div>
   )
 }
