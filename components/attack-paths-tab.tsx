@@ -134,6 +134,34 @@ type PathDetails = {
     breach_impact: string
   }
   path_nodes: PathNodeDetails[]
+  operational_route?: {
+    available: boolean
+    route_type: string
+    reason?: string
+    observed?: boolean
+    source?: { id: string; name: string; type: string } | null
+    target?: { id: string; name: string; type: string }
+    steps: Array<
+      | {
+          kind: "node"
+          lane: string
+          id: string
+          name: string
+          type: string
+          category?: string
+          internet_exposed?: boolean
+        }
+      | {
+          kind: "action"
+          lane: string
+          edge_type: string
+          name: string
+          action?: string | null
+          protocol?: string | null
+          observed?: boolean
+        }
+    >
+  }
 }
 
 const CROWN_JEWEL_TYPES = new Set(["S3Bucket", "S3", "DynamoDBTable", "DynamoDB", "RDS", "RDSInstance", "Aurora"])
@@ -250,6 +278,14 @@ function mapEntryNodeType(type: string): ServiceNode["type"] {
   if (/Internet|External/i.test(type)) return "internet"
   if (/EC2|Instance|Compute/i.test(type)) return "compute"
   return "principal"
+}
+
+function mapAnyNodeType(type: string): ServiceNode["type"] {
+  if (isIdentityType(type)) return "iam_role"
+  if (isSecurityGroupType(type)) return "security_group"
+  if (isNaclType(type)) return "nacl"
+  if (isDataType(type)) return mapResourceNodeType(type)
+  return mapEntryNodeType(type)
 }
 
 function buildPathContext(details: PathDetails) {
@@ -411,11 +447,9 @@ function buildPathArchitecture(details: PathDetails): SystemArchitecture {
 function PathScopedArchitecture({
   details,
   onOpenService,
-  onOpenWholePlan,
 }: {
   details: PathDetails
   onOpenService: (node: PathServiceTarget) => void
-  onOpenWholePlan: () => void
 }) {
   const architecture = useMemo(() => buildPathArchitecture(details), [details])
   const containerRef = useRef<HTMLDivElement>(null)
@@ -647,6 +681,196 @@ function PathScopedArchitecture({
                   {lane.title}
                 </div>
                 {lane.content}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OperationalRoutePanel({
+  details,
+  onOpenService,
+}: {
+  details: PathDetails
+  onOpenService: (node: PathServiceTarget) => void
+}) {
+  const route = details.operational_route
+
+  if (!route?.available || !route.steps?.length) {
+    return null
+  }
+
+  const renderStep = (step: NonNullable<PathDetails["operational_route"]>["steps"][number], index: number) => {
+    if (step.kind === "action") {
+      const actionNode: ServiceNode = {
+        id: `action-${index}-${step.name}`,
+        name: step.name,
+        shortName: shortName(step.name, 16),
+        type: "api_call",
+        instanceId: step.action || step.protocol || step.edge_type,
+      }
+
+      return (
+        <div key={`action-${index}`} className="min-w-[180px] max-w-[220px]">
+          <ServiceNodeBox
+            node={actionNode}
+            position="right"
+            isHighlighted={false}
+            onHover={() => {}}
+          />
+        </div>
+      )
+    }
+
+    const nodeType = mapAnyNodeType(step.type)
+
+    if (nodeType === "security_group") {
+      const sg: SecurityCheckpoint = {
+        id: step.id,
+        type: "security_group",
+        name: formatName(step.name),
+        shortName: shortName(step.name),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+        rules: [],
+      }
+
+      return (
+        <div key={step.id} className="min-w-[220px] max-w-[260px]">
+          <SecurityGroupPanel
+            sg={sg}
+            isExpanded={false}
+            onToggle={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
+            isHighlighted={false}
+            onHover={() => {}}
+            onDetails={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
+          />
+        </div>
+      )
+    }
+
+    if (nodeType === "nacl") {
+      const nacl: SecurityCheckpoint = {
+        id: step.id,
+        type: "nacl",
+        name: formatName(step.name),
+        shortName: shortName(step.name),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      }
+
+      return (
+        <div key={step.id} className="min-w-[180px] max-w-[220px]">
+          <NACLNode
+            nacl={nacl}
+            isHighlighted={false}
+            onHover={() => {}}
+          />
+        </div>
+      )
+    }
+
+    if (nodeType === "iam_role") {
+      const role: SecurityCheckpoint = {
+        id: step.id,
+        type: "iam_role",
+        name: formatName(step.name),
+        shortName: shortName(step.name),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      }
+
+      return (
+        <div key={step.id} className="min-w-[220px] max-w-[260px]">
+          <IAMRoleNode
+            role={role}
+            isHighlighted={false}
+            onHover={() => {}}
+            onClick={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
+          />
+        </div>
+      )
+    }
+
+    const node: ServiceNode = {
+      id: step.id,
+      name: formatName(step.name),
+      shortName: shortName(step.name),
+      type: nodeType,
+      instanceId: step.type,
+    }
+
+    const clickable = isS3Type(step.type)
+    return (
+      <div key={step.id} className="min-w-[220px] max-w-[260px]">
+        <ServiceNodeBox
+          node={node}
+          position={index === 0 ? "left" : "right"}
+          isHighlighted={false}
+          onHover={() => {}}
+          onClick={clickable ? () => onOpenService({ id: step.id, name: step.name, type: step.type }) : undefined}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
+      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
+              <Zap className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-bold text-white">Operational Access Path</h3>
+              <p className="mt-1 text-sm text-slate-400">Observed service flow to the same crown jewel, kept separate from the attack route.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {route.observed && (
+            <span className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
+              Observed Service Flow
+            </span>
+          )}
+          <span className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm font-medium text-slate-200">
+            {route.steps.length} steps
+          </span>
+        </div>
+      </div>
+
+      <div className="rounded-[24px] border border-slate-800 bg-slate-950/70 p-5">
+        <div className="text-sm text-slate-300">
+          <span className="font-semibold text-white">{formatName(route.source?.name || details.path_summary.source.name)}</span>
+          <span className="mx-2 text-slate-600">→</span>
+          <span className="font-semibold text-white">{formatName(route.target?.name || details.path_summary.target.name)}</span>
+        </div>
+
+        <div className="mt-6 overflow-x-auto">
+          <div className="flex min-w-max items-center gap-4 pb-2">
+            {route.steps.map((step, index) => (
+              <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
+                {renderStep(step, index)}
+                {index < route.steps.length - 1 && (
+                  <div className="flex items-center justify-center text-cyan-300">
+                    <div className="h-[2px] w-10 bg-cyan-400/60" />
+                    <Target className="mx-1 h-4 w-4" />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -919,14 +1143,16 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
             )}
 
             {!detailsLoading && !detailsError && selectedDetails && (
-              <PathScopedArchitecture
-                details={selectedDetails}
-                onOpenService={openNativeRemediation}
-                onOpenWholePlan={() => {
-                  setSelectedService({ id: null, name: selectedDetails.path_summary.target.name })
-                  setShowSimulation(true)
-                }}
-              />
+              <>
+                <PathScopedArchitecture
+                  details={selectedDetails}
+                  onOpenService={openNativeRemediation}
+                />
+                <OperationalRoutePanel
+                  details={selectedDetails}
+                  onOpenService={openNativeRemediation}
+                />
+              </>
             )}
           </div>
         </div>
