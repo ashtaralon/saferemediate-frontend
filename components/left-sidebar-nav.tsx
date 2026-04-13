@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield } from "lucide-react"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route } from "lucide-react"
 
 interface LeftSidebarNavProps {
   activeItem?: string
@@ -14,6 +14,7 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
     { id: "home", label: "Home", icon: Home },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount },
     { id: "least-privilege", label: "Least Privilege", icon: Shield },
+    { id: "attack-paths", label: "Attack Paths", icon: Route },
     { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
     { id: "systems", label: "Systems", icon: Server },
     { id: "compliance", label: "Compliance", icon: Grid3x3 },

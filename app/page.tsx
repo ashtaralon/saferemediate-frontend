@@ -17,6 +17,7 @@ import { PerResourceAnalysis } from "@/components/per-resource-analysis"
 import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
 import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
+import { IdentityAttackPaths } from "@/components/identity-attack-paths/identity-attack-paths"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
 import { SystemDetailDashboard } from "@/components/system-detail-dashboard"
@@ -817,6 +818,9 @@ export default function HomePage() {
 
       case "least-privilege":
         return <LeastPrivilegeTab systemName={selectedSystem} />
+
+      case "attack-paths":
+        return <IdentityAttackPaths systemName={selectedSystem || "alon-prod"} />
 
       case "vulnerabilities":
         return <BehavioralVulnerabilitiesView systemName={selectedSystem} />
