@@ -971,12 +971,14 @@ function OperationalRouteArchitecture({
                     {renderOperationalStep(step, index)}
                   </div>
                   {index < operationalSteps.length - 1 && (
-                    <div className="flex min-w-[88px] items-center justify-center self-center pt-6">
-                      <div className="operational-flow-link relative h-8 w-full">
-                        <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-slate-700/80" />
-                        <div className="operational-flow-link__beam absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full" />
-                        <div className="operational-flow-link__pulse absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-cyan-200/80 bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.85)]" />
-                        <div className="absolute right-0 top-1/2 -translate-y-1/2 rounded-full border border-cyan-400/20 bg-slate-950/90 p-1 text-cyan-300">
+                    <div className="flex min-w-[112px] items-center justify-center self-center pt-6">
+                      <div className="operational-flow-link relative h-10 w-full">
+                        <div className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-slate-700/80" />
+                        <div className="operational-flow-link__glow absolute left-0 right-0 top-1/2 h-[10px] -translate-y-1/2 rounded-full" />
+                        <div className="operational-flow-link__beam absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full" />
+                        <div className="operational-flow-link__pulse absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border border-cyan-100/90 bg-cyan-300 shadow-[0_0_22px_rgba(34,211,238,0.95)]" />
+                        <div className="operational-flow-link__pulse operational-flow-link__pulse--alt absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-emerald-100/80 bg-emerald-300 shadow-[0_0_18px_rgba(110,231,183,0.9)]" />
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 rounded-full border border-cyan-400/20 bg-slate-950/90 p-1 text-cyan-300 shadow-[0_0_14px_rgba(34,211,238,0.35)]">
                           <Target className="h-3.5 w-3.5" />
                         </div>
                       </div>
@@ -990,46 +992,71 @@ function OperationalRouteArchitecture({
       </div>
 
       <style jsx>{`
+        .operational-flow-link__glow {
+          background: linear-gradient(
+            90deg,
+            rgba(34, 211, 238, 0.05) 0%,
+            rgba(34, 211, 238, 0.22) 30%,
+            rgba(110, 231, 183, 0.3) 55%,
+            rgba(34, 211, 238, 0.05) 100%
+          );
+          filter: blur(7px);
+          animation: operational-glow 1.8s ease-in-out infinite alternate;
+        }
+
         .operational-flow-link__beam {
           background: linear-gradient(
             90deg,
-            rgba(34, 211, 238, 0.15) 0%,
-            rgba(34, 211, 238, 0.85) 35%,
-            rgba(110, 231, 183, 0.9) 65%,
-            rgba(34, 211, 238, 0.15) 100%
+            rgba(34, 211, 238, 0.05) 0%,
+            rgba(34, 211, 238, 0.9) 30%,
+            rgba(110, 231, 183, 0.98) 55%,
+            rgba(34, 211, 238, 0.05) 100%
           );
-          background-size: 200% 100%;
-          animation: operational-beam 2.2s linear infinite;
+          background-size: 220% 100%;
+          animation: operational-beam 1.4s linear infinite;
         }
 
         .operational-flow-link__pulse {
           left: 0;
-          animation: operational-pulse 2.2s linear infinite;
+          animation: operational-pulse 1.4s linear infinite;
+        }
+
+        .operational-flow-link__pulse--alt {
+          animation-delay: 0.55s;
         }
 
         @keyframes operational-beam {
           0% {
-            background-position: 200% 0;
+            background-position: 220% 0;
           }
           100% {
-            background-position: -200% 0;
+            background-position: -220% 0;
+          }
+        }
+
+        @keyframes operational-glow {
+          0% {
+            opacity: 0.35;
+          }
+          100% {
+            opacity: 0.95;
           }
         }
 
         @keyframes operational-pulse {
           0% {
             left: 0;
-            opacity: 0.25;
-            transform: translateY(-50%) scale(0.82);
+            opacity: 0.2;
+            transform: translateY(-50%) scale(0.75);
           }
-          12% {
+          10% {
             opacity: 1;
-            transform: translateY(-50%) scale(1);
+            transform: translateY(-50%) scale(1.05);
           }
           100% {
             left: calc(100% - 14px);
-            opacity: 0.95;
-            transform: translateY(-50%) scale(0.92);
+            opacity: 0.9;
+            transform: translateY(-50%) scale(0.86);
           }
         }
       `}</style>
