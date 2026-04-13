@@ -7,6 +7,8 @@ import {
   Key,
   Loader2,
   Lock,
+  Maximize2,
+  Minimize2,
   Shield,
   Target,
   Zap,
@@ -749,11 +751,19 @@ function OperationalRouteArchitecture({
   const route = details.operational_route
   const routes = route?.routes?.length ? route.routes : route ? [route] : []
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
+  const [isExpanded, setIsExpanded] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const activeRoute = routes[selectedRouteIndex] || routes[0]
 
   useEffect(() => {
     setSelectedRouteIndex(0)
   }, [details.path_id, routes.length])
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    container.scrollTo({ left: 0, behavior: "smooth" })
+  }, [details.path_id, selectedRouteIndex, isExpanded])
 
   if (!activeRoute?.available || !activeRoute.steps?.length) {
     return null
@@ -881,7 +891,11 @@ function OperationalRouteArchitecture({
   }
 
   return (
-    <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
+    <div
+      className={`rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)] ${
+        isExpanded ? "fixed inset-4 z-50 overflow-y-auto" : ""
+      }`}
+    >
       <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3">
@@ -896,6 +910,14 @@ function OperationalRouteArchitecture({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsExpanded((current) => !current)}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-900"
+          >
+            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {isExpanded ? "Close" : "Expand"}
+          </button>
           {activeRoute.observed && (
             <span className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
               Observed Service Flow
@@ -937,7 +959,7 @@ function OperationalRouteArchitecture({
           </div>
         </div>
 
-        <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
+        <div ref={scrollRef} className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
           <div className="mx-auto flex min-w-full justify-center">
             <div className="inline-flex items-start gap-5">
               {operationalSteps.map((step, index) => (
@@ -1022,14 +1044,26 @@ function SelectedAttackPathStaticPanel({
   details: PathDetails
   onOpenService: (node: PathServiceTarget) => void
 }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const staticSteps = details.path_nodes.map((node) => ({
     id: node.id,
     name: node.name,
     type: node.type,
   }))
 
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    container.scrollTo({ left: 0, behavior: "smooth" })
+  }, [details.path_id, isExpanded])
+
   return (
-    <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
+    <div
+      className={`rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)] ${
+        isExpanded ? "fixed inset-4 z-50 overflow-y-auto" : ""
+      }`}
+    >
       <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-3">
@@ -1044,6 +1078,14 @@ function SelectedAttackPathStaticPanel({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsExpanded((current) => !current)}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-900"
+          >
+            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {isExpanded ? "Close" : "Expand"}
+          </button>
           <span className="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200">
             {getPathType(details)}
           </span>
@@ -1063,7 +1105,7 @@ function SelectedAttackPathStaticPanel({
           <span className="font-semibold text-white">{formatName(details.path_summary.target.name)}</span>
         </div>
 
-        <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
+        <div ref={scrollRef} className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
           <div className="mx-auto flex min-w-full justify-center">
             <div className="inline-flex items-center gap-4">
               {staticSteps.map((step, index) => {
