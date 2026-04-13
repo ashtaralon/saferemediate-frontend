@@ -855,14 +855,23 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
         const res = await fetch(`/api/proxy/attack-paths/${systemName}`)
         if (!res.ok) return
         const data = await res.json()
-        setAttackPaths(data.paths || [])
+        const vulnerabilityPaths = (data.paths || []).filter(
+          (path: AttackPathListItem) => Number(path.total_cves || 0) > 0
+        )
+        setAttackPaths(vulnerabilityPaths)
+        if (
+          vulnerabilityPaths.length > 0 &&
+          !vulnerabilityPaths.some((path: AttackPathListItem) => path.id === currentPathId)
+        ) {
+          setCurrentPathId(vulnerabilityPaths[0].id)
+        }
       } catch (err) {
         console.error("Error fetching attack paths:", err)
       }
     }
 
     fetchAttackPaths()
-  }, [systemName])
+  }, [systemName, currentPathId])
 
   // Fetch risk assessment when a node is selected
   useEffect(() => {
@@ -1782,17 +1791,17 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
         <div className="bg-slate-900/60 rounded-2xl border border-slate-700 p-5">
           <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
             <div>
-              <h2 className="text-lg font-bold text-white">All Attack Paths</h2>
+              <h2 className="text-lg font-bold text-white">All CVE Attack Paths</h2>
               <p className="text-sm text-slate-400">
-                Start with the exact route to the crown jewel. Pick a path, inspect it end to end, then open any service to remediate it.
+                Start with the exact CVE-driven route to the crown jewel. Pick a path, inspect it end to end, then open any service to remediate it.
               </p>
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-sm text-slate-200">
-              {attackPaths.length || 1} paths
+              {attackPaths.length > 0 ? attackPaths.length : details.path_summary.total_cves > 0 ? 1 : 0} paths
             </div>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            {(attackPaths.length > 0 ? attackPaths : [{
+            {(attackPaths.length > 0 ? attackPaths : (details.path_summary.total_cves > 0 ? [{
               id: details.path_id,
               nodes: details.path_nodes.map((node) => ({ id: node.id, name: node.name, type: node.type, cve_count: node.cve_count })),
               risk_score: details.path_summary.risk_score,
@@ -1803,7 +1812,7 @@ export function AttackPathDetailPanel({ systemName, pathId, onClose }: AttackPat
               critical_cves: details.path_summary.critical_cves,
               evidence_type: details.path_summary.evidence_type,
               path_kind: details.path_summary.total_cves > 0 ? "hybrid" : "identity",
-            }]).map((path, index) => {
+            }] : [])).map((path, index) => {
               const entryNode = formatResourceLabel(path.nodes[0]?.name || details.path_summary.source.name)
               const targetNode = formatResourceLabel(path.target_name || details.path_summary.target.name)
               const pathLabel =
