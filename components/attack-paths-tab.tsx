@@ -281,7 +281,7 @@ function isNaclType(type: string) {
 }
 
 function isIdentityType(type: string) {
-  return /IAMRole|Role/i.test(type)
+  return /IAMRole|Role|InstanceProfile/i.test(type)
 }
 
 function isDataType(type: string) {
@@ -477,116 +477,14 @@ function buildPathArchitecture(details: PathDetails): SystemArchitecture {
   }
 }
 
-function buildOperationalArchitecture(route: OperationalRouteData): SystemArchitecture {
-  const nodeSteps = route.steps.filter((step): step is Extract<OperationalRouteStep, { kind: "node" }> => step.kind === "node")
-  const actionSteps = route.steps.filter((step): step is Extract<OperationalRouteStep, { kind: "action" }> => step.kind === "action")
-
-  const sourceStep =
-    nodeSteps.find((step) => {
-      const mapped = mapAnyNodeType(step.type)
-      return mapped === "compute" || mapped === "principal" || mapped === "lambda" || mapped === "api_gateway" || mapped === "internet" || mapped === "load_balancer"
-    }) || nodeSteps[0]
-
-  const computeServices: ServiceNode[] = sourceStep
-    ? [{
-        id: sourceStep.id,
-        name: formatName(sourceStep.name),
-        shortName: shortName(sourceStep.name),
-        type: mapAnyNodeType(sourceStep.type),
-        instanceId: sourceStep.type,
-      }]
-    : []
-
-  const securityGroups: SecurityCheckpoint[] = nodeSteps
-    .filter((step) => isSecurityGroupType(step.type))
-    .map((step) => ({
-      id: step.id,
-      type: "security_group",
-      name: formatName(step.name),
-      shortName: shortName(step.name),
-      usedCount: 0,
-      totalCount: 0,
-      gapCount: 0,
-      connectedSources: computeServices.map((node) => node.id),
-      connectedTargets: [],
-      rules: [],
-    }))
-
-  const nacls: SecurityCheckpoint[] = nodeSteps
-    .filter((step) => isNaclType(step.type))
-    .map((step) => ({
-      id: step.id,
-      type: "nacl",
-      name: formatName(step.name),
-      shortName: shortName(step.name),
-      usedCount: 0,
-      totalCount: 0,
-      gapCount: 0,
-      connectedSources: computeServices.map((node) => node.id),
-      connectedTargets: [],
-    }))
-
-  const iamRoles: SecurityCheckpoint[] = nodeSteps
-    .filter((step) => isIdentityType(step.type))
-    .map((step) => ({
-      id: step.id,
-      type: "iam_role",
-      name: formatName(step.name),
-      shortName: shortName(step.name),
-      usedCount: 0,
-      totalCount: 0,
-      gapCount: 0,
-      connectedSources: computeServices.map((node) => node.id),
-      connectedTargets: [],
-    }))
-
-  const resources: ServiceNode[] = [
-    ...actionSteps.map((step, index) => ({
-      id: `action-${index}-${step.name}`,
-      name: step.name,
-      shortName: shortName(step.name, 16),
-      type: "api_call" as const,
-      instanceId: step.action || step.protocol || step.edge_type,
-    })),
-    ...nodeSteps
-      .filter((step) => step.id !== sourceStep?.id && !isSecurityGroupType(step.type) && !isNaclType(step.type) && !isIdentityType(step.type))
-      .map((step) => ({
-        id: step.id,
-        name: formatName(step.name),
-        shortName: shortName(step.name),
-        type: mapAnyNodeType(step.type),
-        instanceId: step.type,
-      })),
-  ]
-
-  const targetId = resources[resources.length - 1]?.id
-  const sourceId = computeServices[0]?.id || iamRoles[0]?.id || resources[0]?.id
-  const flows: TrafficFlow[] = sourceId && targetId
-    ? [{
-        sourceId,
-        targetId,
-        sgId: securityGroups[0]?.id,
-        naclId: nacls[0]?.id,
-        roleId: iamRoles[0]?.id,
-        ports: [],
-        protocol: route.observed ? "observed" : "configured",
-        bytes: 0,
-        connections: 0,
-        isActive: true,
-      }]
-    : []
-
-  return {
-    computeServices,
-    resources,
-    securityGroups,
-    nacls,
-    iamRoles,
-    flows,
-    totalBytes: 0,
-    totalConnections: 0,
-    totalGaps: 0,
-  }
+function getOperationalStepLabel(step: OperationalRouteStep) {
+  if (step.kind === "action") return "API Call"
+  if (isSecurityGroupType(step.type)) return "Security Group"
+  if (isNaclType(step.type)) return "NACL"
+  if (isIdentityType(step.type)) return "IAM Role"
+  if (/EC2|Instance|Compute/i.test(step.type)) return "Compute"
+  if (isDataType(step.type)) return "Resource"
+  return step.type
 }
 
 function PathScopedArchitecture({
@@ -852,159 +750,133 @@ function OperationalRouteArchitecture({
   const routes = route?.routes?.length ? route.routes : route ? [route] : []
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
   const activeRoute = routes[selectedRouteIndex] || routes[0]
-  const architecture = useMemo(
-    () => (activeRoute?.available ? buildOperationalArchitecture(activeRoute as OperationalRouteData) : null),
-    [activeRoute]
-  )
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
 
   useEffect(() => {
     setSelectedRouteIndex(0)
   }, [details.path_id, routes.length])
 
-  if (!activeRoute?.available || !activeRoute.steps?.length || !architecture) {
+  if (!activeRoute?.available || !activeRoute.steps?.length) {
     return null
   }
 
-  const computeFlowInfo = useMemo(() => {
-    const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
-    architecture.flows.forEach((flow) => {
-      map.set(flow.sourceId, { bytes: flow.bytes, connections: flow.connections, ports: flow.ports })
-    })
-    return map
-  }, [architecture.flows])
+  const renderOperationalStep = (step: OperationalRouteStep, index: number) => {
+    if (step.kind === "action") {
+      const actionNode: ServiceNode = {
+        id: `action-${index}-${step.name}`,
+        name: step.name,
+        shortName: shortName(step.name, 16),
+        type: "api_call",
+        instanceId: step.action || step.protocol || step.edge_type,
+      }
 
-  const resourceFlowInfo = useMemo(() => {
-    const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
-    architecture.flows.forEach((flow) => {
-      map.set(flow.targetId, { bytes: flow.bytes, connections: flow.connections, ports: flow.ports })
-    })
-    return map
-  }, [architecture.flows])
-
-  const lanes = useMemo(() => {
-    const items: Array<{ key: string; title: string; icon: ReactNode; content: ReactNode }> = []
-
-    if (architecture.computeServices.length > 0) {
-      items.push({
-        key: "compute",
-        title: `Compute (${architecture.computeServices.length})`,
-        icon: <Target className="h-4 w-4 text-cyan-300" />,
-        content: (
-          <div className="space-y-3">
-            {architecture.computeServices.map((node) => (
-              <div key={node.id} data-compute-id={node.id} className="relative">
-                <ServiceNodeBox
-                  node={node}
-                  position="left"
-                  flowInfo={computeFlowInfo.get(node.id)}
-                  isHighlighted={hoveredId === node.id}
-                  onHover={setHoveredId}
-                />
-              </div>
-            ))}
-          </div>
-        ),
-      })
+      return (
+        <div key={`action-${index}`} className="min-w-[170px] max-w-[210px]">
+          <ServiceNodeBox
+            node={actionNode}
+            position="right"
+            isHighlighted={false}
+            onHover={() => {}}
+          />
+        </div>
+      )
     }
 
-    if (architecture.securityGroups.length > 0) {
-      items.push({
-        key: "security-groups",
-        title: `Security Groups (${architecture.securityGroups.length})`,
-        icon: <Shield className="h-4 w-4 text-orange-400" />,
-        content: (
-          <div className="space-y-3">
-            {architecture.securityGroups.map((sg) => (
-              <div key={sg.id} data-sg-id={sg.id}>
-                <SecurityGroupPanel
-                  sg={sg}
-                  isExpanded={false}
-                  onToggle={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
-                  isHighlighted={hoveredId === sg.id}
-                  onHover={setHoveredId}
-                  onDetails={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
-                />
-              </div>
-            ))}
-          </div>
-        ),
-      })
+    const nodeType = mapAnyNodeType(step.type)
+
+    if (nodeType === "security_group") {
+      const sg: SecurityCheckpoint = {
+        id: step.id,
+        type: "security_group",
+        name: formatName(step.name),
+        shortName: shortName(step.name),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+        rules: [],
+      }
+
+      return (
+        <div key={step.id} className="min-w-[210px] max-w-[250px]">
+          <SecurityGroupPanel
+            sg={sg}
+            isExpanded={false}
+            onToggle={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
+            isHighlighted={false}
+            onHover={() => {}}
+            onDetails={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
+          />
+        </div>
+      )
     }
 
-    if (architecture.nacls.length > 0) {
-      items.push({
-        key: "nacls",
-        title: `NACLs (${architecture.nacls.length})`,
-        icon: <Lock className="h-4 w-4 text-cyan-400" />,
-        content: (
-          <div className="space-y-3">
-            {architecture.nacls.map((nacl) => (
-              <div key={nacl.id} data-nacl-id={nacl.id} className="relative">
-                <NACLNode nacl={nacl} isHighlighted={hoveredId === nacl.id} onHover={setHoveredId} />
-              </div>
-            ))}
-          </div>
-        ),
-      })
+    if (nodeType === "nacl") {
+      const nacl: SecurityCheckpoint = {
+        id: step.id,
+        type: "nacl",
+        name: formatName(step.name),
+        shortName: shortName(step.name),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      }
+
+      return (
+        <div key={step.id} className="min-w-[180px] max-w-[220px]">
+          <NACLNode nacl={nacl} isHighlighted={false} onHover={() => {}} />
+        </div>
+      )
     }
 
-    if (architecture.iamRoles.length > 0) {
-      items.push({
-        key: "iam-roles",
-        title: `IAM Roles (${architecture.iamRoles.length})`,
-        icon: <Key className="h-4 w-4 text-pink-400" />,
-        content: (
-          <div className="space-y-3">
-            {architecture.iamRoles.map((role) => (
-              <div key={role.id} data-role-id={role.id}>
-                <IAMRoleNode
-                  role={role}
-                  isHighlighted={hoveredId === role.id}
-                  onHover={setHoveredId}
-                  onClick={() => onOpenService({ id: role.id, name: role.name, type: "IAMRole" })}
-                />
-              </div>
-            ))}
-          </div>
-        ),
-      })
+    if (nodeType === "iam_role") {
+      const role: SecurityCheckpoint = {
+        id: step.id,
+        type: "iam_role",
+        name: formatName(step.name),
+        shortName: shortName(step.name),
+        usedCount: 0,
+        totalCount: 0,
+        gapCount: 0,
+        connectedSources: [],
+        connectedTargets: [],
+      }
+
+      return (
+        <div key={step.id} className="min-w-[210px] max-w-[250px]">
+          <IAMRoleNode
+            role={role}
+            isHighlighted={false}
+            onHover={() => {}}
+            onClick={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
+          />
+        </div>
+      )
     }
 
-    if (architecture.resources.length > 0) {
-      items.push({
-        key: "resources",
-        title: `Resources (${architecture.resources.length})`,
-        icon: <Database className="h-4 w-4 text-purple-400" />,
-        content: (
-          <div className="space-y-3">
-            {architecture.resources.map((node) => {
-              const resourceType = node.instanceId || node.type
-              return (
-                <div key={node.id} data-resource-id={node.id} className="relative">
-                  <ServiceNodeBox
-                    node={node}
-                    position="right"
-                    flowInfo={resourceFlowInfo.get(node.id)}
-                    isHighlighted={hoveredId === node.id}
-                    onHover={setHoveredId}
-                    onClick={
-                      isS3Type(resourceType) || resourceType === "api_call"
-                        ? () => onOpenService({ id: node.id, name: node.name, type: resourceType })
-                        : undefined
-                    }
-                  />
-                </div>
-              )
-            })}
-          </div>
-        ),
-      })
+    const node: ServiceNode = {
+      id: step.id,
+      name: formatName(step.name),
+      shortName: shortName(step.name),
+      type: nodeType,
+      instanceId: step.type,
     }
 
-    return items
-  }, [architecture.computeServices, architecture.securityGroups, architecture.nacls, architecture.iamRoles, architecture.resources, computeFlowInfo, resourceFlowInfo, hoveredId, onOpenService])
+    const clickable = isS3Type(step.type)
+    return (
+      <div key={step.id} className="min-w-[200px] max-w-[240px]">
+        <ServiceNodeBox
+          node={node}
+          position={index === 0 ? "left" : "right"}
+          isHighlighted={false}
+          onHover={() => {}}
+          onClick={clickable ? () => onOpenService({ id: step.id, name: step.name, type: step.type }) : undefined}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
@@ -1063,33 +935,23 @@ function OperationalRouteArchitecture({
           </div>
         </div>
 
-        <div ref={containerRef} className="relative mt-6 overflow-x-auto overflow-y-hidden pb-2">
-          <ConnectionLinesSVG
-            architecture={architecture}
-            hoveredId={hoveredId}
-            containerRef={containerRef as RefObject<HTMLDivElement>}
-            animate
-            attackPathEdges={new Set(architecture.flows.map((flow) => `${flow.sourceId}->${flow.targetId}`))}
-            heatmapMode={false}
-            ghostedNodeIds={new Set<string>()}
-          />
-
+        <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
           <div className="mx-auto flex min-w-full justify-center">
-            <div
-              className="relative grid items-start gap-4 xl:gap-5"
-              style={{
-                zIndex: 2,
-                gridAutoFlow: "column",
-                gridAutoColumns: "minmax(220px, 280px)",
-              }}
-            >
-              {lanes.map((lane) => (
-                <div key={lane.key} className="min-w-0">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {lane.icon}
-                    {lane.title}
+            <div className="inline-flex items-start gap-4">
+              {activeRoute.steps.map((step, index) => (
+                <div key={`${step.kind}-${index}`} className="flex items-start gap-4">
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      {getOperationalStepLabel(step)}
+                    </div>
+                    {renderOperationalStep(step, index)}
                   </div>
-                  {lane.content}
+                  {index < activeRoute.steps.length - 1 && (
+                    <div className="flex items-center justify-center self-center pt-6 text-cyan-300">
+                      <div className="h-[2px] w-10 bg-cyan-400/60" />
+                      <Target className="mx-1 h-4 w-4" />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1180,226 +1042,6 @@ function SelectedAttackPathStaticPanel({
                   </div>
                 )
               })}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function OperationalRoutePanel({
-  details,
-  onOpenService,
-}: {
-  details: PathDetails
-  onOpenService: (node: PathServiceTarget) => void
-}) {
-  const route = details.operational_route
-  const routes = route?.routes?.length ? route.routes : route ? [route] : []
-  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0)
-  const activeRoute = routes[selectedRouteIndex] || routes[0]
-
-  useEffect(() => {
-    setSelectedRouteIndex(0)
-  }, [details.path_id, routes.length])
-
-  if (!activeRoute?.available || !activeRoute.steps?.length) {
-    return null
-  }
-
-  const renderStep = (step: NonNullable<PathDetails["operational_route"]>["steps"][number], index: number) => {
-    if (step.kind === "action") {
-      const actionNode: ServiceNode = {
-        id: `action-${index}-${step.name}`,
-        name: step.name,
-        shortName: shortName(step.name, 16),
-        type: "api_call",
-        instanceId: step.action || step.protocol || step.edge_type,
-      }
-
-      return (
-        <div key={`action-${index}`} className="min-w-[160px] max-w-[200px]">
-          <ServiceNodeBox
-            node={actionNode}
-            position="right"
-            isHighlighted={false}
-            onHover={() => {}}
-          />
-        </div>
-      )
-    }
-
-    const nodeType = mapAnyNodeType(step.type)
-
-    if (nodeType === "security_group") {
-      const sg: SecurityCheckpoint = {
-        id: step.id,
-        type: "security_group",
-        name: formatName(step.name),
-        shortName: shortName(step.name),
-        usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
-        connectedSources: [],
-        connectedTargets: [],
-        rules: [],
-      }
-
-      return (
-        <div key={step.id} className="min-w-[200px] max-w-[240px]">
-          <SecurityGroupPanel
-            sg={sg}
-            isExpanded={false}
-            onToggle={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
-            isHighlighted={false}
-            onHover={() => {}}
-            onDetails={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
-          />
-        </div>
-      )
-    }
-
-    if (nodeType === "nacl") {
-      const nacl: SecurityCheckpoint = {
-        id: step.id,
-        type: "nacl",
-        name: formatName(step.name),
-        shortName: shortName(step.name),
-        usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
-        connectedSources: [],
-        connectedTargets: [],
-      }
-
-      return (
-        <div key={step.id} className="min-w-[170px] max-w-[210px]">
-          <NACLNode
-            nacl={nacl}
-            isHighlighted={false}
-            onHover={() => {}}
-          />
-        </div>
-      )
-    }
-
-    if (nodeType === "iam_role") {
-      const role: SecurityCheckpoint = {
-        id: step.id,
-        type: "iam_role",
-        name: formatName(step.name),
-        shortName: shortName(step.name),
-        usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
-        connectedSources: [],
-        connectedTargets: [],
-      }
-
-      return (
-        <div key={step.id} className="min-w-[200px] max-w-[240px]">
-          <IAMRoleNode
-            role={role}
-            isHighlighted={false}
-            onHover={() => {}}
-            onClick={() => onOpenService({ id: step.id, name: step.name, type: step.type })}
-          />
-        </div>
-      )
-    }
-
-    const node: ServiceNode = {
-      id: step.id,
-      name: formatName(step.name),
-      shortName: shortName(step.name),
-      type: nodeType,
-      instanceId: step.type,
-    }
-
-    const clickable = isS3Type(step.type)
-    return (
-      <div key={step.id} className="min-w-[190px] max-w-[230px]">
-        <ServiceNodeBox
-          node={node}
-          position={index === 0 ? "left" : "right"}
-          isHighlighted={false}
-          onHover={() => {}}
-          onClick={clickable ? () => onOpenService({ id: step.id, name: step.name, type: step.type }) : undefined}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <div className="rounded-[30px] border border-slate-800 bg-[#081222] p-6 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.9)]">
-      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300">
-              <Zap className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-bold text-white">Operational Access Path</h3>
-              <p className="mt-1 text-sm text-slate-400">Observed service flow to the same crown jewel, kept separate from the attack route.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {activeRoute.observed && (
-            <span className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
-              Observed Service Flow
-            </span>
-          )}
-          <span className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm font-medium text-slate-200">
-            {activeRoute.steps.length} steps
-          </span>
-        </div>
-      </div>
-
-      {routes.length > 1 && (
-        <div className="mb-5 flex flex-wrap gap-2">
-          {routes.map((candidate, index) => {
-            const selected = index === selectedRouteIndex
-            return (
-              <button
-                key={`route-${index}-${candidate.source?.id || "unknown"}`}
-                onClick={() => setSelectedRouteIndex(index)}
-                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
-                  selected
-                    ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-100"
-                    : "border-slate-700 bg-slate-900/50 text-slate-300 hover:bg-slate-900/80"
-                }`}
-              >
-                Route {index + 1}: {formatName(candidate.source?.name || details.path_summary.source.name)}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      <div className="rounded-[24px] border border-slate-800 bg-slate-950/70 p-5">
-        <div className="text-sm text-slate-300">
-          <span className="font-semibold text-white">{formatName(activeRoute.source?.name || details.path_summary.source.name)}</span>
-          <span className="mx-2 text-slate-600">→</span>
-          <span className="font-semibold text-white">{formatName(activeRoute.target?.name || details.path_summary.target.name)}</span>
-        </div>
-
-        <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
-          <div className="mx-auto flex min-w-full justify-center">
-            <div className="inline-flex items-center gap-4">
-              {activeRoute.steps.map((step, index) => (
-                <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
-                  {renderStep(step, index)}
-                  {index < activeRoute.steps.length - 1 && (
-                    <div className="flex items-center justify-center text-cyan-300">
-                      <div className="h-[2px] w-10 bg-cyan-400/60" />
-                      <Target className="mx-1 h-4 w-4" />
-                    </div>
-                  )}
-                </div>
-              ))}
             </div>
           </div>
         </div>
