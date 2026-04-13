@@ -3,12 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import {
   AlertTriangle,
-  Crown,
   Database,
   Key,
   Loader2,
   Lock,
-  Server,
   Shield,
   Target,
   Zap,
@@ -255,119 +253,109 @@ type PathServiceTarget = {
   resourceArn?: string
 }
 
-function buildPathArchitecture(details: PathDetails): SystemArchitecture {
-  const source = details.path_nodes[0] || {
-    id: details.path_summary.source.name,
-    name: details.path_summary.source.name,
-    type: details.path_summary.source.type,
-  }
+function pathNodeToServiceNode(node: { id: string; name: string; type: string }): ServiceNode {
+  const mappedType = isIdentityType(node.type)
+    ? "iam_role"
+    : isDataType(node.type)
+      ? mapResourceNodeType(node.type)
+      : mapEntryNodeType(node.type)
 
-  const dataNodes = details.path_nodes.filter((node, index) => isDataType(node.type) || index === details.path_nodes.length - 1)
-  const uniqueDataNodes = dataNodes.filter((node, index, arr) => arr.findIndex((candidate) => candidate.id === node.id) === index)
-  const targetNode = uniqueDataNodes[uniqueDataNodes.length - 1] || {
-    id: details.path_summary.target.name,
-    name: details.path_summary.target.name,
-    type: details.path_summary.target.type,
-  }
-
-  const computeServices: ServiceNode[] = [
-    {
-      id: source.id,
-      name: formatName(source.name),
-      shortName: shortName(source.name),
-      type: mapEntryNodeType(source.type),
-      instanceId: source.type,
-    },
-  ]
-
-  const resources: ServiceNode[] = uniqueDataNodes.map((node) => ({
+  return {
     id: node.id,
     name: formatName(node.name),
     shortName: shortName(node.name),
-    type: mapResourceNodeType(node.type),
+    type: mappedType,
     instanceId: node.type,
-  }))
+  }
+}
 
-  if (resources.length === 0) {
-    resources.push({
-      id: targetNode.id,
-      name: formatName(targetNode.name),
-      shortName: shortName(targetNode.name),
-      type: mapResourceNodeType(targetNode.type),
-      instanceId: targetNode.type,
-    })
+function buildPathArchitecture(details: PathDetails): SystemArchitecture {
+  const orderedPathNodes = (details.path_nodes.length > 0 ? details.path_nodes : [{
+    id: details.path_summary.source.name,
+    name: details.path_summary.source.name,
+    type: details.path_summary.source.type,
+  }]).filter((node, index, arr) => arr.findIndex((candidate) => candidate.id === node.id) === index)
+
+  const source = orderedPathNodes[0]
+  const pathHops = orderedPathNodes.slice(1)
+  let targetNode = pathHops[pathHops.length - 1]
+  for (let index = pathHops.length - 1; index >= 0; index -= 1) {
+    if (isDataType(pathHops[index].type)) {
+      targetNode = pathHops[index]
+      break
+    }
+  }
+  if (!targetNode) {
+    targetNode = {
+      id: details.path_summary.target.name,
+      name: details.path_summary.target.name,
+      type: details.path_summary.target.type,
+    }
   }
 
-  const securityGroups: SecurityCheckpoint[] = details.network_layer.security_groups.slice(0, 2).map((sg) => ({
-    id: sg.sg_id,
-    type: "security_group",
-    name: sg.sg_name,
-    shortName: shortName(sg.sg_name),
-    usedCount: sg.risky_rules.filter((rule) => rule.risk?.toLowerCase() !== "unused").length,
-    totalCount: sg.risky_rules.length || 0,
-    gapCount: sg.risky_rules.filter((rule) => rule.risk?.toLowerCase() === "high" || rule.risk?.toLowerCase() === "critical").length,
-    connectedSources: [source.id],
-    connectedTargets: resources.map((resource) => resource.id),
-    rules: sg.risky_rules.map((rule) => ({
-      direction: rule.direction === "egress" ? "egress" : "ingress",
-      protocol: rule.protocol || "tcp",
-      fromPort: typeof rule.port === "number" ? rule.port : null,
-      toPort: typeof rule.port === "number" ? rule.port : null,
-      portDisplay: String(rule.port ?? "All"),
-      source: rule.source || "unknown",
-      sourceType: "cidr",
-      status: "used",
-      flowCount: 1,
-      lastSeen: null,
-      isPublic: (rule.source || "").includes("0.0.0.0/0"),
-    })),
-  }))
+  const computeServices: ServiceNode[] = [pathNodeToServiceNode(source)]
 
-  const nacls: SecurityCheckpoint[] = details.path_nodes
+  const resources: ServiceNode[] = orderedPathNodes
+    .filter((node) => isDataType(node.type))
+    .map(pathNodeToServiceNode)
+
+  if (resources.length === 0) {
+    resources.push(pathNodeToServiceNode(targetNode))
+  }
+
+  const securityGroups: SecurityCheckpoint[] = orderedPathNodes
+    .filter((node) => isSecurityGroupType(node.type))
+    .map((node) => ({
+      id: node.id,
+      type: "security_group",
+      name: formatName(node.name),
+      shortName: shortName(node.name),
+      usedCount: 0,
+      totalCount: 0,
+      gapCount: 0,
+      connectedSources: [source.id],
+      connectedTargets: resources.map((resource) => resource.id),
+      rules: [],
+    }))
+
+  const nacls: SecurityCheckpoint[] = orderedPathNodes
     .filter((node) => isNaclType(node.type))
     .map((node) => ({
       id: node.id,
       type: "nacl",
-      name: node.name,
+      name: formatName(node.name),
       shortName: shortName(node.name),
-      usedCount: 1,
-      totalCount: 1,
+      usedCount: 0,
+      totalCount: 0,
       gapCount: 0,
       connectedSources: [source.id],
       connectedTargets: resources.map((resource) => resource.id),
     }))
 
-  const iamRoles: SecurityCheckpoint[] =
-    details.identity_layer.roles.length > 0
-      ? details.identity_layer.roles.slice(0, 2).map((role) => {
-          const lpGap = details.identity_layer.least_privilege_gaps.find((gap) => gap.role === role.role_name)
-          return {
-            id: role.role_id || role.role_name,
-            type: "iam_role" as const,
-            name: role.role_name,
-            shortName: shortName(role.role_name),
-            usedCount: role.observed_actions_count || 0,
-            totalCount: role.permission_count || 0,
-            gapCount: lpGap?.allowed && lpGap.observed ? Math.max(lpGap.allowed - lpGap.observed, 0) : 0,
-            connectedSources: [source.id],
-            connectedTargets: resources.map((resource) => resource.id),
-          }
-        })
-      : details.path_nodes
-          .filter((node) => isIdentityType(node.type))
-          .map((node) => ({
-            id: node.id,
-            type: "iam_role" as const,
-            name: node.name,
-            shortName: shortName(node.name),
-            usedCount: 1,
-            totalCount: 1,
-            gapCount: 0,
-            connectedSources: [source.id],
-            connectedTargets: resources.map((resource) => resource.id),
-          }))
+  const iamRoles: SecurityCheckpoint[] = orderedPathNodes
+    .filter((node) => isIdentityType(node.type))
+    .map((node) => {
+      const matchingRole = details.identity_layer.roles.find(
+        (role) => formatName(role.role_name) === formatName(node.name) || role.role_id === node.id
+      )
+      const lpGap = details.identity_layer.least_privilege_gaps.find(
+        (gap) => formatName(gap.role) === formatName(node.name)
+      )
 
-  const primaryResource = resources[0]
+      return {
+        id: node.id,
+        type: "iam_role" as const,
+        name: formatName(node.name),
+        shortName: shortName(node.name),
+        usedCount: matchingRole?.observed_actions_count || 0,
+        totalCount: matchingRole?.permission_count || 0,
+        gapCount: lpGap?.allowed && lpGap.observed ? Math.max(lpGap.allowed - lpGap.observed, 0) : 0,
+        connectedSources: [source.id],
+        connectedTargets: resources.map((resource) => resource.id),
+      }
+    })
+
+  const primaryResource = resources[resources.length - 1]
   const flows: TrafficFlow[] = primaryResource
     ? [
         {
@@ -376,11 +364,11 @@ function buildPathArchitecture(details: PathDetails): SystemArchitecture {
           sgId: securityGroups[0]?.id,
           naclId: nacls[0]?.id,
           roleId: iamRoles[0]?.id,
-          ports: details.network_layer.open_ports.length > 0 ? details.network_layer.open_ports.map(String) : [details.network_layer.protocols[0] || "observed"],
-          protocol: details.network_layer.protocols[0] || "observed",
-          bytes: details.path_summary.evidence_type === "observed" ? 512_000_000 : 0,
-          connections: 1,
-          isActive: details.path_summary.evidence_type === "observed",
+          ports: [],
+          protocol: "observed",
+          bytes: 0,
+          connections: 0,
+          isActive: true,
         },
       ]
     : []
@@ -399,33 +387,6 @@ function buildPathArchitecture(details: PathDetails): SystemArchitecture {
       nacls.reduce((sum, nacl) => sum + nacl.gapCount, 0) +
       iamRoles.reduce((sum, role) => sum + role.gapCount, 0),
   }
-}
-
-function ApiCallNode({
-  resource,
-  isObserved,
-  onClick,
-}: {
-  resource: ServiceNode
-  isObserved: boolean
-  onClick?: () => void
-}) {
-  return (
-    <div
-      data-api-id={resource.id}
-      className={`relative group ${onClick ? "cursor-pointer" : "cursor-default"}`}
-      onClick={onClick}
-    >
-      <div className="min-w-[160px] rounded-xl border-2 border-lime-500/50 bg-lime-500/10 px-4 py-3 transition-all duration-300 hover:border-lime-400 hover:bg-lime-500/20">
-        <div className="mb-1 flex items-center justify-center gap-2">
-          <Zap className="h-4 w-4 text-lime-400" />
-          <span className="truncate text-sm font-semibold text-white">{resource.shortName}</span>
-        </div>
-        <div className="text-center text-xs text-lime-400">{isObserved ? "Observed access" : "Configured path"}</div>
-        <div className="mt-1 text-center text-[10px] text-slate-400">{isObserved ? "1 flow (simulated)" : "Path flow"}</div>
-      </div>
-    </div>
-  )
 }
 
 function PathScopedArchitecture({
@@ -560,46 +521,15 @@ function PathScopedArchitecture({
 
     if (architecture.resources.length > 0) {
       items.push({
-        key: "api-calls",
-        title: `API Calls (${architecture.resources.length})`,
-        icon: <Zap className="h-4 w-4 text-lime-400" />,
-        content: (
-          <div className="space-y-3">
-            {architecture.resources.map((resource) => {
-              const resourceType = resource.instanceId || resource.type
-              return (
-                <ApiCallNode
-                  key={`api-${resource.id}`}
-                  resource={resource}
-                  isObserved={details.path_summary.evidence_type === "observed"}
-                  onClick={
-                    isS3Type(resourceType)
-                      ? () => onOpenService({ id: resource.id, name: resource.name, type: resourceType })
-                      : undefined
-                  }
-                />
-              )
-            })}
-          </div>
-        ),
-      })
-
-      items.push({
         key: "resources",
         title: `Resources (${architecture.resources.length})`,
         icon: <Database className="h-4 w-4 text-purple-400" />,
         content: (
           <div className="space-y-3">
-            {architecture.resources.map((node, index) => {
-              const isTarget = index === architecture.resources.length - 1
+            {architecture.resources.map((node) => {
               const resourceType = node.instanceId || node.type
               return (
                 <div key={node.id} data-resource-id={node.id} className="relative">
-                  {isTarget && (
-                    <div className="absolute -top-2 -right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 shadow-lg animate-pulse">
-                      <Crown className="h-3.5 w-3.5 text-white" />
-                    </div>
-                  )}
                   <ServiceNodeBox
                     node={node}
                     position="right"
@@ -712,15 +642,15 @@ function PathScopedArchitecture({
             <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Entry</div>
-                <div className="mt-1 text-sm font-semibold text-white break-all">{entry}</div>
+                <div className="mt-1 text-sm font-semibold text-white break-words">{entry}</div>
               </div>
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Identity</div>
-                <div className="mt-1 text-sm font-semibold text-fuchsia-200 break-all">{identity}</div>
+                <div className="mt-1 text-sm font-semibold text-fuchsia-200 break-words">{identity}</div>
               </div>
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Crown Jewel</div>
-                <div className="mt-1 text-sm font-semibold text-emerald-200 break-all">{target}</div>
+                <div className="mt-1 text-sm font-semibold text-emerald-200 break-words">{target}</div>
               </div>
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Route</div>
@@ -728,8 +658,8 @@ function PathScopedArchitecture({
               </div>
             </div>
             <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
-              <span className="font-semibold text-white">Why this route matters:</span>{" "}
-              {identity} can reach {target} through this exact observed route.
+              <span className="font-semibold text-white">Evidence:</span>{" "}
+              {details.path_summary.evidence_type === "observed" ? "Observed" : "Configured"} • {details.path_summary.total_cves > 0 ? `${details.path_summary.total_cves} CVEs` : "No CVEs required"} • Risk {details.path_summary.risk_score}
             </div>
           </div>
 
