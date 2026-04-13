@@ -1436,6 +1436,42 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
 
             {!detailsLoading && !detailsError && selectedDetails && (
               <>
+                {selectedDetails.path_summary.total_cves > 0 && (
+                  <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.16)]">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600">
+                          <Zap className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">CVE Attack Simulation</div>
+                          <h3 className="mt-2 text-lg font-bold text-slate-900">
+                            Restore the vulnerability simulation flow for this path
+                          </h3>
+                          <p className="mt-1 text-sm text-slate-600">
+                            This selected route has {selectedDetails.path_summary.total_cves} CVEs. Open the original simulation drawer to inspect exploit steps and patch/remediation actions for this exact path.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedService({
+                            id: selectedDetails.path_summary.target.name,
+                            name: selectedDetails.path_summary.target.name,
+                          })
+                          setShowSimulation(true)
+                        }}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-amber-500 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600"
+                      >
+                        <Zap className="h-4 w-4" />
+                        Open CVE Attack Simulation
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <OperationalRouteArchitecture
                   details={selectedDetails}
                   onOpenService={openNativeRemediation}
