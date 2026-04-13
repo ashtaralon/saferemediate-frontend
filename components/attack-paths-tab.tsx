@@ -14,6 +14,9 @@ import {
   Zap,
 } from "lucide-react"
 import { AttackSimulationPanel } from "./dependency-map/attack-simulation-panel"
+import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
+import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
 import {
   ConnectionLinesSVG,
   IAMRoleNode,
@@ -210,6 +213,10 @@ function isDataType(type: string) {
   return /S3|Bucket|DynamoDB|RDS|Aurora|Database/i.test(type)
 }
 
+function isS3Type(type: string) {
+  return /S3|Bucket/i.test(type)
+}
+
 function mapResourceNodeType(type: string) {
   if (/S3|Bucket/i.test(type)) return "storage"
   if (/DynamoDB/i.test(type)) return "dynamodb"
@@ -228,6 +235,13 @@ function buildPathContext(details: PathDetails) {
     identityLayer: details.identity_layer,
     dataImpact: details.data_impact,
   }
+}
+
+type PathServiceTarget = {
+  id: string
+  name: string
+  type: string
+  resourceArn?: string
 }
 
 function buildPathArchitecture(details: PathDetails): SystemArchitecture {
@@ -383,12 +397,12 @@ function ApiCallNode({
 }: {
   resource: ServiceNode
   isObserved: boolean
-  onClick: () => void
+  onClick?: () => void
 }) {
   return (
     <div
       data-api-id={resource.id}
-      className="relative group cursor-pointer"
+      className={`relative group ${onClick ? "cursor-pointer" : "cursor-default"}`}
       onClick={onClick}
     >
       <div className="min-w-[160px] rounded-xl border-2 border-lime-500/50 bg-lime-500/10 px-4 py-3 transition-all duration-300 hover:border-lime-400 hover:bg-lime-500/20">
@@ -409,13 +423,12 @@ function PathScopedArchitecture({
   onOpenWholePlan,
 }: {
   details: PathDetails
-  onOpenService: (node: { id: string; name: string }) => void
+  onOpenService: (node: PathServiceTarget) => void
   onOpenWholePlan: () => void
 }) {
   const architecture = useMemo(() => buildPathArchitecture(details), [details])
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [expandedSG, setExpandedSG] = useState<string | null>(null)
   const entry = formatName(details.path_summary.source.name)
   const identity = getPrimaryIdentity(details)
   const target = formatName(details.path_summary.target.name)
@@ -482,7 +495,7 @@ function PathScopedArchitecture({
           </div>
         </div>
 
-        <div ref={containerRef} className="relative mt-6 min-h-[450px]">
+        <div ref={containerRef} className="relative mt-6 min-h-[340px] overflow-hidden">
           <ConnectionLinesSVG
             architecture={architecture}
             hoveredId={hoveredId}
@@ -493,27 +506,28 @@ function PathScopedArchitecture({
             ghostedNodeIds={new Set<string>()}
           />
 
-          <div className="relative grid grid-cols-[1fr_auto_auto_1fr_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
-            <div className="flex flex-col gap-3">
+          <div className="relative grid grid-cols-6 gap-3 items-start xl:gap-4" style={{ zIndex: 2 }}>
+            <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <Server className="h-4 w-4 text-blue-400" />
                 Compute ({architecture.computeServices.length})
               </div>
-              {architecture.computeServices.map((node) => (
-                <div key={node.id} data-compute-id={node.id} className="relative">
-                  <ServiceNodeBox
-                    node={node}
-                    position="left"
-                    flowInfo={computeFlowInfo.get(node.id)}
-                    isHighlighted={hoveredId === node.id}
-                    onHover={setHoveredId}
-                    onClick={() => onOpenService({ id: node.id, name: node.name })}
-                  />
-                </div>
-              ))}
+              <div className="space-y-3">
+                {architecture.computeServices.map((node) => (
+                  <div key={node.id} data-compute-id={node.id} className="relative">
+                    <ServiceNodeBox
+                      node={node}
+                      position="left"
+                      flowInfo={computeFlowInfo.get(node.id)}
+                      isHighlighted={hoveredId === node.id}
+                      onHover={setHoveredId}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="flex flex-col gap-3 min-w-[180px]">
+            <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <Shield className="h-4 w-4 text-orange-400" />
                 Security Groups ({architecture.securityGroups.length})
@@ -523,22 +537,24 @@ function PathScopedArchitecture({
                   No SG on this path
                 </div>
               ) : (
-                architecture.securityGroups.map((sg) => (
-                  <div key={sg.id} data-sg-id={sg.id}>
-                    <SecurityGroupPanel
-                      sg={sg}
-                      isExpanded={expandedSG === sg.id}
-                      onToggle={() => setExpandedSG(expandedSG === sg.id ? null : sg.id)}
-                      isHighlighted={hoveredId === sg.id}
-                      onHover={setHoveredId}
-                      onDetails={() => onOpenService({ id: sg.id, name: sg.name })}
-                    />
-                  </div>
-                ))
+                <div className="space-y-3">
+                  {architecture.securityGroups.map((sg) => (
+                    <div key={sg.id} data-sg-id={sg.id}>
+                      <SecurityGroupPanel
+                        sg={sg}
+                        isExpanded={false}
+                        onToggle={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
+                        isHighlighted={hoveredId === sg.id}
+                        onHover={setHoveredId}
+                        onDetails={() => onOpenService({ id: sg.id, name: sg.name, type: "SecurityGroup" })}
+                      />
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
-            <div className="flex flex-col gap-3 min-w-[140px]">
+            <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <Lock className="h-4 w-4 text-cyan-400" />
                 NACLs ({architecture.nacls.length})
@@ -548,20 +564,21 @@ function PathScopedArchitecture({
                   No NACL on this path
                 </div>
               ) : (
-                architecture.nacls.map((nacl) => (
-                  <div key={nacl.id} data-nacl-id={nacl.id}>
-                    <NACLNode
-                      nacl={nacl}
-                      isHighlighted={hoveredId === nacl.id}
-                      onHover={setHoveredId}
-                      onClick={() => onOpenService({ id: nacl.id, name: nacl.name })}
-                    />
-                  </div>
-                ))
+                <div className="space-y-3">
+                  {architecture.nacls.map((nacl) => (
+                    <div key={nacl.id} data-nacl-id={nacl.id}>
+                      <NACLNode
+                        nacl={nacl}
+                        isHighlighted={hoveredId === nacl.id}
+                        onHover={setHoveredId}
+                      />
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
-            <div className="flex flex-col gap-3 items-center">
+            <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <Key className="h-4 w-4 text-pink-400" />
                 IAM Roles ({architecture.iamRoles.length})
@@ -571,59 +588,77 @@ function PathScopedArchitecture({
                   No IAM role on this path
                 </div>
               ) : (
-                architecture.iamRoles.map((role) => (
-                  <div key={role.id} data-role-id={role.id}>
-                    <IAMRoleNode
-                      role={role}
-                      isHighlighted={hoveredId === role.id}
-                      onHover={setHoveredId}
-                      onClick={() => onOpenService({ id: role.id, name: role.name })}
-                    />
-                  </div>
-                ))
+                <div className="space-y-3">
+                  {architecture.iamRoles.map((role) => (
+                    <div key={role.id} data-role-id={role.id}>
+                      <IAMRoleNode
+                        role={role}
+                        isHighlighted={hoveredId === role.id}
+                        onHover={setHoveredId}
+                        onClick={() => onOpenService({ id: role.id, name: role.name, type: "IAMRole" })}
+                      />
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
-            <div className="flex flex-col gap-3 items-center">
+            <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <Zap className="h-4 w-4 text-lime-400" />
                 API Calls ({architecture.resources.length})
               </div>
-              {architecture.resources.map((resource) => (
-                <ApiCallNode
-                  key={`api-${resource.id}`}
-                  resource={resource}
-                  isObserved={details.path_summary.evidence_type === "observed"}
-                  onClick={() => onOpenService({ id: resource.id, name: resource.name })}
-                />
-              ))}
+              <div className="space-y-3">
+                {architecture.resources.map((resource) => {
+                  const resourceType = resource.instanceId || resource.type
+                  return (
+                    <ApiCallNode
+                      key={`api-${resource.id}`}
+                      resource={resource}
+                      isObserved={details.path_summary.evidence_type === "observed"}
+                      onClick={
+                        isS3Type(resourceType)
+                          ? () => onOpenService({ id: resource.id, name: resource.name, type: resourceType })
+                          : undefined
+                      }
+                    />
+                  )
+                })}
+              </div>
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <Database className="h-4 w-4 text-purple-400" />
                 Resources ({architecture.resources.length})
               </div>
-              {architecture.resources.map((node, index) => {
-                const isTarget = index === architecture.resources.length - 1
-                return (
-                  <div key={node.id} data-resource-id={node.id} className="relative">
-                    {isTarget && (
-                      <div className="absolute -top-2 -right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 shadow-lg animate-pulse">
-                        <Crown className="h-3.5 w-3.5 text-white" />
-                      </div>
-                    )}
-                    <ServiceNodeBox
-                      node={node}
-                      position="right"
-                      flowInfo={resourceFlowInfo.get(node.id)}
-                      isHighlighted={hoveredId === node.id}
-                      onHover={setHoveredId}
-                      onClick={() => onOpenService({ id: node.id, name: node.name })}
-                    />
-                  </div>
-                )
-              })}
+              <div className="space-y-3">
+                {architecture.resources.map((node, index) => {
+                  const isTarget = index === architecture.resources.length - 1
+                  const resourceType = node.instanceId || node.type
+                  return (
+                    <div key={node.id} data-resource-id={node.id} className="relative">
+                      {isTarget && (
+                        <div className="absolute -top-2 -right-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-red-500 shadow-lg animate-pulse">
+                          <Crown className="h-3.5 w-3.5 text-white" />
+                        </div>
+                      )}
+                      <ServiceNodeBox
+                        node={node}
+                        position="right"
+                        flowInfo={resourceFlowInfo.get(node.id)}
+                        isHighlighted={hoveredId === node.id}
+                        onHover={setHoveredId}
+                        onClick={
+                          isS3Type(resourceType)
+                            ? () => onOpenService({ id: node.id, name: node.name, type: resourceType })
+                            : undefined
+                        }
+                      />
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -656,7 +691,7 @@ function PathScopedArchitecture({
           <div className="rounded-[22px] border border-cyan-400/20 bg-cyan-500/10 p-5">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Least Privilege</div>
             <p className="mt-3 text-sm leading-6 text-slate-200">
-              Click any service on the path to open its 3-layer remediation page, or open the full path plan to execute the whole chain with rollback.
+              Click an S3 bucket, security group, or IAM role on the path to open its native remediation page. Use the full path plan only when you want the chain-wide LP workflow.
             </p>
             <button
               onClick={onOpenWholePlan}
@@ -686,6 +721,14 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
     id: null,
     name: null,
   })
+  const [iamModalOpen, setIamModalOpen] = useState(false)
+  const [selectedIAMRole, setSelectedIAMRole] = useState<string | null>(null)
+  const [s3ModalOpen, setS3ModalOpen] = useState(false)
+  const [selectedS3Bucket, setSelectedS3Bucket] = useState<string | null>(null)
+  const [selectedS3Resource, setSelectedS3Resource] = useState<any>(null)
+  const [sgModalOpen, setSgModalOpen] = useState(false)
+  const [selectedSGId, setSelectedSGId] = useState<string | null>(null)
+  const [selectedSGName, setSelectedSGName] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchPaths = async () => {
@@ -768,8 +811,36 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
 
   const selectedPathContext = selectedDetails ? buildPathContext(selectedDetails) : undefined
 
+  const openNativeRemediation = (target: PathServiceTarget) => {
+    if (isIdentityType(target.type)) {
+      setSelectedIAMRole(formatName(target.name))
+      setIamModalOpen(true)
+      return
+    }
+
+    if (isSecurityGroupType(target.type)) {
+      setSelectedSGId(target.id)
+      setSelectedSGName(formatName(target.name))
+      setSgModalOpen(true)
+      return
+    }
+
+    if (isS3Type(target.type)) {
+      const bucketName = formatName(target.name)
+      setSelectedS3Bucket(bucketName)
+      setSelectedS3Resource({
+        id: target.id,
+        resourceType: "S3Bucket",
+        resourceName: bucketName,
+        resourceArn: target.resourceArn || target.name,
+        systemName,
+      })
+      setS3ModalOpen(true)
+    }
+  }
+
   return (
-    <div className="max-w-[1900px] mx-auto px-8 py-6 space-y-6">
+    <div className="mx-auto max-w-[1760px] px-5 py-6 space-y-6 xl:px-6">
       <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.2)]">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-start gap-4">
@@ -812,7 +883,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
       )}
 
       {!loading && !error && (
-        <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.16)]">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -900,10 +971,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
             {!detailsLoading && !detailsError && selectedDetails && (
               <PathScopedArchitecture
                 details={selectedDetails}
-                onOpenService={(node) => {
-                  setSelectedService({ id: node.id, name: node.name })
-                  setShowSimulation(true)
-                }}
+                onOpenService={openNativeRemediation}
                 onOpenWholePlan={() => {
                   setSelectedService({ id: null, name: selectedDetails.path_summary.target.name })
                   setShowSimulation(true)
@@ -926,6 +994,40 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
           initialSelectedServiceName={selectedService.name}
         />
       )}
+
+      <IAMPermissionAnalysisModal
+        isOpen={iamModalOpen}
+        onClose={() => {
+          setIamModalOpen(false)
+          setSelectedIAMRole(null)
+        }}
+        roleName={selectedIAMRole || ""}
+        systemName={systemName}
+      />
+
+      <S3PolicyAnalysisModal
+        isOpen={s3ModalOpen}
+        onClose={() => {
+          setS3ModalOpen(false)
+          setSelectedS3Bucket(null)
+          setSelectedS3Resource(null)
+        }}
+        bucketName={selectedS3Bucket || ""}
+        systemName={systemName}
+        resourceData={selectedS3Resource}
+      />
+
+      <SGLeastPrivilegeModal
+        isOpen={sgModalOpen}
+        onClose={() => {
+          setSgModalOpen(false)
+          setSelectedSGId(null)
+          setSelectedSGName(null)
+        }}
+        sgId={selectedSGId || ""}
+        sgName={selectedSGName || undefined}
+        systemName={systemName}
+      />
     </div>
   )
 }

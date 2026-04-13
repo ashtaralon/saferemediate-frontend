@@ -199,7 +199,8 @@ export function ServiceNodeBox({
 
   return (
     <div
-      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200
+        ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? `${config.bg} ${config.border} shadow-lg shadow-${config.color.replace('text-', '')}/20 scale-105` : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${position === 'left' ? 'pr-6' : 'pl-6'}`}
       onMouseEnter={() => onHover(node.id)}
@@ -505,7 +506,8 @@ export function NACLNode({
 
   return (
     <div
-      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[160px]
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
+        ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? 'bg-cyan-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? 'ring-2 ring-amber-400/50' : ''}`}
       onMouseEnter={() => onHover(nacl.id)}
@@ -567,7 +569,8 @@ export function IAMRoleNode({
 
   return (
     <div
-      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 cursor-pointer min-w-[160px]
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all duration-200 min-w-[160px]
+        ${onClick ? "cursor-pointer" : "cursor-default"}
         ${isHighlighted ? 'bg-pink-500/20 border-pink-500/50 shadow-lg shadow-pink-500/20 scale-105' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}
         ${hasGap ? statusColor.ring : ''}`}
       onMouseEnter={() => onHover(role.id)}
