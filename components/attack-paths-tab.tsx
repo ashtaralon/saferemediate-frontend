@@ -700,13 +700,13 @@ function PathScopedArchitecture({
             ghostedNodeIds={new Set<string>()}
           />
 
-          <div className="mx-auto w-fit min-w-full">
+          <div className="mx-auto flex min-w-full justify-center">
             <div
               className="relative grid items-start gap-4 xl:gap-5"
               style={{
                 zIndex: 2,
                 gridAutoFlow: "column",
-                gridAutoColumns: "minmax(240px, 300px)",
+                gridAutoColumns: "minmax(220px, 280px)",
               }}
             >
               {lanes.map((lane) => (
@@ -757,7 +757,7 @@ function OperationalRoutePanel({
       }
 
       return (
-        <div key={`action-${index}`} className="min-w-[180px] max-w-[220px]">
+        <div key={`action-${index}`} className="min-w-[160px] max-w-[200px]">
           <ServiceNodeBox
             node={actionNode}
             position="right"
@@ -785,7 +785,7 @@ function OperationalRoutePanel({
       }
 
       return (
-        <div key={step.id} className="min-w-[220px] max-w-[260px]">
+        <div key={step.id} className="min-w-[200px] max-w-[240px]">
           <SecurityGroupPanel
             sg={sg}
             isExpanded={false}
@@ -812,7 +812,7 @@ function OperationalRoutePanel({
       }
 
       return (
-        <div key={step.id} className="min-w-[180px] max-w-[220px]">
+        <div key={step.id} className="min-w-[170px] max-w-[210px]">
           <NACLNode
             nacl={nacl}
             isHighlighted={false}
@@ -836,7 +836,7 @@ function OperationalRoutePanel({
       }
 
       return (
-        <div key={step.id} className="min-w-[220px] max-w-[260px]">
+        <div key={step.id} className="min-w-[200px] max-w-[240px]">
           <IAMRoleNode
             role={role}
             isHighlighted={false}
@@ -857,7 +857,7 @@ function OperationalRoutePanel({
 
     const clickable = isS3Type(step.type)
     return (
-      <div key={step.id} className="min-w-[220px] max-w-[260px]">
+      <div key={step.id} className="min-w-[190px] max-w-[230px]">
         <ServiceNodeBox
           node={node}
           position={index === 0 ? "left" : "right"}
@@ -925,7 +925,7 @@ function OperationalRoutePanel({
         </div>
 
         <div className="mt-6 overflow-x-auto overflow-y-hidden pb-2">
-          <div className="mx-auto w-fit min-w-full">
+          <div className="mx-auto flex min-w-full justify-center">
             <div className="inline-flex items-center gap-4">
               {activeRoute.steps.map((step, index) => (
                 <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
@@ -1122,7 +1122,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
       )}
 
       {!loading && !error && (
-        <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.16)]">
             <div className="flex items-center justify-between gap-3">
               <div>
