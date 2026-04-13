@@ -1752,7 +1752,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                             <div className="pt-1 mt-1 border-t" style={{ borderColor: "var(--border-subtle)" }}>
                               <button
                                 onClick={() => handleRollbackFromRemediatedTab(resource)}
-                                disabled={rollingBack === (resource.id || resource.resourceName) || (!resource.rollbackAvailable && !resource.snapshotId && !resource.eventId)}
+                                disabled={rollingBack === (resource.id || resource.resourceName)}
                                 className="w-full px-3 py-2 rounded-lg text-xs font-medium hover:opacity-90 transition-all border flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ color: "#F59E0B", borderColor: "#F59E0B40", background: "#F59E0B08" }}
                               >

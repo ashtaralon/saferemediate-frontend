@@ -905,11 +905,13 @@ export function RemediationTimeline({
       resource_type: resourceType,
       resource_id: resourceId,
       action_type: actionType,
-      status: snapshot.restored_at ? 'rolled_back' : 'completed',
+      status: (snapshot.rolled_back_at || snapshot.restored_at || snapshot.status === 'RESTORED' || snapshot.status === 'restored')
+        ? 'rolled_back'
+        : 'completed',
       confidence_score: 0.95,
       approved_by: snapshot.triggered_by || 'system',
       snapshot_id: snapshot.snapshot_id,
-      rollback_available: true,
+      rollback_available: snapshot.rollback_available !== false,
       metadata: {
         reason: snapshot.reason || 'Least-privilege remediation',
         rules_count: snapshot.rules_count,
@@ -1019,8 +1021,6 @@ export function RemediationTimeline({
             // Also check if any snapshot_id in kept events contains this SG ID
             if (e.sg_id && [...neo4jSnapshotIds].some(sid => sid.includes(e.sg_id))) return false
           }
-          // Skip IAM snapshots if we already have events for that role
-          if (e.resource_type === 'IAMRole' && neo4jResourceIds.has(`IAMRole:${e.resource_id}`)) return false
           return true
         })
         allEvents.push(...uniqueSnapshotEvents)
