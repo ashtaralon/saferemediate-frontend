@@ -698,6 +698,51 @@ function OperationalRoutePanel({
   onOpenService: (node: PathServiceTarget) => void
 }) {
   const route = details.operational_route
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const [contentScale, setContentScale] = useState(1)
+  const [scaledHeight, setScaledHeight] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!route?.available || !route.steps?.length) {
+      setContentScale(1)
+      setScaledHeight(null)
+      return
+    }
+
+    const updateLayout = () => {
+      const viewport = viewportRef.current
+      const content = contentRef.current
+      if (!viewport || !content) return
+
+      const availableWidth = viewport.clientWidth
+      const naturalWidth = content.scrollWidth
+      const naturalHeight = content.scrollHeight
+      if (!availableWidth || !naturalWidth || !naturalHeight) return
+
+      const nextScale = Math.min(1, availableWidth / naturalWidth)
+      setContentScale(nextScale)
+      setScaledHeight(Math.ceil(naturalHeight * nextScale))
+    }
+
+    updateLayout()
+
+    const viewport = viewportRef.current
+    const content = contentRef.current
+    if (!viewport || !content || typeof ResizeObserver === "undefined") {
+      return
+    }
+
+    const observer = new ResizeObserver(() => updateLayout())
+    observer.observe(viewport)
+    observer.observe(content)
+    window.addEventListener("resize", updateLayout)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", updateLayout)
+    }
+  }, [route.source?.id, route.target?.id, route.steps.length])
 
   if (!route?.available || !route.steps?.length) {
     return null
@@ -860,8 +905,19 @@ function OperationalRoutePanel({
           <span className="font-semibold text-white">{formatName(route.target?.name || details.path_summary.target.name)}</span>
         </div>
 
-        <div className="mt-6 overflow-x-auto">
-          <div className="flex min-w-max items-center gap-4 pb-2">
+        <div
+          ref={viewportRef}
+          className="mt-6 overflow-hidden"
+          style={{ minHeight: scaledHeight ? `${scaledHeight}px` : undefined }}
+        >
+          <div
+            ref={contentRef}
+            className="inline-flex items-center gap-4 pb-2"
+            style={{
+              transform: `scale(${contentScale})`,
+              transformOrigin: "left top",
+            }}
+          >
             {route.steps.map((step, index) => (
               <div key={`${step.kind}-${index}`} className="flex items-center gap-4">
                 {renderStep(step, index)}
