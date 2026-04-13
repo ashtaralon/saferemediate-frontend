@@ -230,11 +230,11 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({})
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
 
-  const path = paths[selectedPathIndex]
-  if (!path) return <div className="flex-1 flex items-center justify-center text-slate-400">No path selected</div>
+  const path = paths[selectedPathIndex] || null
 
   // Group nodes by tier
   const tierGroups = useMemo(() => {
+    if (!path) return { entry: [], identity: [], network_control: [], crown_jewel: [] } as Record<string, PathNodeDetail[]>
     const groups: Record<string, PathNodeDetail[]> = { entry: [], identity: [], network_control: [], crown_jewel: [] }
     for (const node of path.nodes) {
       const tier = node.tier || "identity"
@@ -242,18 +242,18 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
       groups[tier].push(node)
     }
     return groups
-  }, [path.nodes])
+  }, [path])
 
   // Connected nodes for hover highlighting
   const connectedNodes = useMemo(() => {
-    if (!hoveredNodeId) return new Set<string>()
+    if (!hoveredNodeId || !path) return new Set<string>()
     const connected = new Set<string>([hoveredNodeId])
     for (const edge of path.edges) {
       if (edge.source === hoveredNodeId) connected.add(edge.target)
       if (edge.target === hoveredNodeId) connected.add(edge.source)
     }
     return connected
-  }, [hoveredNodeId, path.edges])
+  }, [hoveredNodeId, path])
 
   // Recalculate positions on resize / path change
   const updatePositions = useCallback(() => {
@@ -274,6 +274,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
     setPositions(newPositions)
   }, [])
 
+  const pathId = path?.id
   useEffect(() => {
     const timer = setTimeout(updatePositions, 100)
     window.addEventListener("resize", updatePositions)
@@ -281,7 +282,9 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
       clearTimeout(timer)
       window.removeEventListener("resize", updatePositions)
     }
-  }, [updatePositions, path.id])
+  }, [updatePositions, pathId])
+
+  if (!path) return <div className="flex-1 flex items-center justify-center text-slate-400">No path selected</div>
 
   const activeTiers = Object.entries(TIER_CONFIG)
     .filter(([key]) => tierGroups[key]?.length > 0)
