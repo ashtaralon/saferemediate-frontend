@@ -175,6 +175,25 @@ function getPathLabel(path: AttackPathItem) {
   return "Behavioral"
 }
 
+function scoreToRiskLabel(score: number) {
+  if (score >= 75) return "Critical"
+  if (score >= 50) return "High"
+  if (score >= 25) return "Medium"
+  return "Low"
+}
+
+function getRiskLabel(path: AttackPathItem) {
+  return scoreToRiskLabel(path.risk_score)
+}
+
+function getDetailsRiskLabel(details: PathDetails) {
+  const raw = details.path_summary.risk_level?.trim()
+  if (raw) {
+    return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
+  }
+  return scoreToRiskLabel(details.path_summary.risk_score)
+}
+
 function getPathType(details: PathDetails) {
   const hasIdentityEvidence =
     details.path_summary.source.type.toLowerCase().includes("principal") ||
@@ -601,7 +620,7 @@ function PathScopedArchitecture({
               {details.path_summary.evidence_type === "observed" ? "Observed" : "Configured"}
             </div>
             <div className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
-              Risk {details.path_summary.risk_score}
+              {getDetailsRiskLabel(details)} risk
             </div>
           </div>
         </div>
@@ -836,6 +855,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
                 const sourceName = formatName(path.nodes[0]?.name || "Unknown")
                 const targetName = formatName(path.target_name)
                 const pathType = getPathLabel(path)
+                const riskLabel = getRiskLabel(path)
 
                 return (
                   <button
@@ -856,7 +876,7 @@ export default function AttackPathsTab({ systemName }: { systemName: string }) {
                       </div>
 
                       <div className={`rounded-2xl px-3 py-2 text-right ${isSelected ? "bg-cyan-500/10" : "bg-slate-100"}`}>
-                        <div className="text-lg font-bold text-slate-900">{path.risk_score}</div>
+                        <div className="text-lg font-bold text-slate-900">{riskLabel}</div>
                         <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{pathType}</div>
                       </div>
                     </div>
