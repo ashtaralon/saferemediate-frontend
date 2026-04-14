@@ -177,7 +177,7 @@ interface SGLeastPrivilegeModalProps {
   systemName?: string;
   isOpen: boolean;
   onClose: () => void;
-  onRemediate?: (sgId: string, rules: RuleAnalysis[]) => void;
+  onRemediate?: (sgId: string, rules: RuleAnalysis[], result?: { snapshotId?: string; eventId?: string; rollbackAvailable?: boolean }) => void;
 }
 
 // =============================================================================
@@ -453,7 +453,11 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
       }
 
       await fetchAnalysis();
-      onRemediate?.(sgId, selectedRules);
+      onRemediate?.(sgId, selectedRules, {
+        snapshotId: result.snapshot_id || null,
+        eventId: result.timeline_event_id || null,
+        rollbackAvailable: !!(result.snapshot_id || result.rollback?.available),
+      });
       toast({
         title: 'Security Group Updated',
         description: `Applied ${result.summary?.rules_removed || 0} removals and ${result.summary?.rules_tightened || 0} tightenings.${result.snapshot_id ? ` Snapshot: ${result.snapshot_id}` : ''}`,

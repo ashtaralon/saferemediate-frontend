@@ -660,8 +660,55 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         cacheAge: safeNumber(result.cacheAge, 0),
       }
 
-      setData(transformed)
-      
+      // Merge: preserve local remediation metadata (remediatedAt, snapshotId, etc.)
+      // that was set by handleRemediationSuccess but not yet persisted in the backend.
+      // Without this, the background re-fetch overwrites local SG/S3 remediation state.
+      setData(prev => {
+        if (!prev) return transformed
+
+        const prevRemedMap = new Map<string, Partial<GapResource>>()
+        for (const r of prev.resources) {
+          if (r.remediatedAt) {
+            const key = r.id || r.resourceName
+            prevRemedMap.set(key, {
+              remediatedAt: r.remediatedAt,
+              remediatedBy: r.remediatedBy,
+              snapshotId: r.snapshotId,
+              eventId: r.eventId,
+              rollbackAvailable: r.rollbackAvailable,
+              gapCount: r.gapCount,
+              gapPercent: r.gapPercent,
+              lpScore: r.lpScore,
+              severity: r.severity,
+              allowedCount: r.allowedCount,
+              usedCount: r.usedCount,
+            })
+          }
+        }
+
+        if (prevRemedMap.size === 0) return transformed
+
+        return {
+          ...transformed,
+          resources: transformed.resources.map(r => {
+            const key = r.id || r.resourceName
+            const prevRemed = prevRemedMap.get(key)
+            if (prevRemed && !r.remediatedAt) {
+              return { ...r, ...prevRemed }
+            }
+            return r
+          }),
+          summary: recalculateSummary(
+            transformed.resources.map(r => {
+              const key = r.id || r.resourceName
+              const prevRemed = prevRemedMap.get(key)
+              return (prevRemed && !r.remediatedAt) ? { ...r, ...prevRemed } : r
+            }),
+            transformed.summary
+          ),
+        }
+      })
+
       // Log transformed data
       console.log('[LeastPrivilegeTab] Transformed resources:', {
         total: transformed.resources.length,
@@ -2494,8 +2541,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
         sgId={selectedSGId || ''}
         sgName={selectedSGName || undefined}
         systemName={systemName || ''}
-        onRemediate={(sgId, rules) => {
-          console.log('[SG] Remediate requested:', sgId, rules)
+        onRemediate={(sgId, rules, result) => {
+          console.log('[SG] Remediate requested:', sgId, rules, result)
           const sgResource = data?.resources.find(resource =>
             resource.resourceType === 'SecurityGroup' &&
             (resource.id === sgId || resource.resourceName === sgId || resource.resourceName === selectedSGName || resource.id === selectedSGId)
@@ -2504,6 +2551,9 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           if (sgResource) {
             handleRemediationSuccess(sgResource, {
               remediatedBy: 'user@cyntro.io',
+              snapshotId: result?.snapshotId ?? null,
+              eventId: result?.eventId ?? null,
+              rollbackAvailable: result?.rollbackAvailable ?? false,
             })
           } else {
             void fetchGaps(false, false)
