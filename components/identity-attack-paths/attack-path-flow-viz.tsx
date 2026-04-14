@@ -29,6 +29,15 @@ const LANE_CONFIG: Record<
     order: number
   }
 > = {
+  entry: {
+    label: "ENTRY POINTS",
+    textColor: "text-red-400",
+    bgColor: "bg-red-500/20",
+    borderColor: "border-red-500/50",
+    hoverShadow: "hover:shadow-red-500/20",
+    Icon: Globe,
+    order: -1,
+  },
   compute: {
     label: "COMPUTE",
     textColor: "text-blue-400",
@@ -78,7 +87,7 @@ const LANE_CONFIG: Record<
 
 // Fallback mapping: tier -> lane
 const TIER_TO_LANE: Record<string, string> = {
-  entry: "compute",
+  entry: "entry",
   identity: "iam",
   network_control: "security_group",
   crown_jewel: "crown_jewel",
