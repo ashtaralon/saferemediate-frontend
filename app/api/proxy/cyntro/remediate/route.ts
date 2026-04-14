@@ -108,23 +108,31 @@ export async function POST(req: NextRequest) {
     const remediateData = await res.json()
     console.log(`[CYNTRO-REMEDIATE] Success response:`, JSON.stringify(remediateData, null, 2))
 
+    // Handle safety gate blocks — pass through the blocked reason clearly
+    if (remediateData.blocked) {
+      return NextResponse.json({
+        success: false,
+        blocked: true,
+        block_reason: remediateData.block_reason || remediateData.message || "Remediation blocked by safety gate",
+        message: remediateData.message || "Remediation blocked",
+        action_required: remediateData.action_required,
+        confidence: remediateData.confidence,
+        warnings: remediateData.warnings || [],
+      })
+    }
+
     // Transform response for UI
-    // The /api/iam-roles/remediate endpoint returns:
-    // - success: boolean
-    // - snapshot_id: string (SNAP-xxx format)
-    // - permissions_removed: number
-    // - managed_policies_detached: string[]
-    // - inline_policies_modified: string[]
-    // - message: string
     const beforeTotal = gapData.summary?.total_permissions || gapData.allowed_count || (usedPermissions.length + unusedPermissions.length)
-    const removedPermissions = remediateData.permissions_removed || permsToRemove.length
+    const removedPermissions = typeof remediateData.permissions_removed === 'number'
+      ? remediateData.permissions_removed
+      : (remediateData.total_permissions_removed || permsToRemove.length)
     const afterTotal = typeof remediateData.after_total === 'number'
       ? remediateData.after_total
       : Math.max(0, beforeTotal - removedPermissions)
 
     const response = {
       dry_run,
-      success: remediateData.success !== false,  // Default to true if not explicitly false
+      success: remediateData.success !== false,
       message: remediateData.message || `Removed ${removedPermissions} permissions`,
       snapshot_id: remediateData.snapshot_id,
       event_id: remediateData.event_id || remediateData.execution_id || null,

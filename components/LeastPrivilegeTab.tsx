@@ -2400,8 +2400,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   setDrawerOpen(false)
                   setSelectedResource(null)
                 }
+              } else if (result.blocked) {
+                throw new Error(result.block_reason || result.message || 'Remediation blocked by safety gate')
               } else {
-                throw new Error(result.error || 'Remediation failed')
+                throw new Error(result.message || result.error || 'Remediation failed')
               }
             } catch (error) {
               console.error('Remediation error:', error)
