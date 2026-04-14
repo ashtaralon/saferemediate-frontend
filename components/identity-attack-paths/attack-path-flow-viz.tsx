@@ -202,64 +202,94 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
     }
   }
 
-  // Build flows from edges — wire compute → resource through checkpoints
+  // Build flows from edges — wire compute → resource through REAL checkpoints
   let totalBytes = 0
   let totalConnections = 0
 
-  // Build a set of all node IDs in each category for quick lookup
+  // Build lookup sets
   const computeIds = new Set(computeServices.map((c) => c.id))
   const resourceIds = new Set(resources.map((r) => r.id))
-  const sgIds = new Set(securityGroups.map((sg) => sg.id))
-  const naclIds = new Set(nacls.map((n) => n.id))
-  const roleIds = new Set(iamRoles.map((r) => r.id))
+  const sgIdSet = new Set(securityGroups.map((sg) => sg.id))
+  const naclIdSet = new Set(nacls.map((n) => n.id))
+  const roleIdSet = new Set(iamRoles.map((r) => r.id))
 
-  // For each compute→resource pair, create a flow through checkpoints
+  // Build per-compute lookup: which SG/NACL/Role is ACTUALLY connected to each compute
+  // by checking real edges (USES_SECURITY_GROUP, SECURED_BY, PROTECTED_BY_NACL, USES_ROLE, etc.)
+  const sgEdgeTypes = new Set(["USES_SECURITY_GROUP", "SECURED_BY"])
+  const naclEdgeTypes = new Set(["USES_NACL", "PROTECTED_BY_NACL"])
+  const roleEdgeTypes = new Set(["USES_ROLE", "ASSUMES_ROLE_ACTUAL", "ASSUMES_ROLE", "HAS_ROLE"])
+  const accessEdgeTypes = new Set(["ACCESSES_RESOURCE", "ACTUAL_API_CALL", "ACTUAL_S3_ACCESS", "CALLS"])
+
+  function findConnectedNode(computeId: string, targetSet: Set<string>, edgeTypes: Set<string>): string | undefined {
+    for (const edge of edges) {
+      const etype = edge.type ?? ""
+      if (!edgeTypes.has(etype)) continue
+      if (edge.source === computeId && targetSet.has(edge.target)) return edge.target
+      if (edge.target === computeId && targetSet.has(edge.source)) return edge.source
+    }
+    return undefined
+  }
+
+  // Also find which role accesses which resource
+  function findRoleForResource(resourceId: string): string | undefined {
+    for (const edge of edges) {
+      const etype = edge.type ?? ""
+      if (!accessEdgeTypes.has(etype)) continue
+      if (edge.target === resourceId && roleIdSet.has(edge.source)) return edge.source
+    }
+    return undefined
+  }
+
+  // For each compute node, find its REAL connected checkpoints and create flows
   for (const compute of computeServices) {
+    const realSgId = findConnectedNode(compute.id, sgIdSet, sgEdgeTypes)
+    const realNaclId = findConnectedNode(compute.id, naclIdSet, naclEdgeTypes)
+    const realRoleId = findConnectedNode(compute.id, roleIdSet, roleEdgeTypes)
+
     for (const resource of resources) {
-      // Check if there's an edge chain connecting them
-      const hasConnection = edges.some(
-        (e) =>
-          (e.source === compute.id || e.target === resource.id) ||
-          (computeIds.has(e.source) && resourceIds.has(e.target))
+      // Find the role that actually accesses this resource (if different from compute's role)
+      const accessRoleId = findRoleForResource(resource.id) ?? realRoleId
+
+      // Find traffic bytes from edges involving this compute
+      const relevantEdges = edges.filter(
+        (e) => e.source === compute.id || e.target === resource.id
       )
+      const bytes = relevantEdges.reduce((s, e) => s + (e.traffic_bytes ?? 0), 0)
+      const connections = relevantEdges.reduce((s, e) => s + (e.hit_count ?? 1), 0)
 
-      if (hasConnection || (computeServices.length > 0 && resources.length > 0)) {
-        // Find traffic bytes from edges involving this compute or resource
-        const relevantEdges = edges.filter(
-          (e) => e.source === compute.id || e.target === resource.id
-        )
-        const bytes = relevantEdges.reduce((s, e) => s + (e.traffic_bytes ?? 0), 0)
-        const connections = relevantEdges.reduce((s, e) => s + (e.hit_count ?? 1), 0)
+      totalBytes += bytes
+      totalConnections += connections
 
-        totalBytes += bytes
-        totalConnections += connections
-
-        flows.push({
-          sourceId: compute.id,
-          targetId: resource.id,
-          sgId: securityGroups.length > 0 ? securityGroups[0].id : undefined,
-          naclId: nacls.length > 0 ? nacls[0].id : undefined,
-          roleId: iamRoles.length > 0 ? iamRoles[0].id : undefined,
-          ports: [],
-          protocol: "TCP",
-          bytes: bytes || 1024, // minimum for animation
-          connections: connections || 1,
-          isActive: true,
-        })
-      }
+      flows.push({
+        sourceId: compute.id,
+        targetId: resource.id,
+        sgId: realSgId ?? securityGroups[0]?.id,
+        naclId: realNaclId ?? nacls[0]?.id,
+        roleId: accessRoleId ?? realRoleId ?? iamRoles[0]?.id,
+        ports: [],
+        protocol: "TCP",
+        bytes: bytes || 1024,
+        connections: connections || 1,
+        isActive: true,
+      })
     }
   }
 
-  // If no compute→resource flows were created but we have nodes, create synthetic flows
+  // If no flows created but we have nodes, create minimal synthetic flows
   if (flows.length === 0 && computeServices.length > 0 && resources.length > 0) {
     for (const compute of computeServices) {
+      const realSgId = findConnectedNode(compute.id, sgIdSet, sgEdgeTypes)
+      const realNaclId = findConnectedNode(compute.id, naclIdSet, naclEdgeTypes)
+      const realRoleId = findConnectedNode(compute.id, roleIdSet, roleEdgeTypes)
+
       for (const resource of resources) {
+        const accessRoleId = findRoleForResource(resource.id) ?? realRoleId
         flows.push({
           sourceId: compute.id,
           targetId: resource.id,
-          sgId: securityGroups[0]?.id,
-          naclId: nacls[0]?.id,
-          roleId: iamRoles[0]?.id,
+          sgId: realSgId ?? securityGroups[0]?.id,
+          naclId: realNaclId ?? nacls[0]?.id,
+          roleId: accessRoleId ?? iamRoles[0]?.id,
           ports: [],
           protocol: "TCP",
           bytes: 1024,
