@@ -94,7 +94,7 @@ export interface PathNodeDetail {
   name: string
   type: string
   tier: "entry" | "identity" | "network_control" | "crown_jewel"
-  lane?: "compute" | "security_group" | "nacl" | "iam" | "crown_jewel"
+  lane?: "entry" | "compute" | "security_group" | "nacl" | "subnet" | "vpc" | "iam" | "crown_jewel"
   is_internet_exposed: boolean
   lp_score: number | null
   gap_count: number
@@ -122,6 +122,8 @@ export interface PathEdgeDetail {
   port: number | null
   protocol: string | null
   is_observed: boolean
+  traffic_bytes?: number
+  hit_count?: number
 }
 
 export interface IdentityAttackPath {
