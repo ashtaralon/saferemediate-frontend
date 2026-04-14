@@ -139,6 +139,15 @@ const VulnerabilitiesSection = dynamic(
   }
 )
 
+const SystemMapPreview = dynamic(() => import("./system-map-preview"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[400px]">
+      <RefreshCw className="w-8 h-8 text-[#2D51DA] animate-spin" />
+    </div>
+  ),
+})
+
 const SystemDependencyMap = dynamic(() => import("./system-dependency-map"), {
   ssr: false,
   loading: () => (
@@ -1526,7 +1535,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     </button>
                   </div>
                   <div className="p-4">
-                    <SystemDependencyMap systemName={systemName} variant="compact" />
+                    <SystemMapPreview systemName={systemName} />
                   </div>
                 </div>
 
