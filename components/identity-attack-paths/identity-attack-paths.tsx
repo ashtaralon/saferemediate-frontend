@@ -33,11 +33,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       const json: IdentityAttackPathsResponse = await res.json()
       if (json.error) throw new Error(json.error)
       setData(json)
-      if (json.crown_jewels?.length > 0 && !selectedJewelId) {
+      if ((json.crown_jewels?.length ?? 0) > 0 && !selectedJewelId) {
         setSelectedJewelId(json.crown_jewels[0].id)
       }
     } catch (e: any) {
-      setError(e.message || "Failed to load attack paths")
+      setError(e?.message ?? "Failed to load attack paths")
     } finally {
       setIsLoading(false)
     }
@@ -49,24 +49,27 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
 
   const jewelPaths = useMemo(() => {
     if (!data || !selectedJewelId) return []
-    return data.paths.filter((p) => p.crown_jewel_id === selectedJewelId)
+    return (data.paths ?? []).filter((p) => p.crown_jewel_id === selectedJewelId)
   }, [data, selectedJewelId])
 
   const selectedNode = useMemo((): PathNodeDetail | null => {
-    if (!selectedNodeId || !jewelPaths[selectedPathIndex]) return null
-    return jewelPaths[selectedPathIndex].nodes.find((n) => n.id === selectedNodeId) || null
+    if (!selectedNodeId) return null
+    const currentPath = jewelPaths?.[selectedPathIndex]
+    if (!currentPath) return null
+    return (currentPath.nodes ?? []).find((n) => n.id === selectedNodeId) ?? null
   }, [selectedNodeId, jewelPaths, selectedPathIndex])
 
-  const handleJewelSelect = (id: string) => {
+  const handleJewelSelect = useCallback((id: string) => {
     setSelectedJewelId(id)
     setSelectedPathIndex(0)
     setSelectedNodeId(null)
-  }
+  }, [])
 
-  const handleNodeClick = (nodeId: string) => {
-    setSelectedNodeId(nodeId === selectedNodeId ? null : nodeId)
-  }
+  const handleNodeClick = useCallback((nodeId: string) => {
+    setSelectedNodeId((prev) => (nodeId === prev ? null : nodeId))
+  }, [])
 
+  // Loading state
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[600px]">
@@ -78,6 +81,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     )
   }
 
+  // Error state
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-[600px]">
@@ -96,7 +100,8 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     )
   }
 
-  if (!data || data.total_paths === 0) {
+  // Empty state
+  if (!data || (data.total_paths ?? 0) === 0) {
     return (
       <div className="flex items-center justify-center min-h-[600px]">
         <div className="flex flex-col items-center gap-3">
@@ -107,6 +112,8 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       </div>
     )
   }
+
+  const currentPath = jewelPaths?.[selectedPathIndex] ?? null
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -134,23 +141,24 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         </div>
 
         <div className="flex items-center gap-4">
-          <StatPill value={data.critical_paths} label="Critical Paths" color="#ef4444" show={data.critical_paths > 0} />
-          <StatPill value={data.high_paths} label="High Paths" color="#f97316" show={data.high_paths > 0} />
-          <StatPill value={data.total_jewels} label="Crown Jewels" color="#8b5cf6" show />
-          <StatPill value={data.exposed_jewels} label="Exposed" color="#ef4444" icon={<Globe className="w-3 h-3" />} show={data.exposed_jewels > 0} />
-          <StatPill value={data.total_paths} label="Total Paths" color="#64748b" show />
+          <StatPill value={data.critical_paths ?? 0} label="Critical Paths" color="#ef4444" show={(data.critical_paths ?? 0) > 0} />
+          <StatPill value={data.high_paths ?? 0} label="High Paths" color="#f97316" show={(data.high_paths ?? 0) > 0} />
+          <StatPill value={data.total_jewels ?? 0} label="Crown Jewels" color="#8b5cf6" show />
+          <StatPill value={data.exposed_jewels ?? 0} label="Exposed" color="#ef4444" icon={<Globe className="w-3 h-3" />} show={(data.exposed_jewels ?? 0) > 0} />
+          <StatPill value={data.total_paths ?? 0} label="Total Paths" color="#64748b" show />
         </div>
       </div>
 
       {/* 3-column layout */}
       <div className="flex flex-1 overflow-hidden">
         <CrownJewelListPanel
-          jewels={data.crown_jewels}
+          jewels={data.crown_jewels ?? []}
           selectedJewelId={selectedJewelId}
           onSelect={handleJewelSelect}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Path selector with severity badges */}
           {jewelPaths.length > 1 && (
             <div
               className="flex items-center justify-center gap-3 py-2 border-b"
@@ -163,9 +171,14 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="text-xs text-slate-300">
-                Path {selectedPathIndex + 1} of {jewelPaths.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-300">
+                  Path {selectedPathIndex + 1} of {jewelPaths.length}
+                </span>
+                {currentPath?.severity?.severity && (
+                  <SeverityBadge severity={currentPath.severity.severity} size="sm" />
+                )}
+              </div>
               <button
                 onClick={() => setSelectedPathIndex(Math.min(jewelPaths.length - 1, selectedPathIndex + 1))}
                 disabled={selectedPathIndex >= jewelPaths.length - 1}
@@ -190,10 +203,10 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           )}
         </div>
 
-        {selectedNode && jewelPaths[selectedPathIndex] && (
+        {selectedNode && currentPath && (
           <NodeDetailPanel
             node={selectedNode}
-            path={jewelPaths[selectedPathIndex]}
+            path={currentPath}
             onClose={() => setSelectedNodeId(null)}
           />
         )}

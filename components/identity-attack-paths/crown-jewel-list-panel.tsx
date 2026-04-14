@@ -10,8 +10,8 @@ interface CrownJewelListPanelProps {
   onSelect: (id: string) => void
 }
 
-function getJewelIcon(type: string) {
-  const t = type?.toLowerCase() || ""
+function getJewelIcon(type: string | null | undefined) {
+  const t = (type ?? "").toLowerCase()
   if (t.includes("s3")) return <HardDrive className="w-4 h-4" />
   if (t.includes("rds") || t.includes("dynamo") || t.includes("database")) return <Database className="w-4 h-4" />
   if (t.includes("secret") || t.includes("kms")) return <Key className="w-4 h-4" />
@@ -19,15 +19,15 @@ function getJewelIcon(type: string) {
   return <Database className="w-4 h-4" />
 }
 
-function getJewelTypeLabel(type: string): string {
-  const t = type?.toLowerCase() || ""
+function getJewelTypeLabel(type: string | null | undefined): string {
+  const t = (type ?? "").toLowerCase()
   if (t.includes("s3")) return "S3 Bucket"
   if (t.includes("rds")) return "RDS Database"
   if (t.includes("dynamo")) return "DynamoDB Table"
   if (t.includes("secret")) return "Secret"
   if (t.includes("kms")) return "KMS Key"
   if (t.includes("lambda")) return "Lambda"
-  return type || "Resource"
+  return type ?? "Resource"
 }
 
 export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: CrownJewelListPanelProps) {
@@ -38,16 +38,17 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
     >
       <div className="p-4 border-b" style={{ borderColor: "rgba(148, 163, 184, 0.15)" }}>
         <h3 className="text-sm font-semibold text-white">Crown Jewels</h3>
-        <p className="text-xs text-slate-400 mt-1">{jewels.length} critical assets found</p>
+        <p className="text-xs text-slate-400 mt-1">{jewels?.length ?? 0} critical assets found</p>
       </div>
 
       <div className="p-2 space-y-1">
-        {jewels.map((jewel) => {
+        {(jewels ?? []).map((jewel) => {
           const isSelected = jewel.id === selectedJewelId
+          const sev = jewel.severity ?? "LOW"
           const sevColor =
-            jewel.severity === "CRITICAL" ? "#ef4444" :
-            jewel.severity === "HIGH" ? "#f97316" :
-            jewel.severity === "MEDIUM" ? "#eab308" : "#22c55e"
+            sev === "CRITICAL" ? "#ef4444" :
+            sev === "HIGH" ? "#f97316" :
+            sev === "MEDIUM" ? "#eab308" : "#22c55e"
 
           return (
             <button
@@ -69,15 +70,15 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                   {getJewelIcon(jewel.type)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{jewel.name}</p>
+                  <p className="text-sm font-medium text-white truncate">{jewel.name ?? jewel.id}</p>
                   <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
                     {getJewelTypeLabel(jewel.type)}
                   </p>
                   <div className="flex items-center gap-2 mt-2">
-                    <SeverityBadge severity={jewel.severity} size="sm" />
-                    {jewel.path_count > 0 && (
+                    <SeverityBadge severity={jewel.severity ?? "LOW"} size="sm" />
+                    {(jewel.path_count ?? 0) > 0 && (
                       <span className="text-[10px] text-slate-400">
-                        {jewel.path_count} path{jewel.path_count > 1 ? "s" : ""}
+                        {jewel.path_count ?? 0} path{(jewel.path_count ?? 0) > 1 ? "s" : ""}
                       </span>
                     )}
                   </div>
@@ -95,7 +96,7 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
-                    width: `${Math.min(jewel.highest_risk_score, 100)}%`,
+                    width: `${Math.min(jewel.highest_risk_score ?? 0, 100)}%`,
                     background: sevColor,
                     opacity: 0.7,
                   }}
@@ -105,7 +106,7 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
           )
         })}
 
-        {jewels.length === 0 && (
+        {(jewels?.length ?? 0) === 0 && (
           <div className="text-center py-8">
             <Shield className="w-8 h-8 text-slate-600 mx-auto mb-2" />
             <p className="text-sm text-slate-400">No crown jewels detected</p>

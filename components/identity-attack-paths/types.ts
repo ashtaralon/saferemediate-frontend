@@ -37,16 +37,81 @@ export interface InternetExposureAlert {
   message: string
 }
 
+// -- Enriched fields (new backend shape) --
+
+export interface NodePermissions {
+  total: number
+  used: number
+  unused: number
+  high_risk: string[]
+}
+
+export interface NodePolicyDetails {
+  inline_policies: number
+  managed_policies: number
+  wildcards: string[]
+}
+
+export interface NodeRules {
+  inbound_count: number
+  outbound_count: number
+  open_to_internet: boolean
+}
+
+export interface NodeAccessSummary {
+  total_accessors: number
+  api_calls: number
+  data_volume_bytes: number
+}
+
+export interface NodeEncryption {
+  at_rest: boolean
+  in_transit: boolean
+}
+
+export interface NodeTrafficSummary {
+  inbound_bytes: number
+  outbound_bytes: number
+  api_calls: number
+}
+
+export interface RiskReduction {
+  current_score: number
+  achievable_score: number
+  top_actions: { action: string; impact: number }[]
+}
+
+export interface LaneDefinition {
+  id: string
+  label: string
+  icon: string
+}
+
+// -- Node types --
+
 export interface PathNodeDetail {
   id: string
   name: string
   type: string
   tier: "entry" | "identity" | "network_control" | "crown_jewel"
+  lane?: "compute" | "security_group" | "nacl" | "iam" | "crown_jewel"
   is_internet_exposed: boolean
   lp_score: number | null
   gap_count: number
   remediation: NodeRemediation | null
   internet_exposure_alert: InternetExposureAlert | null
+  // Enriched fields (optional for backward compat)
+  permissions?: NodePermissions | null
+  policy_details?: NodePolicyDetails | null
+  rules?: NodeRules | null
+  open_ports?: number[]
+  observed_ports?: number[]
+  unused_ports?: number[]
+  data_classification?: string | null
+  access_summary?: NodeAccessSummary | null
+  encryption?: NodeEncryption | null
+  traffic_summary?: NodeTrafficSummary | null
+  recommendations?: string[]
 }
 
 export interface PathEdgeDetail {
@@ -68,6 +133,9 @@ export interface IdentityAttackPath {
   path_kind: string
   evidence_type: "observed" | "configured"
   hop_count: number
+  // Enriched fields (optional for backward compat)
+  lanes?: LaneDefinition[]
+  risk_reduction?: RiskReduction | null
 }
 
 export interface CrownJewelSummary {
