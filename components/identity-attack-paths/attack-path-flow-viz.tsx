@@ -1,16 +1,14 @@
 "use client"
 
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import React, { useState, useRef, useMemo, useCallback } from "react"
 import {
   Server, Shield, Lock, Key, Database, Zap, Globe,
-  AlertTriangle, Crown, HardDrive, Target, Network, Cloud,
+  AlertTriangle, Crown, Target, UserCheck, ArrowRight,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
 import type { IdentityAttackPath, PathNodeDetail, PathEdgeDetail, RiskReduction } from "./types"
 import {
   ServiceNodeBox,
-  SecurityGroupPanel,
-  NACLNode,
   IAMRoleNode,
   ConnectionLinesSVG,
 } from "@/components/dependency-map/traffic-flow-map"
@@ -30,6 +28,18 @@ interface AttackPathFlowVizProps {
   selectedNodeId: string | null
 }
 
+// ── Badge data for SG/NACL context on compute nodes ──────────────
+interface ComputeBadge {
+  id: string
+  name: string
+  kind: "sg" | "nacl"
+}
+
+// ── Extended architecture with rendering metadata ─────────────────
+interface LateralArchitecture extends SystemArchitecture {
+  _badges: Map<string, ComputeBadge[]>
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 function mapNodeType(type: string): NodeType {
   const t = (type ?? "").toLowerCase()
@@ -41,15 +51,18 @@ function mapNodeType(type: string): NodeType {
   if (t.includes("sqs")) return "sqs"
   if (t.includes("sns")) return "sns"
   if (t.includes("kms") || t.includes("secret")) return "storage"
+  if (t === "accesskey" || t === "access_key") return "iam_role"
+  if (t === "stssession" || t === "sts_session") return "iam_role"
   if (t.includes("cloudtrailprincipal") || t.includes("awsprincipal")) return "principal"
   if (t.includes("iam") || t.includes("role")) return "iam_role"
   if (t.includes("instanceprofile")) return "iam_role"
   if (t.includes("security") || t.includes("sg")) return "security_group"
   if (t.includes("nacl")) return "nacl"
+  if (t.includes("stepfunction")) return "lambda"
   return "network"
 }
 
-function shortName(name: string, maxLen = 20): string {
+function shortName(name: string, maxLen = 22): string {
   let short = (name ?? "Unknown")
     .replace("SafeRemediate-Test-", "")
     .replace("SafeRemediate-", "")
@@ -73,17 +86,34 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`
 }
 
-// ── Transform attack path data → SystemArchitecture ─────────────────
-function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture {
+const _SG_NACL_TYPES = new Set([
+  "securitygroup", "security_group", "sg",
+  "networkacl", "nacl",
+])
+
+const _NETWORK_CONTAINER_TYPES = new Set([
+  "vpc", "subnet",
+])
+
+function isSgNaclType(type: string): boolean {
+  return _SG_NACL_TYPES.has((type ?? "").toLowerCase())
+}
+
+function isNetworkContainerType(type: string): boolean {
+  return _NETWORK_CONTAINER_TYPES.has((type ?? "").toLowerCase())
+}
+
+// ── Transform attack path data → Lateral Movement Architecture ──────
+function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitecture {
   const nodes = path.nodes ?? []
   const edges = path.edges ?? []
 
-  const computeServices: ServiceNode[] = []
-  const resources: ServiceNode[] = []
-  const securityGroups: SecurityCheckpoint[] = []
-  const nacls: SecurityCheckpoint[] = []
-  const iamRoles: SecurityCheckpoint[] = []
-  const flows: TrafficFlow[] = []
+  // ── Step 1: categorize all nodes by lane ──
+  const entryNodes: PathNodeDetail[] = []
+  const computeLaneNodes: PathNodeDetail[] = []
+  const iamNodes: PathNodeDetail[] = []
+  const pivotNodes: PathNodeDetail[] = []
+  const jewelNodes: PathNodeDetail[] = []
 
   const seenIds = new Set<string>()
 
@@ -93,172 +123,191 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
 
     const lane = node.lane ?? ""
     const nodeType = mapNodeType(node.type ?? "")
-    const sName = shortName(node.name ?? node.id)
 
-    if (lane === "compute" || nodeType === "compute" || nodeType === "lambda") {
-      computeServices.push({
-        id: node.id,
-        name: node.name ?? node.id,
-        shortName: sName,
-        type: nodeType,
-        instanceId: node.type === "EC2Instance" ? node.id : undefined,
-      })
-    } else if (lane === "security_group" || nodeType === "security_group") {
-      const inbound = node.rules?.inbound_count ?? 0
-      const outbound = node.rules?.outbound_count ?? 0
-      securityGroups.push({
-        id: node.id,
-        type: "security_group",
-        name: node.name ?? node.id,
-        shortName: sName,
-        usedCount: inbound,
-        totalCount: inbound + outbound,
-        gapCount: node.gap_count ?? 0,
-        connectedSources: [],
-        connectedTargets: [],
-        rules: (node.open_ports ?? []).map((port: number) => ({
-          direction: "ingress" as const,
-          protocol: "TCP",
-          fromPort: port,
-          toPort: port,
-          portDisplay: `TCP/${port}`,
-          source: node.rules?.open_to_internet ? "0.0.0.0/0" : "10.0.0.0/8",
-          sourceType: "cidr" as const,
-          status: (node.unused_ports ?? []).includes(port) ? ("unused" as const) : ("used" as const),
-          flowCount: 0,
-          lastSeen: null,
-          isPublic: node.rules?.open_to_internet ?? false,
-        })),
-      })
-    } else if (lane === "nacl" || nodeType === "nacl") {
-      nacls.push({
-        id: node.id,
-        type: "nacl",
-        name: node.name ?? node.id,
-        shortName: sName,
-        usedCount: node.rules?.inbound_count ?? 0,
-        totalCount: (node.rules?.inbound_count ?? 0) + (node.rules?.outbound_count ?? 0),
-        gapCount: node.gap_count ?? 0,
-        connectedSources: [],
-        connectedTargets: [],
-      })
-    } else if (lane === "subnet" || lane === "vpc") {
-      // Subnets and VPCs go into NACLs column as network checkpoints
-      nacls.push({
-        id: node.id,
-        type: "nacl",
-        name: node.name ?? node.id,
-        shortName: `${lane === "vpc" ? "VPC: " : "Subnet: "}${sName}`,
-        usedCount: 0,
-        totalCount: 0,
-        gapCount: 0,
-        connectedSources: [],
-        connectedTargets: [],
-      })
-    } else if (lane === "entry") {
-      // Entry points (CloudTrailPrincipal, AWSPrincipal, etc.) — treat as compute/entry
-      computeServices.push({
-        id: node.id,
-        name: node.name ?? node.id,
-        shortName: sName,
-        type: "principal" as NodeType,
-      })
-    } else if (
-      lane === "iam" ||
-      nodeType === "iam_role" ||
-      node.type === "InstanceProfile"
-    ) {
-      const totalPerms = node.permissions?.total ?? 0
-      const usedPerms = node.permissions?.used ?? 0
-      iamRoles.push({
-        id: node.id,
-        type: "iam_role",
-        name: node.name ?? node.id,
-        shortName: sName,
-        usedCount: usedPerms,
-        totalCount: totalPerms,
-        gapCount: node.permissions?.unused ?? node.gap_count ?? 0,
-        connectedSources: [],
-        connectedTargets: [],
-      })
+    if (lane === "entry") {
+      entryNodes.push(node)
+    } else if (lane === "compute") {
+      computeLaneNodes.push(node)
+    } else if (lane === "iam") {
+      iamNodes.push(node)
+    } else if (lane === "pivot") {
+      pivotNodes.push(node)
     } else if (lane === "crown_jewel") {
-      resources.push({
-        id: node.id,
-        name: node.name ?? node.id,
-        shortName: sName,
-        type: nodeType === "principal" ? "principal" : nodeType,
-      })
+      jewelNodes.push(node)
     } else {
-      // Default: if it looks like data, put in resources; else compute
-      if (["database", "storage", "dynamodb", "sqs", "sns"].includes(nodeType)) {
-        resources.push({
-          id: node.id,
-          name: node.name ?? node.id,
-          shortName: sName,
-          type: nodeType,
-        })
+      // Fallback based on type
+      if (["database", "storage", "dynamodb"].includes(nodeType)) {
+        jewelNodes.push(node)
+      } else if (nodeType === "iam_role") {
+        iamNodes.push(node)
+      } else if (["sqs", "sns"].includes(nodeType)) {
+        pivotNodes.push(node)
+      } else if (nodeType === "principal") {
+        entryNodes.push(node)
       } else {
-        computeServices.push({
-          id: node.id,
-          name: node.name ?? node.id,
-          shortName: sName,
-          type: nodeType,
-        })
+        computeLaneNodes.push(node)
       }
     }
   }
 
-  // Build flows from edges — wire compute → resource through REAL checkpoints
+  // ── Step 2: separate compute lane into actual computes vs SG/NACL badges ──
+  const actualComputes: ServiceNode[] = []
+  const sgNaclNodes: PathNodeDetail[] = []
+
+  for (const node of computeLaneNodes) {
+    const t = (node.type ?? "").toLowerCase()
+    if (isSgNaclType(t) || isNetworkContainerType(t)) {
+      sgNaclNodes.push(node)
+    } else {
+      actualComputes.push({
+        id: node.id,
+        name: node.name ?? node.id,
+        shortName: shortName(node.name ?? node.id),
+        type: mapNodeType(node.type ?? ""),
+      })
+    }
+  }
+
+  // ── Step 3: build SG/NACL badge map per compute ──
+  const badges = new Map<string, ComputeBadge[]>()
+  const computeIdSet = new Set(actualComputes.map((c) => c.id))
+
+  for (const sgNode of sgNaclNodes) {
+    const kind: "sg" | "nacl" = isSgNaclType(sgNode.type ?? "") && (sgNode.type ?? "").toLowerCase().includes("nacl") ? "nacl" : "sg"
+    // Find which compute this SG/NACL connects to via edges
+    let parentComputeId: string | undefined
+    for (const edge of edges) {
+      if (edge.source === sgNode.id && computeIdSet.has(edge.target)) {
+        parentComputeId = edge.target
+        break
+      }
+      if (edge.target === sgNode.id && computeIdSet.has(edge.source)) {
+        parentComputeId = edge.source
+        break
+      }
+    }
+    const targetId = parentComputeId ?? actualComputes[0]?.id
+    if (targetId) {
+      const existing = badges.get(targetId) ?? []
+      existing.push({ id: sgNode.id, name: shortName(sgNode.name ?? sgNode.id, 16), kind })
+      badges.set(targetId, existing)
+    }
+  }
+
+  // ── Step 4: Build ServiceNode / SecurityCheckpoint arrays ──
+  const entries: ServiceNode[] = entryNodes.map((n) => ({
+    id: n.id,
+    name: n.name ?? n.id,
+    shortName: shortName(n.name ?? n.id),
+    type: mapNodeType(n.type ?? "") === "iam_role" ? ("principal" as NodeType) : mapNodeType(n.type ?? ""),
+  }))
+
+  const identities: SecurityCheckpoint[] = iamNodes.map((n) => ({
+    id: n.id,
+    type: "iam_role" as any,
+    name: n.name ?? n.id,
+    shortName: shortName(n.name ?? n.id),
+    usedCount: n.permissions?.used ?? 0,
+    totalCount: n.permissions?.total ?? 0,
+    gapCount: n.permissions?.unused ?? n.gap_count ?? 0,
+    connectedSources: [],
+    connectedTargets: [],
+  }))
+
+  const pivots: ServiceNode[] = pivotNodes.map((n) => ({
+    id: n.id,
+    name: n.name ?? n.id,
+    shortName: shortName(n.name ?? n.id),
+    type: mapNodeType(n.type ?? ""),
+  }))
+
+  const jewels: ServiceNode[] = jewelNodes.map((n) => ({
+    id: n.id,
+    name: n.name ?? n.id,
+    shortName: shortName(n.name ?? n.id),
+    type: mapNodeType(n.type ?? ""),
+  }))
+
+  // If no entries, promote first compute to entry
+  if (entries.length === 0 && actualComputes.length > 0) {
+    entries.push(actualComputes.shift()!)
+  }
+
+  // If still no entries but we have IAM nodes, promote first IAM to entry
+  if (entries.length === 0 && identities.length > 0) {
+    const iam = identities.shift()!
+    entries.push({
+      id: iam.id,
+      name: iam.name,
+      shortName: iam.shortName,
+      type: "principal" as NodeType,
+    })
+  }
+
+  // ── Step 5: Build flows ──
+  // ConnectionLinesSVG routing: sourceId → sgId → naclId → roleId → targetId
+  // Mapped to: entry → compute → identity → pivot → crown jewel
+  const flows: TrafficFlow[] = []
   let totalBytes = 0
   let totalConnections = 0
 
-  // Build lookup sets
-  const computeIds = new Set(computeServices.map((c) => c.id))
-  const resourceIds = new Set(resources.map((r) => r.id))
-  const sgIdSet = new Set(securityGroups.map((sg) => sg.id))
-  const naclIdSet = new Set(nacls.map((n) => n.id))
-  const roleIdSet = new Set(iamRoles.map((r) => r.id))
+  const entryIdSet = new Set(entries.map((e) => e.id))
+  const identityIdSet = new Set(identities.map((i) => i.id))
+  const pivotIdSet = new Set(pivots.map((p) => p.id))
+  const jewelIdSet = new Set(jewels.map((j) => j.id))
 
-  // Build per-compute lookup: which SG/NACL/Role is ACTUALLY connected to each compute
-  // by checking real edges (USES_SECURITY_GROUP, SECURED_BY, PROTECTED_BY_NACL, USES_ROLE, etc.)
-  const sgEdgeTypes = new Set(["USES_SECURITY_GROUP", "SECURED_BY"])
-  const naclEdgeTypes = new Set(["USES_NACL", "PROTECTED_BY_NACL"])
-  const roleEdgeTypes = new Set(["USES_ROLE", "ASSUMES_ROLE_ACTUAL", "ASSUMES_ROLE", "HAS_ROLE"])
-  const accessEdgeTypes = new Set(["ACCESSES_RESOURCE", "ACTUAL_API_CALL", "ACTUAL_S3_ACCESS", "CALLS"])
+  const identityEdgeTypes = new Set([
+    "USES_ROLE", "ASSUMES_ROLE_ACTUAL", "ASSUMES_ROLE", "HAS_ROLE", "CAN_ASSUME",
+    "HAS_ACCESS_KEY", "ASSUMED_ROLE", "ASSUMES_VIA_STS",
+  ])
+  const accessEdgeTypes = new Set([
+    "ACCESSES_RESOURCE", "ACTUAL_API_CALL", "ACTUAL_S3_ACCESS", "QUERIES_DB",
+    "ACTUAL_TRAFFIC", "CALLS", "RUNTIME_CALLS",
+  ])
+  const pivotEdgeTypes = new Set([
+    "CALLS", "RUNTIME_CALLS", "TRIGGERS", "SENDS_TO", "PUBLISHES_TO",
+    "ACCESSES_RESOURCE", "ACTUAL_API_CALL",
+  ])
+  const generalEdgeTypes = new Set([
+    "ACTUAL_TRAFFIC", "SECURED_BY", "USES_SECURITY_GROUP", "RUNTIME_CALLS",
+    "CALLS", "ACTUAL_API_CALL",
+  ])
 
-  function findConnectedNode(computeId: string, targetSet: Set<string>, edgeTypes: Set<string>): string | undefined {
+  function findConnected(fromId: string, targetSet: Set<string>, edgeTypes: Set<string>): string | undefined {
     for (const edge of edges) {
       const etype = edge.type ?? ""
       if (!edgeTypes.has(etype)) continue
-      if (edge.source === computeId && targetSet.has(edge.target)) return edge.target
-      if (edge.target === computeId && targetSet.has(edge.source)) return edge.source
+      if (edge.source === fromId && targetSet.has(edge.target)) return edge.target
+      if (edge.target === fromId && targetSet.has(edge.source)) return edge.source
     }
     return undefined
   }
 
-  // Also find which role accesses which resource
-  function findRoleForResource(resourceId: string): string | undefined {
-    for (const edge of edges) {
-      const etype = edge.type ?? ""
-      if (!accessEdgeTypes.has(etype)) continue
-      if (edge.target === resourceId && roleIdSet.has(edge.source)) return edge.source
-    }
-    return undefined
-  }
+  // For each entry → each jewel, build the full chain
+  for (const entry of entries) {
+    // Find compute connected to this entry
+    const computeId = findConnected(entry.id, computeIdSet, generalEdgeTypes) ?? actualComputes[0]?.id
+    // Find identity connected to compute (or entry)
+    const identityId = computeId
+      ? (findConnected(computeId, identityIdSet, identityEdgeTypes) ?? findConnected(entry.id, identityIdSet, identityEdgeTypes) ?? identities[0]?.id)
+      : (findConnected(entry.id, identityIdSet, identityEdgeTypes) ?? identities[0]?.id)
 
-  // For each compute node, find its REAL connected checkpoints and create flows
-  for (const compute of computeServices) {
-    const realSgId = findConnectedNode(compute.id, sgIdSet, sgEdgeTypes)
-    const realNaclId = findConnectedNode(compute.id, naclIdSet, naclEdgeTypes)
-    const realRoleId = findConnectedNode(compute.id, roleIdSet, roleEdgeTypes)
+    for (const jewel of jewels) {
+      // Find pivot between identity and jewel
+      let pivotId: string | undefined
+      if (identityId) {
+        pivotId = findConnected(identityId, pivotIdSet, pivotEdgeTypes)
+      }
+      if (!pivotId && computeId) {
+        pivotId = findConnected(computeId, pivotIdSet, pivotEdgeTypes)
+      }
+      pivotId = pivotId ?? pivots[0]?.id
 
-    for (const resource of resources) {
-      // Find the role that actually accesses this resource (if different from compute's role)
-      const accessRoleId = findRoleForResource(resource.id) ?? realRoleId
-
-      // Find traffic bytes from edges involving this compute
+      // Collect traffic metrics from relevant edges
       const relevantEdges = edges.filter(
-        (e) => e.source === compute.id || e.target === resource.id
+        (e) =>
+          e.source === entry.id || e.target === jewel.id ||
+          (computeId && (e.source === computeId || e.target === computeId))
       )
       const bytes = relevantEdges.reduce((s, e) => s + (e.traffic_bytes ?? 0), 0)
       const connections = relevantEdges.reduce((s, e) => s + (e.hit_count ?? 1), 0)
@@ -267,11 +316,11 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
       totalConnections += connections
 
       flows.push({
-        sourceId: compute.id,
-        targetId: resource.id,
-        sgId: realSgId ?? securityGroups[0]?.id,
-        naclId: realNaclId ?? nacls[0]?.id,
-        roleId: accessRoleId ?? realRoleId ?? iamRoles[0]?.id,
+        sourceId: entry.id,        // → data-compute-id (Entry column)
+        targetId: jewel.id,        // → data-resource-id (Crown Jewel column)
+        sgId: computeId,           // → data-sg-id (Compute column)
+        naclId: identityId,        // → data-nacl-id (Identity column)
+        roleId: pivotId,           // → data-role-id (Pivot column)
         ports: [],
         protocol: "TCP",
         bytes: bytes || 1024,
@@ -281,21 +330,17 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
     }
   }
 
-  // If no flows created but we have nodes, create minimal synthetic flows
-  if (flows.length === 0 && computeServices.length > 0 && resources.length > 0) {
-    for (const compute of computeServices) {
-      const realSgId = findConnectedNode(compute.id, sgIdSet, sgEdgeTypes)
-      const realNaclId = findConnectedNode(compute.id, naclIdSet, naclEdgeTypes)
-      const realRoleId = findConnectedNode(compute.id, roleIdSet, roleEdgeTypes)
-
-      for (const resource of resources) {
-        const accessRoleId = findRoleForResource(resource.id) ?? realRoleId
+  // Fallback: if no flows and we have computes, treat them as entries
+  if (flows.length === 0 && actualComputes.length > 0 && jewels.length > 0) {
+    for (const compute of actualComputes) {
+      const identityId = findConnected(compute.id, identityIdSet, identityEdgeTypes) ?? identities[0]?.id
+      for (const jewel of jewels) {
         flows.push({
           sourceId: compute.id,
-          targetId: resource.id,
-          sgId: realSgId ?? securityGroups[0]?.id,
-          naclId: realNaclId ?? nacls[0]?.id,
-          roleId: accessRoleId ?? iamRoles[0]?.id,
+          targetId: jewel.id,
+          sgId: undefined as any,
+          naclId: identityId,
+          roleId: pivots[0]?.id,
           ports: [],
           protocol: "TCP",
           bytes: 1024,
@@ -304,118 +349,178 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
         })
       }
     }
+    // Move computes to entries for rendering
+    entries.push(...actualComputes)
+    actualComputes.length = 0
   }
 
-  // If we only have IAM → resources (no compute), create flows from IAM to resources
-  // by treating IAM as compute for connection line purposes
-  if (flows.length === 0 && iamRoles.length > 0 && resources.length > 0) {
-    // Move first IAM role to compute to serve as the flow source
-    const entryRole = iamRoles[0]
-    computeServices.push({
-      id: entryRole.id,
-      name: entryRole.name,
-      shortName: entryRole.shortName,
-      type: "iam_role" as NodeType,
-    })
-    // Remove from iamRoles
-    iamRoles.splice(0, 1)
-    for (const resource of resources) {
-      flows.push({
-        sourceId: entryRole.id,
-        targetId: resource.id,
-        sgId: securityGroups[0]?.id,
-        naclId: nacls[0]?.id,
-        roleId: iamRoles[0]?.id,
-        ports: [],
-        protocol: "TCP",
-        bytes: 512,
-        connections: 1,
-        isActive: true,
-      })
-    }
+  // Wire checkpoint connections for ConnectionLinesSVG fallback routing
+  const computeCheckpoints: SecurityCheckpoint[] = actualComputes.map((c) => ({
+    id: c.id,
+    type: c.type as any,
+    name: c.name,
+    shortName: c.shortName,
+    usedCount: 0,
+    totalCount: 0,
+    gapCount: 0,
+    connectedSources: entries.map((e) => e.id),
+    connectedTargets: identities.map((i) => i.id),
+  }))
+
+  for (const id of identities) {
+    id.connectedSources = actualComputes.length > 0 ? actualComputes.map((c) => c.id) : entries.map((e) => e.id)
+    id.connectedTargets = pivots.length > 0 ? pivots.map((p) => p.id) : jewels.map((j) => j.id)
   }
 
-  // Wire up connections for checkpoint routing
-  for (const sg of securityGroups) {
-    sg.connectedSources = computeServices.map((c) => c.id)
-    sg.connectedTargets = nacls.length > 0 ? nacls.map((n) => n.id) : iamRoles.map((r) => r.id)
-  }
-  for (const nacl of nacls) {
-    nacl.connectedSources = securityGroups.length > 0 ? securityGroups.map((sg) => sg.id) : computeServices.map((c) => c.id)
-    nacl.connectedTargets = iamRoles.map((r) => r.id)
-  }
-  for (const role of iamRoles) {
-    role.connectedSources = nacls.length > 0 ? nacls.map((n) => n.id) : computeServices.map((c) => c.id)
-    role.connectedTargets = resources.map((r) => r.id)
-  }
+  const pivotCheckpoints: SecurityCheckpoint[] = pivots.map((p) => ({
+    id: p.id,
+    type: p.type as any,
+    name: p.name,
+    shortName: p.shortName,
+    usedCount: 0,
+    totalCount: 0,
+    gapCount: 0,
+    connectedSources: identities.map((i) => i.id),
+    connectedTargets: jewels.map((j) => j.id),
+  }))
 
-  // Ensure minimum traffic for animation visibility
-  if (totalBytes === 0 && flows.length > 0) {
-    totalBytes = flows.length * 1024
-  }
-  if (totalConnections === 0 && flows.length > 0) {
-    totalConnections = flows.length
-  }
+  if (totalBytes === 0 && flows.length > 0) totalBytes = flows.length * 1024
+  if (totalConnections === 0 && flows.length > 0) totalConnections = flows.length
 
   return {
-    computeServices,
-    resources,
-    securityGroups,
-    nacls,
-    iamRoles,
+    // SystemArchitecture fields (repurposed for ConnectionLinesSVG)
+    computeServices: entries,               // data-compute-id → Entry Points
+    securityGroups: computeCheckpoints,      // data-sg-id → Compute
+    nacls: identities,                       // data-nacl-id → Identity (IAM)
+    iamRoles: pivotCheckpoints,              // data-role-id → Pivot Services
+    resources: jewels,                       // data-resource-id → Crown Jewels
     flows,
     totalBytes,
     totalConnections,
-    totalGaps: iamRoles.reduce((s, r) => s + r.gapCount, 0) + securityGroups.reduce((s, sg) => s + sg.gapCount, 0),
+    totalGaps: identities.reduce((s, r) => s + r.gapCount, 0),
+    // Extra rendering metadata
+    _badges: badges,
   }
 }
 
-// ── API Call simulation (same logic as System Map) ──────────────────
-function simulateApiCalls(resource: ServiceNode, flows: TrafficFlow[]): {
-  actions: { action: string; count: number }[]
-  totalCalls: number
-  totalBytes: number
-} | null {
-  const resourceFlows = flows.filter((f) => f.targetId === resource.id)
-  const totalBytes = resourceFlows.reduce((sum, f) => sum + f.bytes, 0)
-  const resourceType = (resource.type || "").toLowerCase()
-
-  let apiActions: { action: string; count: number }[] = []
-  let totalCalls = 0
-
-  if (resourceType === "database") {
-    const queryCount = Math.max(1, Math.round(totalBytes / 1024))
-    apiActions = [
-      { action: "ExecuteStatement", count: Math.round(queryCount * 0.7) },
-      { action: "BatchExecuteStatement", count: Math.round(queryCount * 0.15) },
-      { action: "BeginTransaction", count: Math.round(queryCount * 0.1) },
-      { action: "CommitTransaction", count: Math.round(queryCount * 0.05) },
-    ]
-    totalCalls = queryCount
-  } else if (resourceType === "storage") {
-    const objectOps = Math.max(1, Math.round(totalBytes / 51200))
-    apiActions = [
-      { action: "GetObject", count: Math.round(objectOps * 0.6) },
-      { action: "PutObject", count: Math.round(objectOps * 0.3) },
-      { action: "ListObjects", count: Math.round(objectOps * 0.05) },
-      { action: "HeadObject", count: Math.round(objectOps * 0.05) },
-    ]
-    totalCalls = objectOps
-  } else if (resourceType === "dynamodb") {
-    const itemOps = Math.max(1, Math.round(totalBytes / 512))
-    apiActions = [
-      { action: "GetItem", count: Math.round(itemOps * 0.45) },
-      { action: "Query", count: Math.round(itemOps * 0.2) },
-      { action: "PutItem", count: Math.round(itemOps * 0.25) },
-      { action: "Scan", count: Math.round(itemOps * 0.1) },
-    ]
-    totalCalls = itemOps
+// ── Pivot Service Card ─────────────────────────────────────────────
+function PivotServiceCard({
+  node,
+  isHighlighted,
+  onHover,
+  onClick,
+}: {
+  node: ServiceNode
+  isHighlighted: boolean
+  onHover: (id: string | null) => void
+  onClick: () => void
+}) {
+  const typeIcons: Record<string, React.ReactNode> = {
+    lambda: <Zap className="w-4 h-4 text-amber-400" />,
+    sqs: <ArrowRight className="w-4 h-4 text-orange-400" />,
+    sns: <ArrowRight className="w-4 h-4 text-pink-400" />,
+    storage: <Key className="w-4 h-4 text-cyan-400" />,
   }
+  const icon = typeIcons[(node.type || "").toLowerCase()] ?? <Zap className="w-4 h-4 text-purple-400" />
 
-  apiActions = apiActions.filter((a) => a.count > 0)
-  if (totalCalls === 0) return null
+  return (
+    <div
+      className={`
+        px-4 py-3 rounded-xl border-2 cursor-pointer transition-all duration-300
+        ${isHighlighted
+          ? "border-purple-400 bg-purple-500/20 shadow-lg shadow-purple-500/20"
+          : "border-purple-500/30 bg-purple-500/10 hover:border-purple-400 hover:bg-purple-500/15"
+        }
+        min-w-[150px]
+      `}
+      onMouseEnter={() => onHover(node.id)}
+      onMouseLeave={() => onHover(null)}
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        {icon}
+        <span className="text-sm font-semibold text-white truncate max-w-[110px]">
+          {node.shortName || node.name}
+        </span>
+      </div>
+      <div className="text-[10px] text-purple-300/80 capitalize">
+        {(node.type || "service").replace(/_/g, " ")}
+      </div>
+    </div>
+  )
+}
 
-  return { actions: apiActions, totalCalls, totalBytes }
+// ── Compute Node Card (with SG/NACL badges) ────────────────────────
+function ComputeNodeCard({
+  node,
+  badges,
+  isHighlighted,
+  onHover,
+  onClick,
+  flowInfo,
+}: {
+  node: ServiceNode
+  badges: ComputeBadge[]
+  isHighlighted: boolean
+  onHover: (id: string | null) => void
+  onClick: () => void
+  flowInfo?: { bytes: number; connections: number }
+}) {
+  const typeIcons: Record<string, React.ReactNode> = {
+    compute: <Server className="w-4 h-4 text-blue-400" />,
+    lambda: <Zap className="w-4 h-4 text-amber-400" />,
+  }
+  const icon = typeIcons[(node.type || "").toLowerCase()] ?? <Server className="w-4 h-4 text-blue-400" />
+
+  return (
+    <div
+      className={`
+        px-4 py-3 rounded-xl border-2 cursor-pointer transition-all duration-300
+        ${isHighlighted
+          ? "border-blue-400 bg-blue-500/20 shadow-lg shadow-blue-500/20"
+          : "border-slate-600 bg-slate-800/80 hover:border-blue-400/60 hover:bg-slate-800"
+        }
+        min-w-[160px]
+      `}
+      onMouseEnter={() => onHover(node.id)}
+      onMouseLeave={() => onHover(null)}
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        {icon}
+        <span className="text-sm font-semibold text-white truncate max-w-[120px]">
+          {node.shortName || node.name}
+        </span>
+      </div>
+      {flowInfo && (
+        <div className="text-[10px] text-slate-400 mb-1.5">
+          {formatBytes(flowInfo.bytes)} · {flowInfo.connections} conn
+        </div>
+      )}
+      {/* SG/NACL badges */}
+      {badges.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/50">
+          {badges.map((badge) => (
+            <span
+              key={badge.id}
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                badge.kind === "sg"
+                  ? "bg-orange-500/15 text-orange-300 border border-orange-500/30"
+                  : "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+              }`}
+            >
+              {badge.kind === "sg" ? (
+                <Shield className="w-2.5 h-2.5" />
+              ) : (
+                <Lock className="w-2.5 h-2.5" />
+              )}
+              {badge.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Risk Reduction Bar ──────────────────────────────────────────────
@@ -465,7 +570,6 @@ function RiskReductionBar({ riskReduction }: { riskReduction: RiskReduction }) {
 export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selectedNodeId }: AttackPathFlowVizProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [expandedSG, setExpandedSG] = useState<string | null>(null)
 
   const path = paths?.[selectedPathIndex] ?? null
 
@@ -474,29 +578,50 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
     return buildArchitectureFromPath(path)
   }, [path])
 
-  // Build flow info per compute node
-  const computeFlowInfo = useMemo(() => {
+  // Aliases for clearer rendering
+  const entries = architecture?.computeServices ?? []
+  const computes = architecture?.securityGroups ?? []
+  const identities = architecture?.nacls ?? []
+  const pivots = architecture?.iamRoles ?? []
+  const jewels = architecture?.resources ?? []
+  const badgeMap = (architecture as LateralArchitecture)?._badges ?? new Map()
+
+  // Build flow info per entry (source)
+  const entryFlowInfo = useMemo(() => {
     const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
     if (!architecture) return map
     for (const flow of architecture.flows) {
       const existing = map.get(flow.sourceId) ?? { bytes: 0, connections: 0, ports: [] }
       existing.bytes += flow.bytes
       existing.connections += flow.connections
-      existing.ports.push(...flow.ports)
       map.set(flow.sourceId, existing)
     }
     return map
   }, [architecture])
 
-  // Build flow info per resource node
-  const resourceFlowInfo = useMemo(() => {
+  // Build flow info per compute
+  const computeFlowInfo = useMemo(() => {
+    const map = new Map<string, { bytes: number; connections: number }>()
+    if (!architecture) return map
+    for (const flow of architecture.flows) {
+      if (flow.sgId) {
+        const existing = map.get(flow.sgId) ?? { bytes: 0, connections: 0 }
+        existing.bytes += flow.bytes
+        existing.connections += flow.connections
+        map.set(flow.sgId, existing)
+      }
+    }
+    return map
+  }, [architecture])
+
+  // Build flow info per jewel (target)
+  const jewelFlowInfo = useMemo(() => {
     const map = new Map<string, { bytes: number; connections: number; ports: string[] }>()
     if (!architecture) return map
     for (const flow of architecture.flows) {
       const existing = map.get(flow.targetId) ?? { bytes: 0, connections: 0, ports: [] }
       existing.bytes += flow.bytes
       existing.connections += flow.connections
-      existing.ports.push(...flow.ports)
       map.set(flow.targetId, existing)
     }
     return map
@@ -509,29 +634,15 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
       if (nodeId === hoveredId) return true
       return architecture.flows.some(
         (f) =>
-          (f.sourceId === hoveredId && f.targetId === nodeId) ||
-          (f.targetId === hoveredId && f.sourceId === nodeId) ||
-          (f.sgId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId)) ||
-          (f.naclId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId)) ||
-          (f.roleId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId)) ||
-          (f.sgId === nodeId && (f.sourceId === hoveredId || f.targetId === hoveredId)) ||
-          (f.naclId === nodeId && (f.sourceId === hoveredId || f.targetId === hoveredId)) ||
-          (f.roleId === nodeId && (f.sourceId === hoveredId || f.targetId === hoveredId))
+          (f.sourceId === hoveredId && (f.targetId === nodeId || f.sgId === nodeId || f.naclId === nodeId || f.roleId === nodeId)) ||
+          (f.targetId === hoveredId && (f.sourceId === nodeId || f.sgId === nodeId || f.naclId === nodeId || f.roleId === nodeId)) ||
+          (f.sgId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId || f.naclId === nodeId || f.roleId === nodeId)) ||
+          (f.naclId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId || f.sgId === nodeId || f.roleId === nodeId)) ||
+          (f.roleId === hoveredId && (f.sourceId === nodeId || f.targetId === nodeId || f.sgId === nodeId || f.naclId === nodeId))
       )
     },
     [hoveredId, architecture]
   )
-
-  // API call simulations
-  const apiCallData = useMemo(() => {
-    if (!architecture) return new Map()
-    const map = new Map<string, ReturnType<typeof simulateApiCalls>>()
-    for (const resource of architecture.resources) {
-      const sim = simulateApiCalls(resource, architecture.flows)
-      if (sim) map.set(resource.id, sim)
-    }
-    return map
-  }, [architecture])
 
   if (!path || !architecture) {
     return (
@@ -541,10 +652,10 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
     )
   }
 
-  const apiResources = architecture.resources.filter((r) => {
-    const t = (r.type || "").toLowerCase()
-    return t === "database" || t === "storage" || t === "dynamodb"
-  })
+  // Count columns that have content (for dynamic grid)
+  const hasComputes = computes.length > 0
+  const hasIdentities = identities.length > 0
+  const hasPivots = pivots.length > 0
 
   return (
     <div className="flex-1 flex flex-col overflow-auto" style={{ background: "rgba(2, 6, 23, 0.95)" }}>
@@ -580,7 +691,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
         </div>
       </div>
 
-      {/* ── Architecture diagram (same 6-column layout as System Map) ── */}
+      {/* ── Lateral Movement Diagram ── */}
       <div className="flex-1 p-6">
         <div className="relative bg-slate-900/50 rounded-2xl border border-slate-700 p-6 overflow-hidden">
           {/* Stats header */}
@@ -590,9 +701,9 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                 <Target className="w-5 h-5 text-red-400" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">Attack Path Infrastructure</h3>
+                <h3 className="text-lg font-bold text-white">Lateral Movement Path</h3>
                 <p className="text-xs text-slate-400">
-                  Full path from entry to crown jewel
+                  Entry → Compute → Identity → Pivot → Crown Jewel
                 </p>
               </div>
             </div>
@@ -619,7 +730,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
             </div>
           </div>
 
-          {/* Main 6-column diagram: Compute | SGs | NACLs | IAM | API Calls | Resources */}
+          {/* Main 5-column diagram: Entry | Compute | Identity | Pivot | Crown Jewels */}
           <div ref={containerRef} className="relative min-h-[400px]">
             <ConnectionLinesSVG
               architecture={architecture}
@@ -628,159 +739,128 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
               animate={true}
             />
 
-            <div className="relative grid grid-cols-[1fr_auto_auto_auto_auto_1fr] gap-6 items-start" style={{ zIndex: 2 }}>
-              {/* COMPUTE */}
+            <div
+              className={`relative grid gap-6 items-start`}
+              style={{
+                zIndex: 2,
+                gridTemplateColumns: `1fr ${hasComputes ? "auto" : ""} ${hasIdentities ? "auto" : ""} ${hasPivots ? "auto" : ""} 1fr`,
+              }}
+            >
+              {/* ── ENTRY POINTS ── */}
               <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Server className="w-4 h-4 text-blue-400" />
-                  Compute ({architecture.computeServices.length})
+                  <Globe className="w-4 h-4 text-red-400" />
+                  Entry Points ({entries.length})
                 </div>
-                {architecture.computeServices.map((node) => (
+                {entries.map((node) => (
                   <div key={node.id} data-compute-id={node.id} className="relative">
+                    {node.type === "principal" && (
+                      <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-red-500 animate-pulse z-10" />
+                    )}
                     <ServiceNodeBox
                       node={node}
                       position="left"
-                      flowInfo={computeFlowInfo.get(node.id)}
+                      flowInfo={entryFlowInfo.get(node.id)}
                       isHighlighted={isNodeHighlighted(node.id)}
                       onHover={setHoveredId}
                       onClick={() => onNodeClick(node.id)}
                     />
                   </div>
                 ))}
-                {architecture.computeServices.length === 0 && (
-                  <div className="text-xs text-slate-500 italic p-4 text-center">No compute in path</div>
+                {entries.length === 0 && (
+                  <div className="text-xs text-slate-500 italic p-4 text-center">No entry points</div>
                 )}
               </div>
 
-              {/* SECURITY GROUPS */}
-              <div className="flex flex-col gap-3 min-w-[180px]">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-orange-400" />
-                  Security Groups ({architecture.securityGroups.length})
-                </div>
-                {architecture.securityGroups.map((sg) => (
-                  <div key={sg.id} data-sg-id={sg.id}>
-                    <SecurityGroupPanel
-                      sg={sg}
-                      isExpanded={expandedSG === sg.id}
-                      onToggle={() => setExpandedSG(expandedSG === sg.id ? null : sg.id)}
-                      isHighlighted={isNodeHighlighted(sg.id)}
-                      onHover={setHoveredId}
-                      onDetails={() => onNodeClick(sg.id)}
-                    />
+              {/* ── COMPUTE ── */}
+              {hasComputes && (
+                <div className="flex flex-col gap-3 min-w-[170px]">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <Server className="w-4 h-4 text-blue-400" />
+                    Compute ({computes.length})
                   </div>
-                ))}
-                {architecture.securityGroups.length === 0 && (
-                  <div className="text-xs text-slate-500 italic p-4 text-center">No SGs in path</div>
-                )}
-              </div>
-
-              {/* NACLs (includes Subnets/VPCs) */}
-              <div className="flex flex-col gap-3 min-w-[140px]">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-cyan-400" />
-                  NACLs ({architecture.nacls.length})
-                </div>
-                {architecture.nacls.map((nacl) => (
-                  <div key={nacl.id} data-nacl-id={nacl.id}>
-                    <NACLNode
-                      nacl={nacl}
-                      isHighlighted={isNodeHighlighted(nacl.id)}
-                      onHover={setHoveredId}
-                      onClick={() => onNodeClick(nacl.id)}
-                    />
-                  </div>
-                ))}
-                {architecture.nacls.length === 0 && (
-                  <div className="text-xs text-slate-500 italic p-4 text-center">No NACLs</div>
-                )}
-              </div>
-
-              {/* IAM ROLES */}
-              <div className="flex flex-col gap-3 items-center">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Key className="w-4 h-4 text-pink-400" />
-                  IAM Roles ({architecture.iamRoles.length})
-                </div>
-                {architecture.iamRoles.map((role) => (
-                  <div key={role.id} data-role-id={role.id}>
-                    <IAMRoleNode
-                      role={role}
-                      isHighlighted={isNodeHighlighted(role.id)}
-                      onHover={setHoveredId}
-                      onClick={() => onNodeClick(role.id)}
-                    />
-                  </div>
-                ))}
-                {architecture.iamRoles.length === 0 && (
-                  <div className="text-xs text-slate-500 italic p-4 text-center">No Roles</div>
-                )}
-              </div>
-
-              {/* API CALLS - Simulated from traffic patterns */}
-              <div className="flex flex-col gap-3 items-center">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-lime-400" />
-                  API Calls ({apiResources.length})
-                </div>
-                {apiResources.map((resource) => {
-                  const sim = apiCallData.get(resource.id)
-                  if (!sim) return null
-
-                  return (
-                    <div
-                      key={`api-${resource.id}`}
-                      data-api-id={resource.id}
-                      className="relative group cursor-pointer"
-                      onClick={() => onNodeClick(resource.id)}
-                    >
-                      <div className={`
-                        px-4 py-3 rounded-xl border-2 transition-all duration-300
-                        bg-lime-500/10 border-lime-500/50 hover:border-lime-400 hover:bg-lime-500/20
-                        min-w-[140px] text-center
-                      `}>
-                        <div className="flex items-center justify-center gap-2 mb-1">
-                          <Zap className="w-4 h-4 text-lime-400" />
-                          <span className="text-sm font-semibold text-white truncate max-w-[100px]">
-                            {resource.shortName || resource.name}
-                          </span>
-                        </div>
-                        <div className="text-xs text-lime-400">
-                          {sim.actions.slice(0, 2).map((a: { action: string; count: number }) => a.action).join(", ")}
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1">
-                          {sim.totalCalls.toLocaleString()} calls
-                          <span className="text-slate-500 ml-1">(simulated)</span>
-                        </div>
+                  {computes.map((cp) => {
+                    const sn: ServiceNode = { id: cp.id, name: cp.name, shortName: cp.shortName, type: cp.type as NodeType }
+                    const nodeBadges = badgeMap.get(cp.id) ?? []
+                    return (
+                      <div key={cp.id} data-sg-id={cp.id}>
+                        <ComputeNodeCard
+                          node={sn}
+                          badges={nodeBadges}
+                          isHighlighted={isNodeHighlighted(cp.id)}
+                          onHover={setHoveredId}
+                          onClick={() => onNodeClick(cp.id)}
+                          flowInfo={computeFlowInfo.get(cp.id)}
+                        />
                       </div>
-                    </div>
-                  )
-                })}
-                {apiResources.length === 0 && (
-                  <div className="text-xs text-slate-500 italic p-4 text-center">No API Calls</div>
-                )}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
 
-              {/* RESOURCES / CROWN JEWELS */}
+              {/* ── IDENTITY (IAM) ── */}
+              {hasIdentities && (
+                <div className="flex flex-col gap-3 items-center">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-pink-400" />
+                    Identity ({identities.length})
+                  </div>
+                  {identities.map((role) => (
+                    <div key={role.id} data-nacl-id={role.id}>
+                      <IAMRoleNode
+                        role={role}
+                        isHighlighted={isNodeHighlighted(role.id)}
+                        onHover={setHoveredId}
+                        onClick={() => onNodeClick(role.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── PIVOT SERVICES ── */}
+              {hasPivots && (
+                <div className="flex flex-col gap-3 items-center">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-purple-400" />
+                    Pivot Services ({pivots.length})
+                  </div>
+                  {pivots.map((cp) => {
+                    const sn: ServiceNode = { id: cp.id, name: cp.name, shortName: cp.shortName, type: cp.type as NodeType }
+                    return (
+                      <div key={cp.id} data-role-id={cp.id}>
+                        <PivotServiceCard
+                          node={sn}
+                          isHighlighted={isNodeHighlighted(cp.id)}
+                          onHover={setHoveredId}
+                          onClick={() => onNodeClick(cp.id)}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* ── CROWN JEWELS ── */}
               <div className="flex flex-col gap-3">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Crown className="w-4 h-4 text-purple-400" />
-                  Crown Jewels ({architecture.resources.length})
+                  <Crown className="w-4 h-4 text-amber-400" />
+                  Crown Jewels ({jewels.length})
                 </div>
-                {architecture.resources.map((node) => (
+                {jewels.map((node) => (
                   <div key={node.id} data-resource-id={node.id} className="relative">
                     <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-red-500/50 animate-pulse" />
                     <ServiceNodeBox
                       node={node}
                       position="right"
-                      flowInfo={resourceFlowInfo.get(node.id)}
+                      flowInfo={jewelFlowInfo.get(node.id)}
                       isHighlighted={isNodeHighlighted(node.id)}
                       onHover={setHoveredId}
                       onClick={() => onNodeClick(node.id)}
                     />
                   </div>
                 ))}
-                {architecture.resources.length === 0 && (
+                {jewels.length === 0 && (
                   <div className="text-xs text-slate-500 italic p-4 text-center">No targets</div>
                 )}
               </div>
