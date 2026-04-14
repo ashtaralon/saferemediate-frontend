@@ -155,11 +155,17 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
         connectedSources: [],
         connectedTargets: [],
       })
+    } else if (lane === "entry") {
+      // Entry points (CloudTrailPrincipal, AWSPrincipal, etc.) — treat as compute/entry
+      computeServices.push({
+        id: node.id,
+        name: node.name ?? node.id,
+        shortName: sName,
+        type: "principal" as NodeType,
+      })
     } else if (
       lane === "iam" ||
       nodeType === "iam_role" ||
-      node.type === "CloudTrailPrincipal" ||
-      node.type === "AWSPrincipal" ||
       node.type === "InstanceProfile"
     ) {
       const totalPerms = node.permissions?.total ?? 0
@@ -175,7 +181,7 @@ function buildArchitectureFromPath(path: IdentityAttackPath): SystemArchitecture
         connectedSources: [],
         connectedTargets: [],
       })
-    } else if (lane === "crown_jewel" || lane === "entry") {
+    } else if (lane === "crown_jewel") {
       resources.push({
         id: node.id,
         name: node.name ?? node.id,
