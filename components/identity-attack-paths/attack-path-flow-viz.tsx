@@ -33,6 +33,9 @@ interface ComputeBadge {
   id: string
   name: string
   kind: "sg" | "nacl"
+  ruleCount?: number
+  gapCount?: number
+  isOpenToInternet?: boolean
 }
 
 // ── Extended architecture with rendering metadata ─────────────────
@@ -189,7 +192,14 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     const targetId = parentComputeId ?? actualComputes[0]?.id
     if (targetId) {
       const existing = badges.get(targetId) ?? []
-      existing.push({ id: sgNode.id, name: shortName(sgNode.name ?? sgNode.id, 16), kind })
+      existing.push({
+        id: sgNode.id,
+        name: shortName(sgNode.name ?? sgNode.id, 16),
+        kind,
+        ruleCount: (sgNode.rules?.inbound_count ?? 0) + (sgNode.rules?.outbound_count ?? 0),
+        gapCount: sgNode.gap_count ?? 0,
+        isOpenToInternet: sgNode.rules?.open_to_internet ?? sgNode.is_internet_exposed ?? false,
+      })
       badges.set(targetId, existing)
     }
   }
@@ -457,6 +467,7 @@ function ComputeNodeCard({
   isHighlighted,
   onHover,
   onClick,
+  onBadgeClick,
   flowInfo,
 }: {
   node: ServiceNode
@@ -464,6 +475,7 @@ function ComputeNodeCard({
   isHighlighted: boolean
   onHover: (id: string | null) => void
   onClick: () => void
+  onBadgeClick: (id: string) => void
   flowInfo?: { bytes: number; connections: number }
 }) {
   const typeIcons: Record<string, React.ReactNode> = {
@@ -480,7 +492,7 @@ function ComputeNodeCard({
           ? "border-blue-400 bg-blue-500/20 shadow-lg shadow-blue-500/20"
           : "border-slate-600 bg-slate-800/80 hover:border-blue-400/60 hover:bg-slate-800"
         }
-        min-w-[160px]
+        min-w-[170px]
       `}
       onMouseEnter={() => onHover(node.id)}
       onMouseLeave={() => onHover(null)}
@@ -497,25 +509,53 @@ function ComputeNodeCard({
           {formatBytes(flowInfo.bytes)} · {flowInfo.connections} conn
         </div>
       )}
-      {/* SG/NACL badges */}
+      {/* SG/NACL badges — clickable for detail panel */}
       {badges.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-slate-700/50">
+        <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-700/50">
           {badges.map((badge) => (
-            <span
+            <button
               key={badge.id}
-              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${
-                badge.kind === "sg"
-                  ? "bg-orange-500/15 text-orange-300 border border-orange-500/30"
-                  : "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-              }`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onBadgeClick(badge.id)
+              }}
+              onMouseEnter={(e) => {
+                e.stopPropagation()
+                onHover(badge.id)
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation()
+                onHover(null)
+              }}
+              className={`
+                w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-medium
+                transition-all duration-200 text-left
+                ${badge.kind === "sg"
+                  ? "bg-orange-500/10 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 hover:border-orange-400"
+                  : "bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 hover:border-cyan-400"
+                }
+              `}
             >
               {badge.kind === "sg" ? (
-                <Shield className="w-2.5 h-2.5" />
+                <Shield className="w-3.5 h-3.5 flex-shrink-0" />
               ) : (
-                <Lock className="w-2.5 h-2.5" />
+                <Lock className="w-3.5 h-3.5 flex-shrink-0" />
               )}
-              {badge.name}
-            </span>
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="truncate font-semibold">{badge.name}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[8px] ${badge.kind === "sg" ? "text-orange-400/60" : "text-cyan-400/60"}`}>
+                    {badge.kind === "sg" ? "Security Group" : "Network ACL"}
+                  </span>
+                  {(badge.ruleCount ?? 0) > 0 && (
+                    <span className="text-[8px] text-slate-400">{badge.ruleCount} rules</span>
+                  )}
+                  {badge.isOpenToInternet && (
+                    <span className="text-[8px] text-red-400 font-bold">PUBLIC</span>
+                  )}
+                </div>
+              </div>
+            </button>
           ))}
         </div>
       )}
@@ -790,6 +830,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           isHighlighted={isNodeHighlighted(cp.id)}
                           onHover={setHoveredId}
                           onClick={() => onNodeClick(cp.id)}
+                          onBadgeClick={(badgeId) => onNodeClick(badgeId)}
                           flowInfo={computeFlowInfo.get(cp.id)}
                         />
                       </div>
