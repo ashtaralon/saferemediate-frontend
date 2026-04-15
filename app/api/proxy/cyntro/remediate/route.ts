@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const {
       role_name,
+      identity_type,
       resource_id,
       resource_type,
       dry_run = false,  // Changed default to false for direct modify
@@ -36,7 +37,8 @@ export async function POST(req: NextRequest) {
     console.log(`[CYNTRO-REMEDIATE] Options: dry_run=${dry_run}, create_snapshot=${create_snapshot}, detach_managed_policies=${detach_managed_policies}, detach_all=${detach_all_managed_policies}`)
 
     // First get gap analysis for permission info
-    const gapRes = await fetch(`${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=90`, {
+    const gapPrefix = identity_type === 'user' ? '/api/iam-users' : '/api/iam-roles'
+    const gapRes = await fetch(`${BACKEND_URL}${gapPrefix}/${encodeURIComponent(role_name)}/gap-analysis?days=90`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -80,11 +82,13 @@ export async function POST(req: NextRequest) {
     // 2. Modifies inline policies directly
     // 3. Detaches managed policies if detach_managed_policies=true
     // 4. Updates Neo4j after changes
-    const res = await fetch(`${BACKEND_URL}/api/iam-roles/remediate`, {
+    const remediatePrefix = identity_type === 'user' ? '/api/iam-users' : '/api/iam-roles'
+    const res = await fetch(`${BACKEND_URL}${remediatePrefix}/remediate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         role_name,
+        identity_type: identity_type || 'role',
         permissions_to_remove: permsToRemove,
         dry_run,
         create_snapshot,

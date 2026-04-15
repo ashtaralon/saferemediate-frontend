@@ -108,6 +108,7 @@ interface IAMPermissionAnalysisModalProps {
   onClose: () => void
   roleName: string
   systemName: string
+  identityType?: string
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
   onRemediationSuccess?: (roleName: string) => void
@@ -160,6 +161,7 @@ export function IAMPermissionAnalysisModal({
   onClose,
   roleName,
   systemName,
+  identityType,
   onApplyFix,
   onSuccess,
   onRemediationSuccess,
@@ -428,6 +430,7 @@ export function IAMPermissionAnalysisModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role_name: roleName,
+          identity_type: identityType?.toLowerCase().includes('user') ? 'user' : 'role',
           dry_run: false,  // Actually apply the changes
           create_snapshot: createSnapshot,
           detach_managed_policies: detachManagedPolicies,  // CRITICAL for managed policies
@@ -1438,7 +1441,7 @@ export function IAMPermissionAnalysisModal({
           <div>
             <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Permission Usage Analysis</h2>
             <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
-              Analyzing: <strong>{roleName}</strong> (IAMRole{systemName ? ` • ${systemName}` : ''})
+              Analyzing: <strong>{roleName}</strong> ({identityType || 'IAMRole'}{systemName ? ` • ${systemName}` : ''})
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -2056,6 +2059,8 @@ export function IAMPermissionAnalysisModal({
                           toast({ title: "Rollback Successful", description: `Restored ${roleName} to pre-remediation state`, variant: "default" })
                           fetchGapAnalysis(true)
                           onRollbackSuccess?.(roleName)
+                        } else if (res.status === 404) {
+                          toast({ title: "No Snapshot Available", description: `No rollback snapshot found for ${roleName}. The remediation may have been done outside this system.`, variant: "destructive" })
                         } else {
                           toast({ title: "Rollback Failed", description: result.detail || 'Could not rollback', variant: "destructive" })
                         }
@@ -2135,6 +2140,7 @@ export function IAMPermissionAnalysisModal({
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     role_name: roleName,
+                    identity_type: identityType?.toLowerCase().includes('user') ? 'user' : 'role',
                     dry_run: true
                   })
                 })

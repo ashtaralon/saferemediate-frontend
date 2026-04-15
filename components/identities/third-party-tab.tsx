@@ -84,7 +84,7 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
   })
 
   const handleReviewFix = (identity: ThirdPartyIdentity) => {
-    setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "" })
+    setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "", identityType: identity.sub_type || "IAMRole" })
     setShowPermissionModal(true)
   }
 
@@ -267,6 +267,7 @@ export function ThirdPartyTab({ onRequestRemediation, systemName }: { onRequestR
           onClose={() => { setShowPermissionModal(false); setSelectedIdentity(null) }}
           roleName={selectedIdentity.roleName}
           systemName={selectedIdentity.systemName}
+          identityType={selectedIdentity.identityType}
           onSuccess={() => { fetchThirdParty() }}
           onRemediationSuccess={() => { fetchThirdParty() }}
         />

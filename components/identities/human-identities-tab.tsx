@@ -94,7 +94,7 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
   })
 
   const handleReviewFix = (identity: HumanIdentity) => {
-    setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "" })
+    setSelectedIdentity({ roleName: identity.name, systemName: identity.system_name || "", identityType: identity.sub_type || "IAMUser" })
     setShowPermissionModal(true)
   }
 
@@ -285,6 +285,7 @@ export function HumanIdentitiesTab({ onRequestRemediation, systemName }: { onReq
           onClose={() => { setShowPermissionModal(false); setSelectedIdentity(null) }}
           roleName={selectedIdentity.roleName}
           systemName={selectedIdentity.systemName}
+          identityType={selectedIdentity.identityType}
           onSuccess={() => { fetchHumans() }}
           onRemediationSuccess={() => { fetchHumans() }}
         />
