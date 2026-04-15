@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { healthLabel } from "@/lib/utils"
 import { TrendingDown } from "lucide-react"
 import { CriticalFindingsModal } from "./issues/critical-findings-modal"
 import { SimulateFixModal } from "./SimulateFixModal"
@@ -92,11 +93,8 @@ export function SystemHealthSection() {
                 </defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[60px] font-bold leading-none" style={{ color: "var(--text-primary)" }}>
-                  72
-                </span>
-                <span className="text-xl" style={{ color: "var(--text-secondary)" }}>
-                  /100
+                <span className="text-[40px] font-bold leading-none" style={{ color: healthLabel(72).color }}>
+                  {healthLabel(72).label}
                 </span>
               </div>
             </div>

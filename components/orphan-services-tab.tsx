@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect, useMemo, useCallback } from "react"
+import { riskLabel } from "@/lib/utils"
 import {
   Search,
   ChevronDown,
@@ -722,7 +723,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                                     orphan.securityRiskScore >= 25 ? 'bg-[#f9731620] text-[#f97316]' :
                                     'bg-[#eab30820] text-[#eab308]'
                                   }`}>
-                                    Risk Score: {orphan.securityRiskScore}/100
+                                    Risk: {riskLabel(orphan.securityRiskScore).label}
                                   </span>
                                 </div>
                                 <div className="space-y-1.5">
@@ -1123,7 +1124,7 @@ export function OrphanServicesTab({ systemName }: OrphanServicesTabProps) {
                         <div className="flex-1">
                           <div className="flex justify-between text-xs mb-1">
                             <span className="text-[var(--foreground,#111827)] capitalize">{key.replace(/_/g, ' ')}</span>
-                            <span className="text-[var(--muted-foreground,#6b7280)]">{data.score}/100 ({Math.round(data.weight * 100)}% weight)</span>
+                            <span className="text-[var(--muted-foreground,#6b7280)]">{riskLabel(data.score).label} ({Math.round(data.weight * 100)}% weight)</span>
                           </div>
                           <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                             <div

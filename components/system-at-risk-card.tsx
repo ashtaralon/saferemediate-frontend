@@ -1,5 +1,7 @@
 "use client"
 
+import { healthLabel } from "@/lib/utils"
+
 interface SystemAtRiskCardProps {
   system: {
     name: string
@@ -29,7 +31,7 @@ export function SystemAtRiskCard({ system }: SystemAtRiskCardProps) {
         {/* Health score with orange circle */}
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ background: healthColor }} />
-          <span className="text-sm text-[var(--foreground,#374151)]">Health: {system.health}/100</span>
+          <span className="text-sm" style={{ color: healthLabel(system.health).color }}>Health: {healthLabel(system.health).label}</span>
         </div>
 
         {/* Badge row */}

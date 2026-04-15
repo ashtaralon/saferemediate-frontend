@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
+import { healthLabel } from "@/lib/utils"
 import { X } from "lucide-react"
 
 interface SimulateFixModalProps {
@@ -200,7 +201,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
               <div>
                 <div style={{ color: "var(--text-secondary)" }}>New health score:</div>
                 <div className="text-lg font-bold" style={{ color: "#10B981" }}>
-                  84/100 (+12)
+                  {healthLabel(84).label}
                 </div>
               </div>
               <div>

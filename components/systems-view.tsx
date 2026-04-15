@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { healthLabel } from "@/lib/utils"
 import {
   Download,
   Plus,
@@ -859,11 +860,10 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
 
         <div className="bg-gray-50 rounded-xl border border-[var(--border,#e5e7eb)] p-6">
           <Activity className="w-6 h-6 text-blue-500 mb-3" />
-          <div className="text-3xl font-bold text-[var(--foreground,#111827)]">
-            {avgHealthScore}
-            <span className="text-lg text-[var(--muted-foreground,#9ca3af)]">/100</span>
+          <div className="text-3xl font-bold" style={{ color: healthLabel(avgHealthScore).color }}>
+            {healthLabel(avgHealthScore).label}
           </div>
-          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Avg Health Score</div>
+          <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Avg Health</div>
         </div>
       </div>
 

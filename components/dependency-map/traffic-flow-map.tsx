@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { riskLabel } from '@/lib/utils';
 import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
@@ -1155,7 +1156,7 @@ function ServiceDetailsPopup({
                       riskAssessment.risk_level === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' :
                       'bg-green-500/20 text-green-400 border border-green-500/50'
                     }`}>
-                      {riskAssessment.risk_level} RISK ({riskAssessment.risk_score}/100)
+                      {riskAssessment.risk_level} RISK ({riskLabel(riskAssessment.risk_score).label})
                     </div>
                   </div>
 

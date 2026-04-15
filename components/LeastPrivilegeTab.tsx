@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react'
+import { riskLabel } from '@/lib/utils'
 import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -1915,7 +1916,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                                 <>
                                   <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                     <span>Exposure Score</span>
-                                    <span className="font-medium" style={{ color: sevColor }}>{resource.networkExposure.score}/100</span>
+                                    <span className="font-medium" style={{ color: riskLabel(resource.networkExposure.score).color }}>{riskLabel(resource.networkExposure.score).label}</span>
                                   </div>
                                   <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>
                                     <span>Internet Exposed Rules</span>
@@ -3090,7 +3091,7 @@ function SummaryTab({ resource }: { resource: GapResource }) {
           <>
             <div className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
               <div className="text-sm text-[var(--muted-foreground,#4b5563)] mb-1">Network Exposure Score</div>
-              <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{resource.networkExposure.score}/100</div>
+              <div className="text-3xl font-bold" style={{ color: riskLabel(resource.networkExposure.score).color }}>{riskLabel(resource.networkExposure.score).label}</div>
               <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
                 {resource.networkExposure.internetExposedRules} internet-exposed rules
               </div>
