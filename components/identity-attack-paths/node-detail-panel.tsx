@@ -1,17 +1,25 @@
 "use client"
 
+import { useState } from "react"
 import {
   X, Globe, Shield, ShieldAlert, AlertTriangle, CheckCircle2, XCircle,
   Key, Lock, Unlock, Server, Database, HardDrive, Zap, ArrowRightLeft,
-  Crown,
+  Crown, Play, Loader2, RotateCcw, Eye,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
-import type { PathNodeDetail, IdentityAttackPath } from "./types"
+import type {
+  PathNodeDetail, IdentityAttackPath,
+  RemediationStatus, RemediationPreview, RemediationResult,
+} from "./types"
 
 interface NodeDetailPanelProps {
   node: PathNodeDetail
   path: IdentityAttackPath
   onClose: () => void
+  onRemediate?: (nodeId: string, dryRun: boolean) => Promise<any>
+  remediationStatus?: RemediationStatus
+  remediationPreview?: RemediationPreview | null
+  remediationResult?: RemediationResult | null
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -82,7 +90,13 @@ function MiniBar({ label, value, max, color }: { label: string; value: number; m
 }
 
 // ── Main Panel ──────────────────────────────────────────────────────
-export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
+export function NodeDetailPanel({
+  node, path, onClose,
+  onRemediate,
+  remediationStatus = "idle",
+  remediationPreview = null,
+  remediationResult = null,
+}: NodeDetailPanelProps) {
   const tierInfo = TIER_LABELS[node.tier] ?? TIER_LABELS.identity
   const alert = node.internet_exposure_alert
   const remediation = node.remediation
@@ -515,6 +529,198 @@ export function NodeDetailPanel({ node, path, onClose }: NodeDetailPanelProps) {
               </div>
             ))}
           </div>
+
+          {/* ── Execute Remediation Button ── */}
+          {onRemediate && (
+            <div className="mt-4 pt-3 border-t" style={{ borderColor: "rgba(148, 163, 184, 0.1)" }}>
+              {remediationStatus === "idle" && (
+                <button
+                  onClick={() => onRemediate(node.id, true)}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 hover:border-blue-500/50"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  Preview Remediation
+                </button>
+              )}
+
+              {remediationStatus === "previewing" && (
+                <div className="flex items-center justify-center gap-2 py-3">
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                  <span className="text-xs text-slate-400">Analyzing...</span>
+                </div>
+              )}
+
+              {remediationStatus === "confirming" && remediationPreview && (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-xs font-semibold text-amber-400">Remediation Preview</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 mb-2">{remediationPreview.preview_message}</p>
+                    {(remediationPreview.permissions_to_remove?.length ?? 0) > 0 && (
+                      <div className="mt-2">
+                        <span className="text-[10px] text-slate-400">Permissions to remove:</span>
+                        <div className="flex flex-wrap gap-1 mt-1 max-h-24 overflow-y-auto">
+                          {remediationPreview.permissions_to_remove?.slice(0, 20).map((p) => (
+                            <span key={p} className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 font-mono">{p}</span>
+                          ))}
+                          {(remediationPreview.permissions_to_remove?.length ?? 0) > 20 && (
+                            <span className="text-[9px] text-slate-500">+{(remediationPreview.permissions_to_remove?.length ?? 0) - 20} more</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onRemediate(node.id, false)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-red-600/80 text-white hover:bg-red-600 transition-all"
+                    >
+                      <Play className="w-3 h-3" />
+                      Execute
+                    </button>
+                    <button
+                      onClick={() => onRemediate(node.id, true)}
+                      className="px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {remediationStatus === "executing" && (
+                <div className="flex items-center justify-center gap-2 py-3">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                  <span className="text-xs text-amber-300">Executing remediation...</span>
+                </div>
+              )}
+
+              {remediationStatus === "success" && remediationResult && (
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-xs font-semibold text-emerald-400">Remediation Complete</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">{remediationResult.message}</p>
+                  {remediationResult.permissions_removed != null && (
+                    <p className="text-[10px] text-emerald-300 mt-1">
+                      {remediationResult.permissions_removed} permissions removed
+                    </p>
+                  )}
+                  {remediationResult.rollback_available && (
+                    <p className="text-[10px] text-slate-500 mt-1">Snapshot saved — rollback available</p>
+                  )}
+                </div>
+              )}
+
+              {remediationStatus === "error" && remediationResult && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <XCircle className="w-3.5 h-3.5 text-red-400" />
+                    <span className="text-xs font-semibold text-red-400">
+                      {remediationResult.blocked ? "Blocked by Safety Gate" : "Remediation Failed"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {remediationResult.block_reason ?? remediationResult.message}
+                  </p>
+                  <button
+                    onClick={() => onRemediate(node.id, true)}
+                    className="mt-2 flex items-center gap-1 text-[10px] text-slate-400 hover:text-white"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* ── Standalone Remediate (when no remediation/recommendations section) ── */}
+      {onRemediate && !((remediation?.actions?.length ?? 0) > 0 || recommendations.length > 0) && (
+        <Section title="Remediate" icon={<ShieldAlert className="w-3.5 h-3.5 text-blue-400" />}>
+          {remediationStatus === "idle" && (
+            <button
+              onClick={() => onRemediate(node.id, true)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 hover:border-blue-500/50"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Preview Remediation
+            </button>
+          )}
+
+          {remediationStatus === "previewing" && (
+            <div className="flex items-center justify-center gap-2 py-3">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+              <span className="text-xs text-slate-400">Analyzing...</span>
+            </div>
+          )}
+
+          {remediationStatus === "confirming" && remediationPreview && (
+            <div className="space-y-3">
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs font-semibold text-amber-400">Remediation Preview</span>
+                </div>
+                <p className="text-[11px] text-slate-300">{remediationPreview.preview_message}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onRemediate(node.id, false)}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-red-600/80 text-white hover:bg-red-600 transition-all"
+                >
+                  <Play className="w-3 h-3" />
+                  Execute
+                </button>
+                <button
+                  onClick={() => onRemediate(node.id, true)}
+                  className="px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {remediationStatus === "executing" && (
+            <div className="flex items-center justify-center gap-2 py-3">
+              <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+              <span className="text-xs text-amber-300">Executing remediation...</span>
+            </div>
+          )}
+
+          {remediationStatus === "success" && remediationResult && (
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <div className="flex items-center gap-2 mb-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs font-semibold text-emerald-400">Remediation Complete</span>
+              </div>
+              <p className="text-[11px] text-slate-300">{remediationResult.message}</p>
+              {remediationResult.rollback_available && (
+                <p className="text-[10px] text-slate-500 mt-1">Snapshot saved — rollback available</p>
+              )}
+            </div>
+          )}
+
+          {remediationStatus === "error" && remediationResult && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+              <div className="flex items-center gap-2 mb-1">
+                <XCircle className="w-3.5 h-3.5 text-red-400" />
+                <span className="text-xs font-semibold text-red-400">Failed</span>
+              </div>
+              <p className="text-[11px] text-slate-300">{remediationResult.message}</p>
+              <button
+                onClick={() => onRemediate(node.id, true)}
+                className="mt-2 flex items-center gap-1 text-[10px] text-slate-400 hover:text-white"
+              >
+                <RotateCcw className="w-3 h-3" /> Retry
+              </button>
+            </div>
+          )}
         </Section>
       )}
 

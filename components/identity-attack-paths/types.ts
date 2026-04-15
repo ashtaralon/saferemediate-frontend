@@ -23,6 +23,37 @@ export interface NodeRemediation {
   priority: string
 }
 
+// Remediation execution state
+export type RemediationStatus = "idle" | "previewing" | "confirming" | "executing" | "success" | "error"
+
+export interface RemediationPreview {
+  node_id: string
+  node_type: string
+  node_name: string
+  service: string
+  preview_message: string
+  permissions_to_remove?: string[]
+  unused_permissions?: number
+  total_permissions?: number
+  unused_rules?: any[]
+  [key: string]: any
+}
+
+export interface RemediationResult {
+  success: boolean
+  node_id: string
+  message: string
+  snapshot_id?: string
+  rollback_available?: boolean
+  permissions_removed?: number
+  blocked?: boolean
+  block_reason?: string
+  summary?: {
+    before_total: number
+    after_total: number
+  }
+}
+
 export interface InternetExposureAlert {
   is_exposed: boolean
   open_ports: number[]
