@@ -206,7 +206,9 @@ function ActionRow({
           </div>
         )}
 
-        {/* Locked: show "no change" indicator instead of projection */}
+        {/* Locked: clarify that no remediation is possible. The scoring engine
+            also discounts SLRs' over-provisioning contribution, so the user
+            isn't seeing a number they can't move. */}
         {isLocked && (
           <div
             className="flex items-center gap-1 shrink-0 px-2 py-1 rounded-md"
@@ -214,11 +216,10 @@ function ActionRow({
               background: "rgba(245, 158, 11, 0.08)",
               border: "1px solid rgba(245, 158, 11, 0.2)",
             }}
-            title="This action cannot be applied, so it does not change the path score"
+            title="AWS-managed — permission over-provisioning is discounted from the path score (the defender cannot act on it), and Preview is disabled."
           >
-            <span className="text-[10px] font-mono text-amber-300">{currentScore}</span>
-            <span className="text-[9px] text-amber-400/70 uppercase tracking-wider">
-              no change
+            <span className="text-[9px] text-amber-400/80 uppercase tracking-wider font-semibold">
+              Discounted from score
             </span>
           </div>
         )}
