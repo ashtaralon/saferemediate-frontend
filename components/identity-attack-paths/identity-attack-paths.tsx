@@ -6,6 +6,7 @@ import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
+import { PathRemediationPlan } from "./path-remediation-plan"
 import type {
   IdentityAttackPathsResponse,
   IdentityAttackPath,
@@ -31,6 +32,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>("idle")
   const [remediationPreview, setRemediationPreview] = useState<RemediationPreview | null>(null)
   const [remediationResult, setRemediationResult] = useState<RemediationResult | null>(null)
+  const [activeRemediationNodeId, setActiveRemediationNodeId] = useState<string | null>(null)
   const [remediateAllStatus, setRemediateAllStatus] = useState<"idle" | "previewing" | "executing" | "done">("idle")
   const [remediateAllResults, setRemediateAllResults] = useState<RemediationResult[]>([])
 
@@ -77,16 +79,18 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     if (!node) return
 
     if (dryRun) {
-      // If we're already in confirming state and user clicks cancel, reset
-      if (remediationStatus === "confirming") {
+      // If we're already in confirming state for THIS node and user clicks cancel, reset
+      if (remediationStatus === "confirming" && activeRemediationNodeId === nodeId) {
         setRemediationStatus("idle")
         setRemediationPreview(null)
+        setActiveRemediationNodeId(null)
         return
       }
 
       setRemediationStatus("previewing")
       setRemediationPreview(null)
       setRemediationResult(null)
+      setActiveRemediationNodeId(nodeId)
       try {
         const res = await fetch("/api/proxy/attack-path-remediate", {
           method: "POST",
@@ -138,7 +142,69 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         setRemediationStatus("error")
       }
     }
-  }, [jewelPaths, selectedPathIndex, remediationStatus, remediationPreview])
+  }, [jewelPaths, selectedPathIndex, remediationStatus, remediationPreview, activeRemediationNodeId])
+
+  // ── Cancel single-node preview ──
+  const handleCancelNodeRemediation = useCallback(() => {
+    setRemediationStatus("idle")
+    setRemediationPreview(null)
+    setActiveRemediationNodeId(null)
+  }, [])
+
+  // ── Rollback handler — routes to the right snapshot endpoint ──
+  const handleRollback = useCallback(async (snapshotId: string, nodeId: string) => {
+    const currentPath = jewelPaths?.[selectedPathIndex]
+    if (!currentPath) return
+    const node = currentPath.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+
+    const nodeType = (node.type ?? "").toLowerCase()
+    // Choose the matching rollback proxy — all exist today
+    let rollbackUrl: string
+    if (nodeType.includes("iam")) {
+      rollbackUrl = `/api/proxy/iam-snapshots/${encodeURIComponent(snapshotId)}/rollback`
+    } else if (nodeType.includes("securitygroup") || nodeType.includes("security_group") || nodeType === "sg") {
+      // Security-group rollback needs the SG id + snapshot body
+      rollbackUrl = `/api/proxy/security-groups/${encodeURIComponent(node.id)}/rollback`
+    } else if (nodeType.includes("s3") || nodeType.includes("bucket")) {
+      rollbackUrl = `/api/proxy/s3-buckets/rollback`
+    } else {
+      // Generic snapshot rollback
+      rollbackUrl = `/api/proxy/snapshots/${encodeURIComponent(snapshotId)}/rollback`
+    }
+
+    setRemediationStatus("executing") // reuse executing state for rollback spinner
+    try {
+      const res = await fetch(rollbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot_id: snapshotId, resource_id: node.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.success === false) {
+        setRemediationResult({
+          success: false,
+          node_id: nodeId,
+          message: data.error ?? data.message ?? `Rollback failed (${res.status})`,
+        })
+        setRemediationStatus("error")
+        return
+      }
+      // Reset row + refetch to pick up restored scores
+      setRemediationStatus("idle")
+      setRemediationPreview(null)
+      setRemediationResult(null)
+      setActiveRemediationNodeId(null)
+      await fetchData()
+    } catch (err: any) {
+      setRemediationResult({
+        success: false,
+        node_id: nodeId,
+        message: err?.message ?? "Rollback failed",
+      })
+      setRemediationStatus("error")
+    }
+  }, [jewelPaths, selectedPathIndex, fetchData])
 
   // ── Remediate All handler ──
   const handleRemediateAll = useCallback(async (dryRun: boolean) => {
@@ -191,17 +257,21 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     setRemediationStatus("idle")
     setRemediationPreview(null)
     setRemediationResult(null)
+    setActiveRemediationNodeId(null)
     setRemediateAllStatus("idle")
     setRemediateAllResults([])
   }, [])
 
   const handleNodeClick = useCallback((nodeId: string) => {
     setSelectedNodeId((prev) => (nodeId === prev ? null : nodeId))
-    // Reset node-level remediation when switching nodes
-    setRemediationStatus("idle")
-    setRemediationPreview(null)
-    setRemediationResult(null)
-  }, [])
+    // Reset node-level remediation when switching nodes (unless the row clicked is the active one)
+    if (nodeId !== activeRemediationNodeId) {
+      setRemediationStatus("idle")
+      setRemediationPreview(null)
+      setRemediationResult(null)
+      setActiveRemediationNodeId(null)
+    }
+  }, [activeRemediationNodeId])
 
   // Loading state
   if (isLoading) {
@@ -300,6 +370,20 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               totalPaths={jewelPaths.length}
               onPrev={() => setSelectedPathIndex(Math.max(0, selectedPathIndex - 1))}
               onNext={() => setSelectedPathIndex(Math.min(jewelPaths.length - 1, selectedPathIndex + 1))}
+            />
+          )}
+
+          {/* Per-service remediation plan — Preview / Remediate / Rollback wired to the same engine */}
+          {currentPath && (
+            <PathRemediationPlan
+              path={currentPath}
+              activeNodeId={activeRemediationNodeId}
+              remediationStatus={remediationStatus}
+              remediationPreview={remediationPreview}
+              remediationResult={remediationResult}
+              onRemediate={handleNodeRemediate}
+              onRollback={handleRollback}
+              onCancel={handleCancelNodeRemediation}
             />
           )}
 
