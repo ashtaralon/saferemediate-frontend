@@ -42,6 +42,16 @@ interface GapResource {
   usedCount: number | null  // null for Security Groups
   gapCount: number | null  // null for Security Groups
   gapPercent: number | null  // null for Security Groups
+  // Blast Radius Score v1.1 — breach impact (orthogonal to gap%).
+  blastRadius?: {
+    brs: number
+    band: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW'
+    components: { doc: number; ips: number; nes: number; lms: number }
+    amplifier: number
+    doc_floor_applied: boolean
+    rationale: string[]
+  }
   networkExposure?: {
     score: number
     severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
@@ -1261,6 +1271,24 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     if (pct >= 20) return 'Medium'
     return 'Low'
   }
+  // ── Blast Radius (v1.1) colour + confidence helpers ──
+  const getBRSColor = (band?: string) => {
+    switch ((band || '').toUpperCase()) {
+      case 'CRITICAL': return '#ef4444'
+      case 'HIGH':     return '#f97316'
+      case 'MEDIUM':   return '#eab308'
+      case 'LOW':      return '#22c55e'
+      default:         return '#6b7280'
+    }
+  }
+  const getConfidenceColor = (conf?: string) => {
+    switch ((conf || '').toUpperCase()) {
+      case 'HIGH':   return '#22c55e'
+      case 'MEDIUM': return '#eab308'
+      case 'LOW':    return '#9ca3af'
+      default:       return '#6b7280'
+    }
+  }
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
     if (resource.resourceType === 'IAMRole') {
@@ -1527,14 +1555,25 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
         ) : (
           <div
-            className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
+            className="grid grid-cols-[2fr_110px_110px_60px_60px_130px_90px_80px] gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b"
             style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}
           >
             <span>Resource</span>
             <span>Type</span>
-            <span className="text-center">Over-Privileged</span>
+            <span
+              className="text-center inline-flex items-center justify-center gap-1 cursor-help"
+              title="Permission Gap — share of granted permissions never observed being used in the observation window. Higher = more cleanup opportunity."
+            >
+              Gap % <span className="text-[10px] opacity-60">ⓘ</span>
+            </span>
             <span className="text-center">Used</span>
-            <span className="text-center">To Remove</span>
+            <span className="text-center">Unused</span>
+            <span
+              className="text-center inline-flex items-center justify-center gap-1 cursor-help"
+              title="Blast Radius Score (BRS v1.1) — breach impact IF this resource is compromised right now. Combines Damage-on-Compromise, Identity Privilege, Network Exposure, Lateral Movement. Shown with confidence (HIGH/MED/LOW) based on observation evidence."
+            >
+              Blast Radius <span className="text-[10px] opacity-60">ⓘ</span>
+            </span>
             <span className="text-center">Severity</span>
             <span className="text-center">Action</span>
           </div>
@@ -1621,7 +1660,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                   ) : (
                     /* ===== ACTIVE ROW — original layout ===== */
                     <div
-                      className="grid grid-cols-[2fr_120px_100px_80px_80px_90px_90px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
+                      className="grid grid-cols-[2fr_110px_110px_60px_60px_130px_90px_80px] gap-2 px-4 py-3 items-center cursor-pointer hover:bg-white/5 transition-colors"
                       onClick={() => setExpandedRow(isExpanded ? null : (resource.id || resource.resourceName))}
                     >
                       {/* Resource */}
@@ -1660,6 +1699,47 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                       {/* Unused */}
                       <div className="text-center text-sm font-medium" style={{ color: metrics.unusedCount > 0 ? "#ef4444" : "#22c55e" }}>
                         {metrics.unusedCount}
+                      </div>
+
+                      {/* Blast Radius — breach impact (v1.1). Shows score · band · confidence. */}
+                      <div
+                        className="flex items-center justify-center gap-1.5"
+                        title={
+                          resource.blastRadius
+                            ? `BRS ${resource.blastRadius.brs} ${resource.blastRadius.band} — `
+                              + `DOC ${resource.blastRadius.components.doc} / `
+                              + `IPS ${resource.blastRadius.components.ips} / `
+                              + `NES ${resource.blastRadius.components.nes} / `
+                              + `LMS ${resource.blastRadius.components.lms}`
+                              + (resource.blastRadius.amplifier > 1 ? ` × ${resource.blastRadius.amplifier} amplifier` : '')
+                              + (resource.blastRadius.doc_floor_applied ? ' (DOC floor applied)' : '')
+                              + ` · Confidence ${resource.blastRadius.confidence}`
+                            : 'Blast Radius not available — backend needs redeploy'
+                        }
+                      >
+                        {resource.blastRadius ? (
+                          <>
+                            <span
+                              className="text-sm font-bold tabular-nums"
+                              style={{ color: getBRSColor(resource.blastRadius.band) }}
+                            >
+                              {Math.round(resource.blastRadius.brs)}
+                            </span>
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                              style={{ background: `${getBRSColor(resource.blastRadius.band)}20`, color: getBRSColor(resource.blastRadius.band) }}
+                            >
+                              {resource.blastRadius.band}
+                            </span>
+                            <span
+                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                              style={{ background: getConfidenceColor(resource.blastRadius.confidence) }}
+                              aria-label={`Confidence: ${resource.blastRadius.confidence}`}
+                            />
+                          </>
+                        ) : (
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>
+                        )}
                       </div>
 
                       {/* Severity */}
