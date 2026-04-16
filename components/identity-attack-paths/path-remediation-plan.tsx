@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useMemo } from "react"
+import React, { useMemo, useState } from "react"
 import {
   Eye,
   Play,
@@ -13,6 +13,8 @@ import {
   TrendingDown,
   Minus,
   Zap,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 import type {
   IdentityAttackPath,
@@ -409,9 +411,14 @@ export function PathRemediationPlan({
       }))
   }, [path.nodes, actionByName])
 
+  const [showPassive, setShowPassive] = useState(false)
+
   if (rows.length === 0) return null
 
-  const actionableCount = rows.filter((r) => r.action).length
+  const actionableRows = rows.filter((r) => r.action)
+  const passiveRows = rows.filter((r) => !r.action)
+  const actionableCount = actionableRows.length
+  const passiveCount = passiveRows.length
   const anotherActive = activeNodeId !== null && remediationStatus !== "idle"
   const hardened = isSafe || actionableCount === 0
 
@@ -457,12 +464,12 @@ export function PathRemediationPlan({
               Remediation Plan
             </span>
             <span className="text-[10px] text-slate-400">
-              · {actionableCount} actionable / {rows.length} services
+              · {actionableCount} actionable
             </span>
           </div>
 
           <div className="space-y-1.5">
-            {rows.map(({ node, action }) => {
+            {actionableRows.map(({ node, action }) => {
               const isActive = activeNodeId === node.id
               return (
                 <ActionRow
@@ -482,6 +489,53 @@ export function PathRemediationPlan({
               )
             })}
           </div>
+
+          {/* Collapsed passive-nodes footer — only shown when there are any */}
+          {passiveCount > 0 && (
+            <div className="mt-2">
+              <button
+                onClick={() => setShowPassive((v) => !v)}
+                className="flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                {showPassive ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                <span>
+                  {showPassive ? "Hide" : "Show"} {passiveCount} passive service
+                  {passiveCount === 1 ? "" : "s"} on path
+                </span>
+                <span className="text-slate-500">
+                  · no score-reducing fix available
+                </span>
+              </button>
+
+              {showPassive && (
+                <div className="mt-2 space-y-1.5">
+                  {passiveRows.map(({ node, action }) => {
+                    const isActive = activeNodeId === node.id
+                    return (
+                      <ActionRow
+                        key={node.id}
+                        node={node}
+                        action={action}
+                        currentScore={currentScore}
+                        isActive={isActive}
+                        status={isActive ? remediationStatus : "idle"}
+                        preview={isActive ? remediationPreview : null}
+                        result={isActive ? remediationResult : null}
+                        anotherActive={!isActive && anotherActive}
+                        onRemediate={onRemediate}
+                        onRollback={onRollback}
+                        onCancel={onCancel}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
