@@ -9,6 +9,7 @@ import {
   XCircle,
   RotateCcw,
   ShieldAlert,
+  ShieldCheck,
   TrendingDown,
   Minus,
   Zap,
@@ -43,6 +44,8 @@ interface PathRemediationPlanProps {
   onRemediate: (nodeId: string, dryRun: boolean) => void
   onRollback: (snapshotId: string, nodeId: string) => Promise<void>
   onCancel: () => void
+  /** If true, the parent says this path is in the "Safe" tab — render the hardened banner */
+  isSafe?: boolean
 }
 
 // ── Humanize preview content per node type ─────────────────────
@@ -382,6 +385,7 @@ export function PathRemediationPlan({
   onRemediate,
   onRollback,
   onCancel,
+  isSafe = false,
 }: PathRemediationPlanProps) {
   const currentScore = path.severity?.overall_score ?? 0
 
@@ -409,46 +413,77 @@ export function PathRemediationPlan({
 
   const actionableCount = rows.filter((r) => r.action).length
   const anotherActive = activeNodeId !== null && remediationStatus !== "idle"
+  const hardened = isSafe || actionableCount === 0
 
   return (
     <div
       className="px-4 py-3 border-b"
       style={{
-        background: "rgba(10, 16, 30, 0.6)",
-        borderColor: "rgba(148, 163, 184, 0.1)",
+        background: hardened
+          ? "rgba(6, 22, 16, 0.6)"
+          : "rgba(10, 16, 30, 0.6)",
+        borderColor: hardened
+          ? "rgba(16, 185, 129, 0.2)"
+          : "rgba(148, 163, 184, 0.1)",
       }}
     >
-      <div className="flex items-center gap-2 mb-2.5">
-        <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-        <span className="text-[11px] font-semibold text-slate-100 uppercase tracking-wider">
-          Remediation Plan
-        </span>
-        <span className="text-[10px] text-slate-400">
-          · {actionableCount} actionable / {rows.length} services
-        </span>
-      </div>
+      {hardened ? (
+        <div
+          className="flex items-center gap-3 p-3 rounded-lg"
+          style={{
+            background: "rgba(16, 185, 129, 0.08)",
+            border: "1px solid rgba(16, 185, 129, 0.25)",
+          }}
+        >
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[12px] font-semibold text-emerald-200">
+              Path is hardened — no action needed
+            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              The scoring engine found no remediation that would reduce this path's score further.
+              Keep monitoring — new findings can move it back to At Risk.
+            </div>
+          </div>
+          <div className="text-[10px] text-slate-400 shrink-0">
+            {rows.length} service{rows.length === 1 ? "" : "s"} on path
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-2.5">
+            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[11px] font-semibold text-slate-100 uppercase tracking-wider">
+              Remediation Plan
+            </span>
+            <span className="text-[10px] text-slate-400">
+              · {actionableCount} actionable / {rows.length} services
+            </span>
+          </div>
 
-      <div className="space-y-1.5">
-        {rows.map(({ node, action }) => {
-          const isActive = activeNodeId === node.id
-          return (
-            <ActionRow
-              key={node.id}
-              node={node}
-              action={action}
-              currentScore={currentScore}
-              isActive={isActive}
-              status={isActive ? remediationStatus : "idle"}
-              preview={isActive ? remediationPreview : null}
-              result={isActive ? remediationResult : null}
-              anotherActive={!isActive && anotherActive}
-              onRemediate={onRemediate}
-              onRollback={onRollback}
-              onCancel={onCancel}
-            />
-          )
-        })}
-      </div>
+          <div className="space-y-1.5">
+            {rows.map(({ node, action }) => {
+              const isActive = activeNodeId === node.id
+              return (
+                <ActionRow
+                  key={node.id}
+                  node={node}
+                  action={action}
+                  currentScore={currentScore}
+                  isActive={isActive}
+                  status={isActive ? remediationStatus : "idle"}
+                  preview={isActive ? remediationPreview : null}
+                  result={isActive ? remediationResult : null}
+                  anotherActive={!isActive && anotherActive}
+                  onRemediate={onRemediate}
+                  onRollback={onRollback}
+                  onCancel={onCancel}
+                />
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

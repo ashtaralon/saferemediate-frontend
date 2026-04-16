@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
-import { Loader2, AlertTriangle, Shield, Globe, RefreshCw, ShieldAlert, Play, CheckCircle2 } from "lucide-react"
+import { Loader2, AlertTriangle, Shield, ShieldCheck, Globe, RefreshCw, ShieldAlert, Play, CheckCircle2 } from "lucide-react"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { NodeDetailPanel } from "./node-detail-panel"
@@ -27,6 +27,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [selectedJewelId, setSelectedJewelId] = useState<string | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedPathIndex, setSelectedPathIndex] = useState(0)
+  const [listMode, setListMode] = useState<"at-risk" | "safe">("at-risk")
 
   // Remediation state
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>("idle")
@@ -45,9 +46,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       const json: IdentityAttackPathsResponse = await res.json()
       if (json.error) throw new Error(json.error)
       setData(json)
-      if ((json.crown_jewels?.length ?? 0) > 0 && !selectedJewelId) {
-        setSelectedJewelId(json.crown_jewels[0].id)
-      }
+      // initial jewel pick now happens in the listMode-aware effect below
     } catch (e: any) {
       setError(e?.message ?? "Failed to load attack paths")
     } finally {
@@ -63,6 +62,51 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     if (!data || !selectedJewelId) return []
     return (data.paths ?? []).filter((p) => p.crown_jewel_id === selectedJewelId)
   }, [data, selectedJewelId])
+
+  // ── Partition jewels + paths by "safe" definition: no actionable remediation ──
+  const { atRiskJewels, safeJewels, atRiskPathCount, safePathCount } = useMemo(() => {
+    if (!data) return { atRiskJewels: [], safeJewels: [], atRiskPathCount: 0, safePathCount: 0 }
+    const jewels = data.crown_jewels ?? []
+    const paths = data.paths ?? []
+    const pathHasAction = (p: IdentityAttackPath) =>
+      (p.risk_reduction?.top_actions?.length ?? 0) > 0
+
+    let atRiskPC = 0
+    let safePC = 0
+    const jewelAtRisk = new Map<string, boolean>()
+    for (const p of paths) {
+      const has = pathHasAction(p)
+      if (has) atRiskPC++
+      else safePC++
+      jewelAtRisk.set(p.crown_jewel_id, (jewelAtRisk.get(p.crown_jewel_id) ?? false) || has)
+    }
+    const atRisk = jewels.filter((j) => jewelAtRisk.get(j.id) === true)
+    const safe = jewels.filter((j) => jewelAtRisk.get(j.id) !== true)
+    return {
+      atRiskJewels: atRisk,
+      safeJewels: safe,
+      atRiskPathCount: atRiskPC,
+      safePathCount: safePC,
+    }
+  }, [data])
+
+  const filteredJewels = listMode === "at-risk" ? atRiskJewels : safeJewels
+
+  // ── Auto-select first jewel in the active list when data loads or mode flips ──
+  useEffect(() => {
+    if (!data) return
+    const stillValid = selectedJewelId && filteredJewels.some((j) => j.id === selectedJewelId)
+    if (!stillValid) {
+      setSelectedJewelId(filteredJewels[0]?.id ?? null)
+      setSelectedPathIndex(0)
+      setSelectedNodeId(null)
+      setRemediationStatus("idle")
+      setRemediationPreview(null)
+      setRemediationResult(null)
+      setActiveRemediationNodeId(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, listMode])
 
   const selectedNode = useMemo((): PathNodeDetail | null => {
     if (!selectedNodeId) return null
@@ -344,19 +388,80 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           </button>
         </div>
 
-        <div className="flex items-center gap-4">
-          <StatPill value={data.critical_paths ?? 0} label="Critical Paths" color="#ef4444" show={(data.critical_paths ?? 0) > 0} />
-          <StatPill value={data.high_paths ?? 0} label="High Paths" color="#f97316" show={(data.high_paths ?? 0) > 0} />
-          <StatPill value={data.total_jewels ?? 0} label="Crown Jewels" color="#8b5cf6" show />
-          <StatPill value={data.exposed_jewels ?? 0} label="Exposed" color="#ef4444" icon={<Globe className="w-3 h-3" />} show={(data.exposed_jewels ?? 0) > 0} />
-          <StatPill value={data.total_paths ?? 0} label="Total Paths" color="#64748b" show />
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <StatPill value={data.critical_paths ?? 0} label="Critical Paths" color="#ef4444" show={(data.critical_paths ?? 0) > 0} />
+            <StatPill value={data.high_paths ?? 0} label="High Paths" color="#f97316" show={(data.high_paths ?? 0) > 0} />
+            <StatPill value={data.total_jewels ?? 0} label="Crown Jewels" color="#8b5cf6" show />
+            <StatPill value={data.exposed_jewels ?? 0} label="Exposed" color="#ef4444" icon={<Globe className="w-3 h-3" />} show={(data.exposed_jewels ?? 0) > 0} />
+            <StatPill value={data.total_paths ?? 0} label="Total Paths" color="#64748b" show />
+          </div>
+
+          {/* At Risk / Safe tab pills */}
+          <div
+            className="flex items-center p-0.5 rounded-lg"
+            style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(148, 163, 184, 0.15)" }}
+          >
+            <button
+              onClick={() => setListMode("at-risk")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all"
+              style={
+                listMode === "at-risk"
+                  ? {
+                      background: "rgba(239, 68, 68, 0.15)",
+                      color: "#fca5a5",
+                      border: "1px solid rgba(239, 68, 68, 0.35)",
+                    }
+                  : { color: "#94a3b8", border: "1px solid transparent" }
+              }
+              title="Paths where the scoring engine found at least one action that reduces the score"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              At Risk
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                style={{
+                  background: listMode === "at-risk" ? "rgba(239,68,68,0.25)" : "rgba(148,163,184,0.1)",
+                  color: listMode === "at-risk" ? "#fecaca" : "#94a3b8",
+                }}
+              >
+                {atRiskPathCount}
+              </span>
+            </button>
+            <button
+              onClick={() => setListMode("safe")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all"
+              style={
+                listMode === "safe"
+                  ? {
+                      background: "rgba(16, 185, 129, 0.15)",
+                      color: "#6ee7b7",
+                      border: "1px solid rgba(16, 185, 129, 0.35)",
+                    }
+                  : { color: "#94a3b8", border: "1px solid transparent" }
+              }
+              title="Paths where no further remediation action was found (already hardened)"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Safe
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono"
+                style={{
+                  background: listMode === "safe" ? "rgba(16,185,129,0.25)" : "rgba(148,163,184,0.1)",
+                  color: listMode === "safe" ? "#a7f3d0" : "#94a3b8",
+                }}
+              >
+                {safePathCount}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* 3-column layout */}
       <div className="flex flex-1 overflow-hidden">
         <CrownJewelListPanel
-          jewels={data.crown_jewels ?? []}
+          jewels={filteredJewels}
           selectedJewelId={selectedJewelId}
           onSelect={handleJewelSelect}
         />
@@ -384,11 +489,12 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               onRemediate={handleNodeRemediate}
               onRollback={handleRollback}
               onCancel={handleCancelNodeRemediation}
+              isSafe={listMode === "safe"}
             />
           )}
 
-          {/* Remediate-all action row (slim) */}
-          {jewelPaths.length > 0 && (
+          {/* Remediate-all action row (slim) — only when at-risk */}
+          {jewelPaths.length > 0 && listMode === "at-risk" && (
             <div
               className="flex items-center justify-end px-4 py-1.5 border-b"
               style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(148, 163, 184, 0.1)" }}
@@ -456,6 +562,30 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               onNodeClick={handleNodeClick}
               selectedNodeId={selectedNodeId}
             />
+          ) : filteredJewels.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3 text-center max-w-md px-6">
+                {listMode === "safe" ? (
+                  <>
+                    <Shield className="w-10 h-10 text-slate-500" />
+                    <p className="text-sm text-slate-300 font-medium">No fully-hardened paths yet</p>
+                    <p className="text-xs text-slate-500">
+                      Every crown jewel still has at least one remediation the scoring engine can apply.
+                      Work through the <span className="text-red-400">At Risk</span> tab to move jewels here.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-10 h-10 text-emerald-400" />
+                    <p className="text-sm text-white font-medium">All crown jewels are hardened</p>
+                    <p className="text-xs text-slate-400">
+                      No active attack paths need remediation. Check the{" "}
+                      <span className="text-emerald-300">Safe</span> tab to confirm.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-sm text-slate-400">Select a crown jewel to view attack paths</p>
