@@ -10,7 +10,9 @@ import { SeverityBadge } from "./severity-badge"
 import type {
   PathNodeDetail, IdentityAttackPath,
   RemediationStatus, RemediationPreview, RemediationResult,
+  SeverityFactor, RiskReductionAction,
 } from "./types"
+import { FACTOR_LABELS } from "./types"
 
 interface NodeDetailPanelProps {
   node: PathNodeDetail
@@ -69,6 +71,78 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
         <h4 className="text-xs font-semibold text-slate-300">{title}</h4>
       </div>
       {children}
+    </div>
+  )
+}
+
+// ── Factor → color mapping for the weight/dominant-factor chip ──────
+const FACTOR_COLORS: Record<SeverityFactor, string> = {
+  impact: "#f87171",              // red
+  internet_exposure: "#fb923c",   // orange
+  permission_breadth: "#f59e0b",  // amber (weight 18)
+  data_sensitivity: "#a78bfa",    // violet
+  identity_chain: "#ec4899",      // pink
+  network_controls: "#60a5fa",    // blue
+}
+
+// ── Per-action row — shows weight-correct impact + dominant factor chip
+// (expand to see per-factor delta breakdown)
+function RiskActionRow({ action }: { action: RiskReductionAction }) {
+  const [expanded, setExpanded] = useState(false)
+  const impactText = `${action.impact > 0 ? "+" : ""}${action.impact}`
+  const dominant = action.dominant_factor
+  const dominantColor = dominant ? FACTOR_COLORS[dominant] : "#94a3b8"
+  const factorDeltas = Object.entries(action.delta_by_factor ?? {})
+    .filter(([, v]) => typeof v === "number" && v !== 0)
+    .sort(([, a], [, b]) => (a as number) - (b as number))
+  const hasDetail = factorDeltas.length > 0
+
+  return (
+    <div className="p-2 rounded bg-slate-800/40 border border-slate-700/40">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          onClick={() => hasDetail && setExpanded(!expanded)}
+          className={`flex-1 min-w-0 text-left ${hasDetail ? "cursor-pointer" : "cursor-default"}`}
+          title={hasDetail ? "Click to see per-factor breakdown" : ""}
+        >
+          <p className="text-[10px] text-slate-300 break-words">{action.action}</p>
+          {dominant ? (
+            <span
+              className="inline-block mt-1 text-[9px] font-semibold px-1.5 py-0.5 rounded"
+              style={{
+                background: `${dominantColor}22`,
+                color: dominantColor,
+                border: `1px solid ${dominantColor}44`,
+              }}
+            >
+              reduces {FACTOR_LABELS[dominant]}
+              {action.weights?.[dominant] != null ? ` (weight ${action.weights[dominant]})` : ""}
+            </span>
+          ) : null}
+        </button>
+        <span className="text-[11px] font-bold text-emerald-400 ml-2 font-mono">{impactText}</span>
+      </div>
+
+      {expanded && hasDetail && (
+        <div className="mt-2 pt-2 border-t border-slate-700/40 space-y-1">
+          <p className="text-[9px] uppercase tracking-wider text-slate-500">Per-factor delta</p>
+          {factorDeltas.map(([factor, delta]) => {
+            const f = factor as SeverityFactor
+            const color = FACTOR_COLORS[f] ?? "#94a3b8"
+            return (
+              <div key={factor} className="flex items-center justify-between text-[10px]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                  <span className="text-slate-300">{FACTOR_LABELS[f] ?? factor}</span>
+                </span>
+                <span className="font-mono text-emerald-400">
+                  {(delta as number) > 0 ? "+" : ""}{delta}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -759,12 +833,14 @@ export function NodeDetailPanel({
 
           {(riskReduction.top_actions?.length ?? 0) > 0 && (
             <div className="space-y-1.5">
-              <span className="text-[10px] text-slate-300 font-medium">Top Actions</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-300 font-medium">Top Actions (weight-correct)</span>
+                {riskReduction.total_reduction ? (
+                  <span className="text-[10px] text-emerald-400 font-mono">-{riskReduction.total_reduction} joint</span>
+                ) : null}
+              </div>
               {riskReduction.top_actions?.map((a, i) => (
-                <div key={i} className="flex items-center justify-between p-2 rounded bg-slate-800/40 border border-slate-700/40">
-                  <span className="text-[10px] text-slate-300 flex-1">{a.action}</span>
-                  <span className="text-[10px] font-bold text-emerald-400 ml-2">-{a.impact}</span>
-                </div>
+                <RiskActionRow key={i} action={a} />
               ))}
             </div>
           )}

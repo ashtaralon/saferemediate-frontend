@@ -106,10 +106,58 @@ export interface NodeTrafficSummary {
   api_calls: number
 }
 
+// The 6 severity factors, keyed so the UI can look up weights + deltas
+export type SeverityFactor =
+  | "impact"
+  | "internet_exposure"
+  | "permission_breadth"
+  | "data_sensitivity"
+  | "identity_chain"
+  | "network_controls"
+
+export const FACTOR_LABELS: Record<SeverityFactor, string> = {
+  impact: "Impact Severity",
+  internet_exposure: "Internet Exposure",
+  permission_breadth: "Permission Breadth",
+  data_sensitivity: "Data Sensitivity",
+  identity_chain: "Identity Chain",
+  network_controls: "Network Controls",
+}
+
+export interface RiskReductionAction {
+  action: string
+  impact: number
+  // New fields from weight-correct simulation (optional for back-compat)
+  action_type?: string
+  node_name?: string
+  node_type?: string
+  dominant_factor?: SeverityFactor | null
+  delta_by_factor?: Partial<Record<SeverityFactor, number>>
+  weights?: Partial<Record<SeverityFactor, number>>
+}
+
 export interface RiskReduction {
   current_score: number
   achievable_score: number
-  top_actions: { action: string; impact: number }[]
+  top_actions: RiskReductionAction[]
+  total_reduction?: number
+  weights?: Partial<Record<SeverityFactor, number>>
+}
+
+// BRS v1.1 — per-jewel Blast Radius Score (attached to each path)
+export interface TargetBlastRadius {
+  brs: number
+  band: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  confidence: "HIGH" | "MEDIUM" | "LOW"
+  components: {
+    doc: number
+    ips: number
+    nes: number
+    lms: number
+  }
+  amplifier: number
+  doc_floor_applied: boolean
+  rationale: string[]
 }
 
 export interface LaneDefinition {
@@ -169,6 +217,7 @@ export interface IdentityAttackPath {
   // Enriched fields (optional for backward compat)
   lanes?: LaneDefinition[]
   risk_reduction?: RiskReduction | null
+  target_blast_radius?: TargetBlastRadius | null
 }
 
 export interface CrownJewelSummary {
