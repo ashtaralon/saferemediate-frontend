@@ -1,11 +1,11 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
-import { Loader2, AlertTriangle, Shield, Globe, RefreshCw, ChevronLeft, ChevronRight, ShieldAlert, Play, Eye, CheckCircle2, XCircle } from "lucide-react"
+import { Loader2, AlertTriangle, Shield, Globe, RefreshCw, ShieldAlert, Play, CheckCircle2 } from "lucide-react"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { NodeDetailPanel } from "./node-detail-panel"
-import { SeverityBadge } from "./severity-badge"
+import { PathScoreHero } from "./path-score-hero"
 import type {
   IdentityAttackPathsResponse,
   IdentityAttackPath,
@@ -292,86 +292,23 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Path selector with severity badges + Remediate All */}
+          {/* Hero banner — big, immediately-readable score + severity + risk + remediation */}
+          {currentPath && (
+            <PathScoreHero
+              path={currentPath}
+              pathIndex={selectedPathIndex}
+              totalPaths={jewelPaths.length}
+              onPrev={() => setSelectedPathIndex(Math.max(0, selectedPathIndex - 1))}
+              onNext={() => setSelectedPathIndex(Math.min(jewelPaths.length - 1, selectedPathIndex + 1))}
+            />
+          )}
+
+          {/* Remediate-all action row (slim) */}
           {jewelPaths.length > 0 && (
             <div
-              className="flex items-center justify-between px-4 py-2 border-b"
+              className="flex items-center justify-end px-4 py-1.5 border-b"
               style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(148, 163, 184, 0.1)" }}
             >
-              {/* Left: path nav + severity + target BRS */}
-              <div className="flex items-center gap-3">
-                {jewelPaths.length > 1 && (
-                  <>
-                    <button
-                      onClick={() => setSelectedPathIndex(Math.max(0, selectedPathIndex - 1))}
-                      disabled={selectedPathIndex === 0}
-                      className="p-1 rounded hover:bg-slate-700/50 disabled:opacity-30 text-slate-400"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-300">
-                        Path {selectedPathIndex + 1} of {jewelPaths.length}
-                      </span>
-                      {currentPath?.severity?.severity && (
-                        <SeverityBadge severity={currentPath.severity.severity} size="sm" />
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setSelectedPathIndex(Math.min(jewelPaths.length - 1, selectedPathIndex + 1))}
-                      disabled={selectedPathIndex >= jewelPaths.length - 1}
-                      className="p-1 rounded hover:bg-slate-700/50 disabled:opacity-30 text-slate-400"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </>
-                )}
-                {jewelPaths.length === 1 && currentPath?.severity?.severity && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-300">Path 1</span>
-                    <SeverityBadge severity={currentPath.severity.severity} size="sm" />
-                  </div>
-                )}
-
-                {/* Path severity score (weighted composite) */}
-                {currentPath?.severity && (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-slate-700/50 bg-slate-800/40"
-                    title="6-factor weighted severity score (impact 25 / internet 20 / breadth 18 / sensitivity 15 / chain 12 / controls 10)"
-                  >
-                    <span className="text-[10px] text-slate-400">Path score</span>
-                    <span className="text-[11px] font-mono font-bold text-amber-400">
-                      {currentPath.severity.overall_score}
-                    </span>
-                    {currentPath.risk_reduction && (
-                      <>
-                        <span className="text-[10px] text-slate-500">→</span>
-                        <span className="text-[11px] font-mono font-bold text-emerald-400">
-                          {currentPath.risk_reduction.achievable_score}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Target crown-jewel BRS (v1.1 DOC/IPS/NES/LMS) */}
-                {currentPath?.target_blast_radius && (
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-purple-500/30 bg-purple-500/10"
-                    title={`Crown-jewel Blast Radius Score (v1.1). DOC ${currentPath.target_blast_radius.components.doc} / IPS ${currentPath.target_blast_radius.components.ips} / NES ${currentPath.target_blast_radius.components.nes} / LMS ${currentPath.target_blast_radius.components.lms} · confidence ${currentPath.target_blast_radius.confidence}`}
-                  >
-                    <span className="text-[10px] text-purple-300">Target BRS</span>
-                    <span className="text-[11px] font-mono font-bold text-purple-200">
-                      {currentPath.target_blast_radius.brs.toFixed(1)}
-                    </span>
-                    <span className="text-[9px] text-purple-400 uppercase tracking-wider">
-                      {currentPath.target_blast_radius.band}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Remediate All Path */}
               <div className="flex items-center gap-2">
                 {remediateAllStatus === "idle" && (
                   <button
