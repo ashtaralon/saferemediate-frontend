@@ -134,6 +134,11 @@ export interface RiskReductionAction {
   dominant_factor?: SeverityFactor | null
   delta_by_factor?: Partial<Record<SeverityFactor, number>>
   weights?: Partial<Record<SeverityFactor, number>>
+  // True when this node is on the path but we can't remediate it (e.g. AWS
+  // service-linked roles). The row renders a locked state — Preview disabled,
+  // no score projection, badge explains why.
+  not_remediable?: boolean
+  not_remediable_reason?: string | null
 }
 
 export interface RiskReduction {

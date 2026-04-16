@@ -13,6 +13,7 @@ import {
   TrendingDown,
   Minus,
   Zap,
+  Lock,
   ChevronDown,
   ChevronRight,
 } from "lucide-react"
@@ -89,18 +90,23 @@ function ActionRow({
   onCancel,
 }: RowProps) {
   const hasAction = !!action
+  const isLocked = !!action?.not_remediable
+  const isActionable = hasAction && !isLocked
   const impact = action?.impact ?? 0 // signed negative
-  const afterScore = hasAction ? Math.max(0, currentScore + impact) : currentScore
+  const afterScore = isActionable ? Math.max(0, currentScore + impact) : currentScore
   const dominantFactor = action?.dominant_factor as SeverityFactor | null | undefined
   const factorColor = dominantFactor ? FACTOR_COLORS[dominantFactor] : "#64748b"
   const factorLabel = dominantFactor ? FACTOR_LABELS[dominantFactor] : null
   const factorDelta = dominantFactor && action?.delta_by_factor?.[dominantFactor]
+  const lockedReason = action?.not_remediable_reason ?? "Managed externally — cannot be modified"
 
   // ── State-derived background ──
   const baseBg = isActive
     ? "rgba(30, 41, 59, 0.75)"
-    : hasAction
+    : isActionable
     ? "rgba(15, 23, 42, 0.55)"
+    : isLocked
+    ? "rgba(30, 24, 15, 0.5)" // warm-amber tint for locked
     : "rgba(15, 23, 42, 0.3)"
 
   // ── Rollback handler wiring ──
@@ -116,8 +122,10 @@ function ActionRow({
         background: baseBg,
         borderColor: isActive
           ? `${factorColor}55`
-          : hasAction
+          : isActionable
           ? "rgba(148,163,184,0.15)"
+          : isLocked
+          ? "rgba(245, 158, 11, 0.25)"
           : "rgba(148,163,184,0.08)",
       }}
     >
@@ -127,15 +135,27 @@ function ActionRow({
         <div
           className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
           style={{
-            background: hasAction ? `${factorColor}22` : "rgba(148,163,184,0.08)",
-            border: `1px solid ${hasAction ? `${factorColor}44` : "rgba(148,163,184,0.15)"}`,
+            background: isActionable
+              ? `${factorColor}22`
+              : isLocked
+              ? "rgba(245, 158, 11, 0.12)"
+              : "rgba(148,163,184,0.08)",
+            border: `1px solid ${
+              isActionable
+                ? `${factorColor}44`
+                : isLocked
+                ? "rgba(245, 158, 11, 0.3)"
+                : "rgba(148,163,184,0.15)"
+            }`,
           }}
         >
           {status === "success" && isActive ? (
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
           ) : status === "error" && isActive ? (
             <XCircle className="w-3.5 h-3.5 text-red-400" />
-          ) : hasAction ? (
+          ) : isLocked ? (
+            <Lock className="w-3.5 h-3.5 text-amber-400" />
+          ) : isActionable ? (
             <Zap className="w-3.5 h-3.5" style={{ color: factorColor }} />
           ) : (
             <Minus className="w-3.5 h-3.5 text-slate-500" />
@@ -152,8 +172,15 @@ function ActionRow({
               {node.type}
             </span>
           </div>
-          <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-            {hasAction
+          <div
+            className={`text-[10px] mt-0.5 truncate ${
+              isLocked ? "text-amber-200/80" : "text-slate-400"
+            }`}
+            title={isLocked ? lockedReason : undefined}
+          >
+            {isLocked
+              ? lockedReason
+              : hasAction
               ? action!.action
               : node.tier === "entry"
               ? "Entry point — cannot remediate"
@@ -163,8 +190,8 @@ function ActionRow({
           </div>
         </div>
 
-        {/* Score projection */}
-        {hasAction && (
+        {/* Score projection — only for actionable rows */}
+        {isActionable && (
           <div className="flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-md bg-slate-800/50 border border-slate-700/50">
             <span className="text-[10px] font-mono text-amber-400">
               {currentScore}
@@ -179,8 +206,25 @@ function ActionRow({
           </div>
         )}
 
+        {/* Locked: show "no change" indicator instead of projection */}
+        {isLocked && (
+          <div
+            className="flex items-center gap-1 shrink-0 px-2 py-1 rounded-md"
+            style={{
+              background: "rgba(245, 158, 11, 0.08)",
+              border: "1px solid rgba(245, 158, 11, 0.2)",
+            }}
+            title="This action cannot be applied, so it does not change the path score"
+          >
+            <span className="text-[10px] font-mono text-amber-300">{currentScore}</span>
+            <span className="text-[9px] text-amber-400/70 uppercase tracking-wider">
+              no change
+            </span>
+          </div>
+        )}
+
         {/* Dominant factor chip */}
-        {hasAction && factorLabel && (
+        {isActionable && factorLabel && (
           <div
             className="shrink-0 px-1.5 py-0.5 rounded"
             style={{
@@ -204,8 +248,33 @@ function ActionRow({
 
         {/* Action buttons (state-dependent) */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Idle / no-action state */}
-          {!isActive && hasAction && (
+          {/* Locked — AWS-managed badge + disabled Preview */}
+          {isLocked && (
+            <>
+              <span
+                className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{
+                  color: "#fbbf24",
+                  background: "rgba(245, 158, 11, 0.1)",
+                  border: "1px solid rgba(245, 158, 11, 0.3)",
+                }}
+                title={lockedReason}
+              >
+                AWS-managed
+              </span>
+              <button
+                disabled
+                title={lockedReason}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-slate-700/20 text-slate-500 border border-slate-700/30 cursor-not-allowed"
+              >
+                <Lock className="w-3 h-3" />
+                Locked
+              </button>
+            </>
+          )}
+
+          {/* Idle / actionable */}
+          {!isActive && isActionable && (
             <button
               onClick={() => onRemediate(node.id, true)}
               disabled={anotherActive}
@@ -415,12 +484,20 @@ export function PathRemediationPlan({
 
   if (rows.length === 0) return null
 
-  const actionableRows = rows.filter((r) => r.action)
+  // Visible rows include both truly actionable and "locked" (e.g. AWS-managed)
+  // — the user wants to see the locked nodes so they understand what the path
+  // actually contains. Passive rows (no action at all) stay collapsed.
+  const visibleRows = rows.filter((r) => r.action) // has any action record
   const passiveRows = rows.filter((r) => !r.action)
+  const actionableRows = visibleRows.filter((r) => !r.action?.not_remediable)
+  const lockedRows = visibleRows.filter((r) => r.action?.not_remediable)
   const actionableCount = actionableRows.length
+  const lockedCount = lockedRows.length
   const passiveCount = passiveRows.length
   const anotherActive = activeNodeId !== null && remediationStatus !== "idle"
-  const hardened = isSafe || actionableCount === 0
+  // Only truly hardened when there are no actionable AND no locked (locked
+  // nodes still represent a non-remediable hop on the path, not "safe").
+  const hardened = isSafe || (actionableCount === 0 && lockedCount === 0)
 
   return (
     <div
@@ -465,11 +542,17 @@ export function PathRemediationPlan({
             </span>
             <span className="text-[10px] text-slate-400">
               · {actionableCount} actionable
+              {lockedCount > 0 && (
+                <>
+                  {" · "}
+                  <span className="text-amber-300/80">{lockedCount} locked</span>
+                </>
+              )}
             </span>
           </div>
 
           <div className="space-y-1.5">
-            {actionableRows.map(({ node, action }) => {
+            {visibleRows.map(({ node, action }) => {
               const isActive = activeNodeId === node.id
               return (
                 <ActionRow
