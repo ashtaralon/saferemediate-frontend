@@ -72,19 +72,19 @@ function FactorBar({
   const label = FACTOR_LABELS[factor]
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[10px] text-slate-400 w-32 truncate" title={label}>{label}</span>
-      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(148,163,184,0.1)" }}>
+      <span className="text-[10px] text-slate-200 w-32 truncate" title={label}>{label}</span>
+      <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(148,163,184,0.18)" }}>
         <div
           className="h-full rounded-full transition-all"
           style={{
             width: `${Math.min(value, 100)}%`,
-            background: isDriver ? color : `${color}AA`,
+            background: isDriver ? color : `${color}CC`,
             boxShadow: isDriver ? `0 0 10px ${color}80` : "none",
           }}
         />
       </div>
-      <span className="text-[10px] font-mono text-slate-300 w-8 text-right">{value}</span>
-      <span className="text-[9px] text-slate-500 w-14 text-right">w {weight}</span>
+      <span className="text-[10px] font-mono text-slate-100 w-8 text-right">{value}</span>
+      <span className="text-[9px] text-slate-400 w-14 text-right">w {weight}</span>
       {isDriver && (
         <span
           className="text-[9px] font-bold uppercase tracking-wider px-1 rounded"
@@ -152,15 +152,21 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
 
   return (
     <div
-      className="px-5 py-4 border-b"
+      className="relative px-5 py-4 border-b overflow-hidden"
       style={{
-        background: theme.bg,
+        background: "#0b1220",
         borderColor: theme.border,
         boxShadow: `inset 0 -1px 0 ${theme.border}, ${theme.glow}`,
       }}
     >
+      {/* Severity color tint overlay — sits on top of the solid dark base */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: theme.bg }}
+        aria-hidden
+      />
       {/* ── Top row: path nav + severity band + score gauge + target jewel + remediation callout ── */}
-      <div className="flex items-stretch gap-5">
+      <div className="relative flex items-stretch gap-5">
         {/* Column 1 — severity band + score gauge */}
         <div className="flex items-center gap-4">
           {/* Severity band (huge) */}
@@ -173,7 +179,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
               >
                 {theme.label}
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5 uppercase tracking-wider">Attack Path</div>
+              <div className="text-[10px] text-slate-300 mt-0.5 uppercase tracking-wider">Attack Path</div>
             </div>
           </div>
 
@@ -192,7 +198,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                 <div className="text-3xl font-extrabold font-mono leading-none" style={{ color: theme.accent }}>
                   {sev.overall_score}
                 </div>
-                <div className="text-[9px] text-slate-400 mt-0.5 uppercase tracking-wider">/ 100</div>
+                <div className="text-[9px] text-slate-300 mt-0.5 uppercase tracking-wider">/ 100</div>
               </div>
             </div>
           </div>
@@ -212,7 +218,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                 >
                   ‹
                 </button>
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-200">
                   Path {pathIndex + 1} / {totalPaths}
                 </span>
                 <button
@@ -225,9 +231,9 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                 </button>
               </div>
             )}
-            <span className="text-[10px] text-slate-500">·</span>
+            <span className="text-[10px] text-slate-400">·</span>
             <Target className="w-3 h-3 text-purple-300" />
-            <span className="text-[11px] text-slate-300 font-medium truncate">
+            <span className="text-[11px] text-slate-100 font-medium truncate">
               {path.nodes?.find((n) => n.tier === "crown_jewel")?.name ?? "Crown Jewel"}
             </span>
             {brs && (
@@ -246,7 +252,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
           </div>
 
           {/* One-line plain-English summary */}
-          <p className="text-[12px] text-slate-200 leading-snug">{summary}</p>
+          <p className="text-[12px] text-slate-50 leading-snug">{summary}</p>
 
           {/* Factor bars — compact */}
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
@@ -288,7 +294,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
             <div className="text-[10px] text-emerald-400 mt-1 font-semibold">
               −{reductionPct}% with {actionCount} action{actionCount === 1 ? "" : "s"}
             </div>
-            <div className="text-[9px] text-slate-400 mt-0.5 text-center">
+            <div className="text-[9px] text-slate-200 mt-0.5 text-center">
               Top: reduces {FACTOR_LABELS[driver.key]}
             </div>
           </div>
