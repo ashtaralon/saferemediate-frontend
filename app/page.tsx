@@ -28,6 +28,9 @@ import { Switch } from "@/components/ui/switch"
 import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
+import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
+
+const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 === "true"
 
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
@@ -477,6 +480,9 @@ export default function HomePage() {
   const renderContent = () => {
     switch (activeSection) {
       case "home":
+        if (DASHBOARD_V2_ENABLED) {
+          return <HomeDashboardV2 initialSystem={selectedSystem || "alon-prod"} />
+        }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0
         const gapUnused = gapData?.unused ?? 0
