@@ -501,6 +501,39 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       ? Math.round(localSystems.reduce((sum, s) => sum + (s.health || 0), 0) / localSystems.length)
       : 0
 
+  // ── Panels below KPIs ──
+  // Top at-risk: rank by (critical desc, high desc, health asc). Cap at 3.
+  const topAtRiskSystems = [...localSystems]
+    .sort((a, b) => {
+      if (b.critical !== a.critical) return b.critical - a.critical
+      if (b.high !== a.high) return b.high - a.high
+      return (a.health || 0) - (b.health || 0)
+    })
+    .slice(0, 3)
+
+  // Environment breakdown: normalize casing, count, keep order by count desc.
+  const environmentBreakdown: Array<{ env: string; count: number; color: string }> = (() => {
+    const counts = new Map<string, number>()
+    for (const s of localSystems) {
+      const normalized = (s.environment || "Unknown").trim().toLowerCase()
+      const label = normalized.charAt(0).toUpperCase() + normalized.slice(1)
+      counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+    // Consistent colors per environment
+    const envColors: Record<string, string> = {
+      Production: "#ef4444",
+      Staging: "#f97316",
+      Development: "#eab308",
+      Dev: "#eab308",
+      Test: "#3b82f6",
+      Qa: "#3b82f6",
+      Unknown: "#6b7280",
+    }
+    return Array.from(counts.entries())
+      .map(([env, count]) => ({ env, count, color: envColors[env] ?? "#8b5cf6" }))
+      .sort((a, b) => b.count - a.count)
+  })()
+
   const getCriticalityColor = (criticality: number) => {
     if (criticality >= 5) return "bg-[#ef4444]"
     if (criticality >= 4) return "bg-[#f97316]"
@@ -932,6 +965,200 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
           <div className="text-2xl font-bold" style={{ color: healthLabel(avgHealthScore).color }}>
             {healthLabel(avgHealthScore).label}
           </div>
+        </div>
+      </div>
+
+      {/* Insight row: top at-risk systems + environment breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {/* Systems Needing Attention (spans 3 cols) */}
+        <div
+          className="lg:col-span-3 rounded-lg border p-4"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" style={{ color: "#f97316" }} />
+              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Systems Needing Attention
+              </span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                · ranked by criticals, highs, lowest health
+              </span>
+            </div>
+          </div>
+
+          {topAtRiskSystems.length === 0 ? (
+            <div
+              className="text-center py-8 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              All systems look clean — no findings to rank.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {topAtRiskSystems.map((sys, idx) => {
+                const healthColor = getHealthColor(sys.health).match(/#[0-9a-fA-F]+/)?.[0] || "#6b7280"
+                const critHex =
+                  sys.critical > 0 ? "#ef4444" : sys.high > 0 ? "#f97316" : "#22c55e"
+                return (
+                  <div
+                    key={sys.name + idx}
+                    className="flex items-center gap-3 rounded-lg border p-3 hover:bg-white/5 transition-colors"
+                    style={{
+                      background: "var(--bg-primary)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    {/* Rank badge */}
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                      style={{ background: `${critHex}20`, color: critHex }}
+                    >
+                      {idx + 1}
+                    </div>
+
+                    {/* Name + criticality */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-sm font-medium truncate"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {sys.name}
+                        </span>
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
+                          style={{ background: `${critHex}15`, color: critHex }}
+                        >
+                          {sys.criticalityLabel}
+                        </span>
+                      </div>
+                      <div
+                        className="text-xs mt-0.5"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {sys.environment} · {sys.owner} · last scan {sys.lastScan}
+                      </div>
+                    </div>
+
+                    {/* Health */}
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Health</span>
+                      <span className="text-sm font-bold" style={{ color: healthColor }}>
+                        {sys.health || "--"}
+                      </span>
+                    </div>
+
+                    {/* Critical/High pills */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {sys.critical > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                          style={{ background: "#ef444420", color: "#ef4444" }}
+                          title={`${sys.critical} critical`}
+                        >
+                          {sys.critical}C
+                        </span>
+                      )}
+                      {sys.high > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                          style={{ background: "#f9731620", color: "#f97316" }}
+                          title={`${sys.high} high`}
+                        >
+                          {sys.high}H
+                        </span>
+                      )}
+                    </div>
+
+                    {/* View button */}
+                    <button
+                      onClick={() => handleViewDashboard(sys.name)}
+                      className="inline-flex items-center gap-1 text-white px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:opacity-90 shrink-0"
+                      style={{ background: "#8b5cf6" }}
+                    >
+                      View
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Environment Breakdown (spans 2 cols) */}
+        <div
+          className="lg:col-span-2 rounded-lg border p-4"
+          style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="w-4 h-4" style={{ color: "#8b5cf6" }} />
+            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Environment Breakdown
+            </span>
+          </div>
+
+          {environmentBreakdown.length === 0 ? (
+            <div
+              className="text-center py-8 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              No systems yet.
+            </div>
+          ) : (
+            <>
+              {/* Stacked proportional bar */}
+              <div
+                className="h-2 rounded-full overflow-hidden flex mb-3"
+                style={{ background: "var(--bg-primary)" }}
+              >
+                {environmentBreakdown.map(({ env, count, color }) => {
+                  const pct = totalSystems > 0 ? (count / totalSystems) * 100 : 0
+                  return (
+                    <div
+                      key={env}
+                      className="h-full"
+                      style={{ width: `${pct}%`, background: color }}
+                      title={`${env}: ${count} (${pct.toFixed(0)}%)`}
+                    />
+                  )
+                })}
+              </div>
+
+              {/* Legend rows */}
+              <div className="space-y-1.5">
+                {environmentBreakdown.map(({ env, count, color }) => {
+                  const pct = totalSystems > 0 ? (count / totalSystems) * 100 : 0
+                  return (
+                    <div key={env} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ background: color }}
+                      />
+                      <span
+                        className="flex-1 truncate"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        {env}
+                      </span>
+                      <span
+                        className="font-mono font-semibold shrink-0"
+                        style={{ color: "var(--text-primary)" }}
+                      >
+                        {count}
+                      </span>
+                      <span
+                        className="w-10 text-right font-mono shrink-0"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
