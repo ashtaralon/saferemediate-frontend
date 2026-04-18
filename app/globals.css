@@ -39,6 +39,16 @@
   --sidebar-ring: oklch(0.708 0 0);
   --font-inter: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono-stack: "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Least-Privilege token aliases — used by LP-styled views (Systems, LP).
+     Aliased to the shadcn family so there's a single source of truth and
+     dark-mode automatically flows through. */
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --text-muted: var(--muted-foreground);
+  --bg-primary: var(--background);
+  --bg-secondary: var(--card);
+  --border-subtle: var(--border);
 }
 
 .dark {
@@ -74,6 +84,15 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+
+  /* LP token aliases — dark variant (same right-hand sides; shadcn tokens
+     already shift to dark values above, so aliases track automatically). */
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --text-muted: var(--muted-foreground);
+  --bg-primary: var(--background);
+  --bg-secondary: var(--card);
+  --border-subtle: var(--border);
 }
 
 @theme inline {
