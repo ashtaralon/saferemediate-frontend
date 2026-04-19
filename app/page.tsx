@@ -30,7 +30,9 @@ import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 
-const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 === "true"
+// V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
+// roll back to the legacy home without a code redeploy.
+const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 !== "false"
 
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
