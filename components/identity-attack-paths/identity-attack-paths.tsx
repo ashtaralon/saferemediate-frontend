@@ -29,10 +29,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [selectedPathIndex, setSelectedPathIndex] = useState(0)
   const [listMode, setListMode] = useState<"at-risk" | "safe">("at-risk")
 
-  // Flow viz disclosure — hide the full attack-graph panel by default so the
-  // Remediation Plan + Attack Chain read as the primary action surface. Users
-  // who want the geometric graph can click to expand.
-  const [showFlowViz, setShowFlowViz] = useState(false)
+  const [showFlowViz, setShowFlowViz] = useState(true)
 
   // Remediation state
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>("idle")
@@ -495,67 +492,72 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             />
           )}
 
-          {/* Per-service remediation plan — Preview / Remediate / Rollback wired to the same engine.
-              Remediate-All CTA is now absorbed into this card's header via the props below. */}
-          {currentPath && (
-            <PathRemediationPlan
-              path={currentPath}
-              activeNodeId={activeRemediationNodeId}
-              remediationStatus={remediationStatus}
-              remediationPreview={remediationPreview}
-              remediationResult={remediationResult}
-              onRemediate={handleNodeRemediate}
-              onRollback={handleRollback}
-              onCancel={handleCancelNodeRemediation}
-              isSafe={listMode === "safe"}
-              remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
-              remediateAllResultsCount={remediateAllResults.length}
-              remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
-              onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
-              onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
-            />
-          )}
-
-          {jewelPaths.length > 0 ? (
-            <>
-              {/* ── Flow viz disclosure header — the graph is dense and optional;
-                  most users only need the Remediation Plan above. Click to reveal. ── */}
+          {jewelPaths.length > 0 && currentPath ? (
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] overflow-hidden">
+              {/* Left column — Remediation Plan, scrolls independently */}
               <div
-                className="px-4 py-2 border-b flex items-center justify-between"
-                style={{
-                  background: "rgba(10, 16, 30, 0.6)",
-                  borderColor: "rgba(148, 163, 184, 0.1)",
-                }}
+                className="overflow-auto lg:border-r"
+                style={{ borderColor: "rgba(148, 163, 184, 0.1)" }}
               >
-                <div className="flex items-center gap-2 text-[11px]">
-                  <Workflow className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-semibold text-slate-200 uppercase tracking-wider">
-                    Attack graph
-                  </span>
-                  <span className="text-slate-500">
-                    · {(currentPath?.nodes?.length ?? 0)} nodes across{" "}
-                    {(currentPath?.nodes ? new Set(currentPath.nodes.map((n) => n.lane ?? n.tier ?? "other")).size : 0)} lanes
-                  </span>
-                </div>
-                <button
-                  onClick={() => setShowFlowViz((v) => !v)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
-                  title={showFlowViz ? "Hide the geometric attack-flow graph" : "Show the geometric attack-flow graph"}
-                >
-                  {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                  {showFlowViz ? "Hide graph" : "Show graph"}
-                </button>
+                <PathRemediationPlan
+                  path={currentPath}
+                  activeNodeId={activeRemediationNodeId}
+                  remediationStatus={remediationStatus}
+                  remediationPreview={remediationPreview}
+                  remediationResult={remediationResult}
+                  onRemediate={handleNodeRemediate}
+                  onRollback={handleRollback}
+                  onCancel={handleCancelNodeRemediation}
+                  isSafe={listMode === "safe"}
+                  remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
+                  remediateAllResultsCount={remediateAllResults.length}
+                  remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
+                  onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
+                  onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
+                />
               </div>
 
-              {showFlowViz && (
-                <AttackPathFlowViz
-                  paths={jewelPaths}
-                  selectedPathIndex={selectedPathIndex}
-                  onNodeClick={handleNodeClick}
-                  selectedNodeId={selectedNodeId}
-                />
-              )}
-            </>
+              {/* Right column — Attack Graph */}
+              <div className="flex flex-col overflow-hidden">
+                <div
+                  className="px-4 py-2 border-b flex items-center justify-between shrink-0"
+                  style={{
+                    background: "rgba(10, 16, 30, 0.6)",
+                    borderColor: "rgba(148, 163, 184, 0.1)",
+                  }}
+                >
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <Workflow className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="font-semibold text-slate-200 uppercase tracking-wider">
+                      Attack graph
+                    </span>
+                    <span className="text-slate-500">
+                      · {(currentPath?.nodes?.length ?? 0)} nodes across{" "}
+                      {(currentPath?.nodes ? new Set(currentPath.nodes.map((n) => n.lane ?? n.tier ?? "other")).size : 0)} lanes
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowFlowViz((v) => !v)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                    title={showFlowViz ? "Hide the geometric attack-flow graph" : "Show the geometric attack-flow graph"}
+                  >
+                    {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    {showFlowViz ? "Hide graph" : "Show graph"}
+                  </button>
+                </div>
+
+                {showFlowViz && (
+                  <div className="flex-1 overflow-auto">
+                    <AttackPathFlowViz
+                      paths={jewelPaths}
+                      selectedPathIndex={selectedPathIndex}
+                      onNodeClick={handleNodeClick}
+                      selectedNodeId={selectedNodeId}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           ) : filteredJewels.length === 0 ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="flex flex-col items-center gap-3 text-center max-w-md px-6">
