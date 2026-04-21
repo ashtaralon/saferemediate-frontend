@@ -7,6 +7,9 @@ import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
 import { PathRemediationPlan } from "./path-remediation-plan"
+import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
+import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
+import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
 import type {
   IdentityAttackPathsResponse,
   IdentityAttackPath,
@@ -15,6 +18,27 @@ import type {
   RemediationPreview,
   RemediationResult,
 } from "./types"
+
+type RemediationModalKind = "iam" | "s3" | "sg" | null
+
+function classifyNodeForModal(node: PathNodeDetail): RemediationModalKind {
+  const type = (node.type ?? "").toLowerCase()
+  const lane = (node.lane ?? "").toLowerCase()
+  if (type.includes("s3") || type.includes("bucket") || lane === "crown_jewel") {
+    // Only route crown-jewel S3 buckets to the S3 modal
+    if (type.includes("s3") || type.includes("bucket")) return "s3"
+  }
+  if (type.includes("security") || type.includes("sg") || lane === "security_group") return "sg"
+  if (type.includes("iam") || type.includes("role") || node.tier === "identity") return "iam"
+  return null
+}
+
+function extractSgId(node: PathNodeDetail): string {
+  if (node.id?.startsWith("sg-")) return node.id
+  if (node.name?.startsWith("sg-")) return node.name
+  const match = node.id?.match(/sg-[a-z0-9]+/)
+  return match?.[0] ?? node.id
+}
 
 interface IdentityAttackPathsProps {
   systemName: string
@@ -38,6 +62,12 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [activeRemediationNodeId, setActiveRemediationNodeId] = useState<string | null>(null)
   const [remediateAllStatus, setRemediateAllStatus] = useState<"idle" | "previewing" | "executing" | "done">("idle")
   const [remediateAllResults, setRemediateAllResults] = useState<RemediationResult[]>([])
+
+  // Remediation modals — same engine/UI as the Least Privilege tab
+  const [iamModalOpen, setIamModalOpen] = useState(false)
+  const [s3ModalOpen, setS3ModalOpen] = useState(false)
+  const [sgModalOpen, setSgModalOpen] = useState(false)
+  const [modalResource, setModalResource] = useState<{ name: string; sgId?: string } | null>(null)
 
   const fetchData = useCallback(async () => {
     setIsLoading(true)
@@ -124,6 +154,26 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     const node = currentPath.nodes.find((n) => n.id === nodeId)
     if (!node) return
 
+    // Route to the Least Privilege tab's modal — same engine, same rollback,
+    // same Simulate/Apply controls. Apply and Simulate both open it.
+    const modalKind = classifyNodeForModal(node)
+    if (modalKind === "iam") {
+      setModalResource({ name: node.name })
+      setIamModalOpen(true)
+      return
+    }
+    if (modalKind === "s3") {
+      setModalResource({ name: node.name })
+      setS3ModalOpen(true)
+      return
+    }
+    if (modalKind === "sg") {
+      setModalResource({ name: node.name, sgId: extractSgId(node) })
+      setSgModalOpen(true)
+      return
+    }
+
+    // Fallback: inline preview for node types with no LP modal (NACL, VPC, subnet)
     if (dryRun) {
       // If we're already in confirming state for THIS node and user clicks cancel, reset
       if (remediationStatus === "confirming" && activeRemediationNodeId === nodeId) {
@@ -592,6 +642,32 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           />
         )}
       </div>
+
+      <IAMPermissionAnalysisModal
+        isOpen={iamModalOpen}
+        onClose={() => { setIamModalOpen(false); setModalResource(null) }}
+        roleName={modalResource?.name ?? ""}
+        systemName={systemName}
+        onRemediationSuccess={() => { fetchData() }}
+        onRollbackSuccess={() => { fetchData() }}
+      />
+
+      <S3PolicyAnalysisModal
+        isOpen={s3ModalOpen}
+        onClose={() => { setS3ModalOpen(false); setModalResource(null) }}
+        bucketName={modalResource?.name ?? ""}
+        systemName={systemName}
+        onRemediationSuccess={() => { fetchData() }}
+      />
+
+      <SGLeastPrivilegeModal
+        isOpen={sgModalOpen}
+        onClose={() => { setSgModalOpen(false); setModalResource(null) }}
+        sgId={modalResource?.sgId ?? ""}
+        sgName={modalResource?.name}
+        systemName={systemName}
+        onRemediate={() => { fetchData() }}
+      />
     </div>
   )
 }
