@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import {
-  X, Calendar, CheckCircle, AlertTriangle, Shield, Check,
+  X, Calendar, CheckCircle, AlertTriangle, Shield, ShieldCheck, Sparkles, Check,
   CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
@@ -1433,62 +1433,63 @@ export function IAMPermissionAnalysisModal({
 
   // Main Permission Usage Analysis View
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 overflow-y-auto">
-      <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
-      <div className="relative bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
+      <div className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Permission Usage Analysis</h2>
-            <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
-              Analyzing: <strong>{roleName}</strong> ({identityType || 'IAMRole'}{systemName ? ` • ${systemName}` : ''})
-            </p>
+        <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#2D51DA" }}>Permission Usage</div>
+            <div className="mt-0.5 text-sm font-semibold truncate" style={{ color: "var(--foreground, #111827)" }}>
+              {roleName} <span className="font-normal" style={{ color: "var(--muted-foreground, #6b7280)" }}>· {identityType || 'IAMRole'}{systemName ? ` · ${systemName}` : ''}</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={() => fetchGapAnalysis(true)}
-              className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)] transition-colors p-1"
+              className="p-1.5 rounded-md hover:bg-slate-50"
+              style={{ color: "var(--muted-foreground, #9ca3af)" }}
               title="Refresh data"
             >
-              <RefreshCw className="w-5 h-5" />
+              <RefreshCw className="w-4 h-4" />
             </button>
-            <button
-              onClick={handleClose}
-              className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)] transition-colors"
-            >
-              <X className="w-6 h-6" />
+            <button onClick={handleClose} className="p-1.5 rounded-md hover:bg-slate-50" style={{ color: "var(--muted-foreground, #9ca3af)" }}>
+              <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="space-y-6 p-6 bg-[linear-gradient(180deg,#ffffff_0%,#fafcff_100%)]">
-          {/* Recording Period Banner */}
-          <div className="rounded-lg border border-[#bfdbfe] bg-[#eff6ff] p-5">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5" style={{ color: "#3b82f6" }} />
-              <span className="text-base font-semibold" style={{ color: "var(--foreground, #111827)" }}>{observationDays}-Day Observation Period</span>
+        <div className="flex-1 overflow-y-auto space-y-3 p-4">
+          {/* Recording Period — compact single-row chip strip */}
+          <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--foreground, #111827)" }}>
+              <Calendar className="w-3.5 h-3.5" style={{ color: "#2D51DA" }} />
+              <span className="font-semibold">{observationDays}-day observation</span>
+              <span className="text-slate-400">·</span>
+              <span style={{ color: "var(--muted-foreground, #6b7280)" }}>{formatDate(startDate)} → {formatDate(endDate)}</span>
             </div>
-            <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
-              Tracked from {formatDate(startDate)} to {formatDate(endDate)} - {cloudtrailEvents.toLocaleString()} API events analyzed
-            </p>
+            <span className="text-xs tabular-nums" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+              {cloudtrailEvents.toLocaleString()} API events
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border,#e5e7eb)] pb-3">
+          <div className="flex items-center gap-1 border-b" style={{ borderColor: "var(--border, #e5e7eb)" }}>
             {([
-              { id: 'summary', label: 'Summary' },
-              { id: 'permissions', label: 'Permissions' },
-              { id: 'context', label: 'Context' },
-            ] as const).map((tab) => (
+              { id: 'summary' as const, label: 'Summary', icon: ShieldCheck },
+              { id: 'permissions' as const, label: 'Permissions', icon: Activity },
+              { id: 'context' as const, label: 'Context', icon: Sparkles },
+            ]).map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setAnalysisTab(tab.id)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  analysisTab === tab.id
-                    ? 'bg-[#eef2ff] text-[#4338ca] border border-[#c7d2fe]'
-                    : 'bg-white text-[var(--muted-foreground,#6b7280)] border border-[var(--border,#e5e7eb)] hover:bg-gray-50'
-                }`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px"
+                style={{
+                  borderColor: analysisTab === tab.id ? '#2D51DA' : 'transparent',
+                  color: analysisTab === tab.id ? '#2D51DA' : 'var(--muted-foreground, #6b7280)',
+                }}
               >
+                <tab.icon className="w-3.5 h-3.5" />
                 {tab.label}
               </button>
             ))}
@@ -1533,37 +1534,37 @@ export function IAMPermissionAnalysisModal({
             const style = styles[severity] || styles.medium
 
             return (
-              <div className={`rounded-lg border ${style.border} ${style.bg} p-5`}>
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className={`w-6 h-6 ${style.icon} flex-shrink-0 mt-0.5`} />
-                  <div className="flex-1">
+              <div className={`rounded-md border ${style.border} ${style.bg} p-3`}>
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className={`w-4 h-4 ${style.icon} flex-shrink-0 mt-0.5`} />
+                  <div className="flex-1 min-w-0">
                     {/* Title with badge and service principal */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h4 className={`font-bold ${style.title} text-base`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className={`font-semibold ${style.title} text-sm`}>
                           {serviceAnalysis.title}
                         </h4>
                         {backendAnalysis?.service_principals && backendAnalysis.service_principals.length > 0 && (
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-0.5 font-mono">
-                            Trust Policy: {backendAnalysis.service_principals.join(', ')}
+                          <p className="text-[11px] text-[var(--muted-foreground,#6b7280)] mt-0.5 font-mono truncate">
+                            Trust: {backendAnalysis.service_principals.join(', ')}
                           </p>
                         )}
                       </div>
-                      <span className={`px-2.5 py-1 ${style.badge} text-xs rounded font-bold whitespace-nowrap`}>
+                      <span className={`px-2 py-0.5 ${style.badge} text-[10px] rounded font-semibold whitespace-nowrap`}>
                         {style.badgeText}
                       </span>
                     </div>
 
                     {/* Description */}
-                    <p className={`text-sm ${style.text} mt-2 leading-relaxed`}>
+                    <p className={`text-xs ${style.text} mt-1.5 leading-snug`}>
                       {serviceAnalysis.description}
                     </p>
 
                     {/* Why no CloudTrail */}
                     {serviceAnalysis.why_no_cloudtrail && (
-                      <div className="mt-3 p-3 bg-white/50 rounded border border-current/10">
-                        <p className="text-xs font-semibold text-[var(--muted-foreground,#4b5563)] mb-1">Why permissions appear unused:</p>
-                        <p className={`text-sm ${style.text}`}>
+                      <div className="mt-2 p-2 bg-white/60 rounded border border-current/10">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground,#4b5563)] mb-0.5">Why permissions appear unused</p>
+                        <p className={`text-xs ${style.text}`}>
                           {serviceAnalysis.why_no_cloudtrail}
                         </p>
                       </div>
@@ -1571,18 +1572,18 @@ export function IAMPermissionAnalysisModal({
 
                     {/* Affected Permissions */}
                     {serviceAnalysis.affected_permissions && serviceAnalysis.affected_permissions.length > 0 && (
-                      <div className="mt-3">
-                        <p className={`text-xs font-semibold ${style.title} mb-1`}>
-                          Permissions used by {serviceAnalysis.service_name} internally:
+                      <div className="mt-2">
+                        <p className={`text-[10px] font-semibold uppercase tracking-wide ${style.title} mb-1`}>
+                          Used by {serviceAnalysis.service_name} internally
                         </p>
                         <div className="flex flex-wrap gap-1">
                           {serviceAnalysis.affected_permissions.slice(0, 6).map((perm, i) => (
-                            <span key={i} className="px-2 py-0.5 bg-white/60 border border-current/20 rounded text-xs font-mono">
+                            <span key={i} className="px-1.5 py-0.5 bg-white/70 border border-current/20 rounded text-[10px] font-mono">
                               {perm}
                             </span>
                           ))}
                           {serviceAnalysis.affected_permissions.length > 6 && (
-                            <span className="px-2 py-0.5 text-xs">
+                            <span className="px-1.5 py-0.5 text-[10px]">
                               +{serviceAnalysis.affected_permissions.length - 6} more
                             </span>
                           )}
@@ -1592,9 +1593,8 @@ export function IAMPermissionAnalysisModal({
 
                     {/* Recommendation */}
                     {serviceAnalysis.recommendation && (
-                      <div className={`mt-3 p-3 rounded ${severity === 'critical' ? 'bg-[#ef444420]' : 'bg-white/50'}`}>
-                        <p className={`text-sm font-semibold ${severity === 'critical' ? 'text-[#ef4444]' : style.text}`}>
-                          {severity === 'critical' ? '🛑 ' : '💡 '}
+                      <div className={`mt-2 p-2 rounded ${severity === 'critical' ? 'bg-[#ef444420]' : 'bg-white/60'}`}>
+                        <p className={`text-xs font-medium ${severity === 'critical' ? 'text-[#ef4444]' : style.text}`}>
                           {serviceAnalysis.recommendation}
                         </p>
                       </div>
@@ -1607,90 +1607,89 @@ export function IAMPermissionAnalysisModal({
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
           {analysisTab === 'summary' && totalPermissions === 0 && (
-            <div className="rounded-lg border border-[#86efac] bg-[#f0fdf4] p-6">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-[#10b98120] rounded-full flex items-center justify-center">
-                  <CheckCircle className="w-10 h-10 text-[#10b981]" />
+            <div className="rounded-md border border-[#86efac] bg-[#f0fdf4] p-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-[#10b98120] rounded-full flex items-center justify-center shrink-0">
+                  <CheckCircle className="w-5 h-5 text-[#10b981]" />
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-2xl font-bold text-[#10b981]">Fully Remediated</h3>
-                  <p className="text-[#10b981] mt-1">
-                    This role has been optimized - all unused permissions have been removed.
-                  </p>
-                  <p className="text-[var(--muted-foreground,#6b7280)] text-sm mt-2">
-                    AWS IAM policies have been detached. The role now follows least privilege principles.
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-[#10b981]">Fully remediated</h3>
+                  <p className="text-xs text-[#10b981] mt-0.5">
+                    All unused permissions removed · AWS IAM policies detached.
                   </p>
                 </div>
-                <div className="text-center px-6 py-3 bg-[#10b98120] rounded-xl">
-                  <div className="text-4xl font-bold text-[#10b981]">100%</div>
-                  <div className="text-[#10b981] text-sm font-medium">LP Score</div>
+                <div className="text-center px-3 py-1.5 bg-[#10b98120] rounded-md shrink-0">
+                  <div className="text-lg font-semibold tabular-nums text-[#10b981] leading-none">100%</div>
+                  <div className="text-[10px] text-[#10b981] font-medium mt-0.5">LP score</div>
                 </div>
               </div>
               {usedCount > 0 && (
-                <div className="mt-4 pt-4 border-t border-[#10b98140]">
-                  <p className="text-sm " style={{ color: "var(--muted-foreground, #6b7280)" }}>
-                    <span className="font-medium">Historical Usage:</span> This role previously used {usedCount} S3 actions based on CloudTrail data from the past {observationDays} days.
+                <div className="mt-2 pt-2 border-t border-[#10b98140]">
+                  <p className="text-[11px]" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                    <span className="font-medium">Historical:</span> {usedCount} actions used in the past {observationDays} days.
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          {/* Over-Privileged Banner + Stats Grid - Only show if not remediated */}
-          {analysisTab === 'summary' && totalPermissions > 0 && (
-          <div className="space-y-4">
-            {/* Over-Privileged Banner - matches list view format */}
-            <div className="flex items-center gap-5 p-5 rounded-lg border" style={{
-              borderColor: unusedPercent >= 75 ? '#ef444440' : unusedPercent >= 50 ? '#f9731640' : unusedPercent >= 25 ? '#eab30840' : '#22c55e40',
-              background: unusedPercent >= 75 ? '#ef444408' : unusedPercent >= 50 ? '#f9731608' : unusedPercent >= 25 ? '#eab30808' : '#22c55e08',
-            }}>
-              <div className="flex flex-col items-center flex-shrink-0">
-                <span className="text-4xl font-bold" style={{
-                  color: unusedPercent >= 75 ? '#ef4444' : unusedPercent >= 50 ? '#f97316' : unusedPercent >= 25 ? '#eab308' : '#22c55e'
-                }}>{unusedPercent}%</span>
-                <span className="text-xs font-semibold mt-0.5" style={{
-                  color: unusedPercent >= 75 ? '#ef4444' : unusedPercent >= 50 ? '#f97316' : unusedPercent >= 25 ? '#eab308' : '#22c55e'
-                }}>Over-Privileged</span>
-              </div>
-              <div className="flex-1">
-                <p className="text-sm" style={{ color: "var(--foreground, #111827)" }}>
-                  <strong>{unusedCount}</strong> of <strong>{totalPermissions}</strong> permissions never used — only <strong>{usedCount}</strong> needed
-                </p>
-                <div className="flex items-center gap-1 mt-2 h-3 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
-                  <div className="h-full rounded-l-full transition-all" style={{
-                    width: `${usedPercent}%`,
-                    background: '#22c55e',
-                    minWidth: usedCount > 0 ? '4px' : '0'
-                  }} />
-                  <div className="h-full rounded-r-full transition-all" style={{
-                    width: `${unusedPercent}%`,
-                    background: unusedPercent >= 75 ? '#ef4444' : unusedPercent >= 50 ? '#f97316' : unusedPercent >= 25 ? '#eab308' : '#22c55e'
-                  }} />
-                </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-xs" style={{ color: '#22c55e' }}>{usedCount} used</span>
-                  <span className="text-xs" style={{ color: unusedPercent >= 75 ? '#ef4444' : '#f97316' }}>{unusedCount} to remove</span>
-                </div>
-              </div>
-            </div>
+          {/* Over-Privileged Summary — single merged card (replaces banner + 3-card grid) */}
+          {analysisTab === 'summary' && totalPermissions > 0 && (() => {
+            const accent =
+              unusedPercent >= 75 ? '#ef4444' :
+              unusedPercent >= 50 ? '#f97316' :
+              unusedPercent >= 25 ? '#eab308' : '#22c55e'
+            const borderTint =
+              unusedPercent >= 75 ? '#ef444440' :
+              unusedPercent >= 50 ? '#f9731640' :
+              unusedPercent >= 25 ? '#eab30840' : '#22c55e40'
+            const bgTint =
+              unusedPercent >= 75 ? '#ef444408' :
+              unusedPercent >= 50 ? '#f9731608' :
+              unusedPercent >= 25 ? '#eab30808' : '#22c55e08'
+            return (
+              <div className="rounded-md border p-3" style={{ borderColor: borderTint, background: bgTint }}>
+                <div className="flex items-center gap-4">
+                  <div className="flex flex-col items-center shrink-0 w-16">
+                    <span className="text-2xl font-semibold tabular-nums leading-none" style={{ color: accent }}>
+                      {unusedPercent}%
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide mt-1" style={{ color: accent }}>
+                      Over-privileged
+                    </span>
+                  </div>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-lg p-4 text-center border bg-white" style={{ borderColor: "var(--border, #e5e7eb)" }}>
-                <div className="text-4xl font-bold" style={{ color: "var(--foreground, #111827)" }}>{totalPermissions}</div>
-                <div className="mt-1" style={{ color: "var(--muted-foreground, #9ca3af)" }}>Total Permissions</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="text-xs" style={{ color: "var(--foreground, #111827)" }}>
+                        <span className="font-semibold tabular-nums">{unusedCount}</span> of <span className="font-semibold tabular-nums">{totalPermissions}</span> never used · <span className="font-semibold tabular-nums" style={{ color: '#16a34a' }}>{usedCount}</span> needed
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-0.5 mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+                      <div className="h-full transition-all" style={{
+                        width: `${usedPercent}%`, background: '#22c55e',
+                        minWidth: usedCount > 0 ? '3px' : '0',
+                      }} />
+                      <div className="h-full transition-all" style={{
+                        width: `${unusedPercent}%`, background: accent,
+                      }} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 text-[10px]">
+                      <span className="flex items-center gap-1" style={{ color: '#16a34a' }}>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span className="tabular-nums">{usedCount}</span> used ({usedPercent}%)
+                      </span>
+                      <span className="flex items-center gap-1" style={{ color: accent }}>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
+                        <span className="tabular-nums">{unusedCount}</span> to remove ({unusedPercent}%)
+                      </span>
+                      <span className="ml-auto text-slate-400 tabular-nums">{totalPermissions} total</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="rounded-lg p-4 text-center border" style={{ borderColor: "#86efac", background: "#f0fdf4" }}>
-                <div className="text-4xl font-bold" style={{ color: "#22c55e" }}>{usedCount}</div>
-                <div className="mt-1" style={{ color: "#22c55e" }}>Actually Used ({usedPercent}%)</div>
-              </div>
-              <div className="rounded-lg p-4 text-center border" style={{ borderColor: "#fecaca", background: "#fef2f2" }}>
-                <div className="text-4xl font-bold" style={{ color: "#ef4444" }}>{unusedCount}</div>
-                <div className="mt-1" style={{ color: "#ef4444" }}>To Remove ({unusedPercent}%)</div>
-              </div>
-            </div>
-          </div>
-          )}
+            )
+          })()}
 
           {/* Least Privilege Violation Alert - Only show if not remediated */}
           {analysisTab === 'summary' && unusedCount > 0 && totalPermissions > 0 && (
@@ -2124,10 +2123,11 @@ export function IAMPermissionAnalysisModal({
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 px-6 py-4 border-t border-[var(--border,#e5e7eb)] bg-white flex items-center justify-between">
+        <div className="sticky bottom-0 px-5 py-3 border-t flex items-center justify-between" style={{ borderColor: "var(--border, #e5e7eb)", background: "#f8fafc" }}>
           <button
             onClick={handleClose}
-            className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-md text-[var(--foreground,#374151)] hover:bg-gray-50 text-sm font-medium"
+            className="px-3 py-1.5 text-xs border rounded-md font-medium hover:bg-white"
+            style={{ borderColor: "var(--border, #e5e7eb)", color: "var(--muted-foreground, #6b7280)" }}
           >
             Close
           </button>
@@ -2169,15 +2169,16 @@ export function IAMPermissionAnalysisModal({
               }
             }}
             disabled={simulating}
-            className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 text-xs text-white rounded-md font-semibold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
+            style={{ background: "#2D51DA" }}
           >
             {simulating ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Simulating...
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Simulating…
               </>
             ) : (
-              'Preview Changes'
+              'Simulate fix'
             )}
           </button>}
         </div>

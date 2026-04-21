@@ -179,16 +179,16 @@ export function IdentityPermissionAnalysisModal({
   if (isLoading) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/85" onClick={onClose} />
+        <div className="absolute inset-0 bg-black/60" onClick={onClose} />
         <div
           className="relative w-[500px] rounded-2xl p-8 shadow-2xl text-center"
-          style={{ background: "var(--bg-secondary, #1f2937)" }}
+          style={{ background: "var(--card, #ffffff)" }}
         >
           <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: "#8b5cf6" }} />
-          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>
             Analyzing Permissions
           </h2>
-          <p className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+          <p className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
             Fetching CloudTrail data for {identity.name}...
           </p>
         </div>
@@ -200,16 +200,16 @@ export function IdentityPermissionAnalysisModal({
   if (error) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/85" onClick={onClose} />
+        <div className="absolute inset-0 bg-black/60" onClick={onClose} />
         <div
           className="relative w-[500px] rounded-2xl p-8 shadow-2xl text-center"
-          style={{ background: "var(--bg-secondary, #1f2937)" }}
+          style={{ background: "var(--card, #ffffff)" }}
         >
           <AlertTriangle className="w-12 h-12 mx-auto mb-4" style={{ color: "#ef4444" }} />
-          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+          <h2 className="text-xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>
             Failed to Load Data
           </h2>
-          <p className="text-sm mb-4" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+          <p className="text-sm mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>
             {error}
           </p>
           <div className="flex justify-center gap-3">
@@ -223,9 +223,9 @@ export function IdentityPermissionAnalysisModal({
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-sm font-semibold border"
-              style={{ color: "var(--text-secondary, #9ca3af)", borderColor: "var(--border, #374151)" }}
+              style={{ color: "var(--muted-foreground, #6b7280)", borderColor: "var(--border, #e5e7eb)" }}
             >
-              Close
+              CLOSE
             </button>
           </div>
         </div>
@@ -332,24 +332,24 @@ export function IdentityPermissionAnalysisModal({
   if (showResults) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
+        <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
         <div
           className="relative w-[950px] max-h-[90vh] overflow-y-auto rounded-2xl p-8 shadow-2xl"
-          style={{ background: "var(--bg-secondary, #1f2937)" }}
+          style={{ background: "var(--card, #ffffff)" }}
         >
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary, #ffffff)" }}>
+              <h2 className="text-2xl font-bold" style={{ color: "var(--foreground, #111827)" }}>
                 Permission Removal Simulation Results
               </h2>
-              <p className="text-sm mt-1" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+              <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
                 {identity.name} - {identity.system}
               </p>
             </div>
             <button
               onClick={handleClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-              style={{ color: "var(--text-secondary, #9ca3af)" }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:opacity-80"
+              style={{ color: "var(--muted-foreground, #6b7280)" }}
             >
               <X className="w-5 h-5" />
             </button>
@@ -407,13 +407,13 @@ export function IdentityPermissionAnalysisModal({
 
           {/* Permissions to remove */}
           <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--foreground, #111827)" }}>
               <TrendingDown className="w-5 h-5" style={{ color: "#ef4444" }} />
               Permissions to Remove ({unusedList.length})
             </h3>
             <div
               className="rounded-lg p-4 space-y-2 max-h-64 overflow-y-auto"
-              style={{ background: "var(--bg-primary, #111827)" }}
+              style={{ background: "var(--background, #f8f9fa)" }}
             >
               {unusedList.map((perm, i) => {
                 const risk = getRiskLevel(perm)
@@ -422,7 +422,7 @@ export function IdentityPermissionAnalysisModal({
                   <div
                     key={i}
                     className="flex items-center justify-between p-3 rounded-lg border"
-                    style={{ background: "var(--bg-secondary, #1f2937)", borderColor: "var(--border-subtle, #374151)" }}
+                    style={{ background: "var(--card, #ffffff)", borderColor: "var(--border, #e5e7eb)" }}
                   >
                     <div className="flex items-center gap-3 flex-1">
                       <AlertTriangle
@@ -438,7 +438,7 @@ export function IdentityPermissionAnalysisModal({
                                   : "#64748b",
                         }}
                       />
-                      <span className="font-mono text-sm" style={{ color: "var(--text-primary, #ffffff)" }}>
+                      <span className="font-mono text-sm" style={{ color: "var(--foreground, #111827)" }}>
                         {perm}
                       </span>
                     </div>
@@ -478,20 +478,20 @@ export function IdentityPermissionAnalysisModal({
 
           {/* Permissions to keep */}
           <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--foreground, #111827)" }}>
               <CheckCircle2 className="w-5 h-5" style={{ color: "#10B981" }} />
               Permissions to Keep ({usedList.length})
             </h3>
-            <div className="rounded-lg p-4 space-y-2" style={{ background: "var(--bg-primary, #111827)" }}>
+            <div className="rounded-lg p-4 space-y-2" style={{ background: "var(--background, #f8f9fa)" }}>
               {usedList.map((perm, i) => (
                 <div
                   key={i}
                   className="flex items-center justify-between p-3 rounded-lg border"
-                  style={{ background: "var(--bg-secondary, #1f2937)", borderColor: "var(--border-subtle, #374151)" }}
+                  style={{ background: "var(--card, #ffffff)", borderColor: "var(--border, #e5e7eb)" }}
                 >
                   <div className="flex items-center gap-3 flex-1">
                     <CheckCircle2 className="w-4 h-4" style={{ color: "#10B981" }} />
-                    <span className="font-mono text-sm" style={{ color: "var(--text-primary, #ffffff)" }}>
+                    <span className="font-mono text-sm" style={{ color: "var(--foreground, #111827)" }}>
                       {perm}
                     </span>
                   </div>
@@ -499,7 +499,7 @@ export function IdentityPermissionAnalysisModal({
                     <span className="text-xs font-medium" style={{ color: "#10B981" }}>
                       {getUsageFrequency(perm)}
                     </span>
-                    <span className="text-xs" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+                    <span className="text-xs" style={{ color: "var(--muted-foreground, #6b7280)" }}>
                       {getUsageReason(perm)}
                     </span>
                   </div>
@@ -509,36 +509,36 @@ export function IdentityPermissionAnalysisModal({
           </div>
 
           {/* Impact analysis */}
-          <div className="mb-6 rounded-lg p-4" style={{ background: "var(--bg-primary, #111827)" }}>
-            <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary, #ffffff)" }}>
+          <div className="mb-6 rounded-lg p-4" style={{ background: "var(--background, #f8f9fa)" }}>
+            <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--foreground, #111827)" }}>
               Impact Analysis
             </h3>
             <div className="space-y-2">
               <div className="flex items-center gap-3 text-sm">
                 <CheckCircle2 className="w-4 h-4" style={{ color: "#10B981" }} />
-                <span style={{ color: "var(--text-secondary, #9ca3af)" }}>No service disruption expected</span>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}>No service disruption expected</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <CheckCircle2 className="w-4 h-4" style={{ color: "#10B981" }} />
-                <span style={{ color: "var(--text-secondary, #9ca3af)" }}>All active workflows will continue</span>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}>All active workflows will continue</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <CheckCircle2 className="w-4 h-4" style={{ color: "#10B981" }} />
-                <span style={{ color: "var(--text-secondary, #9ca3af)" }}>Reduces attack surface by {gapPercent}%</span>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Reduces attack surface by {gapPercent}%</span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <CheckCircle2 className="w-4 h-4" style={{ color: "#10B981" }} />
-                <span style={{ color: "var(--text-secondary, #9ca3af)" }}>Achieves least privilege compliance</span>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Achieves least privilege compliance</span>
               </div>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-between pt-6 border-t" style={{ borderColor: "var(--border, #374151)" }}>
+          <div className="flex items-center justify-between pt-6 border-t" style={{ borderColor: "var(--border, #e5e7eb)" }}>
             <button
               onClick={() => setShowResults(false)}
-              className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-              style={{ color: "var(--text-secondary, #9ca3af)", borderColor: "var(--border, #374151)" }}
+              className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-gray-50"
+              style={{ color: "var(--muted-foreground, #6b7280)", borderColor: "var(--border, #e5e7eb)" }}
             >
               ← BACK
             </button>
@@ -567,13 +567,13 @@ export function IdentityPermissionAnalysisModal({
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/85" />
-        <div className="relative w-[700px] rounded-2xl p-8 shadow-2xl" style={{ background: "var(--bg-secondary, #1f2937)" }}>
+        <div className="absolute inset-0 bg-black/60" />
+        <div className="relative w-[700px] rounded-2xl p-8 shadow-2xl" style={{ background: "var(--card, #ffffff)" }}>
           <div className="mb-6">
-            <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+            <h2 className="text-2xl font-bold mb-2" style={{ color: "var(--foreground, #111827)" }}>
               Simulating Permission Removal
             </h2>
-            <p className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <p className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               {identity.name} - Analyzing {recordingDays} days of permission usage...
             </p>
           </div>
@@ -586,7 +586,7 @@ export function IdentityPermissionAnalysisModal({
                   index === simulationStep ? "ring-2 ring-[#8b5cf6]" : ""
                 }`}
                 style={{
-                  background: index <= simulationStep ? "var(--bg-primary, #111827)" : "transparent",
+                  background: index <= simulationStep ? "var(--background, #f8f9fa)" : "transparent",
                   opacity: index <= simulationStep ? 1 : 0.4,
                 }}
               >
@@ -594,10 +594,10 @@ export function IdentityPermissionAnalysisModal({
                   {index < simulationStep ? "✅" : index === simulationStep ? step.icon : "⏳"}
                 </div>
                 <div className="flex-1">
-                  <div className="font-semibold mb-1" style={{ color: "var(--text-primary, #ffffff)" }}>
+                  <div className="font-semibold mb-1" style={{ color: "var(--foreground, #111827)" }}>
                     {step.title}
                   </div>
-                  <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+                  <div className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
                     {step.subtitle}
                   </div>
                   {index === simulationStep && (
@@ -614,10 +614,10 @@ export function IdentityPermissionAnalysisModal({
 
           <div>
             <div className="flex justify-between text-sm mb-2">
-              <span style={{ color: "var(--text-secondary, #9ca3af)" }}>Overall Progress</span>
+              <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Overall Progress</span>
               <span style={{ color: "#8b5cf6" }}>{Math.round((simulationStep / 5) * 100)}%</span>
             </div>
-            <div className="h-2 rounded-full overflow-hidden" style={{ background: "#374151" }}>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "#e5e7eb" }}>
               <div
                 className="h-full rounded-full transition-all"
                 style={{ width: `${(simulationStep / 5) * 100}%`, background: "#8b5cf6" }}
@@ -632,25 +632,25 @@ export function IdentityPermissionAnalysisModal({
   // Main analysis view
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
+      <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
       <div
         className="relative w-[1000px] max-h-[90vh] overflow-y-auto rounded-2xl p-8 shadow-2xl"
-        style={{ background: "var(--bg-secondary, #1f2937)" }}
+        style={{ background: "var(--card, #ffffff)" }}
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary, #ffffff)" }}>
+            <h2 className="text-2xl font-bold" style={{ color: "var(--foreground, #111827)" }}>
               Permission Usage Analysis
             </h2>
-            <p className="text-sm mt-1" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <p className="text-sm mt-1" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               {identity.name} - {identity.type} - {identity.system}
             </p>
           </div>
           <button
             onClick={handleClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-white/10"
-            style={{ color: "var(--text-secondary, #9ca3af)" }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:opacity-80"
+            style={{ color: "var(--muted-foreground, #6b7280)" }}
           >
             <X className="w-5 h-5" />
           </button>
@@ -659,15 +659,15 @@ export function IdentityPermissionAnalysisModal({
         {/* Recording period */}
         <div
           className="rounded-lg p-4 mb-6 border-l-4"
-          style={{ background: "var(--bg-primary, #111827)", borderColor: "#8b5cf6" }}
+          style={{ background: "var(--background, #f8f9fa)", borderColor: "#8b5cf6" }}
         >
           <div className="flex items-center gap-3 mb-2">
             <Calendar className="w-5 h-5" style={{ color: "#8b5cf6" }} />
-            <span className="font-semibold" style={{ color: "var(--text-primary, #ffffff)" }}>
+            <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>
               {recordingDays}-Day Recording Period
             </span>
           </div>
-          <p className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+          <p className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
             Tracked from {formatDate(startDate)} to {formatDate(endDate)} - 2.4M permission checks analyzed
           </p>
         </div>
@@ -676,39 +676,39 @@ export function IdentityPermissionAnalysisModal({
         <div className="grid grid-cols-4 gap-4 mb-6">
           <div
             className="rounded-lg p-4 border"
-            style={{ background: "var(--bg-primary, #111827)", borderColor: lpScore < 50 ? "#ef4444" : lpScore < 80 ? "#f97316" : "#10B981" }}
+            style={{ background: "var(--background, #f8f9fa)", borderColor: lpScore < 50 ? "#ef4444" : lpScore < 80 ? "#f97316" : "#10B981" }}
           >
             <div className="text-2xl font-bold mb-1" style={{ color: lpScore < 50 ? "#ef4444" : lpScore < 80 ? "#f97316" : "#10B981" }}>
               {lpScore}%
             </div>
-            <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <div className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               LP Score
             </div>
           </div>
           <div
             className="rounded-lg p-4 border"
-            style={{ background: "var(--bg-primary, #111827)", borderColor: "var(--border-subtle, #374151)" }}
+            style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}
           >
-            <div className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary, #ffffff)" }}>
+            <div className="text-2xl font-bold mb-1" style={{ color: "var(--foreground, #111827)" }}>
               {totalPermissions}
             </div>
-            <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <div className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               Total Permissions
             </div>
           </div>
-          <div className="rounded-lg p-4 border" style={{ background: "var(--bg-primary, #111827)", borderColor: "#10B981" }}>
+          <div className="rounded-lg p-4 border" style={{ background: "var(--background, #f8f9fa)", borderColor: "#10B981" }}>
             <div className="text-2xl font-bold mb-1" style={{ color: "#10B981" }}>
               {usedCount}
             </div>
-            <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <div className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               Actually Used
             </div>
           </div>
-          <div className="rounded-lg p-4 border" style={{ background: "var(--bg-primary, #111827)", borderColor: "#ef4444" }}>
+          <div className="rounded-lg p-4 border" style={{ background: "var(--background, #f8f9fa)", borderColor: "#ef4444" }}>
             <div className="text-2xl font-bold mb-1" style={{ color: "#ef4444" }}>
               {unusedCount}
             </div>
-            <div className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <div className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               Unused ({gapPercent}%)
             </div>
           </div>
@@ -726,7 +726,7 @@ export function IdentityPermissionAnalysisModal({
             >
               {overallRisk} Risk
             </span>
-            <span className="text-sm" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+            <span className="text-sm" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               {gapData.summary?.cloudtrail_events || 0} CloudTrail events analyzed
             </span>
             {gapData.summary?.high_risk_unused_count > 0 && (
@@ -748,7 +748,7 @@ export function IdentityPermissionAnalysisModal({
               <h3 className="text-xl font-bold mb-2" style={{ color: "#ef4444" }}>
                 Least Privilege Violation Detected
               </h3>
-              <p className="text-sm mb-3" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+              <p className="text-sm mb-3" style={{ color: "var(--muted-foreground, #6b7280)" }}>
                 This identity has <strong>{gapPercent}% more permissions</strong> than required based on {recordingDays} days of actual usage.
                 {unusedCount} permissions have never been used and should be removed.
               </p>
@@ -759,7 +759,7 @@ export function IdentityPermissionAnalysisModal({
                 >
                   {gapPercent >= 70 ? "Critical" : gapPercent >= 50 ? "High" : "Medium"} Risk
                 </span>
-                <span style={{ color: "var(--text-secondary, #9ca3af)" }}>
+                <span style={{ color: "var(--muted-foreground, #6b7280)" }}>
                   Attack surface reduced by {gapPercent}% after remediation
                 </span>
               </div>
@@ -769,19 +769,19 @@ export function IdentityPermissionAnalysisModal({
 
         {/* Permission usage breakdown */}
         <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--text-primary, #ffffff)" }}>
+          <h3 className="text-lg font-semibold mb-3" style={{ color: "var(--foreground, #111827)" }}>
             Permission Usage Breakdown
           </h3>
           <div className="space-y-3">
             {/* Used permissions */}
             <div
               className="rounded-lg border p-4"
-              style={{ background: "var(--bg-primary, #111827)", borderColor: "var(--border-subtle, #374151)" }}
+              style={{ background: "var(--background, #f8f9fa)", borderColor: "var(--border, #e5e7eb)" }}
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5" style={{ color: "#10B981" }} />
-                  <span className="font-semibold" style={{ color: "var(--text-primary, #ffffff)" }}>
+                  <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>
                     Actually Used Permissions ({usedList.length})
                   </span>
                 </div>
@@ -796,7 +796,7 @@ export function IdentityPermissionAnalysisModal({
                 {usedList.map((perm, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <Activity className="w-3 h-3" style={{ color: "#10B981" }} />
-                    <span style={{ color: "var(--text-secondary, #9ca3af)" }}>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>
                       {perm} - {getUsageFrequency(perm)}
                     </span>
                   </div>
@@ -805,11 +805,11 @@ export function IdentityPermissionAnalysisModal({
             </div>
 
             {/* Unused permissions */}
-            <div className="rounded-lg border p-4" style={{ background: "var(--bg-primary, #111827)", borderColor: "#ef4444" }}>
+            <div className="rounded-lg border p-4" style={{ background: "var(--background, #f8f9fa)", borderColor: "#ef4444" }}>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="w-5 h-5" style={{ color: "#ef4444" }} />
-                  <span className="font-semibold" style={{ color: "var(--text-primary, #ffffff)" }}>
+                  <span className="font-semibold" style={{ color: "var(--foreground, #111827)" }}>
                     Never Used Permissions ({unusedList.length})
                   </span>
                 </div>
@@ -824,7 +824,7 @@ export function IdentityPermissionAnalysisModal({
                 {unusedList.map((perm, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <X className="w-3 h-3" style={{ color: "#ef4444" }} />
-                    <span style={{ color: "var(--text-secondary, #9ca3af)" }}>{perm}</span>
+                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>{perm}</span>
                   </div>
                 ))}
               </div>
@@ -833,11 +833,11 @@ export function IdentityPermissionAnalysisModal({
         </div>
 
         {/* Recommended action */}
-        <div className="rounded-lg p-4 mb-6" style={{ background: "var(--bg-primary, #111827)" }}>
-          <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary, #ffffff)" }}>
+        <div className="rounded-lg p-4 mb-6" style={{ background: "var(--background, #f8f9fa)" }}>
+          <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--foreground, #111827)" }}>
             Recommended Action
           </h3>
-          <p className="text-sm mb-3" style={{ color: "var(--text-secondary, #9ca3af)" }}>
+          <p className="text-sm mb-3" style={{ color: "var(--muted-foreground, #6b7280)" }}>
             Remove {unusedList.length} unused permissions to achieve least privilege compliance. This will reduce the attack surface by {gapPercent}% while maintaining all current functionality.
           </p>
           <div className="flex items-center gap-2 text-sm">
@@ -856,11 +856,11 @@ export function IdentityPermissionAnalysisModal({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between pt-6 border-t" style={{ borderColor: "var(--border, #374151)" }}>
+        <div className="flex items-center justify-between pt-6 border-t" style={{ borderColor: "var(--border, #e5e7eb)" }}>
           <button
             onClick={handleClose}
-            className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-white/5"
-            style={{ color: "var(--text-secondary, #9ca3af)", borderColor: "var(--border, #374151)" }}
+            className="px-6 py-3 rounded-lg text-sm font-semibold border transition-colors hover:bg-gray-50"
+            style={{ color: "var(--muted-foreground, #6b7280)", borderColor: "var(--border, #e5e7eb)" }}
           >
             CLOSE
           </button>
