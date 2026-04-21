@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
-import { Loader2, AlertTriangle, Shield, ShieldCheck, Globe, RefreshCw, ShieldAlert, Play, CheckCircle2 } from "lucide-react"
+import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, Workflow } from "lucide-react"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { NodeDetailPanel } from "./node-detail-panel"
@@ -28,6 +28,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedPathIndex, setSelectedPathIndex] = useState(0)
   const [listMode, setListMode] = useState<"at-risk" | "safe">("at-risk")
+
+  // Flow viz disclosure — hide the full attack-graph panel by default so the
+  // Remediation Plan + Attack Chain read as the primary action surface. Users
+  // who want the geometric graph can click to expand.
+  const [showFlowViz, setShowFlowViz] = useState(false)
 
   // Remediation state
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>("idle")
@@ -365,94 +370,106 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
-      {/* Header */}
+      {/* Header — compact single-row title + right-aligned tabs, then one summary sentence */}
       <div
-        className="px-6 py-4 border-b"
+        className="px-5 py-3 border-b"
         style={{
           background: "linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.95) 100%)",
           borderColor: "rgba(148, 163, 184, 0.15)",
         }}
       >
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-xl font-bold text-white">Identity Attack Paths</h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Identity-based paths from entry points to crown jewels &middot; {systemName}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h2 className="text-base font-semibold text-white">Identity Attack Paths</h2>
+              <span className="text-xs text-slate-400 truncate">{systemName}</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              <span className="font-semibold text-slate-200 tabular-nums">{data.total_paths ?? 0}</span> paths expose{" "}
+              <span className="font-semibold text-slate-200 tabular-nums">{data.total_jewels ?? 0}</span> crown jewels
+              {(data.exposed_jewels ?? 0) > 0 ? (
+                <>
+                  {" · "}
+                  <span className="font-semibold text-red-400 tabular-nums">{data.exposed_jewels}</span>{" "}
+                  internet-exposed
+                </>
+              ) : (
+                <> · <span className="text-slate-500">no internet-exposed jewels</span></>
+              )}
+              {(data.critical_paths ?? 0) > 0 ? (
+                <> · <span className="font-semibold text-red-400 tabular-nums">{data.critical_paths}</span> critical</>
+              ) : null}
+              {(data.high_paths ?? 0) > 0 ? (
+                <> · <span className="font-semibold text-amber-400 tabular-nums">{data.high_paths}</span> high</>
+              ) : null}
             </p>
           </div>
-          <button
-            onClick={fetchData}
-            className="p-2 rounded-lg hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <StatPill value={data.critical_paths ?? 0} label="Critical Paths" color="#ef4444" show={(data.critical_paths ?? 0) > 0} />
-            <StatPill value={data.high_paths ?? 0} label="High Paths" color="#f97316" show={(data.high_paths ?? 0) > 0} />
-            <StatPill value={data.total_jewels ?? 0} label="Crown Jewels" color="#8b5cf6" show />
-            <StatPill value={data.exposed_jewels ?? 0} label="Exposed" color="#ef4444" icon={<Globe className="w-3 h-3" />} show={(data.exposed_jewels ?? 0) > 0} />
-            <StatPill value={data.total_paths ?? 0} label="Total Paths" color="#64748b" show />
-          </div>
-
-          {/* At Risk / Safe tab pills */}
-          <div
-            className="flex items-center p-0.5 rounded-lg"
-            style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(148, 163, 184, 0.15)" }}
-          >
-            <button
-              onClick={() => setListMode("at-risk")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all"
-              style={
-                listMode === "at-risk"
-                  ? {
-                      background: "rgba(239, 68, 68, 0.15)",
-                      color: "#fca5a5",
-                      border: "1px solid rgba(239, 68, 68, 0.35)",
-                    }
-                  : { color: "#94a3b8", border: "1px solid transparent" }
-              }
-              title="Paths where the scoring engine found at least one action that reduces the score"
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* At Risk / Safe tab pills — dark mode */}
+            <div
+              className="flex items-center p-0.5 rounded-md"
+              style={{ background: "rgba(15, 23, 42, 0.8)", border: "1px solid rgba(148, 163, 184, 0.15)" }}
             >
-              <ShieldAlert className="w-3.5 h-3.5" />
-              At Risk
-              <span
-                className="px-1.5 py-0.5 rounded text-[10px] font-mono"
-                style={{
-                  background: listMode === "at-risk" ? "rgba(239,68,68,0.25)" : "rgba(148,163,184,0.1)",
-                  color: listMode === "at-risk" ? "#fecaca" : "#94a3b8",
-                }}
+              <button
+                onClick={() => setListMode("at-risk")}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors"
+                style={
+                  listMode === "at-risk"
+                    ? {
+                        background: "rgba(239, 68, 68, 0.15)",
+                        color: "#fca5a5",
+                        border: "1px solid rgba(239, 68, 68, 0.35)",
+                      }
+                    : { color: "#94a3b8", border: "1px solid transparent" }
+                }
+                title="Paths where the scoring engine found at least one action that reduces the score"
               >
-                {atRiskPathCount}
-              </span>
-            </button>
+                <ShieldAlert className="w-3 h-3" />
+                At Risk
+                <span
+                  className="px-1 rounded text-[10px] font-mono tabular-nums"
+                  style={{
+                    background: listMode === "at-risk" ? "rgba(239,68,68,0.25)" : "rgba(148,163,184,0.1)",
+                    color: listMode === "at-risk" ? "#fecaca" : "#94a3b8",
+                  }}
+                >
+                  {atRiskPathCount}
+                </span>
+              </button>
+              <button
+                onClick={() => setListMode("safe")}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold transition-colors"
+                style={
+                  listMode === "safe"
+                    ? {
+                        background: "rgba(16, 185, 129, 0.15)",
+                        color: "#6ee7b7",
+                        border: "1px solid rgba(16, 185, 129, 0.35)",
+                      }
+                    : { color: "#94a3b8", border: "1px solid transparent" }
+                }
+                title="Paths where no further remediation action was found (already hardened)"
+              >
+                <ShieldCheck className="w-3 h-3" />
+                Safe
+                <span
+                  className="px-1 rounded text-[10px] font-mono tabular-nums"
+                  style={{
+                    background: listMode === "safe" ? "rgba(16,185,129,0.25)" : "rgba(148,163,184,0.1)",
+                    color: listMode === "safe" ? "#a7f3d0" : "#94a3b8",
+                  }}
+                >
+                  {safePathCount}
+                </span>
+              </button>
+            </div>
             <button
-              onClick={() => setListMode("safe")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-all"
-              style={
-                listMode === "safe"
-                  ? {
-                      background: "rgba(16, 185, 129, 0.15)",
-                      color: "#6ee7b7",
-                      border: "1px solid rgba(16, 185, 129, 0.35)",
-                    }
-                  : { color: "#94a3b8", border: "1px solid transparent" }
-              }
-              title="Paths where no further remediation action was found (already hardened)"
+              onClick={fetchData}
+              className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+              title="Refresh"
             >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Safe
-              <span
-                className="px-1.5 py-0.5 rounded text-[10px] font-mono"
-                style={{
-                  background: listMode === "safe" ? "rgba(16,185,129,0.25)" : "rgba(148,163,184,0.1)",
-                  color: listMode === "safe" ? "#a7f3d0" : "#94a3b8",
-                }}
-              >
-                {safePathCount}
-              </span>
+              <RefreshCw className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -478,7 +495,8 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             />
           )}
 
-          {/* Per-service remediation plan — Preview / Remediate / Rollback wired to the same engine */}
+          {/* Per-service remediation plan — Preview / Remediate / Rollback wired to the same engine.
+              Remediate-All CTA is now absorbed into this card's header via the props below. */}
           {currentPath && (
             <PathRemediationPlan
               path={currentPath}
@@ -490,78 +508,54 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               onRollback={handleRollback}
               onCancel={handleCancelNodeRemediation}
               isSafe={listMode === "safe"}
+              remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
+              remediateAllResultsCount={remediateAllResults.length}
+              remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
+              onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
+              onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
             />
-          )}
-
-          {/* Remediate-all action row (slim) — only when at-risk */}
-          {jewelPaths.length > 0 && listMode === "at-risk" && (
-            <div
-              className="flex items-center justify-end px-4 py-1.5 border-b"
-              style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(148, 163, 184, 0.1)" }}
-            >
-              <div className="flex items-center gap-2">
-                {remediateAllStatus === "idle" && (
-                  <button
-                    onClick={() => handleRemediateAll(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-red-600/15 text-red-400 border border-red-500/25 hover:bg-red-600/25 hover:border-red-500/40 transition-all"
-                  >
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    Remediate All Path
-                  </button>
-                )}
-                {remediateAllStatus === "previewing" && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-amber-400">
-                      Remediate all {currentPath?.nodes.length ?? 0} nodes?
-                    </span>
-                    <button
-                      onClick={() => handleRemediateAll(false)}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-red-600/80 text-white hover:bg-red-600 transition-all"
-                    >
-                      <Play className="w-3 h-3" />
-                      Confirm
-                    </button>
-                    <button
-                      onClick={() => setRemediateAllStatus("idle")}
-                      className="px-2 py-1 rounded-lg text-[11px] text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-                {remediateAllStatus === "executing" && (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                    <span className="text-[11px] text-amber-300">
-                      Remediating {remediateAllResults.length}/{currentPath?.nodes.length ?? 0} nodes...
-                    </span>
-                  </div>
-                )}
-                {remediateAllStatus === "done" && (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-[11px] text-emerald-400">
-                      {remediateAllResults.filter((r) => r.success).length}/{remediateAllResults.length} remediated
-                    </span>
-                    <button
-                      onClick={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
-                      className="text-[10px] text-slate-500 hover:text-white ml-1"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
           )}
 
           {jewelPaths.length > 0 ? (
-            <AttackPathFlowViz
-              paths={jewelPaths}
-              selectedPathIndex={selectedPathIndex}
-              onNodeClick={handleNodeClick}
-              selectedNodeId={selectedNodeId}
-            />
+            <>
+              {/* ── Flow viz disclosure header — the graph is dense and optional;
+                  most users only need the Remediation Plan above. Click to reveal. ── */}
+              <div
+                className="px-4 py-2 border-b flex items-center justify-between"
+                style={{
+                  background: "rgba(10, 16, 30, 0.6)",
+                  borderColor: "rgba(148, 163, 184, 0.1)",
+                }}
+              >
+                <div className="flex items-center gap-2 text-[11px]">
+                  <Workflow className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="font-semibold text-slate-200 uppercase tracking-wider">
+                    Attack graph
+                  </span>
+                  <span className="text-slate-500">
+                    · {(currentPath?.nodes?.length ?? 0)} nodes across{" "}
+                    {(currentPath?.nodes ? new Set(currentPath.nodes.map((n) => n.lane ?? n.tier ?? "other")).size : 0)} lanes
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowFlowViz((v) => !v)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                  title={showFlowViz ? "Hide the geometric attack-flow graph" : "Show the geometric attack-flow graph"}
+                >
+                  {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  {showFlowViz ? "Hide graph" : "Show graph"}
+                </button>
+              </div>
+
+              {showFlowViz && (
+                <AttackPathFlowViz
+                  paths={jewelPaths}
+                  selectedPathIndex={selectedPathIndex}
+                  onNodeClick={handleNodeClick}
+                  selectedNodeId={selectedNodeId}
+                />
+              )}
+            </>
           ) : filteredJewels.length === 0 ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="flex flex-col items-center gap-3 text-center max-w-md px-6">
@@ -609,28 +603,3 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   )
 }
 
-function StatPill({
-  value,
-  label,
-  color,
-  icon,
-  show,
-}: {
-  value: number
-  label: string
-  color: string
-  icon?: React.ReactNode
-  show: boolean
-}) {
-  if (!show) return null
-  return (
-    <div
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-      style={{ background: `${color}10`, border: `1px solid ${color}25` }}
-    >
-      {icon || <div className="w-2 h-2 rounded-full" style={{ background: color }} />}
-      <span className="text-sm font-bold" style={{ color }}>{value}</span>
-      <span className="text-[10px] text-slate-400">{label}</span>
-    </div>
-  )
-}

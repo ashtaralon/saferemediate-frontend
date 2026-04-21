@@ -1,6 +1,6 @@
 "use client"
 
-import { Database, HardDrive, Key, Shield, Globe } from "lucide-react"
+import { Shield, Globe } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
 import type { CrownJewelSummary } from "./types"
 
@@ -8,15 +8,6 @@ interface CrownJewelListPanelProps {
   jewels: CrownJewelSummary[]
   selectedJewelId: string | null
   onSelect: (id: string) => void
-}
-
-function getJewelIcon(type: string | null | undefined) {
-  const t = (type ?? "").toLowerCase()
-  if (t.includes("s3")) return <HardDrive className="w-4 h-4" />
-  if (t.includes("rds") || t.includes("dynamo") || t.includes("database")) return <Database className="w-4 h-4" />
-  if (t.includes("secret") || t.includes("kms")) return <Key className="w-4 h-4" />
-  if (t.includes("iam")) return <Shield className="w-4 h-4" />
-  return <Database className="w-4 h-4" />
 }
 
 function getJewelTypeLabel(type: string | null | undefined): string {
@@ -36,15 +27,23 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
       className="w-[280px] min-w-[280px] border-r overflow-y-auto"
       style={{ background: "rgba(15, 23, 42, 0.95)", borderColor: "rgba(148, 163, 184, 0.15)" }}
     >
-      <div className="p-4 border-b" style={{ borderColor: "rgba(148, 163, 184, 0.15)" }}>
-        <h3 className="text-sm font-semibold text-white">Crown Jewels</h3>
-        <p className="text-xs text-slate-400 mt-1">{jewels?.length ?? 0} critical assets found</p>
+      <div
+        className="px-4 py-3 border-b"
+        style={{ borderColor: "rgba(148, 163, 184, 0.15)" }}
+      >
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+          Crown Jewels
+        </div>
+        <div className="text-xs text-slate-200 mt-0.5">
+          <span className="font-semibold tabular-nums">{jewels?.length ?? 0}</span> critical assets
+        </div>
       </div>
 
       <div className="p-2 space-y-1">
         {(jewels ?? []).map((jewel) => {
           const isSelected = jewel.id === selectedJewelId
           const sev = jewel.severity ?? "LOW"
+          const score = Math.round(jewel.highest_risk_score ?? 0)
           const sevColor =
             sev === "CRITICAL" ? "#ef4444" :
             sev === "HIGH" ? "#f97316" :
@@ -54,53 +53,50 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
             <button
               key={jewel.id}
               onClick={() => onSelect(jewel.id)}
-              className="w-full text-left rounded-lg p-3 transition-all"
+              className="group w-full text-left rounded-md px-2 py-2 transition-all"
               style={{
                 background: isSelected
-                  ? `linear-gradient(135deg, ${sevColor}15 0%, ${sevColor}08 100%)`
+                  ? `linear-gradient(135deg, ${sevColor}18 0%, ${sevColor}08 100%)`
                   : "transparent",
                 border: `1px solid ${isSelected ? `${sevColor}40` : "transparent"}`,
               }}
             >
-              <div className="flex items-start gap-2">
+              <div className="flex items-center gap-2">
                 <div
-                  className="mt-0.5 p-1.5 rounded"
-                  style={{ background: `${sevColor}20`, color: sevColor }}
+                  className="w-10 shrink-0 text-right text-lg font-semibold tabular-nums leading-none"
+                  style={{ color: sevColor }}
                 >
-                  {getJewelIcon(jewel.type)}
+                  {score}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{jewel.name ?? jewel.id}</p>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
-                    {getJewelTypeLabel(jewel.type)}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <SeverityBadge severity={jewel.severity ?? "LOW"} size="sm" />
+
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="truncate text-xs font-medium text-white">
+                      {jewel.name ?? jewel.id}
+                    </span>
+                    <SeverityBadge severity={sev} size="sm" />
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                    <span className="uppercase tracking-wide">{getJewelTypeLabel(jewel.type)}</span>
                     {(jewel.path_count ?? 0) > 0 && (
-                      <span className="text-[10px] text-slate-400">
-                        {jewel.path_count ?? 0} path{(jewel.path_count ?? 0) > 1 ? "s" : ""}
-                      </span>
+                      <>
+                        <span className="text-slate-600">·</span>
+                        <span className="tabular-nums">
+                          {jewel.path_count} path{(jewel.path_count ?? 0) > 1 ? "s" : ""}
+                        </span>
+                      </>
+                    )}
+                    {jewel.is_internet_exposed && (
+                      <>
+                        <span className="text-slate-600">·</span>
+                        <span className="inline-flex items-center gap-0.5 text-red-400 font-medium">
+                          <Globe className="w-2.5 h-2.5" />
+                          exposed
+                        </span>
+                      </>
                     )}
                   </div>
-                  {jewel.is_internet_exposed && (
-                    <div className="flex items-center gap-1 mt-1.5">
-                      <Globe className="w-3 h-3 text-red-400" />
-                      <span className="text-[10px] text-red-400 font-medium">Internet Exposed</span>
-                    </div>
-                  )}
                 </div>
-              </div>
-
-              {/* Risk score bar */}
-              <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: "rgba(148, 163, 184, 0.1)" }}>
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(jewel.highest_risk_score ?? 0, 100)}%`,
-                    background: sevColor,
-                    opacity: 0.7,
-                  }}
-                />
               </div>
             </button>
           )
@@ -108,8 +104,8 @@ export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: Crown
 
         {(jewels?.length ?? 0) === 0 && (
           <div className="text-center py-8">
-            <Shield className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm text-slate-400">No crown jewels detected</p>
+            <Shield className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+            <p className="text-xs text-slate-400">No crown jewels detected</p>
           </div>
         )}
       </div>

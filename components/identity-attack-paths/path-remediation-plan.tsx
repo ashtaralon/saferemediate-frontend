@@ -49,6 +49,13 @@ interface PathRemediationPlanProps {
   onCancel: () => void
   /** If true, the parent says this path is in the "Safe" tab — render the hardened banner */
   isSafe?: boolean
+  /** Optional Remediate-All handlers, absorbed into the card header.
+   *  Parent owns state; when undefined, the all-path button is not rendered. */
+  remediateAllStatus?: "idle" | "previewing" | "executing" | "done"
+  remediateAllResultsCount?: number
+  remediateAllSuccessCount?: number
+  onRemediateAll?: (dryRun: boolean) => void
+  onResetRemediateAll?: () => void
 }
 
 // ── Humanize preview content per node type ─────────────────────
@@ -97,8 +104,34 @@ function ActionRow({
   const dominantFactor = action?.dominant_factor as SeverityFactor | null | undefined
   const factorColor = dominantFactor ? FACTOR_COLORS[dominantFactor] : "#64748b"
   const factorLabel = dominantFactor ? FACTOR_LABELS[dominantFactor] : null
-  const factorDelta = dominantFactor && action?.delta_by_factor?.[dominantFactor]
   const lockedReason = action?.not_remediable_reason ?? "Managed externally — cannot be modified"
+
+  // ── V2-style layer mapping: classify each node to privilege / network / data
+  //    based on node.type so the row carries a consistent layer chip.
+  const t = (node.type ?? "").toLowerCase()
+  const layer: "privilege" | "network" | "data" | "other" =
+    t.includes("iam") || t.includes("role") || t.includes("user") || t.includes("principal") || t.includes("instanceprofile")
+      ? "privilege"
+      : t.includes("sg") || t.includes("securitygroup") || t.includes("nacl") || t.includes("subnet") || t.includes("vpc") || t.includes("ec2")
+      ? "network"
+      : t.includes("s3") || t.includes("rds") || t.includes("dynamo") || t.includes("kms") || t.includes("secret")
+      ? "data"
+      : "other"
+  const layerBg =
+    layer === "privilege" ? "rgba(59,130,246,0.18)" :
+    layer === "network"   ? "rgba(245,158,11,0.18)" :
+    layer === "data"      ? "rgba(16,185,129,0.18)" :
+                            "rgba(148,163,184,0.18)"
+  const layerText =
+    layer === "privilege" ? "#93c5fd" :
+    layer === "network"   ? "#fde68a" :
+    layer === "data"      ? "#a7f3d0" :
+                            "#cbd5e1"
+  const layerLabel =
+    layer === "privilege" ? "IAM" :
+    layer === "network"   ? "Network" :
+    layer === "data"      ? "Data" :
+                            "Other"
 
   // ── State-derived background ──
   const baseBg = isActive
@@ -106,7 +139,7 @@ function ActionRow({
     : isActionable
     ? "rgba(15, 23, 42, 0.55)"
     : isLocked
-    ? "rgba(30, 24, 15, 0.5)" // warm-amber tint for locked
+    ? "rgba(30, 24, 15, 0.5)"
     : "rgba(15, 23, 42, 0.3)"
 
   // ── Rollback handler wiring ──
@@ -129,11 +162,11 @@ function ActionRow({
           : "rgba(148,163,184,0.08)",
       }}
     >
-      {/* ── Header row (always visible) ── */}
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        {/* Icon slot */}
+      {/* ── Header row — single compact line: icon · title · chips · score · buttons ── */}
+      <div className="flex items-center gap-2 px-3 py-1.5">
+        {/* Icon slot (smaller) */}
         <div
-          className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+          className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
           style={{
             background: isActionable
               ? `${factorColor}22`
@@ -150,145 +183,121 @@ function ActionRow({
           }}
         >
           {status === "success" && isActive ? (
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
           ) : status === "error" && isActive ? (
-            <XCircle className="w-3.5 h-3.5 text-red-400" />
+            <XCircle className="w-3 h-3 text-red-400" />
           ) : isLocked ? (
-            <Lock className="w-3.5 h-3.5 text-amber-400" />
+            <Lock className="w-3 h-3 text-amber-400" />
           ) : isActionable ? (
-            <Zap className="w-3.5 h-3.5" style={{ color: factorColor }} />
+            <Zap className="w-3 h-3" style={{ color: factorColor }} />
           ) : (
-            <Minus className="w-3.5 h-3.5 text-slate-500" />
+            <Minus className="w-3 h-3 text-slate-500" />
           )}
         </div>
 
-        {/* Left info block */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] font-semibold text-slate-100 truncate">
-              {node.name}
-            </span>
-            <span className="text-[9px] text-slate-400 uppercase tracking-wider shrink-0">
-              {node.type}
-            </span>
-          </div>
-          <div
-            className={`text-[10px] mt-0.5 truncate ${
-              isLocked ? "text-amber-200/80" : "text-slate-400"
-            }`}
-            title={isLocked ? lockedReason : undefined}
-          >
-            {isLocked
-              ? lockedReason
-              : hasAction
-              ? action!.action
-              : node.tier === "entry"
-              ? "Entry point — cannot remediate"
-              : node.tier === "crown_jewel"
-              ? "Protected asset — reduce upstream risk"
-              : "No fix needed"}
-          </div>
-        </div>
+        {/* Title — just the action verb; resource name is already in the action text */}
+        <span
+          className="text-[11px] font-semibold text-slate-100 truncate flex-1 min-w-0"
+          title={isLocked ? lockedReason : node.name}
+        >
+          {isLocked
+            ? lockedReason
+            : hasAction
+            ? action!.action
+            : node.tier === "entry"
+            ? `${node.name} — entry point`
+            : node.tier === "crown_jewel"
+            ? `${node.name} — protected asset`
+            : node.name}
+        </span>
 
-        {/* Score projection — only for actionable rows */}
+        {/* Chips — condensed, inline with title, only show the 2 most informative */}
         {isActionable && (
-          <div className="flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-md bg-slate-800/50 border border-slate-700/50">
-            <span className="text-[10px] font-mono text-amber-400">
-              {currentScore}
-            </span>
-            <TrendingDown className="w-3 h-3 text-emerald-400" />
-            <span className="text-[10px] font-mono font-bold text-emerald-400">
-              {afterScore}
-            </span>
-            <span className="text-[9px] text-slate-400 ml-1">
-              ({impact})
-            </span>
-          </div>
-        )}
-
-        {/* Locked: clarify that no remediation is possible. The scoring engine
-            also discounts SLRs' over-provisioning contribution, so the user
-            isn't seeing a number they can't move. */}
-        {isLocked && (
-          <div
-            className="flex items-center gap-1 shrink-0 px-2 py-1 rounded-md"
-            style={{
-              background: "rgba(245, 158, 11, 0.08)",
-              border: "1px solid rgba(245, 158, 11, 0.2)",
-            }}
-            title="AWS-managed — permission over-provisioning is discounted from the path score (the defender cannot act on it), and Preview is disabled."
+          <span
+            className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
+            style={{ background: layerBg, color: layerText }}
           >
-            <span className="text-[9px] text-amber-400/80 uppercase tracking-wider font-semibold">
-              Discounted from score
-            </span>
-          </div>
+            {layerLabel}
+          </span>
         )}
-
-        {/* Dominant factor chip */}
         {isActionable && factorLabel && (
-          <div
-            className="shrink-0 px-1.5 py-0.5 rounded"
+          <span
+            className="inline-flex items-center text-[9px] font-medium px-1.5 py-0.5 rounded shrink-0"
             style={{
               background: `${factorColor}1A`,
               border: `1px solid ${factorColor}33`,
+              color: factorColor,
             }}
-            title={
-              factorDelta != null
-                ? `${factorLabel}: ${factorDelta > 0 ? "+" : ""}${factorDelta}`
-                : factorLabel
-            }
+            title={`Dominant factor · ${factorLabel} · rollback ready (pre-change snapshot is written automatically)`}
           >
-            <span
-              className="text-[9px] font-semibold uppercase tracking-wider"
-              style={{ color: factorColor }}
-            >
-              {factorLabel}
-            </span>
-          </div>
+            {factorLabel.toLowerCase()}
+          </span>
+        )}
+        {isLocked && (
+          <span
+            className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0"
+            style={{ color: "#fbbf24", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)" }}
+            title={lockedReason}
+          >
+            AWS-managed
+          </span>
         )}
 
-        {/* Action buttons (state-dependent) */}
+        {/* Score projection — compact */}
+        {isActionable && (
+          <span
+            className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded bg-slate-800/50 border border-slate-700/50"
+            title={`Score drops ${impact} after this fix (${currentScore} → ${afterScore})`}
+          >
+            <span className="text-[10px] font-mono tabular-nums text-amber-400">{currentScore}</span>
+            <TrendingDown className="w-2.5 h-2.5 text-emerald-400" />
+            <span className="text-[10px] font-mono font-bold tabular-nums text-emerald-400">{afterScore}</span>
+          </span>
+        )}
+
+        {/* Action buttons (state-dependent) — Simulate / Apply shape */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Locked — AWS-managed badge + disabled Preview */}
           {isLocked && (
-            <>
-              <span
-                className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                style={{
-                  color: "#fbbf24",
-                  background: "rgba(245, 158, 11, 0.1)",
-                  border: "1px solid rgba(245, 158, 11, 0.3)",
-                }}
-                title={lockedReason}
-              >
-                AWS-managed
-              </span>
-              <button
-                disabled
-                title={lockedReason}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-slate-700/20 text-slate-500 border border-slate-700/30 cursor-not-allowed"
-              >
-                <Lock className="w-3 h-3" />
-                Locked
-              </button>
-            </>
+            <button
+              disabled
+              title={lockedReason}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-slate-700/20 text-slate-500 border border-slate-700/30 cursor-not-allowed"
+            >
+              <Lock className="w-3 h-3" />
+              Locked
+            </button>
           )}
 
-          {/* Idle / actionable */}
+          {/* Idle / actionable — Simulate + Apply, V2 shape */}
           {!isActive && isActionable && (
-            <button
-              onClick={() => onRemediate(node.id, true)}
-              disabled={anotherActive}
-              title={
-                anotherActive
-                  ? "Another action is in preview — cancel it first"
-                  : "Preview changes"
-              }
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-blue-600/15 text-blue-300 border border-blue-500/30 hover:bg-blue-600/25 hover:border-blue-500/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
-              <Eye className="w-3 h-3" />
-              Preview
-            </button>
+            <>
+              <button
+                onClick={() => onRemediate(node.id, true)}
+                disabled={anotherActive}
+                title={
+                  anotherActive
+                    ? "Another action is in preview — cancel it first"
+                    : "Simulate changes (dry-run)"
+                }
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-slate-700/40 text-slate-200 border border-slate-600/50 hover:bg-slate-600/50 hover:border-slate-500/60 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              >
+                <Eye className="w-3 h-3" />
+                Simulate
+              </button>
+              <button
+                onClick={() => onRemediate(node.id, true)}
+                disabled={anotherActive}
+                title={
+                  anotherActive
+                    ? "Another action is in preview — cancel it first"
+                    : "Simulate, then confirm to apply"
+                }
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              >
+                <Play className="w-3 h-3" />
+                Apply
+              </button>
+            </>
           )}
 
           {!hasAction && (
@@ -458,8 +467,18 @@ export function PathRemediationPlan({
   onRollback,
   onCancel,
   isSafe = false,
+  remediateAllStatus = "idle",
+  remediateAllResultsCount = 0,
+  remediateAllSuccessCount = 0,
+  onRemediateAll,
+  onResetRemediateAll,
 }: PathRemediationPlanProps) {
   const currentScore = path.severity?.overall_score ?? 0
+  const rr = path.risk_reduction
+  const achievableScore = rr?.achievable_score ?? currentScore
+  const reductionPts = Math.max(0, currentScore - achievableScore)
+  const reductionPct =
+    currentScore > 0 ? Math.round((reductionPts / currentScore) * 100) : 0
 
   // Build node_name → top_action map
   const actionByName = useMemo(() => {
@@ -502,7 +521,7 @@ export function PathRemediationPlan({
 
   return (
     <div
-      className="px-4 py-3 border-b"
+      className="px-4 py-2 border-b"
       style={{
         background: hardened
           ? "rgba(6, 22, 16, 0.6)"
@@ -536,23 +555,97 @@ export function PathRemediationPlan({
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-2 mb-2.5">
-            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[11px] font-semibold text-slate-100 uppercase tracking-wider">
-              Remediation Plan
-            </span>
-            <span className="text-[10px] text-slate-400">
-              · {actionableCount} actionable
-              {lockedCount > 0 && (
-                <>
-                  {" · "}
-                  <span className="text-amber-300/80">{lockedCount} locked</span>
-                </>
-              )}
-            </span>
+          {/* ── Card header: title + reduction numerics + absorbed Remediate-All CTA ── */}
+          <div className="flex items-center justify-between gap-3 mb-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <span className="text-[11px] font-semibold text-slate-100 uppercase tracking-wider">
+                Remediation Plan
+              </span>
+              {reductionPct > 0 ? (
+                <span className="text-[10px] text-slate-400">
+                  · reduces{" "}
+                  <span className="text-amber-300 font-mono tabular-nums">{currentScore}</span>
+                  {" → "}
+                  <span className="text-emerald-300 font-semibold font-mono tabular-nums">
+                    {achievableScore}
+                  </span>
+                  <span className="text-emerald-300 font-semibold ml-1">
+                    (−{reductionPct}%)
+                  </span>
+                </span>
+              ) : null}
+              <span className="text-[10px] text-slate-500">
+                · {actionableCount} actionable
+                {lockedCount > 0 && (
+                  <>
+                    {" · "}
+                    <span className="text-amber-300/80">{lockedCount} locked</span>
+                  </>
+                )}
+              </span>
+            </div>
+
+            {/* Remediate-all CTA — absorbed from the old slim bar into the card header.
+                Only renders when parent passes handlers AND the path is actionable. */}
+            {onRemediateAll && actionableCount > 0 && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {remediateAllStatus === "idle" && (
+                  <button
+                    onClick={() => onRemediateAll(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-red-600/15 text-red-300 border border-red-500/30 hover:bg-red-600/25 hover:border-red-500/50 transition-all"
+                  >
+                    <ShieldAlert className="w-3 h-3" />
+                    Remediate entire path
+                  </button>
+                )}
+                {remediateAllStatus === "previewing" && (
+                  <>
+                    <span className="text-[10px] text-amber-300">
+                      Confirm remediate {actionableCount} node{actionableCount === 1 ? "" : "s"}?
+                    </span>
+                    <button
+                      onClick={() => onRemediateAll(false)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-red-600/80 text-white hover:bg-red-600 transition-all"
+                    >
+                      <Play className="w-3 h-3" />
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => onResetRemediateAll?.()}
+                      className="px-2 py-1 rounded-md text-[10px] text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                )}
+                {remediateAllStatus === "executing" && (
+                  <div className="flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                    <span className="text-[10px] text-amber-300 tabular-nums">
+                      Remediating {remediateAllResultsCount}/{actionableCount}…
+                    </span>
+                  </div>
+                )}
+                {remediateAllStatus === "done" && (
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span className="text-[10px] text-emerald-300 tabular-nums">
+                      {remediateAllSuccessCount}/{remediateAllResultsCount} remediated
+                    </span>
+                    <button
+                      onClick={() => onResetRemediateAll?.()}
+                      className="text-[10px] text-slate-400 hover:text-white ml-1"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {visibleRows.map(({ node, action }) => {
               const isActive = activeNodeId === node.id
               return (
