@@ -6,6 +6,8 @@ import {
   CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
+import type { ConfidenceScore } from "@/lib/types"
 
 interface PermissionAnalysis {
   permission: string
@@ -180,13 +182,37 @@ export function IAMPermissionAnalysisModal({
   const [detachManagedPolicies, setDetachManagedPolicies] = useState(true)
   const [detachAllManagedPolicies, setDetachAllManagedPolicies] = useState(false)  // Detach ALL regardless of overlap
   const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
+  const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
+  const [confidenceLoading, setConfidenceLoading] = useState(false)
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
     if (isOpen && roleName) {
       fetchGapAnalysis()
+      fetchConfidenceScore()
     }
   }, [isOpen, roleName])
+
+  const fetchConfidenceScore = async () => {
+    setConfidenceLoading(true)
+    setConfidenceScore(null)
+    try {
+      const res = await fetch('/api/proxy/confidence/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role_name: roleName, permissions_to_remove: [] }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (typeof data?.confidence === 'number') {
+        setConfidenceScore(data as ConfidenceScore)
+      }
+    } catch (e) {
+      console.warn('[IAM-Modal] confidence fetch failed:', e)
+    } finally {
+      setConfidenceLoading(false)
+    }
+  }
 
   const fetchGapAnalysis = async (forceRefresh = false) => {
     setLoading(true)
@@ -1494,6 +1520,17 @@ export function IAMPermissionAnalysisModal({
               </button>
             ))}
           </div>
+
+          {/* Agent 5 · Confidence Scorer — appears on Summary tab for all roles */}
+          {analysisTab === 'summary' && confidenceLoading && (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
+              <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
+              Agent 5 scoring remediation safety…
+            </div>
+          )}
+          {analysisTab === 'summary' && confidenceScore && (
+            <ConfidenceExplanationPanel score={confidenceScore} />
+          )}
 
           {/* Service Role Warning - Based on backend trust policy analysis */}
           {analysisTab === 'summary' && (() => {
