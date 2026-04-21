@@ -1,0 +1,49 @@
+import { type NextRequest, NextResponse } from "next/server"
+import { getBackendBaseUrl } from "@/lib/server/backend-url"
+
+const BACKEND_URL = getBackendBaseUrl()
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { role_name, permissions_to_remove } = body
+
+    if (!role_name) {
+      return NextResponse.json(
+        { error: "role_name is required" },
+        { status: 400 },
+      )
+    }
+
+    const response = await fetch(`${BACKEND_URL}/api/confidence/check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role_name,
+        permissions_to_remove: permissions_to_remove ?? [],
+      }),
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: data?.detail || `Backend returned ${response.status}` },
+        { status: response.status, headers: { "X-Proxy": "confidence-check-error" } },
+      )
+    }
+
+    return NextResponse.json(data, {
+      headers: {
+        "X-Proxy": "confidence-check",
+        "X-Proxy-Timestamp": new Date().toISOString(),
+      },
+    })
+  } catch (error) {
+    console.error("Confidence check proxy error:", error)
+    return NextResponse.json(
+      { error: "Confidence check failed" },
+      { status: 500, headers: { "X-Proxy": "confidence-check-error" } },
+    )
+  }
+}

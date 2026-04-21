@@ -112,7 +112,7 @@ export function IdentityAttackPathsQueue({
         <div className="flex flex-col gap-2">
           {visible.map((p, idx) => (
             <PathRow
-              key={p.id ?? idx}
+              key={`${p.id ?? 'path'}-${idx}`}
               path={p}
               jewel={p.crown_jewel_id ? jewelById.get(p.crown_jewel_id) : undefined}
               onInvestigate={() =>

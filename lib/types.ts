@@ -127,6 +127,66 @@ export interface RemediationDecision {
   warnings: string[]
 }
 
+// ============================================================================
+// AGENT 5 — CONFIDENCE SCORE (remediation_confidence.py)
+// ============================================================================
+
+export type ConfidenceRouting =
+  | "auto_execute"
+  | "human_approval"
+  | "manual_review"
+  | "blocked"
+
+export interface ConfidenceGateFailure {
+  gate: string
+  severity: "hard_block" | "warn"
+  detail: string
+}
+
+export interface ConfidenceSignals {
+  cloudtrail: boolean
+  data_events_config: boolean
+  access_advisor: boolean
+  cloudwatch: boolean
+  eventbridge: boolean
+  trust_policy: boolean
+  role_tags: boolean
+}
+
+export interface RoleTags {
+  environment: string
+  owner: string
+  system: string
+  cost_center: string
+  compliance: string
+}
+
+export type LLMReviewVerdict = "agree" | "escalate" | "block"
+
+export interface LLMReview {
+  verdict: LLMReviewVerdict
+  reason: string
+}
+
+export interface ConfidenceScore {
+  confidence: number // 0-100
+  routing: ConfidenceRouting // final routing (may be bumped by LLM reviewer)
+  // Below fields are only populated when the role exists and scoring completes.
+  // Error/early-exit responses (role_not_found, no_neo4j) omit them.
+  routing_deterministic?: ConfidenceRouting // routing the deterministic scorer chose
+  visibility_integrity?: number // 0.0-1.0
+  visibility_reasons?: string[]
+  gates_failed?: ConfidenceGateFailure[]
+  can_auto_execute?: boolean
+  needs_human_approval?: boolean
+  signals_available?: ConfidenceSignals
+  data_events_enabled_services?: string[]
+  external_principals?: unknown[]
+  llm_review?: LLMReview | null
+  llm_explanation?: string | null
+  role_tags?: RoleTags | null
+}
+
 export interface ResourceChange {
   resource_id: string
   resource_type: string
