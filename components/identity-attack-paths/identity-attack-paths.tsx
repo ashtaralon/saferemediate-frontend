@@ -493,7 +493,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           )}
 
           {jewelPaths.length > 0 && currentPath ? (
-            <div className="flex-1 flex flex-col overflow-auto">
+            <div className="flex-1 overflow-auto">
               {/* Attack graph — full width, on top so it's visible without scrolling past the plan */}
               <div
                 className="px-4 py-2 border-b flex items-center justify-between shrink-0"
