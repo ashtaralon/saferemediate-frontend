@@ -493,70 +493,61 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           )}
 
           {jewelPaths.length > 0 && currentPath ? (
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] overflow-hidden">
-              {/* Left column — Remediation Plan, scrolls independently */}
+            <div className="flex-1 flex flex-col overflow-auto">
+              {/* Attack graph — full width, on top so it's visible without scrolling past the plan */}
               <div
-                className="overflow-auto lg:border-r"
-                style={{ borderColor: "rgba(148, 163, 184, 0.1)" }}
+                className="px-4 py-2 border-b flex items-center justify-between shrink-0"
+                style={{
+                  background: "rgba(10, 16, 30, 0.6)",
+                  borderColor: "rgba(148, 163, 184, 0.1)",
+                }}
               >
-                <PathRemediationPlan
-                  path={currentPath}
-                  activeNodeId={activeRemediationNodeId}
-                  remediationStatus={remediationStatus}
-                  remediationPreview={remediationPreview}
-                  remediationResult={remediationResult}
-                  onRemediate={handleNodeRemediate}
-                  onRollback={handleRollback}
-                  onCancel={handleCancelNodeRemediation}
-                  isSafe={listMode === "safe"}
-                  remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
-                  remediateAllResultsCount={remediateAllResults.length}
-                  remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
-                  onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
-                  onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
-                />
-              </div>
-
-              {/* Right column — Attack Graph */}
-              <div className="flex flex-col overflow-hidden">
-                <div
-                  className="px-4 py-2 border-b flex items-center justify-between shrink-0"
-                  style={{
-                    background: "rgba(10, 16, 30, 0.6)",
-                    borderColor: "rgba(148, 163, 184, 0.1)",
-                  }}
-                >
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <Workflow className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="font-semibold text-slate-200 uppercase tracking-wider">
-                      Attack graph
-                    </span>
-                    <span className="text-slate-500">
-                      · {(currentPath?.nodes?.length ?? 0)} nodes across{" "}
-                      {(currentPath?.nodes ? new Set(currentPath.nodes.map((n) => n.lane ?? n.tier ?? "other")).size : 0)} lanes
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => setShowFlowViz((v) => !v)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
-                    title={showFlowViz ? "Hide the geometric attack-flow graph" : "Show the geometric attack-flow graph"}
-                  >
-                    {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                    {showFlowViz ? "Hide graph" : "Show graph"}
-                  </button>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <Workflow className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="font-semibold text-slate-200 uppercase tracking-wider">
+                    Attack graph
+                  </span>
+                  <span className="text-slate-500">
+                    · {(currentPath?.nodes?.length ?? 0)} nodes across{" "}
+                    {(currentPath?.nodes ? new Set(currentPath.nodes.map((n) => n.lane ?? n.tier ?? "other")).size : 0)} lanes
+                  </span>
                 </div>
-
-                {showFlowViz && (
-                  <div className="flex-1 overflow-auto">
-                    <AttackPathFlowViz
-                      paths={jewelPaths}
-                      selectedPathIndex={selectedPathIndex}
-                      onNodeClick={handleNodeClick}
-                      selectedNodeId={selectedNodeId}
-                    />
-                  </div>
-                )}
+                <button
+                  onClick={() => setShowFlowViz((v) => !v)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                  title={showFlowViz ? "Hide the geometric attack-flow graph" : "Show the geometric attack-flow graph"}
+                >
+                  {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  {showFlowViz ? "Hide graph" : "Show graph"}
+                </button>
               </div>
+
+              {showFlowViz && (
+                <AttackPathFlowViz
+                  paths={jewelPaths}
+                  selectedPathIndex={selectedPathIndex}
+                  onNodeClick={handleNodeClick}
+                  selectedNodeId={selectedNodeId}
+                />
+              )}
+
+              {/* Remediation plan — full width, below the graph */}
+              <PathRemediationPlan
+                path={currentPath}
+                activeNodeId={activeRemediationNodeId}
+                remediationStatus={remediationStatus}
+                remediationPreview={remediationPreview}
+                remediationResult={remediationResult}
+                onRemediate={handleNodeRemediate}
+                onRollback={handleRollback}
+                onCancel={handleCancelNodeRemediation}
+                isSafe={listMode === "safe"}
+                remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
+                remediateAllResultsCount={remediateAllResults.length}
+                remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
+                onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
+                onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
+              />
             </div>
           ) : filteredJewels.length === 0 ? (
             <div className="flex-1 flex items-center justify-center">
