@@ -1,10 +1,19 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Sparkles, ChevronRight, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
-import { CANONICAL_QUESTIONS, resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
+import { useState } from "react"
+import { Sparkles, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
+import { resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
+
+const EXAMPLE_PROMPTS = [
+  "how many S3 buckets do I have?",
+  "which IAM role has the most unused permissions?",
+  "list lambda functions in alon-prod",
+  "what's the blast radius of alon-prod?",
+  "what changed in the last 7 days?",
+  "what can I safely remediate right now?",
+]
 
 interface SavedQuestionGalleryProps {
   systemName?: string
@@ -44,15 +53,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   const [freeformQuestion, setFreeformQuestion] = useState("")
   const [routing, setRouting] = useState(false)
 
-  const needsRoleName = selectedId === "unused-on-role"
-
-  const gallery = useMemo(() => {
-    return CANONICAL_QUESTIONS.filter((q) => !q.llmOnly).map((q) => ({
-      ...q,
-      disabled:
-        q.id === "unused-on-role" && !roleName && selectedId !== "unused-on-role",
-    }))
-  }, [roleName, selectedId])
+  const needsRoleName = selectedId === "unused-on-role" && !roleName
 
   async function runRoute(
     route: IntentRoute,
@@ -99,9 +100,10 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     await runRoute(route, null)
   }
 
-  async function handleFreeformAsk() {
-    const question = freeformQuestion.trim()
+  async function handleFreeformAsk(overrideQuestion?: string) {
+    const question = (overrideQuestion ?? freeformQuestion).trim()
     if (!question || routing) return
+    if (overrideQuestion) setFreeformQuestion(overrideQuestion)
     setRouting(true)
     setAnswer({ ...INITIAL_STATE, loading: true, headline: "Routing your question…", route: null })
     try {
@@ -154,14 +156,13 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
       <div>
         <div className="inline-flex items-center gap-2 rounded-full border border-[#2D51DA]/15 bg-[#2D51DA]/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#2D51DA]">
           <Sparkles className="h-3.5 w-3.5" />
-          Copilot — Saved Questions
+          Copilot
         </div>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--foreground,#111827)] xl:text-3xl">
           Ask anything about your cloud posture
         </h1>
         <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-          Pick a starter question. Every answer is traced to real evidence and carries a
-          confidence badge.
+          Every answer is traced to real evidence and carries a confidence badge.
         </p>
       </div>
 
@@ -169,9 +170,6 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         className="rounded-2xl border bg-white p-4 shadow-sm"
         style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
       >
-        <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)] mb-2">
-          Ask in your own words
-        </label>
         <div className="flex gap-2">
           <input
             type="text"
@@ -183,7 +181,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
                 handleFreeformAsk()
               }
             }}
-            placeholder="e.g., which role has the most unused permissions in payments?"
+            placeholder="Ask anything — e.g. how many S3 buckets do I have?"
             className="flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D51DA]/30"
             style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
             disabled={routing || answer.loading}
@@ -199,44 +197,20 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
             Ask
           </button>
         </div>
-        <div className="mt-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-          The copilot picks one of the tools below, then runs it through the same trust-envelope
-          path as the saved questions.
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {gallery.map((q) => {
-          const isSelected = selectedId === q.id
-          return (
-            <button
-              key={q.id}
-              onClick={() => handleAsk(q.id)}
-              disabled={q.disabled || answer.loading}
-              className="relative text-left rounded-2xl border p-4 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: "var(--bg-primary, #ffffff)",
-                borderColor: isSelected ? "#2D51DA" : "var(--border-subtle, #e5e7eb)",
-              }}
-              data-question-id={q.id}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
-                    {q.family.replace("_", " ")}
-                  </div>
-                  <div className="mt-1 text-sm font-semibold leading-snug text-[var(--foreground,#111827)]">
-                    {q.label}
-                  </div>
-                  <div className="mt-2 text-xs text-[var(--muted-foreground,#6b7280)]">
-                    {q.hint}
-                  </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-[var(--muted-foreground,#9ca3af)]" />
-              </div>
-            </button>
-          )
-        })}
+        {!answer.loading && !answer.result && !answer.error && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {EXAMPLE_PROMPTS.map((p) => (
+              <button
+                key={p}
+                onClick={() => handleFreeformAsk(p)}
+                className="text-xs px-2.5 py-1 rounded-full border text-[var(--muted-foreground,#6b7280)] hover:text-[#2D51DA] hover:border-[#2D51DA]/40 transition-colors"
+                style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {needsRoleName && (
