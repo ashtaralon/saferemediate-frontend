@@ -1425,6 +1425,40 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           </span>
                         ) : null}
                       </div>
+
+                      {/* Per-family breakdown — bridges the "why does Overview
+                          say 42 but LP tab say 66?" question by showing each
+                          family's scoped score. Same formula, different scopes. */}
+                      {brss && brss.per_family && Object.keys(brss.per_family).length > 0 && (
+                        <div className="mt-3 flex flex-wrap items-center gap-1.5" data-testid="brss-family-breakdown">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
+                            Families
+                          </span>
+                          {Object.entries(brss.per_family)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([family, score]) => {
+                              const color = score >= 80 ? '#059669'
+                                : score >= 60 ? '#b45309'
+                                : score >= 40 ? '#c2410c'
+                                : '#b91c1c'
+                              const bg = score >= 80 ? 'rgba(16,185,129,0.12)'
+                                : score >= 60 ? 'rgba(245,158,11,0.14)'
+                                : score >= 40 ? 'rgba(249,115,22,0.14)'
+                                : 'rgba(239,68,68,0.14)'
+                              return (
+                                <span
+                                  key={family}
+                                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                  style={{ background: bg, color }}
+                                  title={`${family} family score (same BRSS formula, scoped)`}
+                                >
+                                  <span className="uppercase tracking-wider">{family}</span>
+                                  <span className="tabular-nums">{score}</span>
+                                </span>
+                              )
+                            })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
