@@ -1513,12 +1513,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 <div className="space-y-3">
                   {brss.top_drivers.map((d, i) => {
                     const f = d.factors
-                    // Approximate score lift from full remediation of this
-                    // resource. Backend uses CONTRIBUTION_SCALE = 0.6; we
-                    // mirror it here. Not exact due to rank re-weighting of
-                    // the tail, but monotonicity tests show it's within a
-                    // couple of points in practice.
-                    const scoreLiftIfFixed = Math.round(f.final_contribution * 0.6)
+                    // Authoritative lift — computed server-side by recomputing
+                    // the system score with this resource's adjusted_risk set
+                    // to zero (accounts for tail promotion, coverage ceiling,
+                    // saturation curve).
+                    const scoreLiftIfFixed = d.lift_if_fixed ?? 0
                     const weight = Math.round(f.adjusted_risk)
                     const barPercent = Math.min(100, (f.adjusted_risk / 50) * 100)
 

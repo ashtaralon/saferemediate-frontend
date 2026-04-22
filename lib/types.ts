@@ -216,6 +216,7 @@ export interface BrssDriver {
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO"
   family: "iam" | "network" | "data" | "secrets" | "compute" | "other"
   factors: BrssFactorBreakdown
+  lift_if_fixed: number              // score gain if this resource were fully remediated
 }
 
 export interface BrssCoverage {
