@@ -190,6 +190,80 @@ export interface ConfidenceScore {
   resource_tags?: RoleTags | null
 }
 
+// ============================================================================
+// BLAST RADIUS SYSTEM SCORE (BRSS v1) — system-level posture primitive
+// ============================================================================
+
+export interface BrssFactorBreakdown {
+  severity_weight: number
+  data_criticality: number
+  reachability: number
+  privilege_capability: number
+  likelihood: number
+  base_risk: number
+  usage_confidence: number                 // ∈ [0.55, 1.0]
+  exposure_uncertainty_penalty: number     // ∈ [0, EXPOSURE_PENALTY_MAX]
+  adjusted_risk: number
+  rank: number
+  rank_weight: number
+  final_contribution: number
+}
+
+export interface BrssDriver {
+  resource_id: string
+  resource_type: string
+  resource_name: string
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO"
+  family: "iam" | "network" | "data" | "secrets" | "compute" | "other"
+  factors: BrssFactorBreakdown
+}
+
+export interface BrssCoverage {
+  ratio: number                    // 0.0–1.0, feeds score ceiling
+  scanned_types: string[]
+  excluded_types: string[]
+  scanned_instance_count: number
+  known_instance_count: number
+  registry_total: number
+}
+
+export interface BrssDelta {
+  score_delta: number
+  state_change: number
+  scope_expansion: number
+  resources_added: string[]
+  resources_removed: string[]
+  resources_changed: Array<{
+    resource_id: string
+    prev_adjusted_risk: number
+    curr_adjusted_risk: number
+    delta_adjusted_risk: number
+    prev_rank: number
+    curr_rank: number
+  }>
+  previous_score: number | null
+  current_score: number
+  previous_timestamp: string | null
+}
+
+export interface BlastRadiusScore {
+  score: number                        // coverage-bounded final
+  score_raw: number                    // before coverage ceiling
+  coverage_ceiling: number
+  coverage_ratio: number
+  coverage_excluded_types: string[]
+  total_contribution: number
+  scaled_contribution: number
+  tail_contribution: number
+  resource_count: number
+  per_family: Partial<Record<BrssDriver["family"], number>>
+  top_drivers: BrssDriver[]
+  coverage: BrssCoverage
+  delta: BrssDelta
+  snapshot_persisted: boolean
+  version: "brss-v1"
+}
+
 export interface ResourceChange {
   resource_id: string
   resource_type: string

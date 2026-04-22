@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
 import { S3PolicyAnalysisModal } from '@/components/s3-policy-analysis-modal'
 import { SGLeastPrivilegeModal } from '@/components/sg-least-privilege-modal'
+import type { BlastRadiusScore } from '@/lib/types'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -193,6 +194,10 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [deletedResources, setDeletedResources] = useState<Set<string>>(new Set()) // Track manually deleted resources
   const [rollingBack, setRollingBack] = useState<string | null>(null) // Track which resource is being rolled back
+  // Blast Radius Score — replaces the per-gap-average "LP Score" with the
+  // family-scoped BRSS for IAM. Fetched from /api/proxy/issues-summary in
+  // parallel with the main LP data.
+  const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
   const { toast } = useToast()
   const dismissedResourcesStorageKey = `dismissed_lp_resources_${systemName || 'all'}`
   const legacyDismissedResourcesStorageKey = `remediated_roles_${systemName || 'all'}`
@@ -500,6 +505,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
   useEffect(() => {
     fetchGaps()
+    // Fetch BRSS in parallel — independent from LP data, so failures don't
+    // block the main list view.
+    ;(async () => {
+      try {
+        const sysParam = systemName ? `?systemName=${encodeURIComponent(systemName)}` : ''
+        const res = await fetch(`/api/proxy/issues-summary${sysParam}`)
+        if (!res.ok) return
+        const payload = await res.json()
+        if (payload?.blast_radius_score && !payload.blast_radius_score.error) {
+          setBrss(payload.blast_radius_score as BlastRadiusScore)
+        } else {
+          setBrss(null)
+        }
+      } catch {
+        setBrss(null)
+      }
+    })()
   }, [systemName])
   
   // NOTE: Pre-fetch removed to prevent timeout errors
@@ -1442,15 +1464,32 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           </div>
           <div className="text-2xl font-bold" style={{ color: "#f97316" }}>{summary.totalExcessPermissions.toLocaleString()}</div>
         </div>
-        <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }}>
-          <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-5 h-5" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#ef4444' : (summary.avgLPScore ?? 0) < 75 ? '#f97316' : '#22c55e' }} />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>LP Score</span>
-          </div>
-          <div className="text-2xl font-bold" style={{ color: (summary.avgLPScore ?? 0) < 50 ? '#ef4444' : (summary.avgLPScore ?? 0) < 75 ? '#f97316' : '#22c55e' }}>
-            {isNaN(summary.avgLPScore) || summary.avgLPScore === null ? '—' : `${summary.avgLPScore.toFixed(0)}%`}
-          </div>
-        </div>
+        {(() => {
+          // BRSS family-scoped score for IAM — replaces the legacy avg-gap "LP Score".
+          // Falls back to '—' until the backend snapshot lands.
+          const iamScore = brss?.per_family?.iam
+          const color = iamScore === undefined || iamScore === null
+            ? '#94A3B8'
+            : iamScore < 50 ? '#ef4444'
+              : iamScore < 75 ? '#f97316'
+                : '#22c55e'
+          return (
+            <div className="rounded-lg p-4 border" style={{ background: "var(--bg-secondary)", borderColor: "var(--border-subtle)" }} data-testid="brss-iam-score">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="w-5 h-5" style={{ color }} />
+                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Blast Radius · IAM</span>
+              </div>
+              <div className="text-2xl font-bold" style={{ color }}>
+                {iamScore === undefined || iamScore === null ? '—' : iamScore}
+              </div>
+              {brss && (
+                <div className="text-[10px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                  Coverage {Math.round(brss.coverage_ratio * 100)}%
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       {/* Tabs: Active Issues / Remediated */}

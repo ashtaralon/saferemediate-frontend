@@ -41,7 +41,7 @@ import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
 import { fetchSecurityFindings } from "@/lib/api-client"
-import type { SecurityFinding } from "@/lib/types"
+import type { SecurityFinding, BlastRadiusScore } from "@/lib/types"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -366,8 +366,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     passing: 0,
   })
 
-  // Enforcement score from issues summary API
+  // Enforcement score from issues summary API (legacy, preserved during migration)
   const [healthScoreFromApi, setHealthScore] = useState<number | null>(null)
+
+  // Blast Radius System Score — replaces enforcement score as canonical posture number.
+  const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
 
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
@@ -471,6 +474,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
             setHealthScore(Number(data.avg_health_score))
           } else {
             setHealthScore(null)
+          }
+          // Blast Radius Score — only set when backend composed it successfully.
+          if (data.blast_radius_score && !data.blast_radius_score.error) {
+            setBrss(data.blast_radius_score as BlastRadiusScore)
+          } else {
+            setBrss(null)
           }
         }
       }
@@ -1094,36 +1103,51 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // }
 
   const totalFindings = severityCounts.critical + severityCounts.high + severityCounts.medium
+  // Legacy enforcement-score scaffolding — retained for non-Overview consumers
+  // until we audit each usage site. The Overview card below is now BRSS-driven.
   const hasEnforcementTelemetry = totalChecks > 0 && healthScoreFromApi !== null
   const healthScore = hasEnforcementTelemetry ? healthScoreFromApi : null
-  const enforcementAccent = !hasEnforcementTelemetry
+
+  // Blast Radius Score presentation scaffolding (replaces Enforcement Score card).
+  const brssScore = brss ? brss.score : null
+  const brssTopDriver = brss && brss.top_drivers && brss.top_drivers.length > 0 ? brss.top_drivers[0] : null
+  const brssCoveragePercent = brss ? Math.round(brss.coverage_ratio * 100) : null
+  const brssAccent = brssScore === null
     ? "#94A3B8"
-    : healthScore >= 80
-      ? "#10B981"
-      : healthScore >= 60
-        ? "#F59E0B"
+    : brssScore >= 80 ? "#10B981"
+      : brssScore >= 60 ? "#F59E0B"
         : "#EF4444"
-  const enforcementSurface = !hasEnforcementTelemetry
+  const brssSurface = brssScore === null
     ? "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100"
-    : healthScore >= 80
-      ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50"
-      : healthScore >= 60
-        ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50"
+    : brssScore >= 80 ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50"
+      : brssScore >= 60 ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50"
         : "border-rose-200 bg-gradient-to-br from-rose-50 via-white to-orange-50"
-  const enforcementPill = !hasEnforcementTelemetry
-    ? "text-slate-600 bg-slate-200/70"
-    : healthScore >= 80
-      ? "text-emerald-700 bg-emerald-100"
-      : healthScore >= 60
-        ? "text-amber-700 bg-amber-100"
-        : "text-rose-700 bg-rose-100"
-  const enforcementTitle = !hasEnforcementTelemetry
-    ? "Telemetry not available"
-    : healthScore >= 80
-      ? "Strong system enforcement"
-      : healthScore >= 60
-        ? "Needs stronger enforcement"
-        : "High enforcement gap"
+  const brssTitle = brssScore === null
+    ? "Awaiting first scan"
+    : brssScore >= 80 ? "Strong posture — low damage potential"
+      : brssScore >= 60 ? "Meaningful damage potential present"
+        : "High damage potential — urgent review"
+  // Confidence pill derived from top-drivers' usage_confidence + exposure penalty.
+  const brssConfidence: { label: string; cls: string } = (() => {
+    if (!brss || !brss.top_drivers || brss.top_drivers.length === 0) {
+      return { label: "Unknown", cls: "text-slate-600 bg-slate-100" }
+    }
+    const avgUsage = brss.top_drivers.reduce((s, d) => s + (d.factors?.usage_confidence ?? 1), 0) / brss.top_drivers.length
+    const maxExposure = brss.top_drivers.reduce((m, d) => Math.max(m, d.factors?.exposure_uncertainty_penalty ?? 0), 0)
+    const cov = brss.coverage_ratio
+    if (cov < 0.3 || avgUsage < 0.7 || maxExposure > 8) return { label: "Low", cls: "text-rose-700 bg-rose-100" }
+    if (avgUsage >= 0.9 && cov >= 0.7 && maxExposure === 0) return { label: "High", cls: "text-emerald-700 bg-emerald-100" }
+    return { label: "Medium", cls: "text-amber-700 bg-amber-100" }
+  })()
+  // Delta: "Baseline established" on first-ever snapshot, signed delta thereafter.
+  const brssDeltaText: string = (() => {
+    if (!brss || !brss.delta) return ""
+    if (brss.delta.previous_score === null) return "Baseline established"
+    const d = brss.delta.score_delta
+    if (d > 0) return `+${d} since last snapshot`
+    if (d < 0) return `${d} since last snapshot`
+    return "No change since last snapshot"
+  })()
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
   const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
   const topPriorityItems = [
@@ -1317,22 +1341,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] ${enforcementSurface}`}>
+              <div
+                className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] ${brssSurface}`}
+                data-testid="blast-radius-card"
+              >
                 <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
                 <div className="absolute bottom-0 left-0 h-20 w-20 rounded-full bg-white/30 blur-2xl" />
                 <div className="relative">
                   <div className="flex items-start justify-between gap-4 mb-5">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">
-                        Enforcement Score
+                        Blast Radius Score
                       </p>
                       <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-                        Calculated for this system only
+                        {brssCoveragePercent !== null
+                          ? `Coverage ${brssCoveragePercent}% · Confidence: ${brssConfidence.label}`
+                          : "Coverage pending · Confidence: Unknown"}
                       </p>
                     </div>
-                    <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${enforcementPill}`}>
+                    <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${brssConfidence.cls}`}>
                       <ShieldCheck className="h-3.5 w-3.5" />
-                      {hasEnforcementTelemetry ? "Live telemetry" : "No telemetry"}
+                      {brssConfidence.label} confidence
                     </div>
                   </div>
 
@@ -1344,21 +1373,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           cx="48"
                           cy="48"
                           r="38"
-                          stroke={enforcementAccent}
+                          stroke={brssAccent}
                           strokeWidth="10"
                           fill="none"
                           strokeDasharray={`${2 * Math.PI * 38}`}
-                          strokeDashoffset={`${2 * Math.PI * 38 * (1 - ((healthScore ?? 0) / 100))}`}
+                          strokeDashoffset={`${2 * Math.PI * 38 * (1 - ((brssScore ?? 0) / 100))}`}
                           strokeLinecap="round"
                         />
                       </svg>
                       <div className="absolute inset-0 flex items-center justify-center">
                         <div className="flex items-end gap-0.5 leading-none">
                           <span className="text-[32px] font-bold tracking-tight text-[var(--foreground,#111827)]">
-                            {healthScore ?? "—"}
+                            {brssScore ?? "—"}
                           </span>
-                          {hasEnforcementTelemetry && (
-                            <span className="mb-1 text-sm font-semibold text-[var(--muted-foreground,#6b7280)]">%</span>
+                          {brssScore !== null && (
+                            <span className="mb-1 text-sm font-semibold text-[var(--muted-foreground,#6b7280)]">/ 100</span>
                           )}
                         </div>
                       </div>
@@ -1366,23 +1395,35 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
                     <div className="min-w-0 flex-1">
                       <p className="text-base font-semibold text-[var(--foreground,#111827)]">
-                        {enforcementTitle}
+                        {brssTitle}
                       </p>
                       <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
-                        {hasEnforcementTelemetry
-                          ? `${totalChecks} current checks contributing to this score`
-                          : "We need current checks to calculate this system's enforcement score"}
+                        {brssTopDriver
+                          ? `Top driver: ${brssTopDriver.resource_name} · ${brssTopDriver.severity}`
+                          : brssScore !== null
+                            ? "No dominant driver — evenly distributed risk"
+                            : "Run a scan to calculate system blast radius"}
                       </p>
 
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
-                          System scoped
-                        </span>
-                        {hasEnforcementTelemetry && (
-                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
-                            {totalChecks} active checks
+                        {brssCoveragePercent !== null && (
+                          <span
+                            className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur"
+                            title={brss?.coverage_excluded_types?.length ? `Not scanned: ${brss.coverage_excluded_types.join(", ")}` : "All registered types scanned"}
+                          >
+                            Coverage {brssCoveragePercent}%
                           </span>
                         )}
+                        {brssDeltaText && (
+                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
+                            {brssDeltaText}
+                          </span>
+                        )}
+                        {brss?.resource_count ? (
+                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
+                            {brss.resource_count} resources scored
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
