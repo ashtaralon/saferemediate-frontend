@@ -7,38 +7,28 @@ export const fetchCache = "force-no-store"
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName")
-  const targetId = url.searchParams.get("targetId")
-  const observationDays = url.searchParams.get("observationDays") ?? "365"
+  const system = url.searchParams.get("system")
+  const resourceType = url.searchParams.get("resource_type")
+  const minUnused = url.searchParams.get("min_unused") ?? "1"
+  const limit = url.searchParams.get("limit") ?? "50"
   const envelope = url.searchParams.get("envelope") === "true"
 
-  if (!systemName) {
-    return NextResponse.json({ error: "systemName is required" }, { status: 400 })
-  }
+  const params = new URLSearchParams({ min_unused: minUnused, limit })
+  if (system) params.set("system", system)
+  if (resourceType) params.set("resource_type", resourceType)
+  if (envelope) params.set("envelope", "true")
 
   const backendBase = getBackendBaseUrl()
-  const params = new URLSearchParams({
-    systemName,
-    observationDays,
-  })
-
-  if (targetId) {
-    params.set("targetId", targetId)
-  }
-
-  if (envelope) {
-    params.set("envelope", "true")
-  }
+  const target = `${backendBase}/api/remediation-candidates?${params.toString()}`
 
   try {
-    const response = await fetch(`${backendBase}/api/crown-jewels/protection-plan?${params.toString()}`, {
+    const response = await fetch(target, {
       cache: "no-store",
       headers: { Accept: "application/json" },
     })
 
     const text = await response.text()
     let data: any = {}
-
     try {
       data = text ? JSON.parse(text) : {}
     } catch {
@@ -48,9 +38,8 @@ export async function GET(req: NextRequest) {
     if (!response.ok) {
       return NextResponse.json(
         {
-          systemName,
-          crownJewels: [],
-          selected: null,
+          candidates: [],
+          summary: { total_candidates: 0, by_type: {}, auto_applicable: 0, blocked: 0 },
           error: data?.detail || data?.error || `Backend returned ${response.status}`,
         },
         { status: response.status }
@@ -61,10 +50,9 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     return NextResponse.json(
       {
-        systemName,
-        crownJewels: [],
-        selected: null,
-        error: error?.message || "Failed to load crown jewel protection plan",
+        candidates: [],
+        summary: { total_candidates: 0, by_type: {}, auto_applicable: 0, blocked: 0 },
+        error: error?.message || "Failed to load remediation candidates",
       },
       { status: 200 }
     )

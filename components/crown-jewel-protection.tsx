@@ -16,6 +16,8 @@ import {
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
 import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
 import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
+import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 
 type CrownJewel = {
   resourceId: string
@@ -227,6 +229,7 @@ export default function CrownJewelProtection({
   onOpenLeastPrivilege?: () => void
 }) {
   const [data, setData] = useState<CrownJewelResponse | null>(null)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
   const [lpResources, setLpResources] = useState<LPResource[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -247,17 +250,21 @@ export default function CrownJewelProtection({
     async function load(targetId?: string | null) {
       setIsLoading(true)
       setError(null)
+      setProvenance(null)
 
       try {
         const params = new URLSearchParams({ systemName, observationDays: "365" })
         if (targetId) params.set("targetId", targetId)
 
-        const [crownRes, lpRes] = await Promise.all([
-          fetch(`/api/proxy/crown-jewels/protection-plan?${params.toString()}`, { cache: "no-store" }),
+        const [crownEnv, lpRes] = await Promise.all([
+          fetchWithEnvelope<CrownJewelResponse>(
+            `/api/proxy/crown-jewels/protection-plan?${params.toString()}`,
+            { cache: "no-store" }
+          ),
           fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`, { cache: "no-store" }),
         ])
 
-        const payload = (await crownRes.json()) as CrownJewelResponse
+        const payload = crownEnv.result
         const lpPayload = await lpRes.json().catch(() => ({ resources: [] }))
 
         if (cancelled) return
@@ -266,6 +273,7 @@ export default function CrownJewelProtection({
           setError(payload.error)
         }
 
+        setProvenance(crownEnv.provenance)
         setData(payload)
         setLpResources(Array.isArray(lpPayload?.resources) ? lpPayload.resources : [])
         setSelectedId(payload.selectedId || targetId || null)
@@ -382,6 +390,11 @@ export default function CrownJewelProtection({
                 Start from a likely crown jewel, trace how an attacker can reach it through the behavioral graph,
                 then prioritize micro-enforcement across privilege, network, and data access.
               </p>
+              {provenance && (
+                <div className="mt-4">
+                  <TrustEnvelopeBadge provenance={provenance} />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

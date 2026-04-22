@@ -17,6 +17,7 @@ import { PerResourceAnalysis } from "@/components/per-resource-analysis"
 import { VulnerabilitiesSection } from "@/components/vulnerabilities-section"
 import { BehavioralVulnerabilitiesView } from "@/components/behavioral-vulnerabilities/behavioral-vulnerabilities-view"
 import LeastPrivilegeTab from "@/components/LeastPrivilegeTab"
+import { SavedQuestionGallery } from "@/components/copilot/saved-question-gallery"
 import { IdentityAttackPaths } from "@/components/identity-attack-paths/identity-attack-paths"
 import { EmptyState } from "@/components/empty-state"
 import { SecurityFindingsList } from "@/components/issues/security-findings-list"
@@ -823,6 +824,9 @@ export default function HomePage() {
 
       case "per-resource":
         return <PerResourceAnalysis systemName={selectedSystem} />
+
+      case "copilot":
+        return <SavedQuestionGallery systemName={selectedSystem} />
 
       case "least-privilege":
         return <LeastPrivilegeTab systemName={selectedSystem} />

@@ -31,6 +31,8 @@ import {
   Key,
   RefreshCw,
 } from "lucide-react"
+import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 
 // ============================================================================
 // TYPES
@@ -741,6 +743,7 @@ export function RemediationTimeline({
   const [summary, setSummary] = useState<TimelineSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
 
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "90d" | "1y">("30d")
   const [selectedEvent, setSelectedEvent] = useState<RemediationEvent | null>(null)
@@ -945,10 +948,12 @@ export function RemediationTimeline({
         const today = new Date()
 
         // Fetch from both sources in parallel
-        const [neo4jRes, sgRes, iamRes] = await Promise.all([
+        setProvenance(null)
+        const [neo4jEnvResult, sgRes, iamRes] = await Promise.all([
           // 1. Neo4j Timeline API (primary source for recorded events) - use proxy to avoid CORS
-          fetch(`/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200`)
-            .catch(() => null),
+          fetchWithEnvelope<any>(
+            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200`
+          ).catch(() => null),
           // 2. Snapshots (to include any checkpoints not yet in Neo4j)
           fetch('/api/proxy/snapshots', { cache: 'no-store' }).catch(() => null),
           fetch('/api/proxy/iam-snapshots', { cache: 'no-store' }).catch(() => null)
@@ -959,15 +964,16 @@ export function RemediationTimeline({
         let neo4jSummary: TimelineSummary | null = null
 
         // Process Neo4j timeline data (primary)
-        if (neo4jRes && neo4jRes.ok) {
-          const neo4jData = await neo4jRes.json()
-          const neo4jEvents = (neo4jData.events || []).map((e: any) => ({
+        if (neo4jEnvResult) {
+          setProvenance(neo4jEnvResult.provenance)
+          const neo4jData = neo4jEnvResult.result
+          const neo4jEvents = (neo4jData?.events || []).map((e: any) => ({
             ...e,
             source: 'neo4j' as const
           }))
           allEvents.push(...neo4jEvents)
-          neo4jChartData = neo4jData.chart_data || []
-          neo4jSummary = neo4jData.summary || null
+          neo4jChartData = neo4jData?.chart_data || []
+          neo4jSummary = neo4jData?.summary || null
         }
 
         // Process snapshots (secondary - fill in any missing)
@@ -1234,6 +1240,11 @@ export function RemediationTimeline({
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
               Complete audit trail with one-click rollback
             </p>
+            {provenance && (
+              <div className="mt-3">
+                <TrustEnvelopeBadge provenance={provenance} />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

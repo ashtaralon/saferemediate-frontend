@@ -8,6 +8,8 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
+import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import type { ConfidenceScore } from "@/lib/types"
 
 interface PolicyAnalysis {
@@ -149,6 +151,7 @@ export function S3PolicyAnalysisModal({
   const [selectedPoliciesToRemove, setSelectedPoliciesToRemove] = useState<Set<string>>(new Set())
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -209,31 +212,31 @@ export function S3PolicyAnalysisModal({
     setError(null)
     try {
       console.log('[S3-Modal] Fetching gap analysis for:', bucketName)
-      
-      const response = await fetch(`/api/proxy/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=365`)
-      
-      if (response.ok) {
-        const data = await response.json()
+
+      try {
+        const env = await fetchWithEnvelope<any>(
+          `/api/proxy/s3-buckets/${encodeURIComponent(bucketName)}/gap-analysis?days=365`
+        )
+        setProvenance(env.provenance)
+        const data = env.result
         console.log('[S3-Modal] Got data from API:', data)
-        // Check if it's a not_found response
-        if (data.not_found) {
+        if (data?.not_found) {
           console.log('[S3-Modal] Backend returned not_found flag')
           setGapData(null)
         } else {
           setGapData(data)
         }
-      } else {
-        // 404 or other error - don't throw, just set empty data
-        console.log(`[S3-Modal] API returned ${response.status}, setting empty data`)
+      } catch (envErr: any) {
+        const statusMatch = /\((\d+)\)/.exec(envErr?.message || '')
+        const status = statusMatch ? parseInt(statusMatch[1], 10) : 0
+        console.log(`[S3-Modal] fetchWithEnvelope failed (${status}), setting empty data`)
         setGapData(null)
-        // Only set error for non-404 errors
-        if (response.status !== 404) {
-          setError(`S3 gap analysis not available (${response.status})`)
+        if (status && status !== 404) {
+          setError(`S3 gap analysis not available (${status})`)
         }
       }
     } catch (err: any) {
       console.error('[S3-Modal] Error:', err)
-      // Don't set error on 404 - just show empty state
       if (!err.message?.includes('404')) {
         setError(err.message || 'Failed to fetch gap analysis')
       } else {
@@ -767,6 +770,12 @@ export function S3PolicyAnalysisModal({
             <X className="w-6 h-6" />
           </button>
         </div>
+
+        {provenance && (
+          <div className="px-6 py-2 border-b border-[var(--border,#e5e7eb)]">
+            <TrustEnvelopeBadge provenance={provenance} />
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="border-b border-[var(--border,#e5e7eb)] px-6">

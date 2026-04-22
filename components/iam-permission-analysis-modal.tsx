@@ -7,6 +7,8 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
+import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
+import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import type { ConfidenceScore } from "@/lib/types"
 
 interface PermissionAnalysis {
@@ -184,6 +186,7 @@ export function IAMPermissionAnalysisModal({
   const [selectedPermissionsToRemove, setSelectedPermissionsToRemove] = useState<Set<string>>(new Set())
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -220,13 +223,11 @@ export function IAMPermissionAnalysisModal({
     try {
       console.log('[IAM-Modal] Fetching gap analysis for:', roleName, forceRefresh ? '(force refresh)' : '')
       const refreshParam = forceRefresh ? '&refresh=true' : ''
-      const response = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-      
-      const rawData = await response.json()
+      const env = await fetchWithEnvelope<any>(
+        `/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=365${refreshParam}`
+      )
+      setProvenance(env.provenance)
+      const rawData = env.result
       console.log('[IAM-Modal] Raw API data:', rawData)
       console.log('[IAM-Modal] Raw data keys:', Object.keys(rawData))
       console.log('[IAM-Modal] Raw data summary:', rawData.summary)
@@ -1484,6 +1485,12 @@ export function IAMPermissionAnalysisModal({
             </button>
           </div>
         </div>
+
+        {provenance && (
+          <div className="px-5 py-2 border-b" style={{ borderColor: "var(--border, #e5e7eb)" }}>
+            <TrustEnvelopeBadge provenance={provenance} />
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-3 p-4">

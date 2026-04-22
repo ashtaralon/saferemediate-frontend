@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
 
     const resourceId = searchParams.get("resource_id")
     const resourceType = searchParams.get("resource_type")
+    const envelope = searchParams.get("envelope") === "true"
 
     const queryParams = new URLSearchParams()
     if (startDate) queryParams.set("start_date", startDate)
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest) {
     if (resourceId) queryParams.set("resource_id", resourceId)
     if (resourceType) queryParams.set("resource_type", resourceType)
     queryParams.set("limit", limit)
+    if (envelope) queryParams.set("envelope", "true")
 
     const url = `${BACKEND_URL}/api/remediation-history/timeline?${queryParams.toString()}`
     console.log("[Remediation Timeline Proxy] Fetching:", url)

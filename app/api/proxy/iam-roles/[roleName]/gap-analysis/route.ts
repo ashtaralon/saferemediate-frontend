@@ -18,9 +18,10 @@ export async function GET(
   const { roleName } = await params
   const url = new URL(req.url)
   const days = url.searchParams.get("days") ?? "90"
+  const envelope = url.searchParams.get("envelope") === "true"
   const forceRefresh = url.searchParams.get("refresh") === "true" || url.searchParams.get("force_refresh") === "true"
-  
-  const cacheKey = `${roleName}-${days}`
+
+  const cacheKey = `${roleName}-${days}-${envelope ? "env" : "raw"}`
   const now = Date.now()
   
   // If force refresh, delete the cached entry first
@@ -53,7 +54,7 @@ export async function GET(
   const timeoutId = setTimeout(() => controller.abort(), 55000) // 55s timeout
 
   try {
-    const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}`
+    const backendUrl = `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=${days}${envelope ? "&envelope=true" : ""}`
     console.log(`[IAM Proxy] Calling: ${backendUrl}`)
 
     const res = await fetch(backendUrl, {
