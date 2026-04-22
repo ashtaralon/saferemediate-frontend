@@ -7,6 +7,8 @@ import {
   FileText, Lock, Users, Eye, Activity, Play, Zap
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
+import type { ConfidenceScore } from "@/lib/types"
 
 interface PolicyAnalysis {
   policy_name: string
@@ -145,6 +147,8 @@ export function S3PolicyAnalysisModal({
   const [applying, setApplying] = useState(false)
   const [createSnapshot, setCreateSnapshot] = useState(true)
   const [selectedPoliciesToRemove, setSelectedPoliciesToRemove] = useState<Set<string>>(new Set())
+  const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
+  const [confidenceLoading, setConfidenceLoading] = useState(false)
 
   // Fetch gap analysis data when modal opens
   useEffect(() => {
@@ -152,8 +156,34 @@ export function S3PolicyAnalysisModal({
       fetchGapAnalysis()
       fetchBucketPolicy()
       fetchAccessData()
+      fetchConfidenceScore()
     }
   }, [isOpen, bucketName])
+
+  const fetchConfidenceScore = async () => {
+    setConfidenceLoading(true)
+    setConfidenceScore(null)
+    try {
+      const res = await fetch('/api/proxy/confidence/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource_type: 's3_bucket',
+          resource_id: bucketName,
+          changes: [],
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (typeof data?.confidence === 'number') {
+        setConfidenceScore(data as ConfidenceScore)
+      }
+    } catch (e) {
+      console.warn('[S3-Modal] confidence fetch failed:', e)
+    } finally {
+      setConfidenceLoading(false)
+    }
+  }
 
   // Reset state when modal closes
   useEffect(() => {
@@ -771,6 +801,17 @@ export function S3PolicyAnalysisModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
+          {activeTab === 'analysis' && confidenceLoading && (
+            <div className="mx-6 mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
+              <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
+              Agent 5 scoring remediation safety…
+            </div>
+          )}
+          {activeTab === 'analysis' && confidenceScore && (
+            <div className="mx-6 mt-4">
+              <ConfidenceExplanationPanel score={confidenceScore} />
+            </div>
+          )}
           {activeTab === 'analysis' && (
             <AnalysisTab
               bucketName={bucketName}

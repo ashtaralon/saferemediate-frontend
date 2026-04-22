@@ -35,6 +35,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { ConfidenceExplanationPanel } from '@/components/ConfidenceExplanationPanel';
+import type { ConfidenceScore } from '@/lib/types';
 
 // =============================================================================
 // TYPES
@@ -266,6 +268,38 @@ export const SGLeastPrivilegeModal: React.FC<SGLeastPrivilegeModalProps> = ({
     message: string;
     attachment_count: number;
   } | null>(null);
+  const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null);
+  const [confidenceLoading, setConfidenceLoading] = useState(false);
+
+  // Fetch Agent 5 confidence score when modal opens
+  useEffect(() => {
+    if (!isOpen || !sgId) return;
+    const fetchConfidenceScore = async () => {
+      setConfidenceLoading(true);
+      setConfidenceScore(null);
+      try {
+        const res = await fetch('/api/proxy/confidence/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resource_type: 'security_group',
+            resource_id: sgId,
+            changes: [],
+          }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (typeof data?.confidence === 'number') {
+          setConfidenceScore(data as ConfidenceScore);
+        }
+      } catch (e) {
+        console.warn('[SG-Modal] confidence fetch failed:', e);
+      } finally {
+        setConfidenceLoading(false);
+      }
+    };
+    fetchConfidenceScore();
+  }, [isOpen, sgId]);
 
   // Fetch orphan status when modal opens
   useEffect(() => {
@@ -1148,6 +1182,18 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                   ))}
                 </div>
               </div>
+
+              {analysisTab === 'summary' && confidenceLoading && (
+                <div className="mx-6 mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
+                  <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
+                  Agent 5 scoring remediation safety…
+                </div>
+              )}
+              {analysisTab === 'summary' && confidenceScore && (
+                <div className="mx-6 mt-4">
+                  <ConfidenceExplanationPanel score={confidenceScore} />
+                </div>
+              )}
 
               {analysisTab === 'summary' && (
                 <>

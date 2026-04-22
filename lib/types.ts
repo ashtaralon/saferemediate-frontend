@@ -171,20 +171,23 @@ export interface LLMReview {
 export interface ConfidenceScore {
   confidence: number // 0-100
   routing: ConfidenceRouting // final routing (may be bumped by LLM reviewer)
-  // Below fields are only populated when the role exists and scoring completes.
-  // Error/early-exit responses (role_not_found, no_neo4j) omit them.
+  resource_type?: "iam_role" | "security_group" | "s3_bucket"
+  resource_id?: string
+  // Below fields are only populated when the resource exists and scoring completes.
+  // Error/early-exit responses (resource_not_found, no_neo4j) omit them.
   routing_deterministic?: ConfidenceRouting // routing the deterministic scorer chose
   visibility_integrity?: number // 0.0-1.0
   visibility_reasons?: string[]
   gates_failed?: ConfidenceGateFailure[]
   can_auto_execute?: boolean
   needs_human_approval?: boolean
-  signals_available?: ConfidenceSignals
+  signals_available?: Partial<ConfidenceSignals> & Record<string, boolean>
   data_events_enabled_services?: string[]
   external_principals?: unknown[]
   llm_review?: LLMReview | null
   llm_explanation?: string | null
   role_tags?: RoleTags | null
+  resource_tags?: RoleTags | null
 }
 
 export interface ResourceChange {
