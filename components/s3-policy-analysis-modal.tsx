@@ -1007,7 +1007,7 @@ function AnalysisTab({
           <span className="font-semibold text-[var(--foreground,#111827)]">{observationDays}-Day Recording Period</span>
         </div>
         <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
-          Tracked from {formatDate(startDate)} to {formatDate(endDate)} - CloudTrail S3 events analyzed
+          Tracked from {formatDate(startDate)} to {formatDate(endDate)} - object-store events analyzed
         </p>
       </div>
 
@@ -1102,7 +1102,7 @@ function AnalysisTab({
                 <div className="rounded-xl border border-amber-200 bg-white p-4">
                   <div className="text-sm font-semibold text-[#92400e] mb-2">Observed Evidence</div>
                   <ul className="space-y-2 text-sm text-[var(--foreground,#374151)]">
-                    <li><strong>{gapData?.summary?.s3_events?.toLocaleString() || 0}</strong> S3 events observed in the 365-day least-privilege window</li>
+                    <li><strong>{gapData?.summary?.s3_events?.toLocaleString() || 0}</strong> object-store events observed in the 365-day least-privilege window</li>
                     <li><strong>{accessData?.totalRequests?.toLocaleString() || 0}</strong> requests observed in the 90-day access view</li>
                     <li>
                       Observed principals:
@@ -1311,11 +1311,11 @@ function PoliciesTab({
         )}
       </div>
 
-      {/* Public Access Block Settings */}
+      {/* Public exposure controls */}
       <div className="space-y-4">
         <h3 className="font-bold text-lg flex items-center gap-2">
           <Lock className="w-5 h-5 text-[var(--muted-foreground,#4b5563)]" />
-          Public Access Block
+          Public exposure controls
         </h3>
         
         {policyData?.public_access_block ? (
@@ -1340,7 +1340,7 @@ function PoliciesTab({
         ) : (
           <div className="bg-[#f9731610] border border-[#f9731640] rounded-lg p-4 text-[#f97316] flex items-center gap-2">
             <AlertTriangle className="w-5 h-5" />
-            Public access block settings not configured - bucket may be publicly accessible
+            Public exposure controls not configured - object store may be publicly accessible
           </div>
         )}
       </div>
@@ -1684,7 +1684,7 @@ function EvidenceTab({
           </div>
           <div className="border rounded-lg p-4">
             <div className="text-sm text-[var(--muted-foreground,#6b7280)]">Data Source</div>
-            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">CloudTrail</div>
+            <div className="text-2xl font-bold text-[var(--foreground,#111827)]">Data-plane telemetry</div>
           </div>
         </div>
       </div>
@@ -1695,7 +1695,7 @@ function EvidenceTab({
         <div className="bg-gray-50 rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Check className="w-5 h-5 text-[#22c55e]" />
-            <span>CloudTrail S3 data events enabled</span>
+            <span>Data-plane telemetry enabled</span>
           </div>
           <div className="flex items-center gap-2">
             <Check className="w-5 h-5 text-[#22c55e]" />

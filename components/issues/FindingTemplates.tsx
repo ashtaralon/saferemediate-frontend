@@ -74,7 +74,7 @@ export function FindingTemplates({ finding }: FindingTemplatesProps) {
           {/* Actual Usage */}
           <div className="bg-white rounded-lg p-4 border border-[#3b82f640]">
             <h4 className="font-semibold text-blue-900 mb-3">
-              🔍 ACTUAL USAGE (last 30 days via CloudTrail)
+              🔍 ACTUAL USAGE (last 30 days via usage telemetry)
             </h4>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">

@@ -355,7 +355,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                     { icon: "✅", text: "Enable S3 Block Public Access", color: "#10B981" },
                     { icon: "✅", text: "Update bucket policy", color: "#10B981" },
                     { icon: "✅", text: "Internal services keep access", color: "#10B981" },
-                    { icon: "✅", text: "CloudTrail keeps working", color: "#10B981" },
+                    { icon: "✅", text: "Activity logging keeps working", color: "#10B981" },
                     { icon: "⚠️", text: "External monitor loses access", color: "#F59E0B" },
                   ].map((item, i) => (
                     <div key={i} className="flex items-center gap-3">
@@ -572,7 +572,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                   {
                     time: "T+10s",
                     title: "Test internal access",
-                    steps: ["Test log-processor IAM role", "Test CloudTrail write", "Verify no 403 errors"],
+                    steps: ["Test log-processor identity role", "Test activity log write", "Verify no 403 errors"],
                   },
                   {
                     time: "T+20s",
@@ -743,7 +743,7 @@ export function SimulateFixModal({ isOpen, onClose, finding }: SimulateFixModalP
                 {[
                   { label: "Test with high traffic", progress: 100 },
                   { label: "Test with multiple IAM roles", progress: 100 },
-                  { label: "Test with CloudTrail enabled", progress: 100 },
+                  { label: "Test with activity logging enabled", progress: 100 },
                   { label: "Test with monitoring tools", progress: extendedSimProgress > 50 ? 70 : 0 },
                   { label: "Test with backup jobs", progress: 0 },
                 ].map((test, i) => (
