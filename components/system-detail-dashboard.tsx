@@ -1486,6 +1486,187 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             </div>
 
+            {/* Top Blast Radius Drivers — per-resource factor breakdown.
+                Proves decomposability: every score point lost is attributable to
+                a specific resource × factor. The "+N if fixed" lift is the
+                approximate score gain from remediating that resource to clean.
+            */}
+            {brss && brss.top_drivers && brss.top_drivers.length > 0 && (
+              <div
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]"
+                data-testid="blast-radius-drivers"
+              >
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">
+                      Top Blast Radius Drivers
+                    </h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      Resources pulling the score down the most. Each row shows which factors pushed its weight up and approximately how many points a clean remediation would restore.
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                    Top {brss.top_drivers.length} · {brss.resource_count} total
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {brss.top_drivers.map((d, i) => {
+                    const f = d.factors
+                    // Approximate score lift from full remediation of this
+                    // resource. Backend uses CONTRIBUTION_SCALE = 0.6; we
+                    // mirror it here. Not exact due to rank re-weighting of
+                    // the tail, but monotonicity tests show it's within a
+                    // couple of points in practice.
+                    const scoreLiftIfFixed = Math.round(f.final_contribution * 0.6)
+                    const weight = Math.round(f.adjusted_risk)
+                    const barPercent = Math.min(100, (f.adjusted_risk / 50) * 100)
+
+                    const sevColor =
+                      d.severity === 'CRITICAL' ? '#ef4444'
+                      : d.severity === 'HIGH'   ? '#f97316'
+                      : d.severity === 'MEDIUM' ? '#eab308'
+                      : '#94A3B8'
+
+                    // Derive factor chips — only multipliers that exceed
+                    // baseline (1.0) get called out so the operator sees the
+                    // real drivers, not noise.
+                    type Chip = { label: string; reason: string }
+                    const chips: Chip[] = []
+                    chips.push({
+                      label: `Severity ${d.severity}`,
+                      reason: `Severity weight ${f.severity_weight}`,
+                    })
+                    if (f.data_criticality > 1.0) {
+                      chips.push({
+                        label: `Crown jewel ×${f.data_criticality.toFixed(1)}`,
+                        reason: 'Crown-jewel / sensitive data tag',
+                      })
+                    }
+                    if (f.reachability >= 2.0) {
+                      chips.push({
+                        label: `Public exposure ×${f.reachability.toFixed(1)}`,
+                        reason: 'Direct public reachability (network or trust)',
+                      })
+                    } else if (f.reachability >= 1.5) {
+                      chips.push({
+                        label: `External reachable ×${f.reachability.toFixed(1)}`,
+                        reason: 'Cross-account or externally reachable',
+                      })
+                    }
+                    if (f.privilege_capability >= 2.0) {
+                      chips.push({
+                        label: `Admin-like ×${f.privilege_capability.toFixed(1)}`,
+                        reason: 'Broad or admin-equivalent privilege',
+                      })
+                    } else if (f.privilege_capability >= 1.5) {
+                      chips.push({
+                        label: `Broad privilege ×${f.privilege_capability.toFixed(1)}`,
+                        reason: 'Broad scope of authority',
+                      })
+                    }
+                    if (f.likelihood >= 2.0) {
+                      chips.push({
+                        label: `Active path ×${f.likelihood.toFixed(1)}`,
+                        reason: 'Public + externally reachable — active attack surface',
+                      })
+                    } else if (f.likelihood >= 1.5) {
+                      chips.push({
+                        label: `Exposure signal ×${f.likelihood.toFixed(1)}`,
+                        reason: 'Public OR external — elevated likelihood',
+                      })
+                    }
+                    if (f.exposure_uncertainty_penalty > 5) {
+                      chips.push({
+                        label: `Low visibility +${f.exposure_uncertainty_penalty.toFixed(0)}`,
+                        reason: 'Exposure uncertainty penalty — missing telemetry on high-impact axes',
+                      })
+                    }
+                    if (f.usage_confidence < 0.8) {
+                      chips.push({
+                        label: `Usage conf ${Math.round(f.usage_confidence * 100)}%`,
+                        reason: 'Short observation window or sparse events — gap inference is discounted',
+                      })
+                    }
+                    if (f.base_risk >= 50) {
+                      chips.push({
+                        label: 'Capped at 50',
+                        reason: 'Per-resource risk cap applied — raw factor product exceeded PER_RESOURCE_CAP',
+                      })
+                    }
+
+                    return (
+                      <div
+                        key={d.resource_id}
+                        className="rounded-lg border border-[var(--border,#e5e7eb)] p-4 hover:border-slate-300 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4 mb-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-bold text-[var(--muted-foreground,#6b7280)]">#{i + 1}</span>
+                              <span className="text-sm font-semibold text-[var(--foreground,#111827)] truncate">
+                                {d.resource_name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider"
+                                style={{ background: `${sevColor}20`, color: sevColor }}
+                              >
+                                {d.severity}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 uppercase tracking-wider">
+                                {d.family}
+                              </span>
+                              <span className="text-[10px] text-slate-500">{d.resource_type}</span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-2xl font-bold" style={{ color: sevColor }}>
+                              {weight}
+                            </div>
+                            <div className="text-[10px] text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                              risk weight
+                            </div>
+                            {scoreLiftIfFixed > 0 && (
+                              <div className="text-[11px] font-semibold text-emerald-700 mt-1">
+                                +{scoreLiftIfFixed} if fixed
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-3">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${barPercent}%`, background: sevColor }}
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {chips.map((c, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-50 text-slate-700 border border-slate-200 cursor-help"
+                              title={c.reason}
+                            >
+                              {c.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {brss.coverage_excluded_types?.length ? (
+                  <p className="mt-4 text-[11px] text-[var(--muted-foreground,#6b7280)]">
+                    Not in scan scope: {brss.coverage_excluded_types.join(', ')}. Score cannot account for risk in these resource types.
+                  </p>
+                ) : null}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-4 space-y-6">
                 <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
