@@ -10,6 +10,11 @@ import { PathRemediationPlan } from "./path-remediation-plan"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
 import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
 import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
+import {
+  TrustEnvelopeBadge,
+  isTrustEnvelope,
+  type Provenance,
+} from "@/components/trust/trust-envelope-badge"
 import type {
   IdentityAttackPathsResponse,
   IdentityAttackPath,
@@ -46,6 +51,7 @@ interface IdentityAttackPathsProps {
 
 export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [data, setData] = useState<IdentityAttackPathsResponse | null>(null)
+  const [provenance, setProvenance] = useState<Provenance | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedJewelId, setSelectedJewelId] = useState<string | null>(null)
@@ -73,10 +79,16 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     setIsLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}`)
+      const res = await fetch(
+        `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
+      )
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json: IdentityAttackPathsResponse = await res.json()
-      if (json.error) throw new Error(json.error)
+      const raw = await res.json()
+      const json: IdentityAttackPathsResponse = isTrustEnvelope(raw)
+        ? (raw.result as IdentityAttackPathsResponse)
+        : (raw as IdentityAttackPathsResponse)
+      if ((json as any).error) throw new Error((json as any).error)
+      setProvenance(isTrustEnvelope(raw) ? raw.provenance : null)
       setData(json)
       // initial jewel pick now happens in the listMode-aware effect below
     } catch (e: any) {
@@ -520,6 +532,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             </button>
           </div>
         </div>
+        {provenance && (
+          <div className="mt-2">
+            <TrustEnvelopeBadge provenance={provenance} />
+          </div>
+        )}
       </div>
 
       {/* 3-column layout */}

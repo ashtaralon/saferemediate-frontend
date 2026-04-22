@@ -15,9 +15,11 @@ export async function GET(
   const { searchParams } = new URL(req.url)
   const maxJewels = searchParams.get("max_jewels") || "12"
   const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "3"
+  const envelope = searchParams.get("envelope") === "true" ? "true" : ""
 
   try {
-    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}`
+    const envelopeParam = envelope ? `&envelope=${envelope}` : ""
+    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}`
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}`
     console.log("[identity-attack-paths] Fetching:", url)
     const res = await fetch(
