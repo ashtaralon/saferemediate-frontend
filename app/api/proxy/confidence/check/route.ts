@@ -6,22 +6,29 @@ const BACKEND_URL = getBackendBaseUrl()
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { role_name, permissions_to_remove } = body
+    const { role_name, permissions_to_remove, resource_type, resource_id, changes } = body
 
-    if (!role_name) {
+    if (!role_name && !resource_id) {
       return NextResponse.json(
-        { error: "role_name is required" },
+        { error: "role_name or (resource_type + resource_id) is required" },
         { status: 400 },
       )
+    }
+
+    const forward: Record<string, unknown> = {}
+    if (role_name) {
+      forward.role_name = role_name
+      forward.permissions_to_remove = permissions_to_remove ?? []
+    } else {
+      forward.resource_type = resource_type
+      forward.resource_id = resource_id
+      forward.changes = changes ?? []
     }
 
     const response = await fetch(`${BACKEND_URL}/api/confidence/check`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        role_name,
-        permissions_to_remove: permissions_to_remove ?? [],
-      }),
+      body: JSON.stringify(forward),
     })
 
     const data = await response.json().catch(() => ({}))
