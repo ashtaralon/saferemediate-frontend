@@ -672,7 +672,22 @@ export function IAMPermissionAnalysisModal({
     return false
   }
 
-  const safetyScore = calculateSafetyScore()
+  const legacySafetyScore = calculateSafetyScore()
+
+  // One-score rule: when Agent 5's confidence scorer has returned, use it as
+  // the single source of truth for the modal banner. The legacy client-side
+  // calculateSafetyScore() stays as a fallback only while Agent 5 is loading
+  // or if the /api/confidence/check call failed.
+  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore
+
+  // Verdict bucket — derived from Agent 5 routing when present, else from
+  // the legacy score thresholds. Kept in sync so the banner copy matches
+  // whichever scorer produced the number above it.
+  const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
+    confidenceScore?.routing
+      ?? (safetyScore < 50 ? 'manual_review'
+        : safetyScore < 75 ? 'human_approval'
+          : 'auto_execute')
 
   // Loading state
   if (loading) {
@@ -794,15 +809,30 @@ export function IAMPermissionAnalysisModal({
                     </p>
                   </div>
                 )
-              } else if (safetyScore < 50) {
-                // WARNING: Low confidence — score driven by backend engine
+              } else if (verdictBucket === 'blocked') {
+                // Agent 5 hard-blocked this remediation via a gate failure.
+                return (
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <XCircle className="w-10 h-10 text-[#ef4444]" />
+                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">BLOCKED</span>
+                    </div>
+                    <p className="text-[#ef4444] mt-2 font-semibold">
+                      {confidenceScore?.gates_failed?.[0]?.detail
+                        ?? 'Hard block — see confidence panel below for gate details.'}
+                    </p>
+                  </div>
+                )
+              } else if (verdictBucket === 'manual_review') {
+                // LOW CONFIDENCE / MANUAL REVIEW
                 const cg = gapData?.confidence_groups
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#f97316]">LOW CONFIDENCE</span>
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{confidenceScore ? '' : '%'}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'REVIEW REQUIRED' : 'LOW CONFIDENCE'}</span>
                     </div>
                     <p className="text-[#f97316] mt-2 font-semibold">
                       {cg ? `${cg.summary.investigate_first} permissions lack sufficient data to verify.` : 'Insufficient usage data collected.'}
@@ -833,15 +863,15 @@ export function IAMPermissionAnalysisModal({
                     )}
                   </div>
                 )
-              } else if (safetyScore < 75) {
-                // MEDIUM confidence
+              } else if (verdictBucket === 'human_approval') {
+                // Agent 5 needs human approval before auto-remediating.
                 const cg = gapData?.confidence_groups
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#f97316]">REVIEW RECOMMENDED</span>
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{confidenceScore ? '' : '%'}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'NEEDS APPROVAL' : 'REVIEW RECOMMENDED'}</span>
                     </div>
                     <p className="text-[#f97316] mt-2">
                       {cg ? `${cg.summary.safe_to_remove} permissions safe to remove, ${cg.summary.verify_first + cg.summary.investigate_first} need verification.`
@@ -850,16 +880,16 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 )
               } else {
-                // SAFE: We have sufficient evidence
+                // auto_execute — Agent 5 clears this for auto-remediation.
                 return (
                   <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
+                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}{confidenceScore ? '' : '%'}</span>
                       <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
                     </div>
                     <p className="text-[#22c55e] mt-2">
-                      {cloudtrailEvents.toLocaleString()} API events analyzed - No production services will be affected
+                      {cloudtrailEvents.toLocaleString()} API events analyzed — confidence ≥ 95, AI reviewer agrees.
                     </p>
                   </div>
                 )
