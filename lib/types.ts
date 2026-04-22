@@ -144,13 +144,13 @@ export interface ConfidenceGateFailure {
 }
 
 export interface ConfidenceSignals {
-  cloudtrail: boolean
-  data_events_config: boolean
-  access_advisor: boolean
-  cloudwatch: boolean
-  eventbridge: boolean
-  trust_policy: boolean
-  role_tags: boolean
+  control_plane_telemetry: boolean
+  data_plane_telemetry: boolean
+  usage_telemetry: boolean
+  runtime_telemetry: boolean
+  execution_triggers: boolean
+  trust_graph: boolean
+  resource_metadata: boolean
 }
 
 export interface RoleTags {
@@ -182,7 +182,7 @@ export interface ConfidenceScore {
   can_auto_execute?: boolean
   needs_human_approval?: boolean
   signals_available?: Partial<ConfidenceSignals> & Record<string, boolean>
-  data_events_enabled_services?: string[]
+  data_plane_enabled_domains?: string[]
   external_principals?: unknown[]
   llm_review?: LLMReview | null
   llm_explanation?: string | null

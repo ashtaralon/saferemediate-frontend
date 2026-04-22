@@ -1,23 +1,25 @@
 'use client'
 
 import React from 'react'
-import type { ConfidenceScore, ConfidenceRouting, LLMReviewVerdict, RoleTags } from '@/lib/types'
+import type { ConfidenceScore, ConfidenceRouting, LLMReviewVerdict } from '@/lib/types'
 
 interface Props {
   score: ConfidenceScore
 }
 
+// Cloud-agnostic routing pills. The deterministic scorer returns internal keys;
+// we render the operator-facing label here and nowhere else.
 const ROUTING_STYLE: Record<ConfidenceRouting, { label: string; color: string; bg: string }> = {
-  auto_execute: { label: 'Auto-Execute', color: '#15803d', bg: '#dcfce7' },
-  human_approval: { label: 'Human Approval', color: '#a16207', bg: '#fef3c7' },
-  manual_review: { label: 'Manual Review', color: '#b91c1c', bg: '#fee2e2' },
-  blocked: { label: 'Blocked', color: '#991b1b', bg: '#fecaca' },
+  auto_execute:   { label: 'Safe to apply',   color: '#15803d', bg: '#dcfce7' },
+  human_approval: { label: 'Needs approval',  color: '#a16207', bg: '#fef3c7' },
+  manual_review:  { label: 'Review required', color: '#b91c1c', bg: '#fee2e2' },
+  blocked:        { label: 'Blocked',         color: '#991b1b', bg: '#fecaca' },
 }
 
 const REVIEW_STYLE: Record<LLMReviewVerdict, { label: string; color: string; bg: string; border: string }> = {
-  agree: { label: 'LLM reviewer agrees', color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
-  escalate: { label: 'LLM reviewer escalated', color: '#a16207', bg: '#fffbeb', border: '#fde68a' },
-  block: { label: 'LLM reviewer blocked', color: '#991b1b', bg: '#fef2f2', border: '#fecaca' },
+  agree:    { label: 'AI reviewer agrees',    color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+  escalate: { label: 'AI reviewer escalated', color: '#a16207', bg: '#fffbeb', border: '#fde68a' },
+  block:    { label: 'AI reviewer blocked',   color: '#991b1b', bg: '#fef2f2', border: '#fecaca' },
 }
 
 const ENV_STYLE: Record<string, { color: string; bg: string }> = {
@@ -28,11 +30,72 @@ const ENV_STYLE: Record<string, { color: string; bg: string }> = {
   unknown: { color: '#475569', bg: '#e2e8f0' },
 }
 
+// Cloud-agnostic labels for the signal chips. Keys match the scorer output
+// (unified across IAM / SG / S3). Anything not in this map falls back to a
+// generic prettifier — but the backend should never emit provider-specific
+// keys. If a raw key leaks through, that's a contract break worth fixing
+// at the source.
+const SIGNAL_LABELS: Record<string, string> = {
+  // IAM
+  control_plane_telemetry: 'Control-plane telemetry',
+  data_plane_telemetry:    'Data-plane telemetry',
+  usage_telemetry:         'Usage telemetry',
+  runtime_telemetry:       'Runtime telemetry',
+  execution_triggers:      'Execution triggers',
+  trust_graph:             'Trust graph',
+  resource_metadata:       'Resource metadata',
+  // SG
+  resource_indexed:        'Resource indexed',
+  attachment_graph:        'Attachment graph',
+  policy_inventory:        'Policy inventory',
+  network_flow_telemetry:  'Network flow telemetry',
+  // S3
+  public_exposure_controls: 'Public exposure controls',
+  access_policy_analyzed:   'Access policy analyzed',
+}
+
+function prettifySignalKey(key: string): string {
+  return SIGNAL_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// Routing transitions as a humanist arrow sentence. Read as: scorer said X,
+// reviewer pushed to Y.
+function describeRoutingDelta(from: ConfidenceRouting, to: ConfidenceRouting): string {
+  const f = ROUTING_STYLE[from]?.label ?? from
+  const t = ROUTING_STYLE[to]?.label ?? to
+  return `${f} → ${t}`
+}
+
 function scoreColor(n: number) {
   if (n >= 95) return '#15803d'
   if (n >= 80) return '#a16207'
   if (n >= 60) return '#ea580c'
   return '#b91c1c'
+}
+
+// Explainer output format contract (enforced in backend prompt):
+//   Line 1: HEADLINE (5-12 words, no trailing period)
+//   Line 2: blank
+//   Line 3+: DETAILS (one or two sentences)
+// Older cache entries may arrive as a single paragraph — we fall back to
+// splitting on the first sentence boundary so we never crash the render.
+function splitExplanation(text: string): { headline: string; details: string } {
+  const trimmed = text.trim()
+  const lineBreak = trimmed.indexOf('\n\n')
+  if (lineBreak !== -1) {
+    return {
+      headline: trimmed.slice(0, lineBreak).trim(),
+      details:  trimmed.slice(lineBreak + 2).trim(),
+    }
+  }
+  const firstStop = trimmed.search(/\.\s/)
+  if (firstStop !== -1) {
+    return {
+      headline: trimmed.slice(0, firstStop).trim(),
+      details:  trimmed.slice(firstStop + 1).trim(),
+    }
+  }
+  return { headline: trimmed, details: '' }
 }
 
 export function ConfidenceExplanationPanel({ score }: Props) {
@@ -45,6 +108,11 @@ export function ConfidenceExplanationPanel({ score }: Props) {
   const signalsOff = Object.entries(signals).filter(([, v]) => !v).map(([k]) => k)
   const hardBlocks = gates.filter(g => g.severity === 'hard_block')
   const warnings = gates.filter(g => g.severity === 'warn')
+  const routingShifted =
+    score.routing_deterministic && score.routing_deterministic !== score.routing
+  const resourceMeta = score.resource_tags ?? score.role_tags
+
+  const explanation = score.llm_explanation ? splitExplanation(score.llm_explanation) : null
 
   return (
     <div
@@ -58,12 +126,22 @@ export function ConfidenceExplanationPanel({ score }: Props) {
             Agent 5 · Confidence Scorer
           </span>
         </div>
-        <span
-          className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
-          style={{ background: routingStyle.bg, color: routingStyle.color }}
-        >
-          {routingStyle.label}
-        </span>
+        {routingShifted ? (
+          <span
+            className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
+            style={{ background: routingStyle.bg, color: routingStyle.color }}
+            title={`Deterministic scorer chose ${ROUTING_STYLE[score.routing_deterministic!]?.label}; reviewer pushed to ${routingStyle.label}`}
+          >
+            {describeRoutingDelta(score.routing_deterministic!, score.routing)}
+          </span>
+        ) : (
+          <span
+            className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
+            style={{ background: routingStyle.bg, color: routingStyle.color }}
+          >
+            {routingStyle.label}
+          </span>
+        )}
       </div>
 
       <div className="flex items-baseline gap-3">
@@ -79,10 +157,10 @@ export function ConfidenceExplanationPanel({ score }: Props) {
         </span>
       </div>
 
-      {score.role_tags && (
+      {resourceMeta && (
         <div className="flex flex-wrap items-center gap-1.5" data-testid="confidence-role-tags">
           {(() => {
-            const env = (score.role_tags.environment || 'unknown').toLowerCase()
+            const env = (resourceMeta.environment || 'unknown').toLowerCase()
             const envStyle = ENV_STYLE[env] ?? ENV_STYLE.unknown
             return (
               <span
@@ -93,19 +171,19 @@ export function ConfidenceExplanationPanel({ score }: Props) {
               </span>
             )
           })()}
-          {score.role_tags.system && (
+          {resourceMeta.system && (
             <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700">
-              system: {score.role_tags.system}
+              system: {resourceMeta.system}
             </span>
           )}
-          {score.role_tags.owner && (
+          {resourceMeta.owner && (
             <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700">
-              owner: {score.role_tags.owner}
+              owner: {resourceMeta.owner}
             </span>
           )}
-          {score.role_tags.compliance && (
+          {resourceMeta.compliance && (
             <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
-              compliance: {score.role_tags.compliance}
+              compliance: {resourceMeta.compliance}
             </span>
           )}
         </div>
@@ -121,11 +199,6 @@ export function ConfidenceExplanationPanel({ score }: Props) {
             <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: REVIEW_STYLE[score.llm_review.verdict].color }}>
               {REVIEW_STYLE[score.llm_review.verdict].label}
             </span>
-            {score.routing_deterministic && score.routing_deterministic !== score.routing && (
-              <span className="text-[10px] font-mono text-slate-600">
-                routing: {score.routing_deterministic} → {score.routing}
-              </span>
-            )}
           </div>
           <div className="text-sm leading-relaxed" style={{ color: REVIEW_STYLE[score.llm_review.verdict].color }}>
             {score.llm_review.reason}
@@ -133,23 +206,30 @@ export function ConfidenceExplanationPanel({ score }: Props) {
         </div>
       )}
 
-      {score.llm_explanation ? (
+      {explanation ? (
         <div
-          className="rounded border p-3 text-sm leading-relaxed"
+          className="rounded border p-3 space-y-1"
           style={{ borderColor: '#cbd5e1', background: '#ffffff' }}
           data-testid="confidence-llm-explanation"
         >
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             Why this score
           </div>
-          {score.llm_explanation}
+          <div className="text-sm font-semibold text-slate-900 leading-snug">
+            {explanation.headline}
+          </div>
+          {explanation.details && (
+            <div className="text-sm text-slate-700 leading-relaxed">
+              {explanation.details}
+            </div>
+          )}
         </div>
       ) : (
         <div
           className="rounded border border-dashed p-3 text-xs text-slate-500"
           data-testid="confidence-llm-explanation-disabled"
         >
-          LLM explanations are disabled. Set{' '}
+          AI explanations are disabled. Set{' '}
           <code className="bg-slate-100 px-1 rounded">ENABLE_LLM_EXPLANATIONS=true</code>
           {' '}on the backend to see Agent 5 reasoning here.
         </div>
@@ -201,7 +281,7 @@ export function ConfidenceExplanationPanel({ score }: Props) {
             className="px-2 py-0.5 rounded text-[10px] font-medium"
             style={{ background: '#dcfce7', color: '#15803d' }}
           >
-            ✓ {s}
+            ✓ {prettifySignalKey(s)}
           </span>
         ))}
         {signalsOff.map(s => (
@@ -210,7 +290,7 @@ export function ConfidenceExplanationPanel({ score }: Props) {
             className="px-2 py-0.5 rounded text-[10px] font-medium"
             style={{ background: '#f1f5f9', color: '#64748b' }}
           >
-            ✗ {s}
+            ✗ {prettifySignalKey(s)}
           </span>
         ))}
       </div>
