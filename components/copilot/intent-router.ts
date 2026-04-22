@@ -11,7 +11,7 @@
  * endpoint is for.
  */
 
-export type QueryFamily = "gap_analysis" | "exposure" | "history" | "aggregator"
+export type QueryFamily = "gap_analysis" | "exposure" | "history" | "aggregator" | "inventory"
 
 export interface CanonicalQuestion {
   id: string
@@ -19,6 +19,10 @@ export interface CanonicalQuestion {
   hint: string
   family: QueryFamily
   route: (ctx: IntentContext) => IntentRoute
+  /** If true, this entry is resolvable by the LLM router but is not shown as a
+   * starter card in the gallery. Used for parameterized "meta" tools whose
+   * args (like resourceType) don't make sense without a user question. */
+  llmOnly?: boolean
 }
 
 export interface IntentContext {
@@ -26,6 +30,7 @@ export interface IntentContext {
   roleName?: string
   bucketName?: string
   windowDays?: number
+  resourceType?: string
 }
 
 export interface IntentRoute {
@@ -170,6 +175,71 @@ export const CANONICAL_QUESTIONS: CanonicalQuestion[] = [
       method: "GET",
       family: "aggregator",
       resultHeadline: "Highest-risk candidates",
+    }),
+  },
+  {
+    id: "how-many-s3",
+    label: "How many S3 buckets do I have?",
+    hint: "Inventory count — S3",
+    family: "inventory",
+    route: (ctx) => ({
+      url: withEnvelope("/api/proxy/resource-inventory/count", {
+        resource_type: "s3",
+        system: ctx.systemName,
+      }),
+      method: "GET",
+      family: "inventory",
+      resultHeadline: "S3 bucket count",
+    }),
+  },
+  {
+    id: "list-iam-roles",
+    label: "List my IAM roles",
+    hint: "Inventory list — IAM roles",
+    family: "inventory",
+    route: (ctx) => ({
+      url: withEnvelope("/api/proxy/resource-inventory/list", {
+        resource_type: "iam-role",
+        system: ctx.systemName,
+        limit: 25,
+      }),
+      method: "GET",
+      family: "inventory",
+      resultHeadline: "IAM roles",
+    }),
+  },
+  // LLM-only meta tools — resolved by chosen_tool id, parameterized by ctx.resourceType.
+  {
+    id: "inventory-count",
+    label: "Count resources by type",
+    hint: "Inventory count (LLM-routed)",
+    family: "inventory",
+    llmOnly: true,
+    route: (ctx) => ({
+      url: withEnvelope("/api/proxy/resource-inventory/count", {
+        resource_type: ctx.resourceType || "",
+        system: ctx.systemName,
+      }),
+      method: "GET",
+      family: "inventory",
+      resultHeadline: `${ctx.resourceType ? ctx.resourceType : "Resource"} count`,
+    }),
+  },
+  {
+    id: "inventory-list",
+    label: "List resources by type",
+    hint: "Inventory list (LLM-routed)",
+    family: "inventory",
+    llmOnly: true,
+    route: (ctx) => ({
+      url: withEnvelope("/api/proxy/resource-inventory/list", {
+        resource_type: ctx.resourceType || "",
+        system: ctx.systemName,
+        limit: 25,
+      }),
+      method: "GET",
+      family: "inventory",
+      resultHeadline: `${ctx.resourceType ? ctx.resourceType : "Resources"}`,
     }),
   },
 ]

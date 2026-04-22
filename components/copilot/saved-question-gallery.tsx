@@ -47,7 +47,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
   const needsRoleName = selectedId === "unused-on-role"
 
   const gallery = useMemo(() => {
-    return CANONICAL_QUESTIONS.map((q) => ({
+    return CANONICAL_QUESTIONS.filter((q) => !q.llmOnly).map((q) => ({
       ...q,
       disabled:
         q.id === "unused-on-role" && !roleName && selectedId !== "unused-on-role",
@@ -128,6 +128,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         systemName: decision.tool_args.systemName || systemName || undefined,
         roleName: decision.tool_args.roleName || roleName || undefined,
         windowDays: decision.tool_args.windowDays,
+        resourceType: decision.tool_args.resourceType || undefined,
       }
       if (decision.tool_args.roleName) {
         setRoleName(decision.tool_args.roleName)
@@ -373,6 +374,62 @@ function AnswerRenderer({ route, result }: { route: any; result: any }) {
             <div>{e.action_type} — {e.resource_id}</div>
           </div>
         ))}
+      </div>
+    )
+  }
+  if (route.family === "inventory") {
+    const isCount = result.count !== undefined && result.items === undefined
+    if (isCount) {
+      return (
+        <div className="flex items-center gap-4">
+          <div className="text-4xl font-bold">{result.count}</div>
+          <div>
+            <div className="text-sm font-medium">{result.display_name}</div>
+            {result.system && (
+              <div className="text-xs text-[var(--muted-foreground,#6b7280)]">
+                in system <strong>{result.system}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+    const items = result.items ?? []
+    const columns: string[] = result.columns ?? []
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+          <span>
+            {items.length} {result.display_name}
+            {result.system ? ` in ${result.system}` : ""}
+            {result.next_cursor ? " (more available)" : ""}
+          </span>
+          <span>sorted by {result.default_sort}</span>
+        </div>
+        <div className="overflow-auto border rounded-lg"
+             style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
+              <tr>
+                {columns.map((c) => (
+                  <th key={c} className="text-left px-3 py-2 font-semibold">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.slice(0, 25).map((it: any, i: number) => (
+                <tr key={it._element_id || i} className="border-t"
+                    style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}>
+                  {columns.map((c) => (
+                    <td key={c} className="px-3 py-2 font-mono text-xs truncate max-w-xs">
+                      {it[c] ?? <span className="text-gray-400">—</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
