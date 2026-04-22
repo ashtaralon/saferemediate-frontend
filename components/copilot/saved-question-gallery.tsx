@@ -1,13 +1,20 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Sparkles, ChevronRight, Loader2, AlertCircle, Shield } from "lucide-react"
-import { CANONICAL_QUESTIONS, resolveIntent, type IntentRoute } from "./intent-router"
+import { Sparkles, ChevronRight, Loader2, AlertCircle, Shield, Send, Bot } from "lucide-react"
+import { CANONICAL_QUESTIONS, resolveIntent, type IntentRoute, type IntentContext } from "./intent-router"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 
 interface SavedQuestionGalleryProps {
   systemName?: string
+}
+
+interface RouterDecision {
+  chosen_tool: string
+  tool_args: Record<string, any>
+  explanation: string
+  source: "llm" | "keyword"
 }
 
 interface AnswerState {
@@ -17,6 +24,7 @@ interface AnswerState {
   route: IntentRoute | null
   result: any
   provenance: Provenance | null
+  decision: RouterDecision | null
 }
 
 const INITIAL_STATE: AnswerState = {
@@ -26,12 +34,15 @@ const INITIAL_STATE: AnswerState = {
   route: null,
   result: null,
   provenance: null,
+  decision: null,
 }
 
 export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) {
   const [answer, setAnswer] = useState<AnswerState>(INITIAL_STATE)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [roleName, setRoleName] = useState("")
+  const [freeformQuestion, setFreeformQuestion] = useState("")
+  const [routing, setRouting] = useState(false)
 
   const needsRoleName = selectedId === "unused-on-role"
 
@@ -43,14 +54,17 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
     }))
   }, [roleName, selectedId])
 
-  async function handleAsk(questionId: string) {
-    const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined })
-    if (!route) {
-      setAnswer({ ...INITIAL_STATE, error: `Unknown question id: ${questionId}` })
-      return
-    }
-    setSelectedId(questionId)
-    setAnswer({ ...INITIAL_STATE, loading: true, headline: route.resultHeadline, route })
+  async function runRoute(
+    route: IntentRoute,
+    decision: RouterDecision | null,
+  ) {
+    setAnswer({
+      ...INITIAL_STATE,
+      loading: true,
+      headline: route.resultHeadline,
+      route,
+      decision,
+    })
     try {
       const env = await fetchWithEnvelope<any>(route.url)
       setAnswer({
@@ -60,6 +74,7 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         route,
         result: env.result,
         provenance: env.provenance,
+        decision,
       })
     } catch (err: any) {
       setAnswer({
@@ -69,7 +84,67 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         route,
         result: null,
         provenance: null,
+        decision,
       })
+    }
+  }
+
+  async function handleAsk(questionId: string) {
+    const route = resolveIntent(questionId, { systemName, roleName: roleName || undefined })
+    if (!route) {
+      setAnswer({ ...INITIAL_STATE, error: `Unknown question id: ${questionId}` })
+      return
+    }
+    setSelectedId(questionId)
+    await runRoute(route, null)
+  }
+
+  async function handleFreeformAsk() {
+    const question = freeformQuestion.trim()
+    if (!question || routing) return
+    setRouting(true)
+    setAnswer({ ...INITIAL_STATE, loading: true, headline: "Routing your question…", route: null })
+    try {
+      const res = await fetch("/api/proxy/copilot/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          systemName: systemName || undefined,
+          roleName: roleName || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data?.chosen_tool) {
+        throw new Error(data?.error || "Router did not pick a tool")
+      }
+      const decision: RouterDecision = {
+        chosen_tool: data.chosen_tool,
+        tool_args: data.tool_args || {},
+        explanation: data.explanation || "",
+        source: data.source || "llm",
+      }
+      const ctx: IntentContext = {
+        systemName: decision.tool_args.systemName || systemName || undefined,
+        roleName: decision.tool_args.roleName || roleName || undefined,
+        windowDays: decision.tool_args.windowDays,
+      }
+      if (decision.tool_args.roleName) {
+        setRoleName(decision.tool_args.roleName)
+      }
+      const route = resolveIntent(decision.chosen_tool, ctx)
+      if (!route) {
+        throw new Error(`Unknown tool from router: ${decision.chosen_tool}`)
+      }
+      setSelectedId(decision.chosen_tool)
+      await runRoute(route, decision)
+    } catch (err: any) {
+      setAnswer({
+        ...INITIAL_STATE,
+        error: err?.message || "Failed to route question",
+      })
+    } finally {
+      setRouting(false)
     }
   }
 
@@ -87,6 +162,46 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
           Pick a starter question. Every answer is traced to real evidence and carries a
           confidence badge.
         </p>
+      </div>
+
+      <div
+        className="rounded-2xl border bg-white p-4 shadow-sm"
+        style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
+      >
+        <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)] mb-2">
+          Ask in your own words
+        </label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={freeformQuestion}
+            onChange={(e) => setFreeformQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                handleFreeformAsk()
+              }
+            }}
+            placeholder="e.g., which role has the most unused permissions in payments?"
+            className="flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2D51DA]/30"
+            style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
+            disabled={routing || answer.loading}
+            data-copilot-freeform-input
+          />
+          <button
+            onClick={handleFreeformAsk}
+            disabled={!freeformQuestion.trim() || routing || answer.loading}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#2D51DA] hover:bg-[#1e3fb5] text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            data-copilot-freeform-submit
+          >
+            {routing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Ask
+          </button>
+        </div>
+        <div className="mt-2 text-xs text-[var(--muted-foreground,#6b7280)]">
+          The copilot picks one of the tools below, then runs it through the same trust-envelope
+          path as the saved questions.
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -161,6 +276,27 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
               </div>
             )}
           </div>
+
+          {answer.decision && (
+            <div
+              className="px-5 py-2 border-b flex items-center gap-2 text-xs"
+              style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}
+            >
+              <Bot className="h-3.5 w-3.5 text-[#2D51DA]" />
+              <span className="font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
+                {answer.decision.source === "llm" ? "LLM router" : "Keyword router"}
+              </span>
+              <span className="text-[var(--muted-foreground,#6b7280)]">picked</span>
+              <code className="px-1.5 py-0.5 rounded bg-[#2D51DA]/10 text-[#2D51DA] font-semibold">
+                {answer.decision.chosen_tool}
+              </code>
+              {answer.decision.explanation && (
+                <span className="text-[var(--muted-foreground,#6b7280)] truncate">
+                  — {answer.decision.explanation}
+                </span>
+              )}
+            </div>
+          )}
 
           {answer.provenance && (
             <div className="px-5 py-2 border-b" style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}>
