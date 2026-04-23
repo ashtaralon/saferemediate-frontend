@@ -10,6 +10,7 @@ import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis
 import { S3PolicyAnalysisModal } from '@/components/s3-policy-analysis-modal'
 import { SGLeastPrivilegeModal } from '@/components/sg-least-privilege-modal'
 import type { BlastRadiusScore } from '@/lib/types'
+import { CoveragePill } from '@/components/brss/coverage-pill'
 
 // ---------- Safe helpers ----------
 const safeArray = <T,>(v: unknown): T[] => Array.isArray(v) ? v : []
@@ -1483,8 +1484,12 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 {iamScore === undefined || iamScore === null ? '—' : iamScore}
               </div>
               {brss && (
-                <div className="text-[10px] mt-1" style={{ color: "var(--text-secondary)" }}>
-                  Coverage {Math.round(brss.coverage_ratio * 100)}%
+                <div className="mt-1">
+                  <CoveragePill
+                    brss={brss}
+                    testId="coverage-pill-lp"
+                    className="inline-flex items-center gap-1 text-[10px] cursor-help focus:outline-none focus:ring-1 focus:ring-slate-400 rounded"
+                  />
                 </div>
               )}
             </div>

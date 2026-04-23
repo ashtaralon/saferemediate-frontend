@@ -52,6 +52,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import { CoveragePill } from "@/components/brss/coverage-pill"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -1440,13 +1441,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       </p>
 
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        {brssCoveragePercent !== null && (
-                          <span
-                            className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur"
-                            title={brss?.coverage_excluded_types?.length ? `Not scanned: ${brss.coverage_excluded_types.join(", ")}` : "All registered types scanned"}
-                          >
-                            Coverage {brssCoveragePercent}%
-                          </span>
+                        {brssCoveragePercent !== null && brss && (
+                          <CoveragePill brss={brss} testId="coverage-pill" />
                         )}
                         {brssDeltaText && (
                           <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
