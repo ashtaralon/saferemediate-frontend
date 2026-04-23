@@ -66,7 +66,7 @@ interface IAMSimulateFixModalProps {
   onClose: () => void
   result: SimulateFixResponse
   resourceName?: string
-  onExecute?: () => Promise<void>
+  onExecute?: (dryRun: boolean) => Promise<void>
   isExecuting?: boolean
 }
 
@@ -131,6 +131,7 @@ export function IAMSimulateFixModal({
   isExecuting = false
 }: IAMSimulateFixModalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'evidence' | 'impact'>('overview')
+  const [dryRun, setDryRun] = useState(true) // Default to dry-run for safety
 
   if (!isOpen) return null
 
@@ -506,38 +507,72 @@ export function IAMSimulateFixModal({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-700 flex items-center justify-between">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
-          >
-            Cancel
-          </button>
+        <div className="px-6 py-4 border-t border-slate-700">
+          {/* Dry-run toggle */}
+          <div className="flex items-center justify-between mb-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div
+                onClick={() => setDryRun(!dryRun)}
+                className={`relative w-11 h-6 rounded-full transition-colors ${
+                  dryRun ? 'bg-blue-600' : 'bg-slate-600'
+                }`}
+              >
+                <div
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                    dryRun ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </div>
+              <div>
+                <span className="text-sm font-medium text-white">
+                  {dryRun ? 'Preview Mode' : 'Live Mode'}
+                </span>
+                <span className="block text-xs text-slate-400">
+                  {dryRun ? 'No changes will be made' : 'Changes will be applied to AWS'}
+                </span>
+              </div>
+            </label>
+            {!dryRun && (
+              <span className="text-xs text-amber-400 flex items-center gap-1">
+                <span>⚠</span> Live changes enabled
+              </span>
+            )}
+          </div>
 
-          {safety.decision === 'blocked' ? (
+          <div className="flex items-center justify-between">
             <button
-              disabled
-              className="px-6 py-2 rounded-lg text-sm font-bold bg-red-900/50 text-red-400 cursor-not-allowed"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
             >
-              Blocked - Manual Review Required
+              Cancel
             </button>
-          ) : safety.decision === 'approval_required' ? (
-            <button
-              onClick={onExecute}
-              disabled={isExecuting}
-              className="px-6 py-2 rounded-lg text-sm font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors disabled:opacity-50"
-            >
-              {isExecuting ? 'Requesting...' : 'Request Approval'}
-            </button>
-          ) : (
-            <button
-              onClick={onExecute}
-              disabled={isExecuting}
-              className="px-6 py-2 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-            >
-              {isExecuting ? 'Applying...' : 'Apply Fix'}
-            </button>
-          )}
+
+            {safety.decision === 'blocked' ? (
+              <button
+                disabled
+                className="px-6 py-2 rounded-lg text-sm font-bold bg-red-900/50 text-red-400 cursor-not-allowed"
+              >
+                Blocked - Manual Review Required
+              </button>
+            ) : (
+              <button
+                onClick={() => onExecute?.(dryRun)}
+                disabled={isExecuting}
+                className={`px-6 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50 ${
+                  dryRun
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : safety.decision === 'approval_required'
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
+              >
+                {isExecuting
+                  ? (dryRun ? 'Previewing...' : 'Applying...')
+                  : (dryRun ? 'Preview Changes' : (safety.decision === 'approval_required' ? 'Apply with Approval' : 'Apply Fix'))
+                }
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

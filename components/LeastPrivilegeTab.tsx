@@ -2521,7 +2521,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           result={iamSimulateFixResult}
           resourceName={selectedResource.resourceName}
           isExecuting={isExecuting}
-          onExecute={async () => {
+          onExecute={async (dryRun: boolean) => {
             setIsExecuting(true)
             try {
               // Get role name from resource
@@ -2551,13 +2551,15 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 throw new Error('No unused permissions found for remediation')
               }
 
+              console.log(`[IAM-SIMULATE-FIX] ${dryRun ? 'DRY RUN' : 'LIVE'} - Removing ${permissionsToRemove.length} permissions`)
+
               // Call remediation API
               const response = await fetch('/api/proxy/cyntro/remediate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   role_name: roleName,
-                  dry_run: false,
+                  dry_run: dryRun,
                   permissions_to_remove: permissionsToRemove
                 })
               })
@@ -2571,23 +2573,34 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
 
               if (result.success) {
                 const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
-                toast({
-                  title: 'Remediation Complete',
-                  description: `Snapshot: ${result.snapshot_id || 'Created'}. Removed ${removedPermissions} unused permissions.`
-                })
 
-                setIamSimulateFixModalOpen(false)
-                setIamSimulateFixResult(null)
-                handleRemediationSuccess(selectedResource, {
-                  snapshotId: result.snapshot_id || null,
-                  eventId: result.event_id || null,
-                  rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
-                  remediatedBy: 'user@cyntro.io',
-                  afterTotal: result.summary?.after_total ?? null,
-                  removedCount: removedPermissions,
-                })
-                setDrawerOpen(false)
-                setSelectedResource(null)
+                if (dryRun) {
+                  // Dry-run: show preview, keep modal open
+                  toast({
+                    title: 'Preview Complete',
+                    description: `Would remove ${removedPermissions} permissions. Toggle to Live Mode to apply.`
+                  })
+                  console.log('[IAM-SIMULATE-FIX] Dry-run result:', result)
+                } else {
+                  // Live: show success, close modal
+                  toast({
+                    title: 'Remediation Complete',
+                    description: `Snapshot: ${result.snapshot_id || 'Created'}. Removed ${removedPermissions} unused permissions.`
+                  })
+
+                  setIamSimulateFixModalOpen(false)
+                  setIamSimulateFixResult(null)
+                  handleRemediationSuccess(selectedResource, {
+                    snapshotId: result.snapshot_id || null,
+                    eventId: result.event_id || null,
+                    rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
+                    remediatedBy: 'user@cyntro.io',
+                    afterTotal: result.summary?.after_total ?? null,
+                    removedCount: removedPermissions,
+                  })
+                  setDrawerOpen(false)
+                  setSelectedResource(null)
+                }
               } else if (result.blocked) {
                 throw new Error(result.block_reason || result.message || 'Remediation blocked by safety gate')
               } else {
