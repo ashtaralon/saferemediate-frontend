@@ -15,7 +15,7 @@
 
 import { useState } from 'react'
 import { X, Shield, AlertTriangle, CheckCircle2, XCircle, Clock, Eye, Users, TrendingDown, Info } from 'lucide-react'
-import type { SimulateFixResponse, SimulateFixSafetyDecision, SAFETY_DECISION_CONFIG } from '@/lib/types'
+import type { SimulateFixResponse, SimulateFixSafetyDecision } from '@/lib/types'
 
 // =============================================================================
 // STYLE CONSTANTS
