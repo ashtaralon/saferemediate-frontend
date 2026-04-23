@@ -595,6 +595,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             usedCount: r.usedCount ?? 0,
             gapCount: r.gapCount ?? 0,
             gapPercent: r.gapPercent ?? 0,
+            blastRadius: r.blastRadius ?? r.blast_radius ?? undefined,
             networkExposure: networkExposure ? {
               score: networkExposure.score || 0,
               severity: networkExposure.severity || 'MEDIUM',
