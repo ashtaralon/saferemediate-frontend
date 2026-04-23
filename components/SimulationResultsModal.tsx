@@ -1,130 +1,55 @@
 "use client"
 
 /**
- * Simulation Results Modal - Categorical Confidence Framework
- * 
- * Shows simulation results with:
- * - Categorical confidence (HIGH/MEDIUM/LOW/BLOCKED) instead of numeric
- * - Explicit policies (SG never auto-applies, etc.)
- * - Simulation steps with detailed criteria
- * - Edge case detection
- * - Proper timeout handling (REVIEW REQUIRED, not "50% SAFE")
+ * Simulation Results Modal - Redesigned to match ConfidenceExplanationPanel
+ *
+ * Visual language:
+ * - Dark slate background (bg-slate-900)
+ * - Compact confidence score header (single display)
+ * - Routing badges inline with score
+ * - ENV: PROD pill badge
+ * - "Why this score" explanation section
+ * - Signal chips for visibility
+ * - Clear separation: confidence = behavioral data certainty, approval = policy rule
+ *
+ * Tabs: Summary | Permissions | Context
  */
 
 import { useState, useEffect } from 'react'
-import { X, CheckCircle2, XCircle, AlertTriangle, Loader2, Shield, Clock, FileDown, Send, Zap, ChevronRight } from 'lucide-react'
+import { X, Loader2, Shield, CheckCircle2, AlertTriangle, XCircle, Zap, FileDown, Send } from 'lucide-react'
 
-interface ConfidenceCriteria {
-  level: 'HIGH' | 'MEDIUM' | 'LOW' | 'BLOCKED'
-  numeric?: number
-  criteria_met: string[]
-  criteria_failed: string[]
-  disqualifiers_triggered: string[]
-  summary: string
-}
+// =============================================================================
+// TYPES
+// =============================================================================
 
-interface BlastRadius {
-  level: 'ISOLATED' | 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN'
-  numeric?: number
-  affected_resources_count: number
-  affected_resources: Array<{
-    id: string
-    type: string
-    name: string
-    impact: string
-  }>
-}
-
-interface EdgeCase {
-  case_id: string
-  description: string
-  detected: boolean
-  action: string
-  severity: string
-}
-
-interface SimulationStep {
-  step_number: number
-  name: string
-  description: string
-  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'SKIPPED'
-  duration_ms?: number
-  result?: any
-  error?: string
-}
-
-interface ActionPolicy {
-  auto_apply: boolean
-  allowed_actions: string[]
-  reason: string
-  issue_type?: string
-}
+type ConfidenceRouting = 'auto_execute' | 'human_approval' | 'manual_review' | 'blocked'
+type LLMReviewVerdict = 'agree' | 'escalate' | 'block'
 
 interface SimulationResult {
-  // Status
   status: 'EXECUTE' | 'CANARY' | 'REVIEW' | 'BLOCKED'
   timeout?: boolean
-  
-  // Categorical confidence
-  confidence: ConfidenceCriteria | number  // Support both old (numeric) and new (categorical) format
-  
-  // Blast radius
-  blast_radius: BlastRadius | number  // Support both formats
-  
-  // Evidence
-  evidence?: {
-    cloudtrail?: {
-      total_events: number
-      matched_events: number
-      days_since_last_use?: number
-      last_used?: string
-    }
-    flowlogs?: {
-      total_flows: number
-      matched_flows: number
-    }
-    summary?: {
-      total_sources: number
-      agreeing_sources: number
-    }
-  }
-  
-  // Simulation steps
-  simulation_steps?: SimulationStep[]
-  
-  // Edge cases
-  edge_cases?: EdgeCase[]
-  
-  // Action policy
-  action_policy?: ActionPolicy
-  
-  // Other fields
+  confidence: number | { level: string; numeric?: number; summary?: string }
+  blast_radius: number | { level: string; affected_resources_count: number }
   affected_resources_count?: number
-  affected_resources?: Array<{
-    id: string
-    type: string
-    name: string
-    impact: string
-    reason: string
-  }>
+  affected_resources?: Array<{ id: string; type: string; name: string; impact: string; reason?: string }>
   recommendation: string
-  before_state_summary?: any
-  after_state_summary?: any
-  timestamp: string
-  timeout_status?: {
-    timed_out: boolean
-    reason: string
-    message: string
-    partial_data: boolean
-    action_policy?: string
+  evidence?: {
+    cloudtrail?: { total_events: number; matched_events: number; days_since_last_use?: number }
+    flowlogs?: { total_flows: number; matched_flows: number }
   }
   human_readable_evidence?: string[]
-  why_safe?: {
-    summary: string
-    reasons: string[]
-    confidence_level: string
-    risk_level: string
-  }
+  why_safe?: { summary: string; reasons: string[]; confidence_level: string; risk_level: string }
+  timeout_status?: { timed_out: boolean; reason: string; message: string; partial_data: boolean; action_policy?: string }
+  // Confidence scorer fields (from backend)
+  routing?: ConfidenceRouting
+  routing_deterministic?: ConfidenceRouting
+  visibility_integrity?: number
+  signals_available?: Record<string, boolean>
+  llm_review?: { verdict: LLMReviewVerdict; reason: string }
+  llm_explanation?: string
+  gates_failed?: Array<{ gate: string; severity: 'hard_block' | 'warn'; detail: string }>
+  resource_tags?: { environment?: string; system?: string; owner?: string; compliance?: string }
+  timestamp: string
 }
 
 interface SimulationResultsModalProps {
@@ -133,16 +58,116 @@ interface SimulationResultsModalProps {
   resourceType: string
   resourceId: string
   resourceName: string
-  proposedChange: {
-    action: string
-    items: string[]
-    reason: string
-  }
+  proposedChange: { action: string; items: string[]; reason: string }
   systemName?: string
-  result?: SimulationResult  // Optional: pass result directly (for testing)
-  onExecute?: (dryRun: boolean) => Promise<void>  // Execute remediation callback
-  isExecuting?: boolean  // Show loading state during execution
+  result?: SimulationResult
+  onExecute?: (dryRun: boolean) => Promise<void>
+  isExecuting?: boolean
 }
+
+// =============================================================================
+// STYLE CONSTANTS (matching ConfidenceExplanationPanel)
+// =============================================================================
+
+const ROUTING_STYLE: Record<ConfidenceRouting, { label: string; color: string; bg: string }> = {
+  auto_execute:   { label: 'Safe to apply',   color: '#15803d', bg: '#dcfce7' },
+  human_approval: { label: 'Needs approval',  color: '#a16207', bg: '#fef3c7' },
+  manual_review:  { label: 'Review required', color: '#b91c1c', bg: '#fee2e2' },
+  blocked:        { label: 'Blocked',         color: '#991b1b', bg: '#fecaca' },
+}
+
+const REVIEW_STYLE: Record<LLMReviewVerdict, { label: string; color: string; bg: string; border: string }> = {
+  agree:    { label: 'AI reviewer agrees',    color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0' },
+  escalate: { label: 'AI reviewer escalated', color: '#a16207', bg: '#fffbeb', border: '#fde68a' },
+  block:    { label: 'AI reviewer blocked',   color: '#991b1b', bg: '#fef2f2', border: '#fecaca' },
+}
+
+const ENV_STYLE: Record<string, { color: string; bg: string }> = {
+  prod:    { color: '#fef2f2', bg: '#991b1b' },  // Inverted for dark theme
+  staging: { color: '#fef3c7', bg: '#a16207' },
+  dev:     { color: '#dcfce7', bg: '#166534' },
+  test:    { color: '#dbeafe', bg: '#1d4ed8' },
+  unknown: { color: '#e2e8f0', bg: '#475569' },
+}
+
+const SIGNAL_LABELS: Record<string, string> = {
+  control_plane_telemetry: 'Control-plane telemetry',
+  data_plane_telemetry:    'Data-plane telemetry',
+  usage_telemetry:         'Usage telemetry',
+  runtime_telemetry:       'Runtime telemetry',
+  execution_triggers:      'Execution triggers',
+  trust_graph:             'Trust graph',
+  resource_metadata:       'Resource metadata',
+  resource_indexed:        'Resource indexed',
+  attachment_graph:        'Attachment graph',
+  policy_inventory:        'Policy inventory',
+  network_flow_telemetry:  'Network flow telemetry',
+  public_exposure_controls: 'Public exposure controls',
+  access_policy_analyzed:   'Access policy analyzed',
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+function scoreColor(n: number): string {
+  if (n >= 95) return '#22c55e'  // green-500
+  if (n >= 80) return '#eab308'  // yellow-500
+  if (n >= 60) return '#f97316'  // orange-500
+  return '#ef4444'               // red-500
+}
+
+function prettifySignalKey(key: string): string {
+  return SIGNAL_LABELS[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function getNumericConfidence(confidence: SimulationResult['confidence']): number {
+  if (typeof confidence === 'number') {
+    return confidence > 1 ? confidence : confidence * 100
+  }
+  if (typeof confidence === 'object' && confidence.numeric !== undefined) {
+    return confidence.numeric > 1 ? confidence.numeric : confidence.numeric * 100
+  }
+  // Fallback based on categorical level
+  if (typeof confidence === 'object' && confidence.level) {
+    switch (confidence.level) {
+      case 'HIGH': return 95
+      case 'MEDIUM': return 75
+      case 'LOW': return 50
+      default: return 25
+    }
+  }
+  return 50
+}
+
+function getRouting(result: SimulationResult): ConfidenceRouting {
+  if (result.routing) return result.routing
+  // Derive from status
+  switch (result.status) {
+    case 'EXECUTE': return 'auto_execute'
+    case 'CANARY': return 'human_approval'
+    case 'REVIEW': return 'manual_review'
+    case 'BLOCKED': return 'blocked'
+    default: return 'manual_review'
+  }
+}
+
+function splitExplanation(text: string): { headline: string; details: string } {
+  const trimmed = text.trim()
+  const lineBreak = trimmed.indexOf('\n\n')
+  if (lineBreak !== -1) {
+    return { headline: trimmed.slice(0, lineBreak).trim(), details: trimmed.slice(lineBreak + 2).trim() }
+  }
+  const firstStop = trimmed.search(/\.\s/)
+  if (firstStop !== -1) {
+    return { headline: trimmed.slice(0, firstStop).trim(), details: trimmed.slice(firstStop + 1).trim() }
+  }
+  return { headline: trimmed, details: '' }
+}
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
 export default function SimulationResultsModal({
   isOpen,
@@ -159,7 +184,7 @@ export default function SimulationResultsModal({
   const [result, setResult] = useState<SimulationResult | null>(initialResult || null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'summary' | 'steps' | 'evidence' | 'edge-cases'>('summary')
+  const [activeTab, setActiveTab] = useState<'summary' | 'permissions' | 'context'>('summary')
 
   useEffect(() => {
     if (isOpen && !result && !initialResult) {
@@ -170,7 +195,6 @@ export default function SimulationResultsModal({
   const runSimulation = async () => {
     setLoading(true)
     setError(null)
-    
     try {
       const response = await fetch('/api/proxy/simulate', {
         method: 'POST',
@@ -181,201 +205,83 @@ export default function SimulationResultsModal({
           proposed_change: proposedChange,
           system_name: systemName
         }),
-        signal: AbortSignal.timeout(60000) // 60s timeout
+        signal: AbortSignal.timeout(60000)
       })
-
-      if (!response.ok) {
-        throw new Error(`Simulation failed: ${response.status}`)
-      }
-
+      if (!response.ok) throw new Error(`Simulation failed: ${response.status}`)
       const data = await response.json()
       setResult(data)
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setError(errorMessage)
-      console.error('[Simulation] Error:', err)
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
   }
 
-  // Helper: Normalize confidence to categorical format
-  const getConfidence = (): ConfidenceCriteria => {
-    if (!result) {
-      return {
-        level: 'BLOCKED',
-        criteria_met: [],
-        criteria_failed: ['no_simulation_data'],
-        disqualifiers_triggered: [],
-        summary: 'No simulation data available'
-      }
-    }
-    
-    // If already categorical
-    if (typeof result.confidence === 'object' && 'level' in result.confidence) {
-      return result.confidence as ConfidenceCriteria
-    }
-    
-    // Convert numeric to categorical
-    // Handle both 0-1 scale and 0-100 scale
-    let numeric = typeof result.confidence === 'number' ? result.confidence : 0.5
-    if (numeric > 1) {
-      // Already in 0-100 scale, convert to 0-1
-      numeric = numeric / 100
-    }
-    
-    if (numeric >= 0.9) {
-      return {
-        level: 'HIGH',
-        numeric,
-        criteria_met: ['high_confidence_threshold'],
-        criteria_failed: [],
-        disqualifiers_triggered: [],
-        summary: 'High confidence based on evidence'
-      }
-    } else if (numeric >= 0.7) {
-      return {
-        level: 'MEDIUM',
-        numeric,
-        criteria_met: ['medium_confidence_threshold'],
-        criteria_failed: [],
-        disqualifiers_triggered: [],
-        summary: 'Medium confidence - some uncertainty'
-      }
-    } else if (numeric >= 0.5) {
-      return {
-        level: 'LOW',
-        numeric,
-        criteria_met: [],
-        criteria_failed: ['low_confidence_threshold'],
-        disqualifiers_triggered: [],
-        summary: 'Low confidence - review required'
-      }
-    } else {
-      return {
-        level: 'BLOCKED',
-        numeric,
-        criteria_met: [],
-        criteria_failed: ['insufficient_confidence'],
-        disqualifiers_triggered: [],
-        summary: 'Insufficient confidence - blocked'
-      }
-    }
-  }
-
-  // Helper: Normalize blast radius
-  const getBlastRadius = (): BlastRadius => {
-    if (!result) {
-      return {
-        level: 'UNKNOWN',
-        affected_resources_count: 0,
-        affected_resources: []
-      }
-    }
-    
-    if (typeof result.blast_radius === 'object' && 'level' in result.blast_radius) {
-      return result.blast_radius as BlastRadius
-    }
-    
-    const numeric = typeof result.blast_radius === 'number' ? result.blast_radius : 0.5
-    const count = result.affected_resources_count || 0
-    
-    if (numeric < 0.05 && count === 0) {
-      return { level: 'ISOLATED', numeric, affected_resources_count: count, affected_resources: result.affected_resources || [] }
-    } else if (numeric < 0.1 && count < 5) {
-      return { level: 'LOW', numeric, affected_resources_count: count, affected_resources: result.affected_resources || [] }
-    } else if (numeric < 0.2 && count < 20) {
-      return { level: 'MEDIUM', numeric, affected_resources_count: count, affected_resources: result.affected_resources || [] }
-    } else {
-      return { level: 'HIGH', numeric, affected_resources_count: count, affected_resources: result.affected_resources || [] }
-    }
-  }
-
-  // Helper: Get status color
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'EXECUTE':
-        return { bg: '#dcfce7', text: '#166534', border: '#86efac', icon: CheckCircle2 }
-      case 'CANARY':
-        return { bg: '#fef3c7', text: '#92400e', border: '#fde68a', icon: AlertTriangle }
-      case 'REVIEW':
-        return { bg: '#fed7aa', text: '#9a3412', border: '#fdba74', icon: AlertTriangle }
-      case 'BLOCKED':
-        return { bg: '#fee2e2', text: '#991b1b', border: '#fecaca', icon: XCircle }
-      default:
-        return { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb', icon: AlertTriangle }
-    }
-  }
-
-  // Helper: Get confidence color
-  const getConfidenceColor = (level: string) => {
-    switch (level) {
-      case 'HIGH':
-        return { bg: '#dcfce7', text: '#166534', border: '#86efac' }
-      case 'MEDIUM':
-        return { bg: '#fef3c7', text: '#92400e', border: '#fde68a' }
-      case 'LOW':
-        return { bg: '#fed7aa', text: '#9a3412', border: '#fdba74' }
-      case 'BLOCKED':
-        return { bg: '#fee2e2', text: '#991b1b', border: '#fecaca' }
-      default:
-        return { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' }
-    }
-  }
-
   if (!isOpen) return null
 
-  const confidence = getConfidence()
-  const blastRadius = getBlastRadius()
-  const statusColors = result ? getStatusColor(result.status) : null
-  const confidenceColors = getConfidenceColor(confidence.level)
-  const StatusIcon = statusColors?.icon || AlertTriangle
+  // Derived values
+  const confidence = result ? getNumericConfidence(result.confidence) : 0
+  const routing = result ? getRouting(result) : 'manual_review'
+  const routingStyle = ROUTING_STYLE[routing]
+  const visibilityInt = result?.visibility_integrity ?? 0.75
+  const signals = result?.signals_available ?? {}
+  const signalsOn = Object.entries(signals).filter(([, v]) => v).map(([k]) => k)
+  const signalsOff = Object.entries(signals).filter(([, v]) => !v).map(([k]) => k)
+  const gates = result?.gates_failed ?? []
+  const hardBlocks = gates.filter(g => g.severity === 'hard_block')
+  const warnings = gates.filter(g => g.severity === 'warn')
+  const resourceTags = result?.resource_tags
+  const env = (resourceTags?.environment || 'prod').toLowerCase()
+  const envStyle = ENV_STYLE[env] ?? ENV_STYLE.unknown
+  const explanation = result?.llm_explanation ? splitExplanation(result.llm_explanation) : null
+  const isProd = env === 'prod'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-slate-900 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden border border-slate-700">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-[var(--border,#e5e7eb)] px-6 py-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-[var(--foreground,#111827)]">Simulation Results</h2>
-            <p className="text-sm text-[var(--muted-foreground,#4b5563)] mt-1">
-              Analyzing: <strong>{resourceName}</strong> ({resourceType})
-            </p>
+        <div className="px-6 py-4 border-b border-slate-700">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-1">
+                Simulation Results
+              </p>
+              <h2 className="text-lg font-bold text-white">{resourceName}</h2>
+              <p className="text-sm text-slate-400">
+                {resourceId} · {resourceType} · {systemName || 'Unknown System'}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-white transition-colors p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="text-[var(--muted-foreground,#9ca3af)] hover:text-[var(--muted-foreground,#4b5563)] transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
           {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-[#8b5cf6]" />
-                <p className="text-lg font-medium text-[var(--foreground,#111827)] mb-2">Running Simulation...</p>
-                <p className="text-sm text-[var(--muted-foreground,#6b7280)]">
-                  Building virtual infrastructure replica and computing blast radius...
-                </p>
-              </div>
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="w-10 h-10 animate-spin text-indigo-400 mb-4" />
+              <p className="text-white font-medium">Running Simulation...</p>
+              <p className="text-sm text-slate-400 mt-1">Analyzing behavioral data and computing blast radius</p>
             </div>
           )}
 
           {error && (
-            <div className="rounded-lg border border-[#ef444440] bg-[#ef444410] p-4">
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4">
               <div className="flex items-start gap-3">
-                <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
+                <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h3 className="font-semibold text-red-900 mb-1">Simulation Error</h3>
-                  <p className="text-sm text-[#ef4444]">{error}</p>
+                  <p className="font-medium text-red-300">Simulation Error</p>
+                  <p className="text-sm text-red-400 mt-1">{error}</p>
                   <button
                     onClick={runSimulation}
-                    className="mt-3 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                    className="mt-3 px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700"
                   >
-                    Retry Simulation
+                    Retry
                   </button>
                 </div>
               </div>
@@ -383,444 +289,440 @@ export default function SimulationResultsModal({
           )}
 
           {result && (
-            <>
-              {/* Timeout Warning */}
-              {result.timeout && result.timeout_status && (
-                <div className="rounded-lg border-2 border-orange-300 bg-[#f9731610] p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-orange-900 mb-1">⚠️ REVIEW REQUIRED</h3>
-                      <p className="text-sm text-[#f97316] mb-2">{result.timeout_status.message}</p>
-                      <p className="text-xs text-[#f97316]">
-                        Reason: {result.timeout_status.reason}
-                      </p>
-                      {result.timeout_status.action_policy && (
-                        <p className="text-xs text-[#f97316] mt-1">
-                          Action Policy: <strong>{result.timeout_status.action_policy}</strong>
+            <div className="space-y-4">
+              {/* ============================================================= */}
+              {/* CONFIDENCE SCORE PANEL (matching ConfidenceExplanationPanel)  */}
+              {/* ============================================================= */}
+              <div className="rounded-lg border border-slate-600 bg-slate-800 p-4 space-y-3">
+                {/* Agent label + Routing badge */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                    Agent 5 · Confidence Scorer
+                  </span>
+                  <span
+                    className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
+                    style={{ background: routingStyle.bg, color: routingStyle.color }}
+                  >
+                    {routingStyle.label}
+                  </span>
+                </div>
+
+                {/* Score display */}
+                <div className="flex items-baseline gap-3">
+                  <span
+                    className="text-3xl font-bold tabular-nums"
+                    style={{ color: scoreColor(confidence) }}
+                  >
+                    {Math.round(confidence)}
+                  </span>
+                  <span className="text-xs text-slate-400">confidence / 100</span>
+                  <span className="ml-auto text-xs text-slate-400">
+                    Visibility {Math.round(visibilityInt * 100)}%
+                  </span>
+                </div>
+
+                {/* ENV + System badges */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span
+                    className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ background: envStyle.bg, color: envStyle.color }}
+                  >
+                    env: {env}
+                  </span>
+                  {resourceTags?.system && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-300">
+                      system: {resourceTags.system}
+                    </span>
+                  )}
+                  {resourceTags?.owner && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-300">
+                      owner: {resourceTags.owner}
+                    </span>
+                  )}
+                </div>
+
+                {/* Production approval policy notice */}
+                {isProd && routing === 'human_approval' && (
+                  <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3">
+                    <div className="flex items-start gap-2">
+                      <Shield className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+                          Production Approval Required
                         </p>
-                      )}
+                        <p className="text-xs text-amber-300/80 mt-1">
+                          High confidence score indicates this fix is safe based on behavioral data.
+                          Production changes require human approval as a policy safeguard, not due to uncertainty.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Tabs */}
-              <div className="border-b border-[var(--border,#e5e7eb)]">
-                <div className="flex gap-4">
-                  {[
-                    { id: 'summary', label: 'Summary' },
-                    { id: 'steps', label: 'Simulation Steps' },
-                    { id: 'evidence', label: 'Evidence' },
-                    { id: 'edge-cases', label: 'Edge Cases' }
-                  ].map((tab) => (
+                {/* AI Reviewer verdict */}
+                {result.llm_review && (
+                  <div
+                    className="rounded border p-3"
+                    style={{
+                      borderColor: REVIEW_STYLE[result.llm_review.verdict].border,
+                      background: REVIEW_STYLE[result.llm_review.verdict].bg
+                    }}
+                  >
+                    <p
+                      className="text-[11px] font-semibold uppercase tracking-wider mb-1"
+                      style={{ color: REVIEW_STYLE[result.llm_review.verdict].color }}
+                    >
+                      {REVIEW_STYLE[result.llm_review.verdict].label}
+                    </p>
+                    <p
+                      className="text-sm leading-relaxed"
+                      style={{ color: REVIEW_STYLE[result.llm_review.verdict].color }}
+                    >
+                      {result.llm_review.reason}
+                    </p>
+                  </div>
+                )}
+
+                {/* Why this score */}
+                {explanation ? (
+                  <div className="rounded border border-slate-600 bg-slate-700/50 p-3 space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                      Why this score
+                    </p>
+                    <p className="text-sm font-semibold text-white leading-snug">
+                      {explanation.headline}
+                    </p>
+                    {explanation.details && (
+                      <p className="text-sm text-slate-300 leading-relaxed">
+                        {explanation.details}
+                      </p>
+                    )}
+                  </div>
+                ) : result.why_safe ? (
+                  <div className="rounded border border-slate-600 bg-slate-700/50 p-3 space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                      Why this score
+                    </p>
+                    <p className="text-sm font-semibold text-white leading-snug">
+                      {result.why_safe.summary}
+                    </p>
+                    {result.why_safe.reasons.length > 0 && (
+                      <ul className="text-sm text-slate-300 mt-2 space-y-1">
+                        {result.why_safe.reasons.map((r, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <CheckCircle2 className="w-3 h-3 text-green-400 mt-1 flex-shrink-0" />
+                            <span>{r}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* Hard blocks */}
+                {hardBlocks.length > 0 && (
+                  <div className="rounded border border-red-500/40 bg-red-500/10 p-3">
+                    <p className="text-xs font-semibold text-red-400 mb-1">Hard Blocks</p>
+                    <ul className="space-y-1">
+                      {hardBlocks.map((g, i) => (
+                        <li key={i} className="text-sm text-red-300 flex items-start gap-2">
+                          <XCircle className="w-3 h-3 mt-1 flex-shrink-0" />
+                          <span><strong>{g.gate}:</strong> {g.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Warnings */}
+                {warnings.length > 0 && (
+                  <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3">
+                    <p className="text-xs font-semibold text-amber-400 mb-1">Warnings</p>
+                    <ul className="space-y-1">
+                      {warnings.map((g, i) => (
+                        <li key={i} className="text-sm text-amber-300 flex items-start gap-2">
+                          <AlertTriangle className="w-3 h-3 mt-1 flex-shrink-0" />
+                          <span><strong>{g.gate}:</strong> {g.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Signal chips */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {signalsOn.map(s => (
+                    <span
+                      key={s}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium bg-green-500/20 text-green-400"
+                    >
+                      ✓ {prettifySignalKey(s)}
+                    </span>
+                  ))}
+                  {signalsOff.map(s => (
+                    <span
+                      key={s}
+                      className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-500"
+                    >
+                      ✗ {prettifySignalKey(s)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* ============================================================= */}
+              {/* TABS: Summary | Permissions | Context                         */}
+              {/* ============================================================= */}
+              <div className="border-b border-slate-700">
+                <div className="flex gap-1">
+                  {(['summary', 'permissions', 'context'] as const).map((tab) => (
                     <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id as any)}
-                      className={`px-4 py-2 border-b-2 font-medium text-sm ${
-                        activeTab === tab.id
-                          ? 'border-indigo-600 text-[#8b5cf6]'
-                          : 'border-transparent text-[var(--muted-foreground,#4b5563)] hover:text-[var(--foreground,#111827)]'
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
+                        activeTab === tab
+                          ? 'text-white border-b-2 border-indigo-400'
+                          : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      {tab.label}
+                      {tab}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Summary Tab */}
-              {activeTab === 'summary' && (
-                <div className="space-y-6">
-                  {/* Status Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Status */}
-                    <div
-                      className="rounded-lg p-4 border-2"
-                      style={{
-                        background: statusColors.bg,
-                        borderColor: statusColors.border,
-                        color: statusColors.text
-                      }}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <StatusIcon className="w-5 h-5" />
-                        <div className="text-sm font-medium uppercase">Status</div>
-                      </div>
-                      <div className="text-3xl font-bold">{result.status}</div>
-                      <div className="text-xs mt-1 opacity-80">
-                        {result.status === 'EXECUTE' && 'Safe to proceed'}
-                        {result.status === 'CANARY' && 'Run canary first'}
-                        {result.status === 'REVIEW' && 'Manual review needed'}
-                        {result.status === 'BLOCKED' && 'High risk - blocked'}
-                      </div>
-                    </div>
-
-                    {/* Confidence (Categorical) */}
-                    <div
-                      className="rounded-lg p-4 border-2"
-                      style={{
-                        background: confidenceColors.bg,
-                        borderColor: confidenceColors.border,
-                        color: confidenceColors.text
-                      }}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <Shield className="w-5 h-5" />
-                        <div className="text-sm font-medium">Confidence</div>
-                      </div>
-                      <div className="text-3xl font-bold">{confidence.level}</div>
-                      {confidence.numeric !== undefined && (
-                        <div className="text-xs mt-1 opacity-80">
-                          {confidence.numeric > 1 
-                            ? `${confidence.numeric.toFixed(0)}% numeric` 
-                            : `${(confidence.numeric * 100).toFixed(0)}% numeric`}
+              {/* ============================================================= */}
+              {/* TAB CONTENT                                                   */}
+              {/* ============================================================= */}
+              <div className="pt-2">
+                {/* Summary Tab */}
+                {activeTab === 'summary' && (
+                  <div className="space-y-4">
+                    {/* Timeout warning */}
+                    {result.timeout && result.timeout_status && (
+                      <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-4">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0" />
+                          <div>
+                            <p className="font-semibold text-orange-300">Review Required</p>
+                            <p className="text-sm text-orange-400 mt-1">{result.timeout_status.message}</p>
+                          </div>
                         </div>
-                      )}
-                      <div className="text-xs mt-1 opacity-80">
-                        {confidence.summary}
                       </div>
+                    )}
+
+                    {/* Proposed change */}
+                    <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                        Proposed Change
+                      </p>
+                      <p className="text-sm text-white font-medium">{proposedChange.action}</p>
+                      <p className="text-xs text-slate-400 mt-1">{proposedChange.reason}</p>
+                      {proposedChange.items.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {proposedChange.items.slice(0, 5).map((item, i) => (
+                            <li key={i} className="text-xs text-slate-300 font-mono bg-slate-700/50 px-2 py-1 rounded">
+                              {item}
+                            </li>
+                          ))}
+                          {proposedChange.items.length > 5 && (
+                            <li className="text-xs text-slate-500">
+                              +{proposedChange.items.length - 5} more items
+                            </li>
+                          )}
+                        </ul>
+                      )}
                     </div>
 
-                    {/* Blast Radius */}
-                    <div className="rounded-lg p-4 border border-[var(--border,#e5e7eb)] bg-white">
-                      <div className="flex items-center gap-2 mb-2">
-                        <AlertTriangle className="w-5 h-5 text-orange-600" />
-                        <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Blast Radius</div>
+                    {/* Blast radius */}
+                    <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                        Blast Radius
+                      </p>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold text-white">
+                          {result.affected_resources_count ?? 0}
+                        </span>
+                        <span className="text-sm text-slate-400">resources affected</span>
                       </div>
-                      <div className="text-3xl font-bold text-[var(--foreground,#111827)]">{blastRadius.level}</div>
-                      <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                        {blastRadius.affected_resources_count} resources affected
-                      </div>
+                      {result.affected_resources && result.affected_resources.length > 0 && (
+                        <ul className="mt-3 space-y-2">
+                          {result.affected_resources.slice(0, 3).map((r, i) => (
+                            <li key={i} className="text-xs text-slate-300 bg-slate-700/50 px-2 py-1.5 rounded">
+                              <span className="font-medium">{r.name || r.id}</span>
+                              <span className="text-slate-500 ml-2">({r.type})</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {/* Recommendation */}
+                    <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                        Recommendation
+                      </p>
+                      <p className="text-sm text-slate-200">{result.recommendation}</p>
                     </div>
                   </div>
+                )}
 
-                  {/* Confidence Criteria */}
-                  <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                    <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Confidence Criteria</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {confidence.criteria_met.length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-[#22c55e] mb-2">✓ Criteria Met</div>
-                          <ul className="space-y-1">
-                            {confidence.criteria_met.map((criterion, idx) => (
-                              <li key={idx} className="text-xs text-[var(--foreground,#374151)] flex items-center gap-2">
-                                <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />
-                                {criterion}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {confidence.criteria_failed.length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-[#ef4444] mb-2">✗ Criteria Failed</div>
-                          <ul className="space-y-1">
-                            {confidence.criteria_failed.map((criterion, idx) => (
-                              <li key={idx} className="text-xs text-[var(--foreground,#374151)] flex items-center gap-2">
-                                <XCircle className="w-3 h-3 text-[#ef4444]" />
-                                {criterion}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                {/* Permissions Tab */}
+                {activeTab === 'permissions' && (
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                        Items to Remove
+                      </p>
+                      {proposedChange.items.length > 0 ? (
+                        <ul className="space-y-2">
+                          {proposedChange.items.map((item, i) => (
+                            <li key={i} className="flex items-center gap-3 text-sm">
+                              <div className="w-5 h-5 rounded border border-red-500/40 bg-red-500/10 flex items-center justify-center">
+                                <X className="w-3 h-3 text-red-400" />
+                              </div>
+                              <span className="font-mono text-slate-300">{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-500">No specific items listed</p>
                       )}
                     </div>
-                    {confidence.disqualifiers_triggered.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-[var(--border,#e5e7eb)]">
-                        <div className="text-sm font-medium text-[#f97316] mb-2">⚠️ Disqualifiers Triggered</div>
-                        <ul className="space-y-1">
-                          {confidence.disqualifiers_triggered.map((dq, idx) => (
-                            <li key={idx} className="text-xs text-[var(--foreground,#374151)] flex items-center gap-2">
-                              <AlertTriangle className="w-3 h-3 text-orange-600" />
-                              {dq}
+                  </div>
+                )}
+
+                {/* Context Tab */}
+                {activeTab === 'context' && (
+                  <div className="space-y-4">
+                    {/* Evidence */}
+                    {result.evidence && (
+                      <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Behavioral Evidence
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                          {result.evidence.cloudtrail && (
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">CloudTrail Events</p>
+                              <p className="text-lg font-bold text-white">
+                                {result.evidence.cloudtrail.matched_events}
+                                <span className="text-sm font-normal text-slate-400">
+                                  {' '}/ {result.evidence.cloudtrail.total_events}
+                                </span>
+                              </p>
+                            </div>
+                          )}
+                          {result.evidence.flowlogs && (
+                            <div>
+                              <p className="text-xs text-slate-500 mb-1">VPC Flow Logs</p>
+                              <p className="text-lg font-bold text-white">
+                                {result.evidence.flowlogs.matched_flows}
+                                <span className="text-sm font-normal text-slate-400">
+                                  {' '}/ {result.evidence.flowlogs.total_flows}
+                                </span>
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Human-readable evidence */}
+                    {result.human_readable_evidence && result.human_readable_evidence.length > 0 && (
+                      <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Evidence Summary
+                        </p>
+                        <ul className="space-y-2">
+                          {result.human_readable_evidence.map((e, i) => (
+                            <li key={i} className="text-sm text-slate-300 flex items-start gap-2">
+                              <span className="text-slate-500">•</span>
+                              <span>{e}</span>
                             </li>
                           ))}
                         </ul>
                       </div>
                     )}
-                  </div>
 
-                  {/* Action Policy */}
-                  {result.action_policy && (
-                    <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-4">
-                      <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Action Policy</h3>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-[var(--foreground,#374151)]">Auto-Apply Allowed:</span>
-                          <span className={`text-sm font-medium ${result.action_policy.auto_apply ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
-                            {result.action_policy.auto_apply ? 'Yes' : 'No'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-[var(--foreground,#374151)]">Allowed Actions:</span>
-                          <div className="flex gap-2">
-                            {result.action_policy.allowed_actions.map((action, idx) => (
-                              <span key={idx} className="px-2 py-1 bg-gray-100 text-[var(--foreground,#374151)] rounded text-xs">
-                                {action}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="text-sm text-[var(--muted-foreground,#4b5563)] mt-2">
-                          <strong>Reason:</strong> {result.action_policy.reason}
-                        </div>
-                        {result.action_policy.issue_type && (
-                          <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                            Issue Type: {result.action_policy.issue_type}
-                          </div>
-                        )}
+                    {/* Resource metadata */}
+                    {resourceTags && (
+                      <div className="rounded-lg border border-slate-600 bg-slate-800 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Resource Metadata
+                        </p>
+                        <dl className="grid grid-cols-2 gap-3">
+                          {Object.entries(resourceTags).map(([k, v]) => v && (
+                            <div key={k}>
+                              <dt className="text-xs text-slate-500 capitalize">{k}</dt>
+                              <dd className="text-sm text-white">{v}</dd>
+                            </div>
+                          ))}
+                        </dl>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Recommendation */}
-                  <div className={`rounded-lg p-4 border-2 ${
-                    result.status === 'EXECUTE' ? 'bg-[#22c55e10] border-[#22c55e40]' :
-                    result.status === 'CANARY' ? 'bg-[#eab30810] border-[#eab30840]' :
-                    result.status === 'REVIEW' ? 'bg-[#f9731610] border-[#f9731640]' :
-                    'bg-[#ef444410] border-[#ef444440]'
-                  }`}>
-                    <div className="flex items-start gap-3">
-                      {result.status === 'EXECUTE' && <CheckCircle2 className="w-6 h-6 text-[#22c55e] flex-shrink-0 mt-0.5" />}
-                      {result.status === 'CANARY' && <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />}
-                      {result.status === 'REVIEW' && <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />}
-                      {result.status === 'BLOCKED' && <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />}
-                      <div>
-                        <div className="font-semibold text-[var(--foreground,#111827)] mb-1">Recommendation</div>
-                        <p className="text-sm text-[var(--foreground,#374151)]">{result.recommendation}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Simulation Steps Tab */}
-              {activeTab === 'steps' && (
-                <div className="space-y-4">
-                  {result.simulation_steps && result.simulation_steps.length > 0 ? (
-                    result.simulation_steps.map((step, idx) => (
-                    <div key={idx} className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                            step.status === 'COMPLETED' ? 'bg-[#22c55e20] text-[#22c55e]' :
-                            step.status === 'IN_PROGRESS' ? 'bg-[#3b82f620] text-[#3b82f6]' :
-                            step.status === 'FAILED' ? 'bg-[#ef444420] text-[#ef4444]' :
-                            step.status === 'SKIPPED' ? 'bg-gray-100 text-[var(--foreground,#374151)]' :
-                            'bg-gray-100 text-[var(--muted-foreground,#6b7280)]'
-                          }`}>
-                            {step.step_number}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-[var(--foreground,#111827)]">{step.name}</div>
-                            <div className="text-sm text-[var(--muted-foreground,#4b5563)]">{step.description}</div>
-                          </div>
-                        </div>
-                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          step.status === 'COMPLETED' ? 'bg-[#22c55e20] text-[#22c55e]' :
-                          step.status === 'IN_PROGRESS' ? 'bg-[#3b82f620] text-[#3b82f6]' :
-                          step.status === 'FAILED' ? 'bg-[#ef444420] text-[#ef4444]' :
-                          step.status === 'SKIPPED' ? 'bg-gray-100 text-[var(--foreground,#374151)]' :
-                          'bg-gray-100 text-[var(--muted-foreground,#6b7280)]'
-                        }`}>
-                          {step.status}
-                        </div>
-                      </div>
-                      {step.duration_ms && (
-                        <div className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">
-                          Duration: {step.duration_ms}ms
-                        </div>
-                      )}
-                      {step.error && (
-                        <div className="mt-2 text-xs text-[#ef4444] bg-[#ef444410] p-2 rounded">
-                          Error: {step.error}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                  ) : (
-                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
-                      <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-[var(--muted-foreground,#9ca3af)]" />
-                      <p>No simulation steps available</p>
-                      <p className="text-xs mt-1">Simulation steps will appear here once the analysis is complete</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Evidence Tab */}
-              {activeTab === 'evidence' && (
-                <div className="space-y-4">
-                  {result.evidence && (
-                    <>
-                      {result.evidence.cloudtrail && (
-                        <div className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
-                          <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">CloudTrail Evidence</h3>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Events</div>
-                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.cloudtrail.total_events}</div>
-                            </div>
-                            <div>
-                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Matched Events</div>
-                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.cloudtrail.matched_events}</div>
-                            </div>
-                            {result.evidence.cloudtrail.days_since_last_use !== undefined && (
-                              <div>
-                                <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Days Since Last Use</div>
-                                <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.cloudtrail.days_since_last_use}</div>
-                              </div>
-                            )}
-                          </div>
-                          {result.evidence.cloudtrail.matched_events === 0 && (
-                            <div className="mt-3 p-2 bg-[#22c55e10] border border-[#22c55e40] rounded text-xs text-[#22c55e]">
-                              ✅ No usage detected - HIGH confidence this is safe to remove
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {result.evidence.flowlogs && (
-                        <div className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
-                          <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">VPC Flow Logs Evidence</h3>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Total Flows</div>
-                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.flowlogs.total_flows}</div>
-                            </div>
-                            <div>
-                              <div className="text-sm text-[var(--muted-foreground,#4b5563)]">Matched Flows</div>
-                              <div className="text-lg font-bold text-[var(--foreground,#111827)]">{result.evidence.flowlogs.matched_flows}</div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {!result.evidence && (
-                    <div className="text-sm text-[var(--muted-foreground,#6b7280)] text-center py-4">No evidence data available</div>
-                  )}
-                  {result.human_readable_evidence && result.human_readable_evidence.length > 0 && (
-                    <div className="border border-[var(--border,#e5e7eb)] rounded-lg p-4">
-                      <h3 className="font-semibold text-[var(--foreground,#111827)] mb-3">Human-Readable Evidence</h3>
-                      <ul className="space-y-2">
-                        {result.human_readable_evidence.map((evidence, idx) => (
-                          <li key={idx} className="text-sm text-[var(--foreground,#374151)] flex items-start gap-2">
-                            <span className="mt-0.5">•</span>
-                            <span>{evidence}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Edge Cases Tab */}
-              {activeTab === 'edge-cases' && (
-                <div className="space-y-4">
-                  {result.edge_cases && result.edge_cases.length > 0 ? (
-                    result.edge_cases.map((edgeCase, idx) => (
-                      <div key={idx} className="border border-[#f9731640] rounded-lg p-4 bg-[#f9731610]">
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <div className="font-semibold text-orange-900">{edgeCase.description}</div>
-                            <div className="text-sm text-[#f97316] mt-1">Case ID: {edgeCase.case_id}</div>
-                          </div>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            edgeCase.severity === 'CRITICAL' ? 'bg-red-600 text-white' :
-                            edgeCase.severity === 'HIGH' ? 'bg-orange-600 text-white' :
-                            'bg-yellow-600 text-white'
-                          }`}>
-                            {edgeCase.severity}
-                          </span>
-                        </div>
-                        {edgeCase.action && (
-                          <div className="text-sm text-[#f97316] mt-2">
-                            <strong>Action:</strong> {edgeCase.action}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-[var(--muted-foreground,#6b7280)]">
-                      <CheckCircle2 className="w-12 h-12 mx-auto mb-2 text-[#22c55e]" />
-                      <p>No edge cases detected</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--border,#e5e7eb)]">
-                <button
-                  onClick={onClose}
-                  disabled={isExecuting}
-                  className="px-4 py-2 border border-[var(--border,#d1d5db)] rounded-md text-[var(--foreground,#374151)] hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
-                >
-                  Close
-                </button>
-
-                {result.status !== 'BLOCKED' && onExecute && (
-                  <>
-                    {/* Preview/Dry Run Button */}
-                    <button
-                      onClick={() => onExecute(true)}
-                      disabled={isExecuting}
-                      className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {isExecuting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Shield className="w-4 h-4" />
-                      )}
-                      Preview Changes
-                    </button>
-
-                    {/* Execute Live Button - only if confidence is high */}
-                    {(result.status === 'EXECUTE' || confidence.level === 'HIGH') && (
-                      <button
-                        onClick={() => onExecute(false)}
-                        disabled={isExecuting}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-                      >
-                        {isExecuting ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Zap className="w-4 h-4" />
-                        )}
-                        Execute Live
-                      </button>
                     )}
-                  </>
-                )}
-
-                {result.status !== 'BLOCKED' && !onExecute && (
-                  <>
-                    <button
-                      onClick={() => {
-                        alert('Request Approval - Coming soon')
-                      }}
-                      className="px-4 py-2 bg-[#8b5cf6] text-white rounded-md hover:bg-[#7c3aed] text-sm font-medium flex items-center gap-2"
-                    >
-                      <Send className="w-4 h-4" />
-                      Request Approval
-                    </button>
-                    <button
-                      onClick={() => {
-                        alert('Export Terraform - Coming soon')
-                      }}
-                      className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium flex items-center gap-2"
-                    >
-                      <FileDown className="w-4 h-4" />
-                      Export Terraform
-                    </button>
-                  </>
+                  </div>
                 )}
               </div>
-            </>
+            </div>
           )}
         </div>
+
+        {/* Footer Actions */}
+        {result && (
+          <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/50 flex items-center justify-end gap-3">
+            <button
+              onClick={onClose}
+              disabled={isExecuting}
+              className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors disabled:opacity-50"
+            >
+              Close
+            </button>
+
+            {result.status !== 'BLOCKED' && onExecute && (
+              <>
+                <button
+                  onClick={() => onExecute(true)}
+                  disabled={isExecuting}
+                  className="px-4 py-2 text-sm font-medium bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                  Preview Changes
+                </button>
+
+                {(result.status === 'EXECUTE' || confidence >= 90) && (
+                  <button
+                    onClick={() => onExecute(false)}
+                    disabled={isExecuting}
+                    className="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {isExecuting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    Execute Live
+                  </button>
+                )}
+              </>
+            )}
+
+            {result.status !== 'BLOCKED' && !onExecute && (
+              <>
+                <button
+                  onClick={() => alert('Request Approval - Coming soon')}
+                  className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Request Approval
+                </button>
+                <button
+                  onClick={() => alert('Export Terraform - Coming soon')}
+                  className="px-4 py-2 text-sm font-medium bg-slate-600 text-white rounded-lg hover:bg-slate-700 flex items-center gap-2"
+                >
+                  <FileDown className="w-4 h-4" />
+                  Export Terraform
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
