@@ -42,6 +42,16 @@ import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding, BlastRadiusScore } from "@/lib/types"
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -371,6 +381,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   // Blast Radius System Score — replaces enforcement score as canonical posture number.
   const [brss, setBrss] = useState<BlastRadiusScore | null>(null)
+  // BRSS snapshot history — powers the trend chart; each entry is a persisted
+  // point-in-time score. Newest-first from the API.
+  const [brssHistory, setBrssHistory] = useState<Array<{
+    timestamp: string
+    score: number
+    score_raw: number
+    coverage_ratio: number
+    resource_count: number
+  }>>([])
 
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
@@ -772,8 +791,23 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }
   }
 
+  // BRSS history fetch — fire-and-forget; chart gracefully handles empty state.
+  const fetchBrssHistory = async () => {
+    if (!systemName) return
+    try {
+      const res = await fetch(`/api/proxy/brss/history?systemName=${encodeURIComponent(systemName)}&limit=30`)
+      if (!res.ok) return
+      const payload = await res.json()
+      const snapshots = Array.isArray(payload?.snapshots) ? payload.snapshots : []
+      // API returns newest-first; flip for chart-friendly left-to-right chronology.
+      setBrssHistory([...snapshots].reverse())
+    } catch {
+      // Empty-state is the fallback; no user-facing error.
+    }
+  }
+
   const fetchAllData = async () => {
-    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary()])
+    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory()])
   }
 
   useEffect(() => {
@@ -1697,6 +1731,98 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     Not in scan scope: {brss.coverage_excluded_types.join(', ')}. Score cannot account for risk in these resource types.
                   </p>
                 ) : null}
+              </div>
+            )}
+
+            {/* Blast Radius Score — trend chart.
+                Reads from the persisted BRSS snapshot series. Snapshots are
+                written on: first scan, score delta ≥ 2, or every 1 hour even
+                if stable. Empty/single-point states are expected on fresh
+                systems — chart degrades gracefully. */}
+            {brss && (
+              <div
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]"
+                data-testid="blast-radius-trend"
+              >
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">
+                      Score Trend
+                    </h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
+                      Persisted snapshots over time. Movement attributable to remediation, not scope shifts.
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[11px] font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                    Last {brssHistory.length || '—'} snapshot{brssHistory.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {brssHistory.length < 2 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center rounded-lg border border-dashed border-[var(--border,#e5e7eb)] bg-slate-50/60">
+                    <p className="text-sm font-medium text-[var(--foreground,#111827)]">
+                      {brssHistory.length === 1 ? 'Baseline captured — trend builds as posture changes' : 'Trend will appear after the first remediation'}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground,#6b7280)] max-w-md">
+                      Snapshots are persisted when the score moves by ≥ 2 points or at least once per hour. Remediate a top driver to produce the next point.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="w-full h-[220px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={brssHistory.map((pt) => ({
+                          ...pt,
+                          // Short-format timestamp for the X-axis
+                          label: new Date(pt.timestamp).toLocaleString('en-US', {
+                            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                          }),
+                        }))}
+                        margin={{ top: 10, right: 20, left: -10, bottom: 0 }}
+                      >
+                        <defs>
+                          <linearGradient id="brss-trend-fill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={brssAccent} stopOpacity={0.35} />
+                            <stop offset="100%" stopColor={brssAccent} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis
+                          dataKey="label"
+                          stroke="#94a3b8"
+                          tick={{ fontSize: 11 }}
+                          minTickGap={24}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke="#94a3b8"
+                          tick={{ fontSize: 11 }}
+                          width={38}
+                        />
+                        <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="3 3" label={{ value: 'Coverage floor', fontSize: 10, fill: '#64748b', position: 'insideTopRight' }} />
+                        <ReferenceLine y={80} stroke="#bbf7d0" strokeDasharray="3 3" label={{ value: 'Healthy', fontSize: 10, fill: '#16a34a', position: 'insideTopRight' }} />
+                        <RechartsTooltip
+                          contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 }}
+                          labelStyle={{ color: '#475569', fontWeight: 600 }}
+                          formatter={(value: any, name: any, props: any) => {
+                            if (name === 'score') return [`${value} / 100`, 'Blast Radius']
+                            if (name === 'resource_count') return [value, 'Resources scored']
+                            return [value, name]
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="score"
+                          stroke={brssAccent}
+                          strokeWidth={2}
+                          fill="url(#brss-trend-fill)"
+                          dot={{ r: 3, fill: brssAccent, stroke: '#ffffff', strokeWidth: 1.5 }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </div>
             )}
 
