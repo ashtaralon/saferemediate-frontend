@@ -593,7 +593,20 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
     if (orphanStatus?.is_orphan) score = Math.max(10, score - 10);
     return Math.max(5, Math.min(100, score));
   };
-  const safetyScore = calculateSafetyScore();
+  const legacySafetyScore = calculateSafetyScore();
+
+  // One-score rule: Agent 5 confidence overrides the legacy client-side calc
+  // when available. Keeps legacy fallback for load + failure states.
+  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore;
+
+  // Verdict bucket — derive from Agent 5 routing when present, else from
+  // legacy score thresholds to preserve existing UX for pre-Agent-5 paths.
+  const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
+    confidenceScore?.routing
+      ?? (safetyScore < 50 ? 'manual_review'
+        : safetyScore < 75 ? 'human_approval'
+          : 'auto_execute');
+
   const protectedRules = analysis?.recommendations?.protected?.length ?? 0;
   const cautionRules = analysis?.recommendations?.warn?.length ?? 0;
   const connectedResourcesCount = analysis?.attached_resources?.length ?? 0;
@@ -703,48 +716,66 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Safety Score Banner */}
+            {/* Safety Score Banner — single source via Agent 5 when available */}
             {(() => {
-              if (safetyScore < 50) {
+              const suffix = confidenceScore ? '' : '%';
+
+              if (verdictBucket === 'blocked') {
+                return (
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <XCircle className="w-10 h-10 text-[#ef4444]" />
+                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">BLOCKED</span>
+                    </div>
+                    <p className="text-[#ef4444] mt-2 font-semibold">
+                      {confidenceScore?.gates_failed?.[0]?.detail ?? 'Hard block — see confidence panel below for gate details.'}
+                    </p>
+                  </div>
+                );
+              }
+              if (verdictBucket === 'manual_review') {
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#f97316]">LOW CONFIDENCE</span>
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'REVIEW REQUIRED' : 'LOW CONFIDENCE'}</span>
                     </div>
                     <p className="text-[#f97316] mt-2 font-semibold">
                       Insufficient traffic data — review rules individually before applying.
                     </p>
                   </div>
                 );
-              } else if (safetyScore < 75) {
+              }
+              if (verdictBucket === 'human_approval') {
                 return (
                   <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#f97316]">REVIEW RECOMMENDED</span>
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'NEEDS APPROVAL' : 'REVIEW RECOMMENDED'}</span>
                     </div>
                     <p className="text-[#f97316] mt-2">
                       Some rules need verification — review before applying.
                     </p>
                   </div>
                 );
-              } else {
-                return (
-                  <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
-                    </div>
-                    <p className="text-[#22c55e] mt-2">
-                      {observationDays} days of traffic data analyzed — No service disruption expected
-                    </p>
-                  </div>
-                );
               }
+              return (
+                <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
+                  <div className="flex items-center justify-center gap-3">
+                    <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                    <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}{suffix}</span>
+                    <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
+                  </div>
+                  <p className="text-[#22c55e] mt-2">
+                    {confidenceScore
+                      ? 'Confidence ≥ 95, AI reviewer agrees — no service disruption expected.'
+                      : `${observationDays} days of traffic data analyzed — No service disruption expected`}
+                  </p>
+                </div>
+              );
             })()}
 
             <div className="rounded-xl border px-4 py-3 text-sm" style={{ background: "#faf5ff", borderColor: "#ddd6fe", color: "#6d28d9" }}>

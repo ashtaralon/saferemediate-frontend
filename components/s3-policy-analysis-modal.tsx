@@ -462,9 +462,22 @@ export function S3PolicyAnalysisModal({
     return Math.max(80, Math.min(100, score))
   }
 
-  const safetyScore = calculateSafetyScore()
+  const legacySafetyScore = calculateSafetyScore()
+
+  // One-score rule: prefer Agent 5 confidence when loaded. Legacy client-side
+  // score remains as a fallback only while Agent 5 is loading or failed.
+  const safetyScore = confidenceScore?.confidence ?? legacySafetyScore
+
   const previewWouldBlock = !!simulationPreview?.safety_gate?.would_block
   const previewWarnings: string[] = simulationPreview?.safety_gate?.warnings ?? []
+
+  // Verdict bucket — Agent 5 routing overrides the legacy would_block preview.
+  // If the safety gate preview says block OR Agent 5 routes to blocked/manual,
+  // we degrade the verdict regardless of numeric score.
+  const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
+    confidenceScore?.routing === 'blocked' ? 'blocked'
+    : previewWouldBlock ? 'human_approval'
+    : (confidenceScore?.routing ?? 'auto_execute')
   const toggleSelectedPolicy = (policyName: string) => {
     setSelectedPoliciesToRemove(prev => {
       const next = new Set(prev)
@@ -580,21 +593,68 @@ export function S3PolicyAnalysisModal({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Safety Score Banner */}
-            <div className={`p-6 bg-white border-2 rounded-2xl text-center ${previewWouldBlock ? 'border-[#f59e0b66]' : 'border-[#22c55e40]'}`}>
-              <div className="flex items-center justify-center gap-3">
-                <CheckSquare className={`w-10 h-10 ${previewWouldBlock ? 'text-[#f59e0b]' : 'text-[#22c55e]'}`} />
-                <span className={`text-5xl font-bold ${previewWouldBlock ? 'text-[#f59e0b]' : 'text-[#22c55e]'}`}>{safetyScore}%</span>
-                <span className={`text-2xl font-bold ${previewWouldBlock ? 'text-[#f59e0b]' : 'text-[#22c55e]'}`}>
-                  {previewWouldBlock ? 'REVIEW BEFORE APPLY' : 'SAFE TO APPLY'}
-                </span>
-              </div>
-              <p className={`mt-2 ${previewWouldBlock ? 'text-[#b45309]' : 'text-[#22c55e]'}`}>
-                {previewWouldBlock
-                  ? (simulationPreview?.safety_gate?.would_block_reason || 'The safety gate would block this exact change set during execution.')
-                  : 'No applications will be affected'}
-              </p>
-            </div>
+            {/* Safety Score Banner — single source via Agent 5 when available */}
+            {(() => {
+              const suffix = confidenceScore ? '' : '%'
+              const reason = simulationPreview?.safety_gate?.would_block_reason
+
+              if (verdictBucket === 'blocked') {
+                return (
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <XCircle className="w-10 h-10 text-[#ef4444]" />
+                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">BLOCKED</span>
+                    </div>
+                    <p className="text-[#ef4444] mt-2 font-semibold">
+                      {confidenceScore?.gates_failed?.[0]?.detail ?? reason ?? 'Hard block — see confidence panel for details.'}
+                    </p>
+                  </div>
+                )
+              }
+              if (verdictBucket === 'human_approval' || previewWouldBlock) {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f59e0b66] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f59e0b]" />
+                      <span className="text-5xl font-bold text-[#f59e0b]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f59e0b]">
+                        {confidenceScore ? 'NEEDS APPROVAL' : 'REVIEW BEFORE APPLY'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[#b45309]">
+                      {reason || 'The safety gate would block this exact change set during execution.'}
+                    </p>
+                  </div>
+                )
+              }
+              if (verdictBucket === 'manual_review') {
+                return (
+                  <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
+                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{suffix}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">REVIEW REQUIRED</span>
+                    </div>
+                    <p className="text-[#f97316] mt-2">
+                      Agent 5 flagged this change for manual review — see confidence panel.
+                    </p>
+                  </div>
+                )
+              }
+              return (
+                <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
+                  <div className="flex items-center justify-center gap-3">
+                    <CheckSquare className="w-10 h-10 text-[#22c55e]" />
+                    <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}{suffix}</span>
+                    <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
+                  </div>
+                  <p className="text-[#22c55e] mt-2">
+                    {confidenceScore ? 'Confidence ≥ 95, AI reviewer agrees — no applications will be affected.' : 'No applications will be affected'}
+                  </p>
+                </div>
+              )
+            })()}
 
             {/* What Will Change */}
             <div>
