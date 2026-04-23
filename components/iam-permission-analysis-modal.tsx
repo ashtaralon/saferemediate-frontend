@@ -2209,25 +2209,32 @@ export function IAMPermissionAnalysisModal({
             onClick={async () => {
               setSimulating(true)
               try {
-                const response = await fetch('/api/proxy/cyntro/remediate', {
+                const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    role_name: roleName,
-                    identity_type: identityType?.toLowerCase().includes('user') ? 'user' : 'role',
-                    dry_run: true
+                    resource_type: 'IAMRole',
+                    resource_id: roleName,
+                    system_name: systemName || 'default'
                   })
                 })
 
                 const result = await response.json()
 
                 if (!response.ok) {
-                  throw new Error(result.detail || result.error || `Remediation failed: ${response.status}`)
+                  throw new Error(result.error || result.detail || `Simulation failed: ${response.status}`)
                 }
 
+                const decision = result.safety?.decision
+                const decisionLabel = decision === 'auto_eligible' ? 'Auto-eligible' : decision === 'blocked' ? 'Blocked' : 'Approval required'
+                const removed = result.simulation?.removed_permissions ?? 0
+                const kept = result.simulation?.kept_permissions ?? 0
+                const total = kept + removed
+                const rollback = result.safety?.rollback_available ? 'available' : 'unavailable'
                 toast({
-                  title: 'Simulation Complete',
-                  description: `Would reduce permissions from ${result.summary?.before_total || 0} to ${result.summary?.after_total || 0} (${Math.round((result.summary?.reduction || 0) * 100)}% reduction)`
+                  title: `Simulation Complete · ${decisionLabel}`,
+                  description: `Would remove ${removed} of ${total} permissions (${result.problem?.gap_percent ?? 0}% gap). Rollback: ${rollback}.`,
+                  variant: decision === 'blocked' ? 'destructive' : 'default'
                 })
 
                 setShowSimulation(true)

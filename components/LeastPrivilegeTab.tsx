@@ -1320,8 +1320,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   // Handle resource click (open appropriate modal)
   const handleResourceClick = (resource: GapResource) => {
     if (resource.resourceType === 'IAMRole') {
-      setSelectedResource(resource)
-      setDrawerOpen(true)
+      setSelectedIAMRole(resource.resourceName)
+      setIamModalOpen(true)
     } else if (resource.resourceType === 'S3Bucket') {
       setSelectedS3Bucket(resource.resourceName)
       setSelectedS3Resource(resource)
