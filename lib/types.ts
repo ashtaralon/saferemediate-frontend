@@ -342,3 +342,108 @@ export const SCORE_BREAKDOWN_LABELS: Record<keyof DecisionBreakdown, { label: st
     description: "Past remediation success rate"
   }
 }
+
+// ============================================================================
+// SIMULATE-FIX ENDPOINT TYPES (POST /api/least-privilege/simulate-fix)
+// ============================================================================
+
+export interface SimulateFixConsumer {
+  type: string
+  id: string
+  name?: string
+}
+
+export interface SimulateFixResource {
+  id: string
+  type: string
+  system: string
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO"
+  shared: boolean
+  shared_confidence: "high" | "medium" | "low" | "unknown"
+  consumers: SimulateFixConsumer[]
+}
+
+export interface SimulateFixProblem {
+  summary: string
+  gap_percent: number
+  unused_count: number
+  used_count: number
+  top_risk_reasons: string[]
+}
+
+export interface SimulateFixVisibilitySignals {
+  cloudtrail: boolean
+  flowlogs: boolean
+  xray: boolean
+  s3_access_logs: boolean
+  [key: string]: boolean
+}
+
+export interface SimulateFixEvidence {
+  observation_window_days: number
+  evidence_sources: string[]
+  confidence: "high" | "medium" | "low" | "unknown"
+  completeness: "complete" | "partial" | "unknown"
+  caveats: string[]
+  visibility_signals: SimulateFixVisibilitySignals
+}
+
+export interface SimulateFixSimulation {
+  action_type: string
+  summary: string
+  kept_permissions: number
+  removed_permissions: number
+  kept_examples: string[]
+  removed_examples: string[]
+}
+
+export interface SimulateFixProjectedEffect {
+  blast_radius_score_before: number
+  blast_radius_score_after: number
+  blast_radius_score_delta: number
+  family_scores_before: Record<string, number>
+  family_scores_after: Record<string, number>
+  resource_risk_contribution_before: number
+  resource_risk_contribution_after: number
+}
+
+export type SimulateFixSafetyDecision = "auto_eligible" | "approval_required" | "blocked"
+
+export interface SimulateFixSafety {
+  decision: SimulateFixSafetyDecision
+  rollback_available: boolean
+  snapshot_required: boolean
+  preflight_required: boolean
+  unsafe_reasons: string[]
+}
+
+export interface SimulateFixResponse {
+  resource: SimulateFixResource
+  problem: SimulateFixProblem
+  evidence: SimulateFixEvidence
+  simulation: SimulateFixSimulation
+  projected_effect: SimulateFixProjectedEffect
+  safety: SimulateFixSafety
+}
+
+// Safety decision UI config
+export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: string; color: string; bgColor: string; icon: string }> = {
+  auto_eligible: {
+    label: "Auto-Eligible",
+    color: "#10B981",
+    bgColor: "rgba(16, 185, 129, 0.15)",
+    icon: "✅"
+  },
+  approval_required: {
+    label: "Approval Required",
+    color: "#F59E0B",
+    bgColor: "rgba(245, 158, 11, 0.15)",
+    icon: "⚠️"
+  },
+  blocked: {
+    label: "Blocked",
+    color: "#EF4444",
+    bgColor: "rgba(239, 68, 68, 0.15)",
+    icon: "🚫"
+  }
+}

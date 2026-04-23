@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { riskLabel } from '@/lib/utils'
 import { Shield, Database, Network, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Clock, FileDown, Send, Zap, ChevronRight, ChevronDown, ExternalLink, Loader2, RefreshCw, Search, Globe, Trash2, X, Activity, BarChart3, Lightbulb, MapPin, Eye, Calendar, RotateCcw } from 'lucide-react'
 import SimulationResultsModal from '@/components/SimulationResultsModal'
+import { IAMSimulateFixModal } from '@/components/IAMSimulateFixModal'
+import type { SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
@@ -172,6 +174,8 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
   const [simulating, setSimulating] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any>(null)
   const [simulationModalOpen, setSimulationModalOpen] = useState(false)
+  const [iamSimulateFixResult, setIamSimulateFixResult] = useState<SimulateFixResponse | null>(null)
+  const [iamSimulateFixModalOpen, setIamSimulateFixModalOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [confirmationModalOpen, setConfirmationModalOpen] = useState(false)
@@ -2271,115 +2275,28 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 setSimulationModalOpen(true)
                 
               } else {
-                // IAM Role simulation (existing flow)
-              const response = await fetch('/api/proxy/simulate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    finding_id: selectedResource.id,
-                  resource_type: selectedResource.resourceType,
-                  resource_id: selectedResource.resourceArn || selectedResource.resourceName
+                // IAM Role simulation - use new simulate-fix endpoint
+                const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    resource_type: 'IAMRole',
+                    resource_id: selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || selectedResource.id,
+                    system_name: selectedResource.systemName || systemName || 'default'
+                  })
                 })
-              })
-              
-              if (!response.ok) {
-                throw new Error(`Simulation failed: ${response.status}`)
-              }
-              
-              const backendData = await response.json()
-              
-              // Transform backend response to SimulationResultsModal format
-              const simulationData = backendData.simulation || backendData
-              const decision = backendData.decision || {}
-              
-              // Map backend confidence (0-100) to modal format
-              const backendConfidence = simulationData.confidence || decision.confidence || 0
-              const confidenceValue = typeof backendConfidence === 'number' 
-                ? (backendConfidence > 1 ? backendConfidence / 100 : backendConfidence) 
-                : 0.5
-              
-              // Determine status from decision action
-              let status: 'EXECUTE' | 'CANARY' | 'REVIEW' | 'BLOCKED' = 'REVIEW'
-              if (decision.action === 'AUTO_REMEDIATE' || decision.action === 'EXECUTE') {
-                status = 'EXECUTE'
-              } else if (decision.action === 'CANARY') {
-                status = 'CANARY'
-              } else if (decision.action === 'BLOCK' || decision.action === 'BLOCKED') {
-                status = 'BLOCKED'
-              }
-              
-              const transformedResult = {
-                  type: 'iam_role',
-                status,
-                confidence: confidenceValue,
-                blast_radius: {
-                  level: decision.breakdown?.dependency < 0.5 ? 'ISOLATED' : 'LOW',
-                  numeric: decision.breakdown?.dependency || 0.1,
-                  affected_resources_count: simulationData.impacted_resources?.length || 0,
-                  affected_resources: (simulationData.impacted_resources || []).map((id: string) => ({
-                    id,
-                    type: selectedResource.resourceType,
-                    name: id.split('/').pop() || id,
-                    impact: 'Low'
-                  }))
-                },
-                evidence: {
-                  cloudtrail: {
-                    total_events: 0,
-                    matched_events: 0,
-                    days_since_last_use: selectedResource.evidence.observationDays
-                  },
-                  summary: {
-                    total_sources: 2,
-                    agreeing_sources: 2
-                  }
-                },
-                simulation_steps: [
-                  {
-                    step_number: 1,
-                    name: 'Fetch Role Details',
-                    description: 'Retrieved IAM role information from AWS',
-                    status: 'COMPLETED' as const
-                  },
-                  {
-                    step_number: 2,
-                    name: 'Collect Evidence',
-                    description: 'Gathered CloudTrail and Access Advisor data',
-                    status: 'COMPLETED' as const
-                  },
-                  {
-                    step_number: 3,
-                    name: 'Analyze Usage',
-                    description: `Analyzed ${selectedResource.evidence.observationDays} days of usage data`,
-                    status: 'COMPLETED' as const
-                  },
-                  {
-                    step_number: 4,
-                    name: 'Calculate Confidence',
-                    description: `Confidence: ${((confidenceValue ?? 0) * 100).toFixed(0)}%`,
-                    status: 'COMPLETED' as const
-                  }
-                ],
-                edge_cases: [],
-                action_policy: {
-                  auto_apply: decision.auto_allowed || false,
-                  allowed_actions: decision.action ? [decision.action] : [],
-                  reason: decision.reasons?.join('; ') || 'Based on evidence analysis',
-                  issue_type: selectedResource.resourceType
-                },
-                recommendation: decision.reasons?.join('. ') || simulationData.after_state || 'Review recommended',
-                before_state_summary: simulationData.before_state,
-                after_state_summary: simulationData.after_state,
-                timestamp: new Date().toISOString(),
-                human_readable_evidence: decision.reasons || [
-                  `${selectedResource.gapCount ?? 0} unused permissions detected`,
-                  `${selectedResource.evidence.observationDays ?? 0} days of observation`,
-                  `Confidence: ${((confidenceValue ?? 0) * 100).toFixed(0)}%`
-                ]
-              }
-              
-              setSimulationResult(transformedResult)
-              setSimulationModalOpen(true)
+
+                if (!response.ok) {
+                  const errorData = await response.json().catch(() => ({}))
+                  throw new Error(errorData.error || `Simulation failed: ${response.status}`)
+                }
+
+                const simulateFixData: SimulateFixResponse = await response.json()
+                console.log('Simulate-fix result:', simulateFixData)
+
+                // Use the new IAM Simulate Fix modal
+                setIamSimulateFixResult(simulateFixData)
+                setIamSimulateFixModalOpen(true)
               }
             } catch (err) {
               console.error('Simulation error:', err)
@@ -2591,6 +2508,88 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           }}
         />
         )
+      )}
+
+      {/* IAM Simulate Fix Modal - New backend-driven simulation */}
+      {iamSimulateFixModalOpen && iamSimulateFixResult && selectedResource && (
+        <IAMSimulateFixModal
+          isOpen={iamSimulateFixModalOpen}
+          onClose={() => {
+            setIamSimulateFixModalOpen(false)
+            setIamSimulateFixResult(null)
+          }}
+          result={iamSimulateFixResult}
+          resourceName={selectedResource.resourceName}
+          isExecuting={isExecuting}
+          onExecute={async () => {
+            setIsExecuting(true)
+            try {
+              // Get role name from resource
+              const roleName = selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || ''
+              const permissionsToRemove = Array.from(new Set(
+                (selectedResource.unusedList || [])
+                  .map((permission) => String(permission || '').trim())
+                  .filter(Boolean)
+              ))
+
+              if (permissionsToRemove.length === 0) {
+                throw new Error('No explicit permissions were selected for remediation')
+              }
+
+              // Call remediation API
+              const response = await fetch('/api/proxy/cyntro/remediate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  role_name: roleName,
+                  dry_run: false,
+                  permissions_to_remove: permissionsToRemove
+                })
+              })
+
+              if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}))
+                throw new Error(errorData.error || `Remediation failed: ${response.status}`)
+              }
+
+              const result = await response.json()
+
+              if (result.success) {
+                const removedPermissions = result.permissions_removed || result.summary?.reduction || result.summary?.unused_removed || 0
+                toast({
+                  title: 'Remediation Complete',
+                  description: `Snapshot: ${result.snapshot_id || 'Created'}. Removed ${removedPermissions} unused permissions.`
+                })
+
+                setIamSimulateFixModalOpen(false)
+                setIamSimulateFixResult(null)
+                handleRemediationSuccess(selectedResource, {
+                  snapshotId: result.snapshot_id || null,
+                  eventId: result.event_id || null,
+                  rollbackAvailable: result.rollback_available ?? !!(result.snapshot_id || result.event_id),
+                  remediatedBy: 'user@cyntro.io',
+                  afterTotal: result.summary?.after_total ?? null,
+                  removedCount: removedPermissions,
+                })
+                setDrawerOpen(false)
+                setSelectedResource(null)
+              } else if (result.blocked) {
+                throw new Error(result.block_reason || result.message || 'Remediation blocked by safety gate')
+              } else {
+                throw new Error(result.message || result.error || 'Remediation failed')
+              }
+            } catch (error) {
+              console.error('Remediation error:', error)
+              toast({
+                title: 'Remediation Failed',
+                description: error instanceof Error ? error.message : 'Check console for details',
+                variant: 'destructive'
+              })
+            } finally {
+              setIsExecuting(false)
+            }
+          }}
+        />
       )}
 
       {/* IAM Permission Analysis Modal */}
