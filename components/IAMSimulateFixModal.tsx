@@ -399,12 +399,19 @@ export function IAMSimulateFixModal({
                     <div className="text-2xl font-bold text-green-400">{projected_effect.blast_radius_score_after}</div>
                     <div className="text-xs text-slate-400">After</div>
                   </div>
-                  <div className="text-center p-3 rounded-lg bg-green-900/30 border border-green-500/30">
-                    <div className="text-2xl font-bold text-green-400">
-                      {projected_effect.blast_radius_score_delta > 0 ? '+' : ''}{projected_effect.blast_radius_score_delta}
-                    </div>
-                    <div className="text-xs text-green-400">Delta</div>
-                  </div>
+                  {(() => {
+                    const d = projected_effect.blast_radius_score_delta
+                    const deltaBg = d > 0 ? 'bg-red-900/30 border border-red-500/30' : d < 0 ? 'bg-green-900/30 border border-green-500/30' : 'bg-slate-700/50'
+                    const deltaText = d > 0 ? 'text-red-400' : d < 0 ? 'text-green-400' : 'text-slate-300'
+                    return (
+                      <div className={`text-center p-3 rounded-lg ${deltaBg}`}>
+                        <div className={`text-2xl font-bold ${deltaText}`}>
+                          {d > 0 ? '+' : ''}{d}
+                        </div>
+                        <div className={`text-xs ${deltaText}`}>Delta</div>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Risk Contribution */}
@@ -568,7 +575,7 @@ export function IAMSimulateFixModal({
               >
                 {isExecuting
                   ? (dryRun ? 'Previewing...' : 'Applying...')
-                  : (dryRun ? 'Preview Changes' : (safety.decision === 'approval_required' ? 'Apply with Approval' : 'Apply Fix'))
+                  : (dryRun ? 'Preview Changes' : (safety.decision === 'approval_required' ? 'Request Approval' : 'Apply Fix'))
                 }
               </button>
             )}
