@@ -5,12 +5,24 @@ export const maxDuration = 30
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 
+const FILTER_KEYS = [
+  "region",
+  "name_contains",
+  "created_before",
+  "created_after",
+  "availability_zone",
+  "state",
+  "runtime",
+  "engine",
+]
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const resourceType = url.searchParams.get("resource_type")
   const system = url.searchParams.get("system")
   const limit = url.searchParams.get("limit") ?? "25"
   const cursor = url.searchParams.get("cursor")
+  const sort = url.searchParams.get("sort")
   const envelope = url.searchParams.get("envelope") === "true"
 
   if (!resourceType) {
@@ -20,7 +32,12 @@ export async function GET(req: NextRequest) {
   const params = new URLSearchParams({ resource_type: resourceType, limit })
   if (system) params.set("system", system)
   if (cursor) params.set("cursor", cursor)
+  if (sort) params.set("sort", sort)
   if (envelope) params.set("envelope", "true")
+  for (const key of FILTER_KEYS) {
+    const v = url.searchParams.get(key)
+    if (v) params.set(key, v)
+  }
 
   const backendBase = getBackendBaseUrl()
   const target = `${backendBase}/api/resource-inventory/list?${params.toString()}`

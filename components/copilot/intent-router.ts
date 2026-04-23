@@ -31,6 +31,11 @@ export interface IntentContext {
   bucketName?: string
   windowDays?: number
   resourceType?: string
+  region?: string
+  nameContains?: string
+  createdBefore?: string
+  createdAfter?: string
+  sort?: string
 }
 
 export interface IntentRoute {
@@ -202,6 +207,8 @@ export const CANONICAL_QUESTIONS: CanonicalQuestion[] = [
         resource_type: "iam-role",
         system: ctx.systemName,
         limit: 25,
+        name_contains: ctx.nameContains,
+        sort: ctx.sort,
       }),
       method: "GET",
       family: "inventory",
@@ -236,6 +243,11 @@ export const CANONICAL_QUESTIONS: CanonicalQuestion[] = [
         resource_type: ctx.resourceType || "",
         system: ctx.systemName,
         limit: 25,
+        region: ctx.region,
+        name_contains: ctx.nameContains,
+        created_before: ctx.createdBefore,
+        created_after: ctx.createdAfter,
+        sort: ctx.sort,
       }),
       method: "GET",
       family: "inventory",

@@ -131,6 +131,11 @@ export function SavedQuestionGallery({ systemName }: SavedQuestionGalleryProps) 
         roleName: decision.tool_args.roleName || roleName || undefined,
         windowDays: decision.tool_args.windowDays,
         resourceType: decision.tool_args.resourceType || undefined,
+        region: decision.tool_args.region || undefined,
+        nameContains: decision.tool_args.nameContains || undefined,
+        createdBefore: decision.tool_args.createdBefore || undefined,
+        createdAfter: decision.tool_args.createdAfter || undefined,
+        sort: decision.tool_args.sort || undefined,
       }
       if (decision.tool_args.roleName) {
         setRoleName(decision.tool_args.roleName)
@@ -370,15 +375,33 @@ function AnswerRenderer({ route, result }: { route: any; result: any }) {
     }
     const items = result.items ?? []
     const columns: string[] = result.columns ?? []
+    const filtersApplied: Record<string, string> = result.filters_applied ?? {}
+    const filterEntries = Object.entries(filtersApplied)
+    const activeSort = result.sort ?? result.default_sort
     return (
       <div>
+        {filterEntries.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
+              filters
+            </span>
+            {filterEntries.map(([k, v]) => (
+              <span
+                key={k}
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[#2D51DA]/10 text-[#2D51DA] border border-[#2D51DA]/20"
+              >
+                <code className="font-mono">{k}</code>=<code className="font-mono">{String(v)}</code>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-2 text-xs text-[var(--muted-foreground,#6b7280)]">
           <span>
             {items.length} {result.display_name}
             {result.system ? ` in ${result.system}` : ""}
             {result.next_cursor ? " (more available)" : ""}
           </span>
-          <span>sorted by {result.default_sort}</span>
+          <span>sorted by {activeSort}</span>
         </div>
         <div className="overflow-auto border rounded-lg"
              style={{ borderColor: "var(--border-subtle, #e5e7eb)" }}>
