@@ -2526,14 +2526,29 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
             try {
               // Get role name from resource
               const roleName = selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || ''
-              const permissionsToRemove = Array.from(new Set(
+              let permissionsToRemove = Array.from(new Set(
                 (selectedResource.unusedList || [])
                   .map((permission) => String(permission || '').trim())
                   .filter(Boolean)
               ))
 
+              // If no permissions in unusedList, fetch from gap analysis
+              if (permissionsToRemove.length === 0 && roleName) {
+                console.log('[IAM-SIMULATE-FIX] Fetching permissions from gap analysis...')
+                const gapRes = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/gap-analysis?days=90`)
+                if (gapRes.ok) {
+                  const gapData = await gapRes.json()
+                  permissionsToRemove = Array.from(new Set(
+                    (gapData.unused_permissions || [])
+                      .map((p: unknown) => String(p || '').trim())
+                      .filter(Boolean)
+                  ))
+                  console.log(`[IAM-SIMULATE-FIX] Found ${permissionsToRemove.length} unused permissions`)
+                }
+              }
+
               if (permissionsToRemove.length === 0) {
-                throw new Error('No explicit permissions were selected for remediation')
+                throw new Error('No unused permissions found for remediation')
               }
 
               // Call remediation API
