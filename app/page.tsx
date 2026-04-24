@@ -118,6 +118,9 @@ export default function HomePage() {
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
+  // Pending-tag queue count for the sidebar badge. Polled on mount + every 60s
+  // so operators see new pending items without a hard refresh.
+  const [pendingTagsCount, setPendingTagsCount] = useState<number>(0)
   const [gapData, setGapData] = useState<GapAnalysisData>({
     allowed: 0,
     used: 0,
@@ -320,6 +323,31 @@ export default function HomePage() {
     return () => clearInterval(interval)
   }, [autoRefresh, loadData, fetchGapAnalysis, fetchSecurityHub])
 
+  // Pending-tag count for the sidebar badge. On-mount + 60s poll. Isolated
+  // from the main data fetch so a pending-endpoint failure doesn't break
+  // the rest of the dashboard.
+  useEffect(() => {
+    let cancelled = false
+    const fetchPendingCount = async () => {
+      try {
+        const res = await fetch("/api/proxy/auto-tagger/pending?status=pending", {
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setPendingTagsCount(typeof data?.count === "number" ? data.count : 0)
+      } catch {
+        // Silent — the nav just shows no badge if we can't fetch.
+      }
+    }
+    fetchPendingCount()
+    const interval = setInterval(fetchPendingCount, 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [])
+
   // Compute security stats from actual findings when backend returns zeros
   const computeStatsFromFindings = (findings: SecurityFinding[]) => {
     const counts = { critical: 0, high: 0, medium: 0, low: 0 }
@@ -426,7 +454,7 @@ export default function HomePage() {
   if (loading) {
     return (
       <div className="flex min-h-screen bg-gray-50">
-        <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={0} />
+        <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={0} pendingTagsCount={pendingTagsCount} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2D51DA] mx-auto mb-4"></div>
@@ -858,7 +886,7 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={statsData.totalIssues} />
+      <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
       <div className="flex-1 p-8">{renderContent()}</div>
 
       {/* Traffic Simulator Modal */}

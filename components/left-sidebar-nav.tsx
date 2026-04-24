@@ -1,16 +1,33 @@
 "use client"
 
 import Image from "next/image"
-import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles } from "lucide-react"
+import Link from "next/link"
+import { Home, AlertTriangle, Server, Grid3x3, Fingerprint, Plug, Zap, Split, Bug, Shield, Route, Sparkles, Tag } from "lucide-react"
 
 interface LeftSidebarNavProps {
   activeItem?: string
   onItemClick?: (item: string) => void
   issuesCount?: number
+  pendingTagsCount?: number
 }
 
-export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount = 0 }: LeftSidebarNavProps) {
-  const menuItems = [
+export function LeftSidebarNav({
+  activeItem = "home",
+  onItemClick,
+  issuesCount = 0,
+  pendingTagsCount = 0,
+}: LeftSidebarNavProps) {
+  // `href` renders as a real Link (navigates). Default items use `onItemClick`
+  // and stay in the section-switcher model of app/page.tsx. The PendingTags
+  // surface is a standalone Next.js route (app/pending-tags/page.tsx) so it's
+  // linkable + bookmarkable — hence it uses `href`.
+  const menuItems: Array<{
+    id: string
+    label: string
+    icon: any
+    count?: number
+    href?: string
+  }> = [
     { id: "home", label: "Home", icon: Home },
     { id: "copilot", label: "Ask Copilot", icon: Sparkles },
     { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount },
@@ -21,6 +38,7 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
     { id: "compliance", label: "Compliance", icon: Grid3x3 },
     { id: "identities", label: "Identities", icon: Fingerprint },
     { id: "per-resource", label: "Shared Resource", icon: Split },
+    { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
     { id: "automation", label: "Automation", icon: Zap },
     { id: "integrations", label: "Integrations", icon: Plug },
   ]
@@ -62,23 +80,14 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
           const Icon = item.icon
           const isActive = activeItem === item.id
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => onItemClick?.(item.id)}
-              className="relative w-full flex items-center gap-3 px-6 py-3 text-sm font-medium transition-all overflow-hidden"
-              style={{
-                background: isActive ? "linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #6366f1 100%)" : "transparent",
-                color: isActive ? "#ffffff" : "var(--text-secondary)",
-                boxShadow: isActive ? "0 4px 12px -2px rgba(37, 99, 235, 0.3)" : undefined,
-              }}
-            >
+          const body = (
+            <>
               {isActive && (
                 <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>
               )}
               <Icon className="w-5 h-5 relative" />
               <span className="relative">{item.label}</span>
-              {item.count && (
+              {item.count ? (
                 <span
                   className="ml-auto px-2 py-0.5 rounded-full text-xs font-bold"
                   style={{
@@ -88,7 +97,36 @@ export function LeftSidebarNav({ activeItem = "home", onItemClick, issuesCount =
                 >
                   {item.count}
                 </span>
-              )}
+              ) : null}
+            </>
+          )
+
+          const commonStyle = {
+            background: isActive ? "linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #6366f1 100%)" : "transparent",
+            color: isActive ? "#ffffff" : "var(--text-secondary)",
+            boxShadow: isActive ? "0 4px 12px -2px rgba(37, 99, 235, 0.3)" : undefined,
+          }
+          const commonClass = "relative w-full flex items-center gap-3 px-6 py-3 text-sm font-medium transition-all overflow-hidden"
+
+          // Items with `href` render as real Next.js Links so the destination
+          // page (e.g. /pending-tags) is bookmarkable + shareable. Others
+          // stay inside the section-switcher model.
+          if (item.href) {
+            return (
+              <Link key={item.id} href={item.href} className={commonClass} style={commonStyle}>
+                {body}
+              </Link>
+            )
+          }
+
+          return (
+            <button
+              key={item.id}
+              onClick={() => onItemClick?.(item.id)}
+              className={commonClass}
+              style={commonStyle}
+            >
+              {body}
             </button>
           )
         })}

@@ -177,7 +177,26 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
   }
 
   if (pending.length === 0) {
-    return null // Don't show anything if no pending approvals
+    // Explicit empty state — previously `return null`, which made an empty
+    // queue visually indistinguishable from a broken fetch. Operators
+    // couldn't tell "no work to do" from "component silently failed".
+    return (
+      <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-6 text-center" data-testid="pending-approvals-empty">
+        <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+        <p className="text-sm font-medium text-white">No pending tags</p>
+        <p className="text-xs text-slate-400 mt-1">
+          {systemName
+            ? `All auto-tagger decisions for ${systemName} have been reviewed`
+            : "All auto-tagger decisions have been reviewed"}
+        </p>
+        <button
+          onClick={fetchPending}
+          className="mt-3 text-xs text-slate-400 hover:text-white flex items-center gap-1 mx-auto"
+        >
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </button>
+      </div>
+    )
   }
 
   const groupedByReason = pending.reduce<Record<string, PendingTag[]>>((acc, p) => {
