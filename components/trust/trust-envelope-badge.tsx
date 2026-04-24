@@ -135,10 +135,10 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
       </button>
 
       {expanded && !compact && (
-        <div className="border-t border-slate-700/50 p-3 space-y-3">
+        <div className="border-t border-slate-700/50 p-3 space-y-3 bg-slate-900 rounded-b-lg">
           {/* Freshness per source */}
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
               Source freshness
             </div>
             <div className="space-y-1">
@@ -164,7 +164,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
             provenance.observed_vs_configured.configured.length > 0 ||
             provenance.observed_vs_configured.inferred.length > 0) && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
                 Based on
               </div>
               <div className="space-y-1 text-[11px]">
@@ -208,7 +208,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
           {/* Caveats */}
           {provenance.confidence_caveats.length > 0 && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
                 Caveats
               </div>
               <ul className="space-y-0.5 text-[11px]">
