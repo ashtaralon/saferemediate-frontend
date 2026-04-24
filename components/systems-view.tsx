@@ -455,21 +455,24 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       console.log("[systems-view] Re-ingestion success:", {
         result,
         totalTimeMs: totalTime,
-        collectorsRun: result.collectors_run?.length || 0,
+        jobId: result.job_id,
+        alreadyRunning: result.already_running,
       })
 
-      const collectorsRun = result.collectors_run?.length || 0
-      const errors = result.errors?.length || 0
-
+      // This button now unifies with "Sync from AWS" — it kicks off the same
+      // 15-step async pipeline (VPC flow logs, CloudTrail, Security Groups,
+      // NACLs, S3 access logs, behavioral sync, etc.). No per-system scoping
+      // today — sync-all is global.
       toast({
-        title: "Re-ingestion Started",
-        description:
-          scope === "all"
-            ? `All systems are being re-ingested. ${collectorsRun} collectors started${errors > 0 ? ` (${errors} errors)` : ""}.`
-            : `System '${target}' is being re-ingested. ${collectorsRun} collectors started.`,
+        title: result.already_running ? "Sync already in progress" : "Sync from AWS started",
+        description: result.already_running
+          ? `A sync job is already running (step ${result.current_step ?? "?"}/15). Watch the Overview card for completion.`
+          : `Running the full 15-step data pipeline (VPC flow logs, CloudTrail, SGs, NACLs, S3 access logs, behavioral sync, visibility signals, auto-tagger). Takes several minutes — click Refresh on the Overview card when it's done.`,
       })
 
-      // Refresh systems data after a short delay
+      // Refresh systems data after a short delay so any IAM-tag changes surface.
+      // The full sync takes minutes — the Overview card's Blast Radius score
+      // will update on its next refresh cycle after the job completes.
       setTimeout(() => {
         fetchSystemsData()
       }, 2000)
