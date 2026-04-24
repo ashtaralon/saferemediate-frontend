@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
-import type { ConfidenceScore } from "@/lib/types"
+import type { ConfidenceScore, SimulateFixSafety, DecisionOutcomeCanonical } from "@/lib/types"
 
 interface PermissionAnalysis {
   permission: string
@@ -187,23 +187,88 @@ export function IAMPermissionAnalysisModal({
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
   const [provenance, setProvenance] = useState<Provenance | null>(null)
+  // Pipeline safety context from simulate-fix. When populated this is the
+  // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
+  // an explainer subordinate to it. See Layer 1/2 in backend.
+  const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
+  const [safetyLoading, setSafetyLoading] = useState(false)
 
-  // Fetch gap analysis data when modal opens
+  // Fetch gap analysis + pipeline safety context when modal opens. The
+  // confidence call is CHAINED off the safety context so we can pass it
+  // as pipeline_decision — this is what makes Agent 5 subordinate to the
+  // pipeline verdict in the modal (not just in the backend).
   useEffect(() => {
-    if (isOpen && roleName) {
-      fetchGapAnalysis()
-      fetchConfidenceScore()
-    }
+    if (!isOpen || !roleName) return
+    fetchGapAnalysis()
+    let cancelled = false
+    ;(async () => {
+      const safety = await fetchSafetyContext()
+      if (cancelled) return
+      fetchConfidenceScore(safety)
+    })()
+    return () => { cancelled = true }
   }, [isOpen, roleName])
 
-  const fetchConfidenceScore = async () => {
+  const fetchSafetyContext = async (): Promise<SimulateFixSafety | null> => {
+    setSafetyLoading(true)
+    setSafetyContext(null)
+    try {
+      const res = await fetch('/api/proxy/least-privilege/simulate-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resource_type: 'IAMRole',
+          resource_id: roleName,
+          system_name: systemName || 'default',
+        }),
+      })
+      if (!res.ok) {
+        console.warn('[IAM-Modal] simulate-fix fetch non-200:', res.status)
+        return null
+      }
+      const data = await res.json()
+      const safety = data?.safety as SimulateFixSafety | undefined
+      if (safety) {
+        setSafetyContext(safety)
+        return safety
+      }
+      return null
+    } catch (e) {
+      console.warn('[IAM-Modal] simulate-fix fetch failed:', e)
+      return null
+    } finally {
+      setSafetyLoading(false)
+    }
+  }
+
+  const fetchConfidenceScore = async (pipelineSafety: SimulateFixSafety | null) => {
     setConfidenceLoading(true)
     setConfidenceScore(null)
     try {
+      // Agent 5 subordination: pass the pipeline decision context so the
+      // backend can floor the scorer's routing to the pipeline verdict.
+      // When pipelineSafety is null (simulate-fix unavailable) the call
+      // falls back to legacy behavior.
+      const body: Record<string, unknown> = {
+        role_name: roleName,
+        permissions_to_remove: [],
+      }
+      if (pipelineSafety) {
+        body.pipeline_decision = {
+          decision_canonical: pipelineSafety.decision_canonical,
+          decision: pipelineSafety.decision,
+          observation_days: pipelineSafety.observation_days,
+          telemetry_coverage: pipelineSafety.telemetry_coverage,
+          consumer_count: pipelineSafety.consumer_count,
+          shared: pipelineSafety.shared,
+          completeness: pipelineSafety.completeness,
+          unsafe_reasons: pipelineSafety.unsafe_reasons,
+        }
+      }
       const res = await fetch('/api/proxy/confidence/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role_name: roleName, permissions_to_remove: [] }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) return
       const data = await res.json()
@@ -680,14 +745,49 @@ export function IAMPermissionAnalysisModal({
   // or if the /api/confidence/check call failed.
   const safetyScore = confidenceScore?.confidence ?? legacySafetyScore
 
-  // Verdict bucket — derived from Agent 5 routing when present, else from
-  // the legacy score thresholds. Kept in sync so the banner copy matches
-  // whichever scorer produced the number above it.
+  // ── Verdict bucket — PIPELINE IS AUTHORITATIVE ────────────────────
+  // Source-of-truth hierarchy:
+  //   1. safetyContext.decision_canonical      (unified pipeline — wins)
+  //   2. confidenceScore.routing               (subordinated Agent 5)
+  //   3. legacy score thresholds               (fallback while loading)
+  //
+  // Before Layer 3, the modal treated (2) as the primary. That let Agent
+  // 5 show "SAFE TO APPLY / 95 confidence" on top of a pipeline BLOCK.
+  // The pipeline decision is now the first read, so the badge can never
+  // contradict the pipeline.
+  const canonicalToBucket = (d?: DecisionOutcomeCanonical | null):
+    'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' | null => {
+    if (!d) return null
+    if (d === 'BLOCK' || d === 'EXCLUDE') return 'blocked'
+    if (d === 'MANUAL_REVIEW') return 'manual_review'
+    if (d === 'REQUIRE_APPROVAL' || d === 'CANARY_FIRST') return 'human_approval'
+    if (d === 'AUTO_EXECUTE') return 'auto_execute'
+    return null
+  }
   const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
-    confidenceScore?.routing
+    canonicalToBucket(safetyContext?.decision_canonical ?? null)
+      ?? confidenceScore?.routing
       ?? (safetyScore < 50 ? 'manual_review'
         : safetyScore < 75 ? 'human_approval'
           : 'auto_execute')
+
+  // Copy for the "AI reviewer …" subtext on the banner. Subordination
+  // text comes from backend pipeline_agreement when present. When the
+  // modal talks to the subordinated /api/confidence/check with pipeline
+  // context, this is always populated.
+  const aiReviewerCopy = ((): string | null => {
+    const agree = confidenceScore?.pipeline_agreement
+    if (!agree) return null
+    const pipelineLabel = agree.pipeline_decision_canonical || 'decision'
+    if (agree.reviewer_verdict === 'agrees') {
+      return `AI reviewer agrees: ${pipelineLabel}`
+    }
+    // Subordinated: surface the first cap reason if present.
+    const firstReason = agree.caps_applied?.[0]?.reason
+    return firstReason
+      ? `AI reviewer subordinated — ${firstReason}`
+      : `AI reviewer subordinated to pipeline ${pipelineLabel}`
+  })()
 
   // Loading state
   if (loading) {
@@ -810,18 +910,53 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 )
               } else if (verdictBucket === 'blocked') {
-                // Agent 5 hard-blocked this remediation via a gate failure.
+                // Pipeline blocked this remediation. We render "INVESTIGATION
+                // REQUIRED" (not "BLOCKED") because the user's next action is
+                // to investigate, not to click-past a refusal.
+                //
+                // Reason precedence:
+                //   1. Pipeline safety.unsafe_reasons[0]   (why pipeline blocked)
+                //   2. Agent 5 gates_failed[0].detail      (why reviewer blocked)
+                //   3. Generic copy
+                const pipelineReason = safetyContext?.unsafe_reasons?.[0]
+                const agent5Reason = confidenceScore?.gates_failed?.[0]?.detail
+                const primaryReason = pipelineReason
+                  ?? agent5Reason
+                  ?? 'Pipeline blocked — see evidence below.'
                 return (
-                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
+                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl">
                     <div className="flex items-center justify-center gap-3">
                       <XCircle className="w-10 h-10 text-[#ef4444]" />
-                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}</span>
-                      <span className="text-2xl font-bold text-[#ef4444]">BLOCKED</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">INVESTIGATION REQUIRED</span>
                     </div>
-                    <p className="text-[#ef4444] mt-2 font-semibold">
-                      {confidenceScore?.gates_failed?.[0]?.detail
-                        ?? 'Hard block — see confidence panel below for gate details.'}
+                    <p className="text-[#ef4444] mt-2 font-semibold text-center">
+                      {primaryReason}
                     </p>
+                    {/* Pipeline evidence — the facts the user needs to decide
+                        whether to investigate or extend the observation window.
+                        Only rendered when we actually have pipeline safety. */}
+                    {safetyContext && (
+                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
+                        <p className="text-sm font-bold text-[#991b1b] mb-2">Pipeline evidence:</p>
+                        <ul className="text-xs text-[#7f1d1d] space-y-1 list-disc list-inside">
+                          {typeof safetyContext.observation_days === 'number' && (
+                            <li>Effective observation: <strong>{safetyContext.observation_days} days</strong> (pipeline requires ≥ 21 days of matching telemetry for approval tier)</li>
+                          )}
+                          {typeof safetyContext.telemetry_coverage === 'number' && (
+                            <li>Telemetry coverage: <strong>{Math.round((safetyContext.telemetry_coverage || 0) * 100)}%</strong> ({safetyContext.completeness ?? 'unknown'})</li>
+                          )}
+                          {typeof safetyContext.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
+                            <li>{safetyContext.consumer_count} active consumer{safetyContext.consumer_count === 1 ? '' : 's'} — other systems currently depend on this role</li>
+                          )}
+                          {(safetyContext.unsafe_reasons ?? []).slice(1).map((reason, i) => (
+                            <li key={`rsn-${i}`}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {aiReviewerCopy && (
+                      <p className="text-xs text-[#991b1b] mt-3 text-center italic">{aiReviewerCopy}</p>
+                    )}
                   </div>
                 )
               } else if (verdictBucket === 'manual_review') {
@@ -864,33 +999,59 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 )
               } else if (verdictBucket === 'human_approval') {
-                // Agent 5 needs human approval before auto-remediating.
+                // Pipeline allows remediation but requires human approval —
+                // typically because the role is shared, or partial telemetry.
                 const cg = gapData?.confidence_groups
                 return (
-                  <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl text-center">
+                  <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl">
                     <div className="flex items-center justify-center gap-3">
                       <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{confidenceScore ? '' : '%'}</span>
-                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'NEEDS APPROVAL' : 'REVIEW RECOMMENDED'}</span>
+                      <span className="text-2xl font-bold text-[#f97316]">APPROVAL REQUIRED</span>
                     </div>
-                    <p className="text-[#f97316] mt-2">
+                    <p className="text-[#f97316] mt-2 text-center">
                       {cg ? `${cg.summary.safe_to_remove} permissions safe to remove, ${cg.summary.verify_first + cg.summary.investigate_first} need verification.`
                            : `${cloudtrailEvents.toLocaleString()} events analyzed — some permissions need verification.`}
                     </p>
+                    {safetyContext && (
+                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
+                        <p className="text-sm font-bold text-[#9a3412] mb-2">Pipeline signals:</p>
+                        <ul className="text-xs text-[#7c2d12] space-y-1 list-disc list-inside">
+                          {typeof safetyContext.observation_days === 'number' && (
+                            <li>Observation window: <strong>{safetyContext.observation_days} days</strong></li>
+                          )}
+                          {typeof safetyContext.telemetry_coverage === 'number' && (
+                            <li>Telemetry coverage: <strong>{Math.round((safetyContext.telemetry_coverage || 0) * 100)}%</strong> ({safetyContext.completeness ?? 'unknown'})</li>
+                          )}
+                          {typeof safetyContext.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
+                            <li>{safetyContext.consumer_count} consumer{safetyContext.consumer_count === 1 ? '' : 's'} depend on this role</li>
+                          )}
+                          {(safetyContext.unsafe_reasons ?? []).map((reason, i) => (
+                            <li key={`ur-${i}`}>{reason}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {aiReviewerCopy && (
+                      <p className="text-xs text-[#9a3412] mt-3 text-center italic">{aiReviewerCopy}</p>
+                    )}
                   </div>
                 )
               } else {
-                // auto_execute — Agent 5 clears this for auto-remediation.
+                // auto_execute — pipeline cleared this for auto-remediation.
+                // We only reach this branch when safetyContext.decision_canonical
+                // == "AUTO_EXECUTE" (or the fallback score path agrees).
                 return (
                   <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                      <span className="text-5xl font-bold text-[#22c55e]">{safetyScore}{confidenceScore ? '' : '%'}</span>
                       <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
                     </div>
                     <p className="text-[#22c55e] mt-2">
-                      {cloudtrailEvents.toLocaleString()} API events analyzed — confidence ≥ 95, AI reviewer agrees.
+                      {cloudtrailEvents.toLocaleString()} API events analyzed — pipeline approved.
                     </p>
+                    {aiReviewerCopy && (
+                      <p className="text-xs text-[#15803d] mt-3 italic">{aiReviewerCopy}</p>
+                    )}
                   </div>
                 )
               }
@@ -898,7 +1059,9 @@ export function IAMPermissionAnalysisModal({
 
             {/* What Will Change */}
             <div>
-              <h3 className="font-bold text-lg  mb-3" style={{ color: "var(--foreground, #111827)" }}>What Will Change:</h3>
+              <h3 className="font-bold text-lg  mb-3" style={{ color: "var(--foreground, #111827)" }}>
+                {verdictBucket === 'blocked' ? 'What the Investigation Is About:' : 'What Will Change:'}
+              </h3>
               {(() => {
                 // When we have individual permission names, use selection count
                 // When we only have counts (managed policies), use total unused count
@@ -916,20 +1079,37 @@ export function IAMPermissionAnalysisModal({
                   ? Math.round((remediableUnusedAfter / newTotal) * 100)
                   : 0
 
+                // On a pipeline block the "reduce attack surface by X%" /
+                // "reduce remediable over-priv" lines are a lie — no
+                // remediation is going to happen. Show only the inventory
+                // line ("Remove N unused permissions") and flag it as
+                // pending investigation, not as a done-deal.
+                const isBlocked = verdictBucket === 'blocked'
+
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
                       <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                      <span>Remove <strong>{removalCount}</strong> unused permissions from {roleName}</span>
+                      <span>
+                        {isBlocked ? (
+                          <>Would remove <strong>{removalCount}</strong> unused permissions from {roleName} <em>(pending investigation)</em></>
+                        ) : (
+                          <>Remove <strong>{removalCount}</strong> unused permissions from {roleName}</>
+                        )}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
-                      <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                      <span>Reduce attack surface by <strong>{reductionPct}%</strong> ({totalPermissions} → {newTotal} permissions)</span>
-                    </div>
-                    <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
-                      <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
-                      <span>Reduce remediable over-privileged from <strong>{remediableOverprivBefore}%</strong> to <strong>{remediableOverprivAfter}%</strong></span>
-                    </div>
+                    {!isBlocked && (
+                      <>
+                        <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                          <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                          <span>Reduce attack surface by <strong>{reductionPct}%</strong> ({totalPermissions} → {newTotal} permissions)</span>
+                        </div>
+                        <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: "var(--background, #f8f9fa)" }}>
+                          <Check className="w-5 h-5 text-[#22c55e] flex-shrink-0" />
+                          <span>Reduce remediable over-privileged from <strong>{remediableOverprivBefore}%</strong> to <strong>{remediableOverprivAfter}%</strong></span>
+                        </div>
+                      </>
+                    )}
                     {!hasPermissionLists && unusedCount > 0 && (
                       <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-300" style={{ background: "#fef3c710" }}>
                         <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -2175,6 +2355,39 @@ export function IAMPermissionAnalysisModal({
                   <div className="flex items-center gap-2 mt-3 text-[#f97316]">
                     <AlertTriangle className="w-5 h-5" />
                     <span className="font-medium">Low confidence — Enable data events and investigate before removing</span>
+                  </div>
+                </div>
+              )
+            } else if (verdictBucket === 'blocked') {
+              // Pipeline blocked for reasons OTHER than the no-usage branch
+              // above — e.g. partial telemetry, short observation window,
+              // active consumers. The older code fell through to "High
+              // confidence remediation" here; now we render the pipeline's
+              // reasons as the recommendation so the user knows what to do
+              // next (investigate, extend obs, add telemetry).
+              const reasons = safetyContext?.unsafe_reasons ?? []
+              return (
+                <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-5">
+                  <h3 className="font-bold text-[#ef4444]">Investigation Required</h3>
+                  <p className="text-[#ef4444] mt-1">
+                    {reasons[0] ?? 'Pipeline blocked this remediation. Review the evidence before proceeding.'}
+                  </p>
+                  {reasons.length > 1 && (
+                    <ul className="mt-2 text-sm text-[#991b1b] list-disc list-inside space-y-1">
+                      {reasons.slice(1).map((reason, i) => (
+                        <li key={`rec-${i}`}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {typeof safetyContext?.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
+                    <p className="text-xs text-[#991b1b] mt-3">
+                      Note: {safetyContext.consumer_count} consumer{safetyContext.consumer_count === 1 ? '' : 's'}{' '}
+                      currently depend on this role — verify impact before touching permissions.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-3 text-[#ef4444]">
+                    <XCircle className="w-5 h-5" />
+                    <span className="font-medium">Pipeline decision: BLOCK — auto-remediation disabled</span>
                   </div>
                 </div>
               )

@@ -168,6 +168,27 @@ export interface LLMReview {
   reason: string
 }
 
+// Shape of the pipeline_agreement block returned by /api/confidence/check
+// when the caller has passed pipeline_decision. The UI renders this to
+// explain the verdict; it's the ONLY Agent-5 field that should drive
+// copy like "AI reviewer agrees: BLOCK" or "AI reviewer subordinated".
+export interface ConfidencePipelineAgreement {
+  pipeline_decision_canonical: DecisionOutcomeCanonical | null
+  pipeline_decision: string | null
+  reviewer_verdict: "agrees" | "subordinated"
+  agent5_routing: ConfidenceRouting
+  final_routing: ConfidenceRouting
+  caps_applied: Array<{ from: ConfidenceRouting; to: ConfidenceRouting; reason: string }>
+  signals: {
+    observation_days: number | null
+    telemetry_coverage: number | null
+    consumer_count: number | null
+    shared: boolean | null
+    completeness: "complete" | "partial" | "unknown" | null
+    unsafe_reasons: string[]
+  }
+}
+
 export interface ConfidenceScore {
   confidence: number // 0-100
   routing: ConfidenceRouting // final routing (may be bumped by LLM reviewer)
@@ -188,6 +209,9 @@ export interface ConfidenceScore {
   llm_explanation?: string | null
   role_tags?: RoleTags | null
   resource_tags?: RoleTags | null
+  // Present only when caller passed pipeline_decision. See Layer 2 in
+  // backend api/remediation_confidence.py.
+  pipeline_agreement?: ConfidencePipelineAgreement
 }
 
 // ============================================================================
@@ -409,12 +433,33 @@ export interface SimulateFixProjectedEffect {
 
 export type SimulateFixSafetyDecision = "auto_eligible" | "approval_required" | "blocked"
 
+// Canonical DecisionOutcome from unified pipeline. Source of truth going
+// forward — the legacy lowercase `decision` field is kept for backcompat
+// but the UI should read `decision_canonical` when present.
+export type DecisionOutcomeCanonical =
+  | "AUTO_EXECUTE"
+  | "REQUIRE_APPROVAL"
+  | "MANUAL_REVIEW"
+  | "BLOCK"
+  | "CANARY_FIRST"
+  | "EXCLUDE"
+
 export interface SimulateFixSafety {
   decision: SimulateFixSafetyDecision
+  decision_canonical?: DecisionOutcomeCanonical | null
   rollback_available: boolean
   snapshot_required: boolean
   preflight_required: boolean
   unsafe_reasons: string[]
+  // Exposed so the modal can render Agent 5 as an *explainer* of this
+  // decision instead of an independent verdict. See backend
+  // api/least_privilege.py SimulateFixSafety for field semantics.
+  consumer_count?: number
+  observation_days?: number | null   // effective window actually measured
+  telemetry_coverage?: number | null // 0.0–1.0 over 4 planes
+  shared?: boolean | null            // null = couldn't measure
+  shared_confidence?: "high" | "medium" | "unknown" | null
+  completeness?: "complete" | "partial" | "unknown" | null
 }
 
 export interface SimulateFixResponse {
