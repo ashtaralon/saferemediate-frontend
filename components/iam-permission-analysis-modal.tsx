@@ -764,12 +764,22 @@ export function IAMPermissionAnalysisModal({
     if (d === 'AUTO_EXECUTE') return 'auto_execute'
     return null
   }
+  // Cap the non-pipeline fallback below auto_execute. The UI must never
+  // render "SAFE TO APPLY" unless the unified pipeline explicitly said so.
+  // If only Agent 5 (confidenceScore.routing) or the legacy score thresholds
+  // are speaking, the highest the badge can go is "Human Approval" — the
+  // operator decides, not the AI alone.
+  const _pipelineBucket = canonicalToBucket(safetyContext?.decision_canonical ?? null)
+  const _agentRouting = confidenceScore?.routing
+  const _legacyFallback: 'blocked' | 'manual_review' | 'human_approval' =
+    safetyScore < 50 ? 'manual_review'
+      : 'human_approval'
+  const _nonPipelineCandidate = _agentRouting ?? _legacyFallback
+  // AI alone cannot approve auto-execute. Demote to human_approval if it tries.
+  const _nonPipelineBucket: 'blocked' | 'manual_review' | 'human_approval' =
+    _nonPipelineCandidate === 'auto_execute' ? 'human_approval' : _nonPipelineCandidate
   const verdictBucket: 'blocked' | 'manual_review' | 'human_approval' | 'auto_execute' =
-    canonicalToBucket(safetyContext?.decision_canonical ?? null)
-      ?? confidenceScore?.routing
-      ?? (safetyScore < 50 ? 'manual_review'
-        : safetyScore < 75 ? 'human_approval'
-          : 'auto_execute')
+    _pipelineBucket ?? _nonPipelineBucket
 
   // Copy for the "AI reviewer …" subtext on the banner. Subordination
   // text comes from backend pipeline_agreement when present. When the
