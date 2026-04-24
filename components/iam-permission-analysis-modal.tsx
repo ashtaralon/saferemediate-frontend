@@ -1738,7 +1738,125 @@ export function IAMPermissionAnalysisModal({
             ))}
           </div>
 
-          {/* Agent 5 · Confidence Scorer — appears on Summary tab for all roles */}
+          {/* ── Pipeline Decision banner (Summary tab) ────────────────────
+              The unified pipeline is the AUTHORITATIVE decision source.
+              We render it above the Agent 5 panel so the verdict order
+              matches the source-of-truth order. Agent 5 is rendered
+              below as the *explanation* of this decision.
+              Fail-closed: if simulate-fix returned no safety object, we
+              don't show a green "Safe to apply" — we surface the
+              fail-closed warning so the user can investigate why. */}
+          {analysisTab === 'summary' && safetyLoading && (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
+              <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
+              Reading unified pipeline decision…
+            </div>
+          )}
+          {analysisTab === 'summary' && !safetyLoading && !safetyContext && (
+            <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4">
+              <div className="flex items-start gap-3">
+                <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-[#991b1b]">Pipeline check unavailable — fail-closed</p>
+                  <p className="text-sm text-[#7f1d1d] mt-1">
+                    Could not retrieve a unified-pipeline safety decision for{' '}
+                    <span className="font-semibold">{roleName}</span>. Investigate before
+                    remediating — Agent 5 confidence alone is not authoritative.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          {analysisTab === 'summary' && safetyContext && (() => {
+            const d = safetyContext.decision_canonical ?? null
+            const obs = safetyContext.observation_days
+            const tel = safetyContext.telemetry_coverage
+            const consumers = safetyContext.consumer_count ?? 0
+            const reasons = safetyContext.unsafe_reasons ?? []
+            const completeness = safetyContext.completeness ?? 'unknown'
+
+            type Tone = 'block' | 'review' | 'approve' | 'auto'
+            const tone: Tone =
+              d === 'BLOCK' || d === 'EXCLUDE' ? 'block'
+              : d === 'MANUAL_REVIEW' ? 'review'
+              : d === 'REQUIRE_APPROVAL' || d === 'CANARY_FIRST' ? 'approve'
+              : d === 'AUTO_EXECUTE' ? 'auto'
+              : 'review'
+
+            const styles: Record<Tone, { border: string; bg: string; title: string; sub: string; chip: string; chipText: string }> = {
+              block:   { border: '#fca5a5', bg: '#fef2f2', title: '#991b1b', sub: '#7f1d1d', chip: '#dc2626', chipText: '#ffffff' },
+              review:  { border: '#fdba74', bg: '#fff7ed', title: '#9a3412', sub: '#7c2d12', chip: '#ea580c', chipText: '#ffffff' },
+              approve: { border: '#fcd34d', bg: '#fffbeb', title: '#92400e', sub: '#78350f', chip: '#d97706', chipText: '#ffffff' },
+              auto:    { border: '#86efac', bg: '#f0fdf4', title: '#166534', sub: '#14532d', chip: '#16a34a', chipText: '#ffffff' },
+            }
+            const s = styles[tone]
+            const headline =
+              tone === 'block'   ? 'INVESTIGATION REQUIRED'
+              : tone === 'review' ? 'MANUAL REVIEW'
+              : tone === 'approve' ? 'APPROVAL REQUIRED'
+              : 'PIPELINE APPROVED'
+            const Icon = tone === 'auto' ? CheckCircle : tone === 'block' ? XCircle : AlertTriangle
+
+            return (
+              <div className="rounded-lg border-2 p-4" style={{ borderColor: s.border, background: s.bg }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Icon className="w-5 h-5" style={{ color: s.chip }} />
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: s.title }}>
+                      Pipeline Decision
+                    </span>
+                  </div>
+                  <span
+                    className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
+                    style={{ background: s.chip, color: s.chipText }}
+                  >
+                    {d ?? 'UNKNOWN'}
+                  </span>
+                </div>
+                <p className="mt-2 font-bold text-base" style={{ color: s.title }}>{headline}</p>
+                {reasons[0] && (
+                  <p className="mt-1 text-sm" style={{ color: s.sub }}>{reasons[0]}</p>
+                )}
+                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs" style={{ color: s.sub }}>
+                  {typeof obs === 'number' && (
+                    <div>
+                      <span className="opacity-70">Observation:</span>{' '}
+                      <span className="font-semibold">{obs} days</span>
+                      {tone === 'block' && obs < 21 && (
+                        <span className="opacity-70"> (≥ 21 needed)</span>
+                      )}
+                    </div>
+                  )}
+                  {typeof tel === 'number' && (
+                    <div>
+                      <span className="opacity-70">Telemetry:</span>{' '}
+                      <span className="font-semibold">{Math.round(tel * 100)}%</span>
+                      <span className="opacity-70"> ({completeness})</span>
+                    </div>
+                  )}
+                  {consumers > 0 && (
+                    <div className="col-span-2">
+                      <span className="opacity-70">Consumers:</span>{' '}
+                      <span className="font-semibold">{consumers}</span>
+                      <span className="opacity-70"> active — other systems depend on this role</span>
+                    </div>
+                  )}
+                </div>
+                {reasons.length > 1 && (
+                  <ul className="mt-2 text-xs list-disc list-inside space-y-0.5" style={{ color: s.sub }}>
+                    {reasons.slice(1).map((r, i) => <li key={`pdr-${i}`}>{r}</li>)}
+                  </ul>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Agent 5 · Confidence Scorer — explainer beneath the pipeline
+              verdict. Once the confidence/check proxy forwards
+              pipeline_decision (Layer-2-aware), score.routing here is the
+              SUBORDINATED routing, so the pill in the panel header reads
+              "Blocked" / "Needs approval" rather than "Safe to apply" on
+              roles the pipeline blocked. */}
           {analysisTab === 'summary' && confidenceLoading && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
               <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />

@@ -6,7 +6,18 @@ const BACKEND_URL = getBackendBaseUrl()
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { role_name, permissions_to_remove, resource_type, resource_id, changes } = body
+    const {
+      role_name,
+      permissions_to_remove,
+      resource_type,
+      resource_id,
+      changes,
+      // Pipeline subordination context (Layer 2). MUST be forwarded —
+      // dropping it silently fails-open: the backend then runs Agent 5
+      // alone, so the modal can show "Safe to apply / 95" while the
+      // pipeline decision is BLOCK. This was a real production bug.
+      pipeline_decision,
+    } = body
 
     if (!role_name && !resource_id) {
       return NextResponse.json(
@@ -23,6 +34,9 @@ export async function POST(request: NextRequest) {
       forward.resource_type = resource_type
       forward.resource_id = resource_id
       forward.changes = changes ?? []
+    }
+    if (pipeline_decision && typeof pipeline_decision === "object") {
+      forward.pipeline_decision = pipeline_decision
     }
 
     const response = await fetch(`${BACKEND_URL}/api/confidence/check`, {
