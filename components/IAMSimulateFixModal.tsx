@@ -388,7 +388,12 @@ export function IAMSimulateFixModal({
 
           {activeTab === 'impact' && (
             <>
-              {/* Blast Radius Impact */}
+              {/* Blast Radius Impact
+                  Item #6: post-remediation projection (after/delta) was removed
+                  from the backend — it was computed from hardcoded multipliers.
+                  When `projection_available === false`, render the current-state
+                  (_before) values only and show "Projection unavailable" for
+                  After/Delta cells. */}
               <Section title="Blast Radius Impact" icon={<TrendingDown className="w-4 h-4 text-green-400" />}>
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div className="text-center p-3 rounded-lg bg-slate-700/50">
@@ -396,11 +401,23 @@ export function IAMSimulateFixModal({
                     <div className="text-xs text-slate-400">Before</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-slate-700/50">
-                    <div className="text-2xl font-bold text-green-400">{projected_effect.blast_radius_score_after}</div>
+                    {projected_effect.blast_radius_score_after != null ? (
+                      <div className="text-2xl font-bold text-green-400">{projected_effect.blast_radius_score_after}</div>
+                    ) : (
+                      <div className="text-sm text-slate-500 italic">Projection unavailable</div>
+                    )}
                     <div className="text-xs text-slate-400">After</div>
                   </div>
                   {(() => {
                     const d = projected_effect.blast_radius_score_delta
+                    if (d == null) {
+                      return (
+                        <div className="text-center p-3 rounded-lg bg-slate-700/50">
+                          <div className="text-sm text-slate-500 italic">Projection unavailable</div>
+                          <div className="text-xs text-slate-400">Delta</div>
+                        </div>
+                      )
+                    }
                     const deltaBg = d > 0 ? 'bg-red-900/30 border border-red-500/30' : d < 0 ? 'bg-green-900/30 border border-green-500/30' : 'bg-slate-700/50'
                     const deltaText = d > 0 ? 'text-red-400' : d < 0 ? 'text-green-400' : 'text-slate-300'
                     return (
@@ -431,15 +448,21 @@ export function IAMSimulateFixModal({
                     </div>
                     <div className="text-slate-500">→</div>
                     <div className="flex-1">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-400">After</span>
-                        <span className="text-green-400">{(projected_effect.resource_risk_contribution_after * 100).toFixed(1)}%</span>
-                      </div>
-                      <ProgressBar
-                        value={projected_effect.resource_risk_contribution_after * 100}
-                        max={100}
-                        color="#10B981"
-                      />
+                      {projected_effect.resource_risk_contribution_after != null ? (
+                        <>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-slate-400">After</span>
+                            <span className="text-green-400">{(projected_effect.resource_risk_contribution_after * 100).toFixed(1)}%</span>
+                          </div>
+                          <ProgressBar
+                            value={projected_effect.resource_risk_contribution_after * 100}
+                            max={100}
+                            color="#10B981"
+                          />
+                        </>
+                      ) : (
+                        <div className="text-xs text-slate-500 italic pt-1">Projection unavailable</div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -450,14 +473,18 @@ export function IAMSimulateFixModal({
                     <div className="text-xs text-slate-400 mb-2">Impact by Family:</div>
                     <div className="grid grid-cols-2 gap-2">
                       {Object.entries(projected_effect.family_scores_before).map(([family, before]) => {
-                        const after = projected_effect.family_scores_after[family] ?? before
-                        const delta = after - before
+                        const after = projected_effect.family_scores_after?.[family]
+                        const delta = after != null ? after - before : null
                         return (
                           <div key={family} className="flex items-center justify-between text-xs p-2 rounded bg-slate-700/50">
                             <span className="text-slate-400 capitalize">{family}</span>
-                            <span className={delta < 0 ? 'text-green-400' : delta > 0 ? 'text-red-400' : 'text-slate-300'}>
-                              {before} → {after}
-                            </span>
+                            {delta != null && after != null ? (
+                              <span className={delta < 0 ? 'text-green-400' : delta > 0 ? 'text-red-400' : 'text-slate-300'}>
+                                {before} → {after}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 italic">{before} → projection unavailable</span>
+                            )}
                           </div>
                         )
                       })}
