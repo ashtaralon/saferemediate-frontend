@@ -53,7 +53,7 @@ function confidenceStyles(c: Confidence) {
     case "medium":
       return { bg: "bg-amber-900/30", border: "border-amber-600/50", text: "text-amber-300", dot: "bg-amber-400" }
     case "low":
-      return { bg: "bg-red-900/30", border: "border-red-600/50", text: "text-red-300", dot: "bg-red-400" }
+      return { bg: "bg-amber-900/30", border: "border-amber-600/50", text: "text-amber-300", dot: "bg-amber-400" }
     default:
       return { bg: "bg-slate-800/50", border: "border-slate-600/50", text: "text-slate-400", dot: "bg-slate-500" }
   }
@@ -65,8 +65,10 @@ function freshnessStyles(s: FreshnessStatus) {
       return "text-emerald-400"
     case "stale":
       return "text-amber-400"
+    case "stale":
+      return "text-amber-400"
     default:
-      return "text-slate-500"
+      return "text-amber-500"
   }
 }
 
@@ -151,7 +153,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
                   <span className={`${freshnessStyles(entry.status)} text-[11px]`}>
                     {entry.status}
                   </span>
-                  <span className="text-slate-500 text-[11px]">
+                  <span className={`text-[11px] ${entry.last_sync ? "text-slate-400" : "text-amber-500"}`}>
                     {entry.last_sync ? formatAge(entry.age_seconds) : "never synced"}
                   </span>
                 </div>
