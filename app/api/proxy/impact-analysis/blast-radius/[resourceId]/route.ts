@@ -10,7 +10,10 @@ export async function GET(
 ) {
   const { resourceId } = await context.params
   const url = new URL(req.url)
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod"
+  const systemName = url.searchParams.get("systemName")
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+  }
   const depth = url.searchParams.get("depth") ?? "3"
   
   try {

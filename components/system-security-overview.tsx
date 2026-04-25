@@ -212,11 +212,11 @@ interface ConnectionDetail {
 }
 
 interface SystemSecurityOverviewProps {
-  systemName?: string
+  systemName: string
   onViewOnMap?: (highlightPath: { source: string; target: string; port?: string }) => void
 }
 
-export function SystemSecurityOverview({ systemName = "alon-prod", onViewOnMap }: SystemSecurityOverviewProps) {
+export function SystemSecurityOverview({ systemName, onViewOnMap }: SystemSecurityOverviewProps) {
   const [loading, setLoading] = useState(true)
   const [resources, setResources] = useState<Resource[]>([])
   const [connections, setConnections] = useState<Connection[]>([])

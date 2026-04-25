@@ -10,7 +10,10 @@ const BACKEND_URL =
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
-  const systemId = searchParams.get("systemId") || "alon-prod"
+  const systemId = searchParams.get("systemId")
+  if (!systemId) {
+    return NextResponse.json({ error: "systemId query parameter is required" }, { status: 400 })
+  }
   const window = searchParams.get("window") || "7d"
 
   try {

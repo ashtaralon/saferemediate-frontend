@@ -13,6 +13,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { system_name, region } = body
 
+    if (!system_name) {
+      return NextResponse.json({ error: "system_name is required in request body" }, { status: 400 })
+    }
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout for analysis
 
@@ -25,7 +29,7 @@ export async function POST(req: NextRequest) {
         "Accept": "application/json",
       },
       body: JSON.stringify({
-        system_name: system_name || "alon-prod",
+        system_name: system_name,
         region: region || "eu-west-1",
       }),
       cache: "no-store",

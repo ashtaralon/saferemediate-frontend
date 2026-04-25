@@ -2463,7 +2463,7 @@ function RefreshStatusBadge({
 // ============================================
 // MAIN COMPONENT
 // ============================================
-export default function TrafficFlowMap({ systemName = 'alon-prod' }: { systemName?: string }) {
+export default function TrafficFlowMap({ systemName }: { systemName: string }) {
   const [architecture, setArchitecture] = useState<SystemArchitecture | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

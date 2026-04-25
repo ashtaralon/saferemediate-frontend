@@ -360,7 +360,11 @@ export default function Neo4jAWSMap() {
     setLoadingPaths(true);
     try {
       // Use system name from query param or default
-      const systemName = new URLSearchParams(window.location.search).get('system') || 'alon-prod';
+      const systemName = new URLSearchParams(window.location.search).get('system');
+      if (!systemName) {
+        setLoadingPaths(false);
+        return;
+      }
       const res = await fetch(`/api/proxy/attack-paths/${systemName}`);
       if (res.ok) {
         const data = await res.json();

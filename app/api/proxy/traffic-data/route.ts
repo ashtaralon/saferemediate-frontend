@@ -22,7 +22,10 @@ function getCacheKey(systemName: string, resourceId: string | null): string {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const systemName = searchParams.get("system_name") || "alon-prod"
+  const systemName = searchParams.get("system_name")
+  if (!systemName) {
+    return NextResponse.json({ error: "system_name query parameter is required" }, { status: 400 })
+  }
   const resourceId = searchParams.get("resource_id")
   const forceRefresh = searchParams.get("refresh") === "true"
 

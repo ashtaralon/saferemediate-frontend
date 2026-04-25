@@ -128,10 +128,10 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'LR') => 
 }
 
 interface TopologyMapProps {
-  systemName?: string
+  systemName: string
 }
 
-export function AWSTopologyMap({ systemName = 'alon-prod' }: TopologyMapProps) {
+export function AWSTopologyMap({ systemName }: TopologyMapProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [loading, setLoading] = useState(true)

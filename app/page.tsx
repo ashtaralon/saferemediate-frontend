@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useSearchParams } from "next/navigation"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
@@ -113,8 +114,10 @@ function setCachedData(key: string, data: any): void {
 }
 
 export default function HomePage() {
+  const searchParams = useSearchParams()
+  const systemFromUrl = searchParams.get('system')
   const [activeSection, setActiveSection] = useState("home")
-  const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
+  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl)
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
@@ -147,7 +150,7 @@ export default function HomePage() {
 
   const fetchGapAnalysis = useCallback(() => {
     // Fetch from issues-summary which has aggregated permission data from all roles
-    fetchWithTimeout("/api/proxy/issues-summary?systemName=alon-prod", {}, 30000)
+    fetchWithTimeout(`/api/proxy/issues-summary?systemName=${encodeURIComponent(selectedSystem || '')}`, {}, 30000)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -512,7 +515,7 @@ export default function HomePage() {
     switch (activeSection) {
       case "home":
         if (DASHBOARD_V2_ENABLED) {
-          return <HomeDashboardV2 initialSystem={selectedSystem || "alon-prod"} />
+          {selectedSystem ? <HomeDashboardV2 initialSystem={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected. Add ?system=your-system-name to the URL.</div>}
         }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0
@@ -623,7 +626,7 @@ export default function HomePage() {
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-8">
-                <MicroEnforcementScore systemName={selectedSystem || "alon-prod"} />
+                {selectedSystem ? <MicroEnforcementScore systemName={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
               </div>
               <div className="xl:col-span-4 space-y-6">
                 <Card className="rounded-[24px] border-[#8b5cf640] bg-gradient-to-br from-indigo-50 to-purple-50 shadow-[0_20px_60px_-40px_rgba(139,92,246,0.45)]">
@@ -746,7 +749,7 @@ export default function HomePage() {
                 <InfrastructureOverview stats={infrastructureStats} />
               </div>
               <div className="xl:col-span-5 space-y-6">
-                <PostureScoreCard systemName="Eltro" />
+                {selectedSystem ? <PostureScoreCard systemName={selectedSystem} /> : null}
                 <Card className="rounded-[24px] border-slate-200 bg-white shadow-[0_18px_45px_-35px_rgba(15,23,42,0.4)]">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg font-semibold text-[var(--foreground,#111827)]">
@@ -862,7 +865,7 @@ export default function HomePage() {
       case "attack-paths":
         return (
           <ErrorBoundary componentName="Attack Paths">
-            <IdentityAttackPaths systemName={selectedSystem || "alon-prod"} />
+            {selectedSystem ? <IdentityAttackPaths systemName={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected</div>}
           </ErrorBoundary>
         )
 

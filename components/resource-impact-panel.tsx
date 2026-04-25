@@ -66,10 +66,10 @@ const severityColors: Record<string, string> = {
 const HISTORY_KEY = "saferemediate_analysis_history"
 
 interface ResourceImpactPanelProps {
-  systemName?: string
+  systemName: string
 }
 
-export function ResourceImpactPanel({ systemName = 'alon-prod' }: ResourceImpactPanelProps) {
+export function ResourceImpactPanel({ systemName }: ResourceImpactPanelProps) {
   const [activeTab, setActiveTab] = useState<"resources" | "impact" | "history">("resources")
   const [resources, setResources] = useState<Resource[]>([])
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)

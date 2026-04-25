@@ -47,10 +47,10 @@ const SHAPES: Record<string, string> = {
 }
 
 interface Props {
-  systemName?: string
+  systemName: string
 }
 
-export default function DynamicAWSArchitecture({ systemName = 'alon-prod' }: Props) {
+export default function DynamicAWSArchitecture({ systemName }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   

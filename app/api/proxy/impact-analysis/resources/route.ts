@@ -6,7 +6,10 @@ export const maxDuration = 30
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const systemName = searchParams.get("system_name") || "alon-prod"
+  const systemName = searchParams.get("system_name")
+  if (!systemName) {
+    return NextResponse.json({ error: "system_name query parameter is required" }, { status: 400 })
+  }
   
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 28000)

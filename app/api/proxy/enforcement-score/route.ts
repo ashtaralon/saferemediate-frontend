@@ -125,7 +125,10 @@ interface EnforcementScore {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const systemName = searchParams.get('systemName') || 'alon-prod'
+  const systemName = searchParams.get('systemName')
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+  }
 
   try {
     // ── Fetch backend scoring + issues-summary + LP issues in parallel ─
