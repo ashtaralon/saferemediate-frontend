@@ -45,10 +45,10 @@ const SHAPES: Record<string, string> = {
 }
 
 interface Props {
-  systemName?: string
+  systemName: string
 }
 
-export default function AWSArchitectureFlow({ systemName = 'alon-prod' }: Props) {
+export default function AWSArchitectureFlow({ systemName }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   

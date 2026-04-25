@@ -47,7 +47,7 @@ interface SystemsViewProps {
   systemName?: string
 }
 
-export function SystemsView({ systems: propSystems = [], onSystemSelect, systemName = 'alon-prod' }: SystemsViewProps) {
+export function SystemsView({ systems: propSystems = [], onSystemSelect, systemName }: SystemsViewProps) {
   const [localSystems, setLocalSystems] = useState<System[]>(propSystems)
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)

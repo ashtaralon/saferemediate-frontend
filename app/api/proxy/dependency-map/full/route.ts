@@ -41,7 +41,10 @@ async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const systemName = url.searchParams.get("systemName") ?? "alon-prod";
+  const systemName = url.searchParams.get("systemName");
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 });
+  }
   const includeUnused = url.searchParams.get("includeUnused") ?? "true";
   const maxNodes = url.searchParams.get("maxNodes") ?? url.searchParams.get("max_nodes") ?? "500";
   const cacheKey = `dependency-map-full-${systemName}-${includeUnused}-${maxNodes}`;

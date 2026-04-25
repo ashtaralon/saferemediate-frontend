@@ -14,7 +14,7 @@ import {
 // ============================================================================
 
 interface CloudGraphProps {
-  systemName?: string
+  systemName: string
 }
 
 interface ServiceNode {
@@ -73,7 +73,7 @@ const ServiceIcon = ({ type, size = 32 }: { type: string; size?: number }) => {
   }
 }
 
-export default function CloudGraph({ systemName = 'alon-prod' }: CloudGraphProps) {
+export default function CloudGraph({ systemName }: CloudGraphProps) {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)

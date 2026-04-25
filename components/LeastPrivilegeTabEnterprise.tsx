@@ -91,10 +91,10 @@ interface TopRemoval {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function LeastPrivilegeTabEnterprise({ 
-  systemName = 'alon-prod' 
-}: { 
-  systemName?: string 
+export default function LeastPrivilegeTabEnterprise({
+  systemName
+}: {
+  systemName: string
 }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

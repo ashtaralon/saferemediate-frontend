@@ -14,10 +14,10 @@ import { CategoryGrid } from "./category-grid"
 import { TopAccountsCard } from "./top-accounts-card"
 
 interface HomeDashboardV2Props {
-  initialSystem?: string
+  initialSystem: string
 }
 
-export function HomeDashboardV2({ initialSystem = "alon-prod" }: HomeDashboardV2Props) {
+export function HomeDashboardV2({ initialSystem }: HomeDashboardV2Props) {
   const [systemName, setSystemName] = useState(initialSystem)
   const { enforcement, posture, issues, attackPaths, findings, systems, refresh, refreshOne } =
     useHomeData(systemName)

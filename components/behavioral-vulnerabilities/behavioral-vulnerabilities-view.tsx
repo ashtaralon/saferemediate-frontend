@@ -351,7 +351,7 @@ export function BehavioralVulnerabilitiesView({ systemName }: BehavioralVulnerab
     setLoading(true)
     setError(null)
     try {
-      const sysName = systemName || 'alon-prod'
+      const sysName = systemName
       const res = await fetch(`/api/proxy/vulnerability/behavioral-ranked?system_name=${encodeURIComponent(sysName)}`)
       if (!res.ok) {
         throw new Error(`Failed to fetch: ${res.status}`)

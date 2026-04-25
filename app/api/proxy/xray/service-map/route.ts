@@ -4,7 +4,10 @@ const BACKEND_URL = process.env.BACKEND_URL || "https://saferemediate-backend-f.
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const systemName = searchParams.get("systemName") || "alon-prod"
+  const systemName = searchParams.get("systemName")
+  if (!systemName) {
+    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+  }
   const window = searchParams.get("window") || "30d"
 
   try {
