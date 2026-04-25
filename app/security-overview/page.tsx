@@ -1,13 +1,17 @@
-import { SecurityPosture } from "@/components/security-posture"
+"use client"
 
-export const metadata = {
-  title: "Security Posture | Cyntro",
-}
+import { SecurityPosture } from "@/components/security-posture"
+import { SystemGuard } from "@/components/system-guard"
+import { useSystem } from "@/lib/system-context"
 
 export default function SecurityOverviewPage() {
+  const { systemName } = useSystem()
+
   return (
-    <div className="h-screen bg-gray-50">
-      <SecurityPosture systemName="alon-prod" />
-    </div>
+    <SystemGuard>
+      <div className="h-screen bg-gray-50">
+        <SecurityPosture systemName={systemName!} />
+      </div>
+    </SystemGuard>
   )
 }
