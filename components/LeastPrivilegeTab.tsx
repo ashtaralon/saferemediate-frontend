@@ -2628,7 +2628,7 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
           setSelectedIAMRole(null)
         }}
         roleName={selectedIAMRole || ''}
-        systemName={systemName || ''}
+        systemName={systemName}
         onApplyFix={(data) => {
           console.log('[IAM] Apply fix requested:', data)
         }}

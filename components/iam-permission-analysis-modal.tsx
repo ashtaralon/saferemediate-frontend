@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import type { ConfidenceScore, SimulateFixSafety, DecisionOutcomeCanonical } from "@/lib/types"
 
 interface PermissionAnalysis {
@@ -111,7 +112,7 @@ interface IAMPermissionAnalysisModalProps {
   isOpen: boolean
   onClose: () => void
   roleName: string
-  systemName: string
+  systemName?: string
   identityType?: string
   onApplyFix?: (data: any) => void
   onSuccess?: () => void
@@ -171,6 +172,21 @@ export function IAMPermissionAnalysisModal({
   onRemediationSuccess,
   onRollbackSuccess
 }: IAMPermissionAnalysisModalProps) {
+  // Fail-loud guard: refuse to render if system context is missing
+  if (!systemName) {
+    console.error('[IAMPermissionAnalysisModal] systemName prop missing — refusing safety check')
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Safety check unavailable</AlertTitle>
+        <AlertDescription>
+          Cyntro could not verify safety for this role because system
+          context is missing. Execution is blocked. Refresh the page,
+          or contact support if this persists.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
   console.log('[IAMPermissionAnalysisModal] RENDER - isOpen:', isOpen, 'roleName:', roleName)
   const { toast } = useToast()
   const [gapData, setGapData] = useState<GapAnalysisData | null>(null)
@@ -219,7 +235,7 @@ export function IAMPermissionAnalysisModal({
         body: JSON.stringify({
           resource_type: 'IAMRole',
           resource_id: roleName,
-          system_name: systemName || 'default',
+          system_name: systemName,
         }),
       })
       if (!res.ok) {
@@ -1767,11 +1783,11 @@ export function IAMPermissionAnalysisModal({
               <div className="flex items-start gap-3">
                 <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-bold text-[#991b1b]">Pipeline check unavailable — fail-closed</p>
+                  <p className="font-bold text-[#991b1b]">Cyntro could not verify safety for this role</p>
                   <p className="text-sm text-[#7f1d1d] mt-1">
-                    Could not retrieve a unified-pipeline safety decision for{' '}
-                    <span className="font-semibold">{roleName}</span>. Investigate before
-                    remediating — Agent 5 confidence alone is not authoritative.
+                    Required system context is missing or invalid for{' '}
+                    <span className="font-semibold">{roleName}</span>. Refresh the page
+                    or contact support if this persists.
                   </p>
                 </div>
               </div>
@@ -2556,7 +2572,7 @@ export function IAMPermissionAnalysisModal({
                   body: JSON.stringify({
                     resource_type: 'IAMRole',
                     resource_id: roleName,
-                    system_name: systemName || 'default'
+                    system_name: systemName
                   })
                 })
 
