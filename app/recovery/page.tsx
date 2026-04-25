@@ -171,10 +171,9 @@ export default function RecoveryTab() {
       const roleName = snapshot.original_role || snapshot.finding_id || '';
       if (roleName && isIAMRole) {
         try {
-          // Clear from all known system localStorage keys
-          const systemNames = ['alon-prod', 'payment-production', 'default'];
-          systemNames.forEach(sysName => {
-            const remediatedKey = `remediated_roles_${sysName}`;
+          // Clear from all system localStorage keys by enumerating matching keys
+          const keysToCheck = Object.keys(localStorage).filter(k => k.startsWith('remediated_roles_'));
+          keysToCheck.forEach(remediatedKey => {
             const existing = JSON.parse(localStorage.getItem(remediatedKey) || '[]');
             const filtered = existing.filter((r: string) => r !== roleName);
             if (filtered.length !== existing.length) {

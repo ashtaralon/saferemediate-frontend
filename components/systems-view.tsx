@@ -44,9 +44,10 @@ interface AvailableSystem {
 interface SystemsViewProps {
   systems?: System[]
   onSystemSelect?: (systemName: string) => void
+  systemName?: string
 }
 
-export function SystemsView({ systems: propSystems = [], onSystemSelect }: SystemsViewProps) {
+export function SystemsView({ systems: propSystems = [], onSystemSelect, systemName = 'alon-prod' }: SystemsViewProps) {
   const [localSystems, setLocalSystems] = useState<System[]>(propSystems)
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -79,7 +80,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
       const timeoutId = setTimeout(() => controller.abort(), 30000)
       
       // Use gap-analysis proxy which has real CloudTrail data
-      const res = await fetch("/api/proxy/gap-analysis?systemName=alon-prod", {
+      const res = await fetch(`/api/proxy/gap-analysis?systemName=${systemName}`, {
         signal: controller.signal,
       })
       
@@ -108,7 +109,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect }: Syste
     } catch (err: any) {
       console.warn("[systems-view] Gap analysis error:", err.message)
     }
-  }, [])
+  }, [systemName])
 
   const fetchSystemsData = useCallback(async (isBackgroundRefresh = false) => {
     setIsScanning(true)

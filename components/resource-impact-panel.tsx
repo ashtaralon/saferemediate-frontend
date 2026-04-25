@@ -65,7 +65,11 @@ const severityColors: Record<string, string> = {
 
 const HISTORY_KEY = "saferemediate_analysis_history"
 
-export function ResourceImpactPanel() {
+interface ResourceImpactPanelProps {
+  systemName?: string
+}
+
+export function ResourceImpactPanel({ systemName = 'alon-prod' }: ResourceImpactPanelProps) {
   const [activeTab, setActiveTab] = useState<"resources" | "impact" | "history">("resources")
   const [resources, setResources] = useState<Resource[]>([])
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
@@ -111,7 +115,7 @@ export function ResourceImpactPanel() {
     async function fetchResources() {
       setResourcesLoading(true)
       try {
-        const res = await fetch("/api/proxy/impact-analysis/resources?system_name=alon-prod")
+        const res = await fetch(`/api/proxy/impact-analysis/resources?system_name=${systemName}`)
         if (res.ok) {
           const data = await res.json()
           setResources(data.resources || [])
@@ -125,7 +129,7 @@ export function ResourceImpactPanel() {
       }
     }
     fetchResources()
-  }, [])
+  }, [systemName])
 
   const fetchSGImpact = useCallback(async (resource: Resource) => {
     if (resource.type !== "SecurityGroup") return
