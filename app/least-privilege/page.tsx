@@ -1,15 +1,19 @@
 "use client"
 
 import { Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
 import LeastPrivilegeTab from '@/components/LeastPrivilegeTab'
+import { SystemGuard } from '@/components/system-guard'
+import { useSystem } from '@/lib/system-context'
 
 // ✅ NEW: Use the interactive gap visualization component
 function LeastPrivilegePageContent() {
-  const searchParams = useSearchParams()
-  const systemName = searchParams.get('system') || 'alon-prod'
-  
-  return <LeastPrivilegeTab systemName={systemName} />
+  const { systemName } = useSystem()
+
+  return (
+    <SystemGuard>
+      <LeastPrivilegeTab systemName={systemName!} />
+    </SystemGuard>
+  )
 }
 
 export default function LeastPrivilegePage() {

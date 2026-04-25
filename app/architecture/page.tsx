@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import AWSTopologyMapLive from '@/components/aws-topology-map-live'
 import { ResourceImpactPanel } from '@/components/resource-impact-panel'
+import { SystemGuard } from '@/components/system-guard'
+import { useSystem } from '@/lib/system-context'
 
 // Predefined simulation scenarios for demo
 const DEMO_SCENARIOS = [
@@ -13,6 +15,7 @@ const DEMO_SCENARIOS = [
 ]
 
 export default function ArchitecturePage() {
+  const { systemName } = useSystem()
   const [isLoading, setIsLoading] = useState(false)
   const [isSimulating, setIsSimulating] = useState(false)
   const [showSimulator, setShowSimulator] = useState(false)
@@ -139,6 +142,7 @@ export default function ArchitecturePage() {
   }
 
   return (
+    <SystemGuard>
     <div className="min-h-screen bg-slate-50 p-6">
       {/* Header */}
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mb-6">
@@ -195,8 +199,8 @@ export default function ArchitecturePage() {
       <div className="flex gap-6 h-[calc(100vh-200px)]">
         {/* Topology Map - Left Side */}
         <div className="flex-1 min-w-0">
-          <AWSTopologyMapLive 
-            systemName="alon-prod"
+          <AWSTopologyMapLive
+            systemName={systemName!}
             autoRefreshInterval={30}
             height="100%"
             showLegend={true}
@@ -206,7 +210,7 @@ export default function ArchitecturePage() {
 
         {/* Resource Impact Panel - Right Side */}
         <div className="w-[380px] flex-shrink-0">
-          <ResourceImpactPanel />
+          <ResourceImpactPanel systemName={systemName!} />
         </div>
       </div>
 
@@ -330,6 +334,7 @@ export default function ArchitecturePage() {
         </div>
       )}
     </div>
+    </SystemGuard>
   )
 }
 // Deploy trigger: 1767362733
