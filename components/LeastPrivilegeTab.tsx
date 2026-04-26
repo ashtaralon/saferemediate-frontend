@@ -2276,13 +2276,17 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
                 
               } else {
                 // IAM Role simulation - use new simulate-fix endpoint
+                const effectiveSystemName = selectedResource.systemName || systemName
+                if (!effectiveSystemName) {
+                  throw new Error('System context is missing — cannot verify safety for this role. Refresh the page or select a system.')
+                }
                 const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     resource_type: 'IAMRole',
                     resource_id: selectedResource.resourceName || selectedResource.resourceArn?.split('/').pop() || selectedResource.id,
-                    system_name: selectedResource.systemName || systemName || 'default'
+                    system_name: effectiveSystemName
                   })
                 })
 
