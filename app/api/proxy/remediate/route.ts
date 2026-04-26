@@ -6,7 +6,10 @@ const BACKEND_URL =
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { roleName, permission, action, finding_id, resource_id, resource_type, dry_run, ...rest } = body
+    const { roleName, permission, action, finding_id, resource_id, resource_type, dry_run, system_name, systemName, ...rest } = body
+
+    // Get system_name from either field, but NEVER default to 'default'
+    const effectiveSystemName = system_name || systemName
 
     // Determine if this is an IAM role based on resource_id or finding_id
     const isIAMRole = resource_id?.includes(':role/') ||
@@ -23,7 +26,11 @@ export async function POST(request: NextRequest) {
 
     if (isIAMRole && role_name) {
       // Get gap analysis to find unused permissions
-      const gapRes = await fetch(`${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=90`)
+      // Include system_name if provided to avoid "Role not found in system default" errors
+      const gapUrl = effectiveSystemName
+        ? `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=90&system_name=${encodeURIComponent(effectiveSystemName)}`
+        : `${BACKEND_URL}/api/iam-roles/${encodeURIComponent(role_name)}/gap-analysis?days=90`
+      const gapRes = await fetch(gapUrl)
 
       let permissions_to_remove: string[] = []
       if (gapRes.ok) {
@@ -45,6 +52,7 @@ export async function POST(request: NextRequest) {
           dry_run: dry_run || false,
           detach_managed_policies: true,  // Enable removal of AWS managed policies
           create_snapshot: true,           // Always create snapshot before modification
+          system_name: effectiveSystemName,  // Pass system_name to backend
           ...rest
         }),
       })
