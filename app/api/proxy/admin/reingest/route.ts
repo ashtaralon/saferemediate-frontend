@@ -27,8 +27,6 @@ const DAYS = 2 // Matches what SyncFromAWSButton sends
 
 export async function POST(request: Request) {
   const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    process.env.BACKEND_API_URL ||
     "https://saferemediate-backend-f.onrender.com"
 
   const startTime = Date.now()

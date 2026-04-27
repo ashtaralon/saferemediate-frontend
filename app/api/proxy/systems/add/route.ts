@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
-  const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL
+  const backendUrl = "https://saferemediate-backend-f.onrender.com"
 
   if (!backendUrl) {
     return NextResponse.json(

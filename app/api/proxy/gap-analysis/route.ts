@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Maximum execution time in seconds (Vercel Pro tier)
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache for gap analysis (5-minute TTL)

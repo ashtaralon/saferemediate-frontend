@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function POST(request: NextRequest) {
   console.log('[Proxy] POST /api/proxy/s3-buckets/remediate')

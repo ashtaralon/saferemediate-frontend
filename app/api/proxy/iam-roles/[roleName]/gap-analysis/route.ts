@@ -4,7 +4,6 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 // Simple in-memory cache for IAM gap analysis
