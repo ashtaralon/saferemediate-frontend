@@ -15,30 +15,30 @@
 
 import { useState } from 'react'
 import { X, Shield, AlertTriangle, CheckCircle2, XCircle, Clock, Eye, Users, TrendingDown, Info } from 'lucide-react'
-import type { SimulateFixResponse, SimulateFixSafetyDecision } from '@/lib/types'
+import type {
+  SimulateFixResponse,
+  SimulateFixSafetyDecision,
+  DecisionOutcomeCanonical,
+} from '@/lib/types'
+import { CANONICAL_SAFETY_DECISION_CONFIG } from '@/lib/types'
 
 // =============================================================================
 // STYLE CONSTANTS
 // =============================================================================
 
-const SAFETY_STYLE: Record<SimulateFixSafetyDecision, { label: string; color: string; bg: string; icon: string }> = {
-  auto_eligible: {
-    label: 'Auto-Eligible',
-    color: '#10B981',
-    bg: 'rgba(16, 185, 129, 0.15)',
-    icon: '✅'
-  },
-  approval_required: {
-    label: 'Approval Required',
-    color: '#F59E0B',
-    bg: 'rgba(245, 158, 11, 0.15)',
-    icon: '⚠️'
-  },
-  blocked: {
-    label: 'Blocked',
-    color: '#EF4444',
-    bg: 'rgba(239, 68, 68, 0.15)',
-    icon: '🚫'
+// Resolve the canonical decision (preferred) and fall back to the legacy
+// lowercase string when the backend hasn't populated decision_canonical
+// yet. The legacy bucketing collapses MANUAL_REVIEW + CANARY_FIRST into
+// "approval_required" and EXCLUDE into "blocked"; the canonical config
+// renders all six outcomes distinctly so the operator can tell a hard
+// fail-closed BLOCK from a DR/break-glass EXCLUDE.
+function resolveDecision(safety: { decision: SimulateFixSafetyDecision; decision_canonical?: DecisionOutcomeCanonical | null }): DecisionOutcomeCanonical {
+  if (safety.decision_canonical) return safety.decision_canonical
+  switch (safety.decision) {
+    case 'auto_eligible': return 'AUTO_EXECUTE'
+    case 'approval_required': return 'REQUIRE_APPROVAL'
+    case 'blocked': return 'BLOCK'
+    default: return 'BLOCK'
   }
 }
 
@@ -136,7 +136,11 @@ export function IAMSimulateFixModal({
   if (!isOpen) return null
 
   const { resource, problem, evidence, simulation, projected_effect, safety } = result
-  const safetyStyle = SAFETY_STYLE[safety.decision]
+  const canonicalDecision = resolveDecision(safety)
+  const safetyStyle = {
+    ...CANONICAL_SAFETY_DECISION_CONFIG[canonicalDecision],
+    bg: CANONICAL_SAFETY_DECISION_CONFIG[canonicalDecision].bgColor,
+  }
   const severityStyle = SEVERITY_STYLE[resource.severity] || SEVERITY_STYLE.INFO
   const confidenceStyle = CONFIDENCE_STYLE[evidence.confidence] || CONFIDENCE_STYLE.unknown
 
@@ -185,11 +189,9 @@ export function IAMSimulateFixModal({
               <div className="font-bold" style={{ color: safetyStyle.color }}>
                 {safetyStyle.label}
               </div>
-              {safety.unsafe_reasons.length > 0 && (
-                <div className="text-xs text-slate-400">
-                  {safety.unsafe_reasons[0]}
-                </div>
-              )}
+              <div className="text-xs text-slate-400">
+                {safety.unsafe_reasons.length > 0 ? safety.unsafe_reasons[0] : safetyStyle.description}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-4 text-xs">
@@ -335,19 +337,42 @@ export function IAMSimulateFixModal({
                   />
                 </div>
 
-                {/* Visibility Signals */}
+                {/* Visibility Signals — render the actual value per signal.
+                    Backend sends a heterogeneous dict (numbers, strings,
+                    string lists) NOT booleans; the previous ✓/✗ rendering
+                    treated every truthy string as "available", so a
+                    "partial" coverage rendered as green ✓ — directly
+                    contradicting the BLOCK that came from completeness
+                    being "partial". Display the label and the value, with
+                    color keyed to the value semantics where known. */}
                 <div className="mt-4 pt-4 border-t border-slate-700">
                   <div className="text-xs text-slate-400 mb-2">Visibility Signals:</div>
                   <div className="flex flex-wrap gap-2">
-                    {Object.entries(evidence.visibility_signals).map(([key, enabled]) => (
-                      <Chip
-                        key={key}
-                        color={enabled ? '#10B981' : '#6B7280'}
-                        bg={enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(107, 114, 128, 0.15)'}
-                      >
-                        {enabled ? '✓' : '✗'} {key.replace(/_/g, ' ')}
-                      </Chip>
-                    ))}
+                    {Object.entries(evidence.visibility_signals).map(([key, raw]) => {
+                      // Tier-based colors: complete/high → green, partial/medium → amber,
+                      // unknown/low → red, otherwise neutral.
+                      const tone = (() => {
+                        if (typeof raw === 'string') {
+                          if (raw === 'complete' || raw === 'high') return { color: '#10B981', bg: 'rgba(16, 185, 129, 0.15)' }
+                          if (raw === 'partial' || raw === 'medium') return { color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.15)' }
+                          if (raw === 'unknown' || raw === 'low') return { color: '#EF4444', bg: 'rgba(239, 68, 68, 0.15)' }
+                        }
+                        if (typeof raw === 'boolean') {
+                          return raw
+                            ? { color: '#10B981', bg: 'rgba(16, 185, 129, 0.15)' }
+                            : { color: '#6B7280', bg: 'rgba(107, 114, 128, 0.15)' }
+                        }
+                        return { color: '#94A3B8', bg: 'rgba(148, 163, 184, 0.15)' }
+                      })()
+                      const display = Array.isArray(raw)
+                        ? (raw.length > 0 ? raw.join(', ') : 'none')
+                        : (raw === undefined || raw === null ? '—' : String(raw))
+                      return (
+                        <Chip key={key} color={tone.color} bg={tone.bg}>
+                          {key.replace(/_/g, ' ')}: <span className="font-semibold">{display}</span>
+                        </Chip>
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -389,15 +414,29 @@ export function IAMSimulateFixModal({
           {activeTab === 'impact' && (
             <>
               {/* Blast Radius Impact
-                  Item #6: post-remediation projection (after/delta) was removed
-                  from the backend — it was computed from hardcoded multipliers.
-                  When `projection_available === false`, render the current-state
-                  (_before) values only and show "Projection unavailable" for
-                  After/Delta cells. */}
+                  _before fields come from the real BRS v1.1 scorer. They
+                  are nullable: when `current_state_available === false`
+                  the scorer was unavailable and we render "Current score
+                  unavailable" rather than 0. _after / _delta require
+                  rescoring against a hypothetical post-mutation graph
+                  (not implemented), so `projection_available === false`
+                  and those cells always show "Projection unavailable".
+                  resource_risk_contribution is now always null — was a
+                  hardcoded multiplier the no-hardcoded-multipliers rule
+                  rejected. */}
               <Section title="Blast Radius Impact" icon={<TrendingDown className="w-4 h-4 text-green-400" />}>
+                {projected_effect.current_state_confidence && projected_effect.current_state_available && (
+                  <div className="text-xs text-slate-400 mb-3">
+                    BRS confidence: <span className="font-semibold text-slate-200">{projected_effect.current_state_confidence}</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-4 mb-4">
                   <div className="text-center p-3 rounded-lg bg-slate-700/50">
-                    <div className="text-2xl font-bold text-slate-300">{projected_effect.blast_radius_score_before}</div>
+                    {projected_effect.blast_radius_score_before != null ? (
+                      <div className="text-2xl font-bold text-slate-300">{projected_effect.blast_radius_score_before}</div>
+                    ) : (
+                      <div className="text-sm text-slate-500 italic">Current score unavailable</div>
+                    )}
                     <div className="text-xs text-slate-400">Before</div>
                   </div>
                   <div className="text-center p-3 rounded-lg bg-slate-700/50">
@@ -431,64 +470,93 @@ export function IAMSimulateFixModal({
                   })()}
                 </div>
 
-                {/* Risk Contribution */}
-                <div className="mt-4 pt-4 border-t border-slate-700">
-                  <div className="text-xs text-slate-400 mb-3">Resource Risk Contribution:</div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-400">Before</span>
-                        <span className="text-slate-300">{(projected_effect.resource_risk_contribution_before * 100).toFixed(1)}%</span>
+                {/* Risk Contribution — both before and after are null today
+                    (was a hardcoded multiplier we removed). Shown only as
+                    a placeholder note so operators don't expect a number. */}
+                {(projected_effect.resource_risk_contribution_before != null ||
+                  projected_effect.resource_risk_contribution_after != null) && (
+                  <div className="mt-4 pt-4 border-t border-slate-700">
+                    <div className="text-xs text-slate-400 mb-3">Resource Risk Contribution:</div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        {projected_effect.resource_risk_contribution_before != null ? (
+                          <>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-400">Before</span>
+                              <span className="text-slate-300">{(projected_effect.resource_risk_contribution_before * 100).toFixed(1)}%</span>
+                            </div>
+                            <ProgressBar
+                              value={projected_effect.resource_risk_contribution_before * 100}
+                              max={100}
+                              color="#EF4444"
+                            />
+                          </>
+                        ) : (
+                          <div className="text-xs text-slate-500 italic pt-1">Contribution unavailable</div>
+                        )}
                       </div>
-                      <ProgressBar
-                        value={projected_effect.resource_risk_contribution_before * 100}
-                        max={100}
-                        color="#EF4444"
-                      />
-                    </div>
-                    <div className="text-slate-500">→</div>
-                    <div className="flex-1">
-                      {projected_effect.resource_risk_contribution_after != null ? (
-                        <>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="text-slate-400">After</span>
-                            <span className="text-green-400">{(projected_effect.resource_risk_contribution_after * 100).toFixed(1)}%</span>
-                          </div>
-                          <ProgressBar
-                            value={projected_effect.resource_risk_contribution_after * 100}
-                            max={100}
-                            color="#10B981"
-                          />
-                        </>
-                      ) : (
-                        <div className="text-xs text-slate-500 italic pt-1">Projection unavailable</div>
-                      )}
+                      <div className="text-slate-500">→</div>
+                      <div className="flex-1">
+                        {projected_effect.resource_risk_contribution_after != null ? (
+                          <>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-slate-400">After</span>
+                              <span className="text-green-400">{(projected_effect.resource_risk_contribution_after * 100).toFixed(1)}%</span>
+                            </div>
+                            <ProgressBar
+                              value={projected_effect.resource_risk_contribution_after * 100}
+                              max={100}
+                              color="#10B981"
+                            />
+                          </>
+                        ) : (
+                          <div className="text-xs text-slate-500 italic pt-1">Projection unavailable</div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                {/* Family Scores */}
-                {Object.keys(projected_effect.family_scores_before).length > 0 && (
+                {/* Family Scores — BRS components (doc, ips, nes, lms). */}
+                {projected_effect.family_scores_before && Object.keys(projected_effect.family_scores_before).length > 0 && (
                   <div className="mt-4 pt-4 border-t border-slate-700">
-                    <div className="text-xs text-slate-400 mb-2">Impact by Family:</div>
+                    <div className="text-xs text-slate-400 mb-2">Blast radius components (BRS v1.1):</div>
                     <div className="grid grid-cols-2 gap-2">
                       {Object.entries(projected_effect.family_scores_before).map(([family, before]) => {
                         const after = projected_effect.family_scores_after?.[family]
                         const delta = after != null ? after - before : null
                         return (
                           <div key={family} className="flex items-center justify-between text-xs p-2 rounded bg-slate-700/50">
-                            <span className="text-slate-400 capitalize">{family}</span>
+                            <span className="text-slate-400 uppercase">{family}</span>
                             {delta != null && after != null ? (
                               <span className={delta < 0 ? 'text-green-400' : delta > 0 ? 'text-red-400' : 'text-slate-300'}>
                                 {before} → {after}
                               </span>
                             ) : (
-                              <span className="text-slate-500 italic">{before} → projection unavailable</span>
+                              <span className="text-slate-300">{before} <span className="text-slate-500 italic">→ projection unavailable</span></span>
                             )}
                           </div>
                         )
                       })}
                     </div>
+                  </div>
+                )}
+
+                {/* Caveats from the projected_effect block. */}
+                {projected_effect.caveats && projected_effect.caveats.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-slate-700">
+                    <div className="text-xs text-amber-400 mb-2 flex items-center gap-1">
+                      <Info className="w-3 h-3" />
+                      Caveats:
+                    </div>
+                    <ul className="space-y-1">
+                      {projected_effect.caveats.map((c, i) => (
+                        <li key={i} className="text-xs text-slate-400 flex items-start gap-2">
+                          <span className="text-amber-400">•</span>
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </Section>
@@ -581,31 +649,60 @@ export function IAMSimulateFixModal({
               Cancel
             </button>
 
-            {safety.decision === 'blocked' ? (
-              <button
-                disabled
-                className="px-6 py-2 rounded-lg text-sm font-bold bg-red-900/50 text-red-400 cursor-not-allowed"
-              >
-                Blocked - Manual Review Required
-              </button>
-            ) : (
-              <button
-                onClick={() => onExecute?.(dryRun)}
-                disabled={isExecuting}
-                className={`px-6 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50 ${
-                  dryRun
-                    ? 'bg-blue-600 hover:bg-blue-700'
-                    : safety.decision === 'approval_required'
-                    ? 'bg-amber-600 hover:bg-amber-700'
-                    : 'bg-green-600 hover:bg-green-700'
-                }`}
-              >
-                {isExecuting
-                  ? (dryRun ? 'Previewing...' : 'Applying...')
-                  : (dryRun ? 'Preview Changes' : (safety.decision === 'approval_required' ? 'Request Approval' : 'Apply Fix'))
-                }
-              </button>
-            )}
+            {/* Action button is gated by the CANONICAL decision (6 outcomes),
+                not the legacy 3-bucket field. BLOCK / EXCLUDE disable the
+                button entirely (with distinct copy so an operator can tell
+                a fail-closed safety BLOCK from a DR/break-glass EXCLUDE).
+                MANUAL_REVIEW also disables — by definition needs deeper
+                analysis before any action. AUTO_EXECUTE / REQUIRE_APPROVAL
+                / CANARY_FIRST allow the button with tier-specific copy. */}
+            {(() => {
+              const cd = canonicalDecision
+              if (cd === 'BLOCK') {
+                return (
+                  <button disabled className="px-6 py-2 rounded-lg text-sm font-bold bg-red-900/50 text-red-400 cursor-not-allowed">
+                    Blocked — Manual Review Required
+                  </button>
+                )
+              }
+              if (cd === 'EXCLUDE') {
+                return (
+                  <button disabled className="px-6 py-2 rounded-lg text-sm font-bold bg-red-950/60 text-red-300 cursor-not-allowed">
+                    Excluded — Cannot Auto-Remediate
+                  </button>
+                )
+              }
+              if (cd === 'MANUAL_REVIEW') {
+                return (
+                  <button disabled className="px-6 py-2 rounded-lg text-sm font-bold bg-blue-900/50 text-blue-300 cursor-not-allowed">
+                    Manual Review Required
+                  </button>
+                )
+              }
+              const tierColor =
+                cd === 'AUTO_EXECUTE' ? 'bg-green-600 hover:bg-green-700'
+                : cd === 'REQUIRE_APPROVAL' ? 'bg-amber-600 hover:bg-amber-700'
+                : cd === 'CANARY_FIRST' ? 'bg-cyan-600 hover:bg-cyan-700'
+                : 'bg-blue-600 hover:bg-blue-700'
+              const liveLabel =
+                cd === 'AUTO_EXECUTE' ? 'Apply Fix'
+                : cd === 'REQUIRE_APPROVAL' ? 'Request Approval'
+                : cd === 'CANARY_FIRST' ? 'Apply Canary First'
+                : 'Apply Fix'
+              return (
+                <button
+                  onClick={() => onExecute?.(dryRun)}
+                  disabled={isExecuting}
+                  className={`px-6 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50 ${
+                    dryRun ? 'bg-blue-600 hover:bg-blue-700' : tierColor
+                  }`}
+                >
+                  {isExecuting
+                    ? (dryRun ? 'Previewing...' : 'Applying...')
+                    : (dryRun ? 'Preview Changes' : liveLabel)}
+                </button>
+              )
+            })()}
           </div>
         </div>
       </div>

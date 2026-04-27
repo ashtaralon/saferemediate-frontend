@@ -513,23 +513,8 @@ export function IAMPermissionAnalysisModal({
     setShowSimulation(true)
   }
 
-  const handleApplyFix = async (force: boolean = false) => {
+  const handleApplyFix = async () => {
     if (!gapData) return
-
-    // Confirm "Apply Anyway" override before proceeding past a pipeline BLOCK.
-    if (force) {
-      const reason = safetyContext?.block_reason
-        || safetyContext?.message
-        || 'Pipeline decision is BLOCK / Investigation Required'
-      const ok = typeof window !== 'undefined'
-        ? window.confirm(
-            `Override safety BLOCK and proceed?\n\nReason: ${reason}\n\n`
-            + `This will apply the fix despite the pipeline rejecting it. `
-            + `A rollback snapshot will still be created if "Create rollback checkpoint" is enabled.`
-          )
-        : true
-      if (!ok) return
-    }
 
     setApplying(true)
     try {
@@ -541,7 +526,6 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Create snapshot:', createSnapshot)
       console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
       console.log('[IAM-Modal] Detach ALL managed policies:', detachAllManagedPolicies)
-      console.log('[IAM-Modal] Force override block:', force)
 
       // Call the real remediation API (not dry run)
       // This will DIRECTLY MODIFY the IAM role in AWS:
@@ -549,7 +533,6 @@ export function IAMPermissionAnalysisModal({
       // 2. Modify inline policies to remove unused permissions
       // 3. Detach managed policies (if detachManagedPolicies=true)
       // 4. Detach ALL managed policies regardless of overlap (if detachAllManagedPolicies=true)
-      // 5. Force-override the safety gate BLOCK (if force=true)
       const response = await fetch('/api/proxy/cyntro/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -560,8 +543,7 @@ export function IAMPermissionAnalysisModal({
           create_snapshot: createSnapshot,
           detach_managed_policies: detachManagedPolicies,  // CRITICAL for managed policies
           detach_all_managed_policies: detachAllManagedPolicies,  // Detach ALL regardless of permission overlap
-          permissions_to_remove: permissionsToRemove,  // Only remove selected permissions
-          force,  // Override safety gate BLOCK when user explicitly proceeds
+          permissions_to_remove: permissionsToRemove  // Only remove selected permissions
         })
       })
 
@@ -1649,7 +1631,6 @@ export function IAMPermissionAnalysisModal({
               {(() => {
                 const blocked = shouldBlockRemediation()
                 const lowConfidence = safetyScore < 50
-                const pipelineBlocked = verdictBucket === 'blocked'
 
                 if (blocked) {
                   return (
@@ -1662,44 +1643,10 @@ export function IAMPermissionAnalysisModal({
                       BLOCKED - Service Role
                     </button>
                   )
-                } else if (pipelineBlocked) {
-                  // Pipeline decision is BLOCK / Investigation Required.
-                  // Offer two explicit choices: Stop (close) or Proceed Anyway (force override).
-                  return (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleClose}
-                        disabled={applying}
-                        className="px-5 py-2.5 bg-white text-[#dc2626] border-2 border-[#dc2626] rounded-lg font-bold hover:bg-[#fef2f2] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        title="Stop and close — investigate before proceeding"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        STOP — Investigate First
-                      </button>
-                      <button
-                        onClick={() => handleApplyFix(true)}
-                        disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
-                        className="px-5 py-2.5 bg-[#dc2626] text-white rounded-lg font-bold hover:bg-[#b91c1c] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        title={`Override pipeline BLOCK and apply anyway. ${safetyContext?.block_reason || ''}`}
-                      >
-                        {applying ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Applying...
-                          </>
-                        ) : (
-                          <>
-                            <AlertTriangle className="w-4 h-4" />
-                            PROCEED ANYWAY ({selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} perms` : 'detach policies'})
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )
                 } else if (lowConfidence) {
                   return (
                     <button
-                      onClick={() => handleApplyFix(false)}
+                      onClick={handleApplyFix}
                       disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
                       className="px-6 py-2.5 bg-[#f97316] text-white rounded-lg font-bold hover:bg-[#ea580c] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       title="Low confidence - proceed with caution"
@@ -1720,7 +1667,7 @@ export function IAMPermissionAnalysisModal({
                 } else {
                   return (
                     <button
-                      onClick={() => handleApplyFix(false)}
+                      onClick={handleApplyFix}
                       disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
                       className="px-6 py-2.5 bg-[#8b5cf6] text-white rounded-lg font-bold hover:bg-[#7c3aed] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >

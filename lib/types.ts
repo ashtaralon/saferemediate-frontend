@@ -395,12 +395,18 @@ export interface SimulateFixProblem {
   top_risk_reasons: string[]
 }
 
+// Visibility signals attached to evidence. Backend sends a heterogeneous
+// dict — these are the keys it currently emits (api/least_privilege.py
+// `visibility_signals` block). The values are NOT booleans; rendering
+// them as booleans was the bug that caused "partial" coverage to show
+// as a green ✓ chip in the modal.
 export interface SimulateFixVisibilitySignals {
-  cloudtrail: boolean
-  flowlogs: boolean
-  xray: boolean
-  s3_access_logs: boolean
-  [key: string]: boolean
+  observation_days?: number
+  signal_coverage?: "complete" | "partial" | "unknown"
+  trust_graph_integrity?: "high" | "medium" | "low"
+  planes_active?: string[]
+  // Allow forward-compat keys without forcing boolean semantics.
+  [key: string]: number | string | string[] | boolean | undefined
 }
 
 export interface SimulateFixEvidence {
@@ -421,14 +427,27 @@ export interface SimulateFixSimulation {
   removed_examples: string[]
 }
 
+// Projected effect fields are all nullable. The backend reports null
+// when the underlying scorer (BRS v1.1) is unavailable or errored, OR
+// when the field doesn't have a real implementation yet (`_after`,
+// `_delta`, `resource_risk_contribution_*`). The previous shape forced
+// these to `number`, which the backend used to satisfy via hardcoded
+// severity multipliers; that's removed in favor of "report unavailable
+// honestly" — the frontend must branch on null rather than render 0.
 export interface SimulateFixProjectedEffect {
-  blast_radius_score_before: number
-  blast_radius_score_after: number
-  blast_radius_score_delta: number
-  family_scores_before: Record<string, number>
-  family_scores_after: Record<string, number>
-  resource_risk_contribution_before: number
-  resource_risk_contribution_after: number
+  blast_radius_score_before: number | null
+  blast_radius_score_after: number | null
+  blast_radius_score_delta: number | null
+  family_scores_before: Record<string, number> | null
+  family_scores_after: Record<string, number> | null
+  resource_risk_contribution_before: number | null
+  resource_risk_contribution_after: number | null
+  // Explicit signals so the UI can render "unavailable" copy instead of 0.
+  current_state_available?: boolean
+  current_state_confidence?: "HIGH" | "MEDIUM" | "LOW" | null
+  projection_available?: boolean
+  approximate?: boolean
+  caveats?: string[]
 }
 
 export type SimulateFixSafetyDecision = "auto_eligible" | "approval_required" | "blocked"
@@ -471,7 +490,9 @@ export interface SimulateFixResponse {
   safety: SimulateFixSafety
 }
 
-// Safety decision UI config
+// Legacy lowercase decision UI config — kept for any caller still
+// reading `safety.decision`. New consumers should use
+// CANONICAL_SAFETY_DECISION_CONFIG below.
 export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: string; color: string; bgColor: string; icon: string }> = {
   auto_eligible: {
     label: "Auto-Eligible",
@@ -491,4 +512,56 @@ export const SAFETY_DECISION_CONFIG: Record<SimulateFixSafetyDecision, { label: 
     bgColor: "rgba(239, 68, 68, 0.15)",
     icon: "🚫"
   }
+}
+
+// Canonical decision UI config — one entry per DecisionOutcome value.
+// This is the source of truth going forward; the legacy 3-bucket map
+// above squashes MANUAL_REVIEW + CANARY_FIRST into "approval_required"
+// and EXCLUDE into "blocked", so the operator can't tell a fail-closed
+// hard block from a DR/break-glass exclusion. Per
+// feedback_decision_enum_convergence: KEEP≠EXCLUDE, INVESTIGATE≠
+// MANUAL_REVIEW — render each canonical outcome distinctly.
+export const CANONICAL_SAFETY_DECISION_CONFIG: Record<DecisionOutcomeCanonical, { label: string; description: string; color: string; bgColor: string; icon: string }> = {
+  AUTO_EXECUTE: {
+    label: "Auto-Execute",
+    description: "Safe to apply without human approval.",
+    color: "#10B981",
+    bgColor: "rgba(16, 185, 129, 0.15)",
+    icon: "✅",
+  },
+  REQUIRE_APPROVAL: {
+    label: "Approval Required",
+    description: "Safe to apply after human approval.",
+    color: "#F59E0B",
+    bgColor: "rgba(245, 158, 11, 0.15)",
+    icon: "⚠️",
+  },
+  MANUAL_REVIEW: {
+    label: "Manual Review",
+    description: "Needs deeper analysis before any action (e.g. shared resource, novel pattern).",
+    color: "#3B82F6",
+    bgColor: "rgba(59, 130, 246, 0.15)",
+    icon: "📋",
+  },
+  CANARY_FIRST: {
+    label: "Canary First",
+    description: "Apply to a single resource and validate before fan-out.",
+    color: "#06B6D4",
+    bgColor: "rgba(6, 182, 212, 0.15)",
+    icon: "🐤",
+  },
+  BLOCK: {
+    label: "Blocked",
+    description: "Fail-closed: a required safety signal is missing or contradicted.",
+    color: "#EF4444",
+    bgColor: "rgba(239, 68, 68, 0.15)",
+    icon: "🚫",
+  },
+  EXCLUDE: {
+    label: "Excluded",
+    description: "DR / break-glass class — never auto-act on this resource.",
+    color: "#7F1D1D",
+    bgColor: "rgba(127, 29, 29, 0.25)",
+    icon: "🛑",
+  },
 }
