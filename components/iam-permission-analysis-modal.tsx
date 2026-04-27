@@ -452,30 +452,58 @@ export function IAMPermissionAnalysisModal({
   }
 
   // Set of permissions belonging to groups that backend marked auto_remediable.
-  // Layer 1 contract: only safe_to_remove groups are auto-remediable. Protected,
-  // warn, reserved, verify_first, investigate_first all return false. Used by
-  // Select All, the submit-side defensive filter, and the footer count.
+  // Layer 1 contract: a permission is auto-remediable in three cases:
+  //   1. Its group has auto_remediable=true outright.
+  //   2. Its group has block_reason_code="telemetry_asymmetry" AND the
+  //      permission's service has confirmed CloudTrail activity for the
+  //      role. The asymmetry block is at the SERVICE level — backend GATE 2
+  //      fires when a service is in aa_services_used but not in CT
+  //      used_actions. Perms in services that DO have CT events are safe
+  //      to remove even within an "asymmetry" group; only the asymmetric
+  //      service's perms must be dropped.
+  //   3. Otherwise (protected, needs_telemetry, inferred_usage, missing
+  //      field) → not auto-remediable.
   //
-  // Fallback for missing auto_remediable field is FAIL-CLOSED (returns false)
-  // — was previously fail-open (excluded only protected/warn/reserved), which
-  // let `investigate_first` and `verify_first` groups slip through whenever
-  // the modal had stale gapData from before Layer 1.1 deployed. Concretely:
-  // the DynamoDB group has action="investigate_first"; if its `auto_remediable`
-  // wasn't on the cached response, the legacy fallback marked dynamodb perms
-  // as auto-remediable, the operator's submit included them, and the backend
-  // safety gate rolled the whole canary back. Backend Layer 1.1 has been
-  // deployed since 2026-04-27 14:37 — every fresh response from the backend
-  // now includes the field, so failing closed when the field is absent only
-  // affects responses that should already be invalidated (proxy-cache strip
-  // 69c3447 ensures the cache can't reintroduce them).
+  // Concrete example, alon-demo-ec2-role 2026-04-27:
+  //   Group "EC2, IAM, S3 (13)" has auto_remediable=false,
+  //   block_reason_code=telemetry_asymmetry. The 13 perms include:
+  //     - 12 in services {s3, ec2} which DO have CT activity → safe
+  //     - 1 (iam:ListRoles) in service iam which has zero CT events
+  //       (this is the asymmetric service AA flagged) → unsafe
+  //   Without this partial-remediation logic, the entire group was
+  //   un-selectable; with it, Select All picks 12 and Apply Fix succeeds.
   const getAutoRemediablePermissions = (): Set<string> => {
     const result = new Set<string>()
     const groups = gapData?.confidence_groups?.groups ?? []
+
+    // Services where the role has confirmed CloudTrail activity. Derived
+    // from gapData.used_permissions — backend Phase 1's overlay populates
+    // it from r.used_actions. Used to decide partial remediation within
+    // telemetry_asymmetry groups.
+    const ctServices = new Set<string>()
+    for (const p of (gapData?.used_permissions ?? [])) {
+      if (typeof p === 'string' && p.includes(':')) {
+        ctServices.add(p.split(':')[0].toLowerCase())
+      }
+    }
+
     for (const g of groups) {
-      // Field MUST be present and explicitly true. Anything else (false,
-      // undefined, missing) → exclude. No legacy fallback.
-      if (g.auto_remediable !== true) continue
-      for (const p of g.permissions) result.add(p.permission)
+      if (g.auto_remediable === true) {
+        for (const p of g.permissions) result.add(p.permission)
+      } else if (g.block_reason_code === 'telemetry_asymmetry') {
+        // Partial: include only perms whose service has confirmed CT activity.
+        // The asymmetry trigger is at the service level — perms in confirmed
+        // services pass GATE 2; perms in unconfirmed services would trip it.
+        for (const p of g.permissions) {
+          if (typeof p.permission === 'string' && p.permission.includes(':')) {
+            const service = p.permission.split(':')[0].toLowerCase()
+            if (ctServices.has(service)) {
+              result.add(p.permission)
+            }
+          }
+        }
+      }
+      // else (protected | needs_telemetry | inferred_usage | missing): exclude
     }
     return result
   }
