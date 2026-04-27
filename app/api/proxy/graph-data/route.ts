@@ -4,7 +4,7 @@ export const runtime = 'nodejs'
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache with 15-minute TTL for SWR (Stale-While-Revalidate)
 const cache = new Map<string, { data: any; timestamp: number }>()
@@ -158,7 +158,7 @@ export async function GET() {
 
 // Background cache update function for SWR
 async function updateCacheInBackground(cacheKey: string) {
-  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://saferemediate-backend-f.onrender.com"
+  const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
   
   try {
     const controller = new AbortController()

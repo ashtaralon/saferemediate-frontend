@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com";
 
 export const maxDuration = 60;

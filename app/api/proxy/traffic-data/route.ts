@@ -9,7 +9,6 @@ export const revalidate = 0
 export const maxDuration = 60
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ??
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache for traffic data (2-minute TTL)

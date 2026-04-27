@@ -5,7 +5,7 @@ export const fetchCache = "force-no-store"
 export const maxDuration = 300
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+  "https://saferemediate-backend-f.onrender.com"
 
 /**
  * Unified remediation proxy for attack-path nodes.

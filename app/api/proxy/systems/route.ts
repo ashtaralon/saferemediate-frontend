@@ -4,8 +4,6 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 120 // 2 minutes for Render cold starts + Neo4j query
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  process.env.BACKEND_API_URL ||
   "https://saferemediate-backend-f.onrender.com"
 
 // In-memory cache with 5-minute TTL

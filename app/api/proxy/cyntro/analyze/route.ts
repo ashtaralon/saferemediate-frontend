@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const maxDuration = 300
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://saferemediate-backend-f.onrender.com"
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function GET(req: NextRequest) {
   const role_name = req.nextUrl.searchParams.get("role_name")

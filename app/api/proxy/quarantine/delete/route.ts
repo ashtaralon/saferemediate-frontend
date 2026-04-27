@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'https://saferemediate-backend-f.onrender.com'
+const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
 export async function DELETE(request: NextRequest) {
   try {
