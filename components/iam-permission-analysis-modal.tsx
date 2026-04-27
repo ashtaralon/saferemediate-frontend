@@ -71,7 +71,7 @@ interface GapAnalysisData {
       protection_category?: string | null
       // Layer 1 UX gating (additive — undefined on older deploys)
       auto_remediable?: boolean
-      block_reason_code?: "ok" | "needs_telemetry" | "protected" | "inferred_usage"
+      block_reason_code?: "ok" | "needs_telemetry" | "protected" | "inferred_usage" | "telemetry_asymmetry"
       block_reason_human?: string | null
       telemetry_enablement_action?: {
         service: string
