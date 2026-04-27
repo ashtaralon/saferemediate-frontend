@@ -69,6 +69,15 @@ interface GapAnalysisData {
       warn?: boolean
       protection_tier?: string | null
       protection_category?: string | null
+      // Layer 1 UX gating (additive — undefined on older deploys)
+      auto_remediable?: boolean
+      block_reason_code?: "ok" | "needs_telemetry" | "protected" | "inferred_usage"
+      block_reason_human?: string | null
+      telemetry_enablement_action?: {
+        service: string
+        endpoint: string
+        estimated_cost_usd_per_month?: number
+      } | null
       permission_count: number
       permissions: Array<{
         permission: string
@@ -442,6 +451,26 @@ export function IAMPermissionAnalysisModal({
     }
   }
 
+  // Set of permissions belonging to groups that backend marked auto_remediable.
+  // Layer 1 contract: only safe_to_remove groups are auto-remediable. Protected,
+  // warn, reserved, verify_first, investigate_first all return false. Used by
+  // Select All, the submit-side defensive filter, and the footer count.
+  // Falls back to the legacy exclusion (protected/warn/reserved) when the new
+  // field isn't on the response — so older deploys still work.
+  const getAutoRemediablePermissions = (): Set<string> => {
+    const result = new Set<string>()
+    const groups = gapData?.confidence_groups?.groups ?? []
+    for (const g of groups) {
+      const fieldPresent = typeof g.auto_remediable === 'boolean'
+      const allowed = fieldPresent
+        ? g.auto_remediable === true
+        : !(g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
+      if (!allowed) continue
+      for (const p of g.permissions) result.add(p.permission)
+    }
+    return result
+  }
+
   // Toggle permission selection
   const togglePermissionSelection = (permission: string) => {
     setSelectedPermissionsToRemove(prev => {
@@ -458,14 +487,9 @@ export function IAMPermissionAnalysisModal({
   // Select/deselect all unused permissions
   const selectAllPermissions = () => {
     if (gapData) {
-      // Exclude protected, warn, and reserved permissions from "Select All"
-      const excludedPerms = new Set(
-        (gapData.confidence_groups?.groups ?? [])
-          .filter(g => g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
-          .flatMap(g => g.permissions.map(p => p.permission))
-      )
+      const autoRemediable = getAutoRemediablePermissions()
       setSelectedPermissionsToRemove(
-        new Set(gapData.unused_permissions.filter(p => !excludedPerms.has(p)))
+        new Set(gapData.unused_permissions.filter(p => autoRemediable.has(p)))
       )
     }
   }
@@ -533,8 +557,17 @@ export function IAMPermissionAnalysisModal({
 
     setApplying(true)
     try {
-      // Get the list of permissions selected for removal
+      // Defensive: only submit perms that backend marked auto-remediable.
+      // The UI already disables non-auto-remediable rows, but a DevTools state
+      // edit could slip a protected/inferred perm into the Set — drop those
+      // before the request leaves the browser.
+      const autoRemediable = getAutoRemediablePermissions()
       const permissionsToRemove = Array.from(selectedPermissionsToRemove)
+        .filter(p => autoRemediable.has(p))
+      const droppedCount = selectedPermissionsToRemove.size - permissionsToRemove.length
+      if (droppedCount > 0) {
+        console.warn(`[IAM-Modal] Dropped ${droppedCount} non-auto-remediable perm(s) from submit`)
+      }
 
       console.log('[IAM-Modal] Starting DIRECT MODIFY remediation for:', roleName)
       console.log('[IAM-Modal] Permissions to remove:', permissionsToRemove.length)
@@ -1260,7 +1293,15 @@ export function IAMPermissionAnalysisModal({
                     const isProtected = group.protected || group.action === 'protected'
                     const isReserved = group.action === 'reserved'
                     const isWarn = group.warn || group.action === 'warn_before_removing'
-                    const isLocked = isProtected || isReserved
+                    // Layer 1: gate on backend auto_remediable when present.
+                    // Falls back to the legacy lock semantics on older responses.
+                    const blockedByBackend = group.auto_remediable === false
+                    const isLocked = isProtected || isReserved || blockedByBackend
+                    // Distinguish "blocked but not protected/reserved" so we can
+                    // render the inline reason without overloading the existing
+                    // PROTECTED/RESERVED badges.
+                    const isInferredOrTelemetryBlocked =
+                      blockedByBackend && !isProtected && !isReserved
                     const colorMap: Record<string, { text: string; border: string; bg: string }> = {
                       green: { text: '#22c55e', border: '#bbf7d0', bg: '#f0fdf4' },
                       orange: { text: '#f97316', border: '#fed7aa', bg: '#fff7ed' },
@@ -1320,6 +1361,27 @@ export function IAMPermissionAnalysisModal({
                         <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: colors.border, background: colors.bg + '80' }}>
                           {group.explanation}
                         </div>
+                        {isInferredOrTelemetryBlocked && group.block_reason_human && (
+                          <div className="px-4 py-2 text-xs border-b flex items-start gap-2" style={{ borderColor: colors.border, background: '#fffbeb', color: '#92400e' }}>
+                            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <p>{group.block_reason_human}</p>
+                              {group.block_reason_code === 'needs_telemetry' && group.telemetry_enablement_action && (
+                                <p className="mt-1 text-[11px]" style={{ color: '#78350f' }}>
+                                  <a
+                                    href="https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="underline"
+                                  >
+                                    AWS docs: CloudTrail data events ↗
+                                  </a>
+                                  <span> · AWS CloudTrail data events pricing applies — varies by workload.</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                           {group.permissions.map((perm, i) => (
                             <div
@@ -1650,6 +1712,12 @@ export function IAMPermissionAnalysisModal({
                 const blocked = shouldBlockRemediation()
                 const lowConfidence = safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
+                // Footer count: only auto-remediable selections. Non-auto rows
+                // are disabled in the UI but a stale Set entry from a prior
+                // render shouldn't inflate the displayed count.
+                const autoRemediableSet = getAutoRemediablePermissions()
+                const selectedAutoRemediableCount = Array.from(selectedPermissionsToRemove)
+                  .filter(p => autoRemediableSet.has(p)).length
 
                 if (blocked) {
                   return (
@@ -1729,8 +1797,8 @@ export function IAMPermissionAnalysisModal({
                           <Loader2 className="w-4 h-4 animate-spin" />
                           Applying...
                         </>
-                      ) : selectedPermissionsToRemove.size > 0 ? (
-                        `APPLY FIX (${selectedPermissionsToRemove.size} permissions)`
+                      ) : selectedAutoRemediableCount > 0 ? (
+                        `APPLY FIX (${selectedAutoRemediableCount} permissions)`
                       ) : detachManagedPolicies ? (
                         `APPLY FIX (detach managed policies)`
                       ) : (
