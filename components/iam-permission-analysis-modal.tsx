@@ -856,7 +856,7 @@ export function IAMPermissionAnalysisModal({
           <p className="mb-4" style={{ color: "var(--muted-foreground, #6b7280)" }}>{error}</p>
           <div className="flex justify-center gap-3">
             <button
-              onClick={fetchGapAnalysis}
+              onClick={() => fetchGapAnalysis()}
               className="px-4 py-2 bg-[#8b5cf6] text-white rounded-md hover:bg-[#7c3aed] text-sm font-medium flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />

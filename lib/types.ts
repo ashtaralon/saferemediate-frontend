@@ -460,6 +460,10 @@ export interface SimulateFixSafety {
   shared?: boolean | null            // null = couldn't measure
   shared_confidence?: "high" | "medium" | "unknown" | null
   completeness?: "complete" | "partial" | "unknown" | null
+  // Populated on rollback / BLOCK responses (backend 95d3e5e). Type catches up
+  // to fields the modal already reads.
+  block_reason?: string | null
+  message?: string | null
 }
 
 export interface SimulateFixResponse {
