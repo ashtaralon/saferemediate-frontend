@@ -482,36 +482,12 @@ export function IAMPermissionAnalysisModal({
     onClose()
   }
 
-  const handleSimulate = async () => {
-    console.log('[IAM-Modal] handleSimulate called! roleName:', roleName, 'unusedCount:', gapData?.summary?.unused_count)
-    setSimulating(true)
-
-    try {
-      // Create a pre-simulation snapshot for rollback safety
-      console.log('[IAM-Modal] Creating pre-simulation snapshot for:', roleName)
-      const snapshotResponse = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/snapshot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
-
-      if (snapshotResponse.ok) {
-        const snapshotResult = await snapshotResponse.json()
-        console.log('[IAM-Modal] Snapshot created:', snapshotResult.snapshot_id)
-        toast({
-          title: "📸 Snapshot Created",
-          description: `Rollback point saved: ${snapshotResult.snapshot_id}`,
-          variant: "default"
-        })
-      } else {
-        console.warn('[IAM-Modal] Failed to create snapshot, continuing with simulation')
-      }
-    } catch (error) {
-      console.warn('[IAM-Modal] Snapshot creation failed:', error)
-    }
-
-    setSimulating(false)
-    setShowSimulation(true)
-  }
+  // NOTE: an earlier `handleSimulate` helper (snapshot + flip
+  // showSimulation flag) was unreferenced — the real "Simulate fix"
+  // button in the footer has its own inline handler that calls the
+  // simulate-fix endpoint. The pre-simulate snapshot logic that lived
+  // in the dead helper has been folded into the footer handler so a
+  // rollback point is created before the simulation banner is shown.
 
   const handleApplyFix = async () => {
     if (!gapData) return
@@ -2566,6 +2542,31 @@ export function IAMPermissionAnalysisModal({
             onClick={async () => {
               setSimulating(true)
               try {
+                // Step 1: take a pre-simulate snapshot so a rollback point
+                // exists if the operator immediately presses Apply after
+                // the simulation. Failure here is non-fatal — we log and
+                // continue (the cyntro/remediate Apply path also creates
+                // its own snapshot before mutating, so this is belt-and
+                // -braces, not the only safety net).
+                try {
+                  const snap = await fetch(`/api/proxy/iam-roles/${encodeURIComponent(roleName)}/snapshot`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                  })
+                  if (snap.ok) {
+                    const sj = await snap.json().catch(() => ({}))
+                    if (sj?.snapshot_id) {
+                      console.log('[IAM-Modal] Pre-simulate snapshot:', sj.snapshot_id)
+                    }
+                  } else {
+                    console.warn('[IAM-Modal] Pre-simulate snapshot non-200:', snap.status)
+                  }
+                } catch (snapErr) {
+                  console.warn('[IAM-Modal] Pre-simulate snapshot failed:', snapErr)
+                }
+
+                // Step 2: call the simulate-fix endpoint for safety verdict
+                // and "what would be removed" preview.
                 const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -2582,16 +2583,32 @@ export function IAMPermissionAnalysisModal({
                   throw new Error(result.error || result.detail || `Simulation failed: ${response.status}`)
                 }
 
-                const decision = result.safety?.decision
-                const decisionLabel = decision === 'auto_eligible' ? 'Auto-eligible' : decision === 'blocked' ? 'Blocked' : 'Approval required'
+                // Use the canonical DecisionOutcome when available so the
+                // toast can distinguish MANUAL_REVIEW, CANARY_FIRST, and
+                // EXCLUDE from the legacy 3-bucket squash. Falls back to
+                // the legacy `decision` only when canonical is missing.
+                const canonical = (result.safety?.decision_canonical as string | undefined)
+                  ?? (result.safety?.decision === 'auto_eligible' ? 'AUTO_EXECUTE'
+                    : result.safety?.decision === 'approval_required' ? 'REQUIRE_APPROVAL'
+                    : 'BLOCK')
+                const decisionLabel = ({
+                  AUTO_EXECUTE: 'Auto-execute',
+                  REQUIRE_APPROVAL: 'Approval required',
+                  MANUAL_REVIEW: 'Manual review',
+                  CANARY_FIRST: 'Canary first',
+                  BLOCK: 'Blocked',
+                  EXCLUDE: 'Excluded',
+                } as Record<string, string>)[canonical] ?? canonical
+
                 const removed = result.simulation?.removed_permissions ?? 0
                 const kept = result.simulation?.kept_permissions ?? 0
                 const total = kept + removed
                 const rollback = result.safety?.rollback_available ? 'available' : 'unavailable'
+                const isBad = canonical === 'BLOCK' || canonical === 'EXCLUDE'
                 toast({
                   title: `Simulation Complete · ${decisionLabel}`,
                   description: `Would remove ${removed} of ${total} permissions (${result.problem?.gap_percent ?? 0}% gap). Rollback: ${rollback}.`,
-                  variant: decision === 'blocked' ? 'destructive' : 'default'
+                  variant: isBad ? 'destructive' : 'default'
                 })
 
                 setShowSimulation(true)
