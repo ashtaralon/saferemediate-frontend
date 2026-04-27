@@ -455,17 +455,26 @@ export function IAMPermissionAnalysisModal({
   // Layer 1 contract: only safe_to_remove groups are auto-remediable. Protected,
   // warn, reserved, verify_first, investigate_first all return false. Used by
   // Select All, the submit-side defensive filter, and the footer count.
-  // Falls back to the legacy exclusion (protected/warn/reserved) when the new
-  // field isn't on the response — so older deploys still work.
+  //
+  // Fallback for missing auto_remediable field is FAIL-CLOSED (returns false)
+  // — was previously fail-open (excluded only protected/warn/reserved), which
+  // let `investigate_first` and `verify_first` groups slip through whenever
+  // the modal had stale gapData from before Layer 1.1 deployed. Concretely:
+  // the DynamoDB group has action="investigate_first"; if its `auto_remediable`
+  // wasn't on the cached response, the legacy fallback marked dynamodb perms
+  // as auto-remediable, the operator's submit included them, and the backend
+  // safety gate rolled the whole canary back. Backend Layer 1.1 has been
+  // deployed since 2026-04-27 14:37 — every fresh response from the backend
+  // now includes the field, so failing closed when the field is absent only
+  // affects responses that should already be invalidated (proxy-cache strip
+  // 69c3447 ensures the cache can't reintroduce them).
   const getAutoRemediablePermissions = (): Set<string> => {
     const result = new Set<string>()
     const groups = gapData?.confidence_groups?.groups ?? []
     for (const g of groups) {
-      const fieldPresent = typeof g.auto_remediable === 'boolean'
-      const allowed = fieldPresent
-        ? g.auto_remediable === true
-        : !(g.protected || g.action === 'protected' || g.action === 'warn_before_removing' || g.action === 'reserved')
-      if (!allowed) continue
+      // Field MUST be present and explicitly true. Anything else (false,
+      // undefined, missing) → exclude. No legacy fallback.
+      if (g.auto_remediable !== true) continue
       for (const p of g.permissions) result.add(p.permission)
     }
     return result
@@ -694,6 +703,17 @@ export function IAMPermissionAnalysisModal({
         description: err.message || 'Failed to apply remediation',
         variant: "destructive"
       })
+      // After a failed apply (canary rollback, safety-gate block, etc.), the
+      // role's gap-analysis state may have shifted: a perm we just tried to
+      // remove might have been re-classified by the backend, or a service's
+      // asymmetry signal may have updated. Re-fetch so the next retry sees
+      // fresh auto_remediable / block_reason_code data instead of replaying
+      // against stale gapData and hitting the same gate again.
+      try {
+        await fetchGapAnalysis(true)
+      } catch (refetchErr) {
+        console.warn('[IAM-Modal] Post-failure gap-analysis refetch failed:', refetchErr)
+      }
     } finally {
       setApplying(false)
     }
