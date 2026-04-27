@@ -515,7 +515,11 @@ export default function HomePage() {
     switch (activeSection) {
       case "home":
         if (DASHBOARD_V2_ENABLED) {
-          {selectedSystem ? <HomeDashboardV2 initialSystem={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected. Add ?system=your-system-name to the URL.</div>}
+          return selectedSystem ? (
+            <HomeDashboardV2 initialSystem={selectedSystem} />
+          ) : (
+            <div className="text-center py-8 text-gray-500">No system selected. Add ?system=your-system-name to the URL.</div>
+          )
         }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0
