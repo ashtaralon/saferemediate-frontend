@@ -19,7 +19,7 @@ export function SystemPickerCard({ onSelect }: SystemPickerCardProps) {
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/proxy/systems/available")
+    fetch("/api/proxy/systems")
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return
