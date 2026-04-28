@@ -126,8 +126,70 @@ interface EnforcementScore {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const systemName = searchParams.get('systemName')
+
+  // Empty systemName → org-wide aggregate from /api/systems.
+  // Honest weighted average of health_score by resourceCount.
+  // Replaces the previous HTTP 400 "systemName required" the home dashboard
+  // was hitting whenever no system was selected.
   if (!systemName) {
-    return NextResponse.json({ error: "systemName query parameter is required" }, { status: 400 })
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/systems`, {
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      })
+      if (!res.ok) {
+        return NextResponse.json(
+          {
+            error: 'systems_endpoint_unavailable',
+            message: `Backend /api/systems returned ${res.status}`,
+            backend_status: res.status,
+          },
+          { status: 502 },
+        )
+      }
+      const data = await res.json()
+      const systems: any[] = Array.isArray(data?.systems) ? data.systems : []
+      const scoreable = systems.filter(
+        (s) => typeof s.health_score === 'number' && typeof s.resourceCount === 'number' && s.resourceCount > 0,
+      )
+      if (scoreable.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'no_scoreable_systems',
+            message:
+              'No systems carry both a health_score and a positive resourceCount yet — graph likely still populating.',
+            system_count: systems.length,
+          },
+          { status: 200 },
+        )
+      }
+      const totalResources = scoreable.reduce((sum, s) => sum + s.resourceCount, 0)
+      const weightedSum = scoreable.reduce((sum, s) => sum + s.health_score * s.resourceCount, 0)
+      const customerScore = Math.round((weightedSum / totalResources) * 100) / 100
+      // Aggregate has no per-layer breakdown; cards render only the overall
+      // headline. Don't fabricate per-layer enforcement data.
+      return NextResponse.json({
+        systemName: null,
+        customerScore,
+        coverageScore: customerScore,
+        criticalScore: null,
+        actions: [],
+        layers: null,
+        projected: { customerScore },
+        system_count: scoreable.length,
+        resources_analyzed: totalResources,
+        source: 'aggregate_health_score',
+        timestamp: new Date().toISOString(),
+      })
+    } catch (error: any) {
+      return NextResponse.json(
+        {
+          error: 'aggregate_failed',
+          message: error?.message ?? 'Failed to compute org-wide enforcement aggregate',
+        },
+        { status: 500 },
+      )
+    }
   }
 
   try {

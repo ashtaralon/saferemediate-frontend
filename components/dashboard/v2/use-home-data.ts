@@ -252,18 +252,23 @@ export function useHomeData(systemName: string): UseHomeDataResult {
 
   const fetchEnforcement = useCallback(() => {
     const sys = systemRef.current
-    runFetch<EnforcementScoreData>(
-      `/api/proxy/enforcement-score?systemName=${encodeURIComponent(sys)}`,
-      setEnforcement,
-    )
+    // Empty system → call the proxy without systemName; the proxy handles
+    // the no-system case with an org-wide aggregate (weighted by resource
+    // count). Same shape comes back.
+    const url = sys
+      ? `/api/proxy/enforcement-score?systemName=${encodeURIComponent(sys)}`
+      : `/api/proxy/enforcement-score`
+    runFetch<EnforcementScoreData>(url, setEnforcement)
   }, [runFetch])
 
   const fetchPosture = useCallback(() => {
     const sys = systemRef.current
-    runFetch<PostureScoreData>(
-      `/api/proxy/posture-score/${encodeURIComponent(sys)}`,
-      setPosture,
-    )
+    // Empty system → call the no-path-param posture-score route, which is
+    // a sibling that returns the org-wide aggregate.
+    const url = sys
+      ? `/api/proxy/posture-score/${encodeURIComponent(sys)}`
+      : `/api/proxy/posture-score`
+    runFetch<PostureScoreData>(url, setPosture)
   }, [runFetch])
 
   const fetchIssues = useCallback(() => {
