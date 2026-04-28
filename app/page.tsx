@@ -31,6 +31,7 @@ import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, Tren
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
+import { SystemPickerCard } from "@/components/system-picker-card"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
@@ -515,7 +516,11 @@ export default function HomePage() {
     switch (activeSection) {
       case "home":
         if (DASHBOARD_V2_ENABLED) {
-          {selectedSystem ? <HomeDashboardV2 initialSystem={selectedSystem} /> : <div className="text-center py-8 text-gray-500">No system selected. Add ?system=your-system-name to the URL.</div>}
+          return selectedSystem ? (
+            <HomeDashboardV2 initialSystem={selectedSystem} />
+          ) : (
+            <SystemPickerCard onSelect={setSelectedSystem} />
+          )
         }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0
