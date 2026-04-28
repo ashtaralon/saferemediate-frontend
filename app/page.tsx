@@ -117,13 +117,11 @@ export default function HomePage() {
   const searchParams = useSearchParams()
   const systemFromUrl = searchParams.get('system')
   const [activeSection, setActiveSection] = useState("home")
-  // Initial selection is driven by the URL only. Previously this defaulted
-  // to "alon-prod" when ?system= was absent, which made a fresh visit
-  // (e.g. typing "cyntro" in the address bar) short-circuit through the
-  // `if (selectedSystem)` branch below and render SystemDetailDashboard
-  // instead of the home dashboard. Home tiles that need a system to show
-  // data still fall back to "alon-prod" at their callsite (see line ~524);
-  // that fallback is data, not navigation.
+  // Initial selection is URL-driven; we don't hardcode any system here.
+  // When ?system= is absent we auto-pick the first system from /api/systems
+  // in a useEffect below — data-driven, not "alon-prod"-driven. That keeps
+  // sidebar sections (Attack Paths, Vulnerabilities, etc.) populated for
+  // fresh visits while the home page still renders the org-wide aggregate.
   const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl)
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
@@ -230,6 +228,37 @@ export default function HomePage() {
         // Keep existing data on error
       })
   }, [])
+
+  // Auto-pick a default system when none is in the URL.
+  // The home page renders fine with selectedSystem === null (HomeDashboardV2
+  // shows org-wide aggregates), but every sidebar section (Attack Paths,
+  // Vulnerabilities, Per-resource, Identities-by-system, etc.) requires
+  // selectedSystem to be truthy. Without auto-pick, clicking those tabs on
+  // a fresh visit shows "No system selected".
+  //
+  // Data-driven: pick the first system from /api/systems. Not hardcoded —
+  // works for any tenant that has at least one system. If /api/systems is
+  // empty or fails, leave selectedSystem null and the sidebar sections
+  // will show their empty-state copy honestly.
+  useEffect(() => {
+    if (systemFromUrl) return // URL wins, never override
+    if (selectedSystem) return // already picked
+    let aborted = false
+    fetch('/api/proxy/systems', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (aborted || !data) return
+        const list: any[] = Array.isArray(data?.systems) ? data.systems : []
+        const first = list.find((s) => typeof s?.name === 'string' && s.name.length > 0)
+        if (first) setSelectedSystem(first.name)
+      })
+      .catch(() => {
+        // Silent — keep null and sidebar empty-states surface the gap.
+      })
+    return () => {
+      aborted = true
+    }
+  }, [systemFromUrl, selectedSystem])
 
   const loadData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading spinner on initial load when no cached data exists
