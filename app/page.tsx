@@ -117,7 +117,10 @@ export default function HomePage() {
   const searchParams = useSearchParams()
   const systemFromUrl = searchParams.get('system')
   const [activeSection, setActiveSection] = useState("home")
-  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl)
+  // Default to alon-prod when no ?system= in the URL so every section
+  // (home, attack-paths, identities, etc.) renders content instead of
+  // each having to handle "no system selected" individually.
+  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl ?? "alon-prod")
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
