@@ -18,9 +18,10 @@ export default function HomeV2Page() {
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
       <LeftSidebarNav activeItem="home" onItemClick={handleNav} />
       <main className="flex-1">
-        {/* Default to alon-prod when no ?system= in the URL.
-            V2's built-in SystemInput lets the operator switch inline. */}
-        <HomeDashboardV2 initialSystem={systemFromUrl ?? "alon-prod"} />
+        {/* No system in URL → empty initial; V2's SystemInput prompts.
+            Previously defaulted to "alon-prod", silently routing every
+            fresh visit into one demo system's data. */}
+        <HomeDashboardV2 initialSystem={systemFromUrl ?? ""} />
       </main>
     </div>
   )

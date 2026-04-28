@@ -522,10 +522,11 @@ export default function HomePage() {
     switch (activeSection) {
       case "home":
         if (DASHBOARD_V2_ENABLED) {
-          // Default to alon-prod when no ?system= in the URL. V2's built-in
-          // SystemInput at the top of HomeDashboardV2 lets the operator
-          // switch systems inline.
-          return <HomeDashboardV2 initialSystem={selectedSystem ?? "alon-prod"} />
+          // No system in URL → render with empty system; V2's SystemInput
+          // at the top of HomeDashboardV2 prompts the operator to pick.
+          // Previously defaulted to "alon-prod", which silently routed every
+          // fresh visit into one specific demo system's data.
+          return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} />
         }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0

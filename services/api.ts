@@ -99,7 +99,9 @@ class ApiService {
       
       // Normalize findings to ensure all required fields exist
       const normalized = findingsArray.map((f: any) => ({
-        id: f.id || f.finding_id || `finding-${Date.now()}-${Math.random()}`,
+        // Stable ID — no Math.random() / Date.now() synthesis that would
+        // create a new id on every render and break React keys.
+        id: f.id || f.finding_id || '',
         type: f.type || 'unknown',
         severity: (f.severity || 'medium').toLowerCase() as 'critical' | 'high' | 'medium' | 'low',
         confidence: f.confidence || 0,
@@ -109,7 +111,8 @@ class ApiService {
         resourceType: f.resourceType || f.resource_type || 'Unknown',
         status: (f.status || 'open').toLowerCase() as 'open' | 'resolved' | 'dismissed',
         category: f.category || 'Security',
-        discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || new Date().toISOString(),
+        // Don't claim "discovered now" when the backend didn't tell us when.
+        discoveredAt: f.discoveredAt || f.discovered_at || f.createdAt || '',
         remediation: f.remediation || f.recommendation || 'No remediation available',
         systemName: f.systemName || f.system_name || null, // Add systemName for filtering
       }))

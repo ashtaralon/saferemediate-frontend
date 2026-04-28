@@ -378,8 +378,13 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
       }
       
       return {
-        // CRITICAL: Use finding_id from backend, not generated ID
-        id: findingId || `finding-${Math.random().toString(36).substr(2, 9)}`,
+        // CRITICAL: Use finding_id from backend, not generated ID.
+        // Previously fell back to `finding-${Math.random()}`, which produced
+        // a NEW id on every render → React key thrashing AND made findings
+        // un-trackable across reloads. Empty string preserves stable identity
+        // (React will warn about duplicate empty keys, which is the correct
+        // signal: backend is missing IDs and that's a bug worth surfacing).
+        id: findingId || "",
         finding_id: findingId, // Preserve original finding_id for API calls
         title: f.title || f.name || "Security Finding",
         severity: (f.severity || "MEDIUM").toUpperCase() as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
@@ -388,7 +393,9 @@ export async function fetchSecurityFindings(systemName?: string): Promise<Securi
         resourceType: f.resourceType || "Resource",
         status: f.status || "open",
         category: f.category || f.type || "Security",
-        discoveredAt: f.discoveredAt || f.detectedAt || f.created_at || f.createdAt || new Date().toISOString(),
+        // Don't fabricate "discovered just now" when the backend gave us
+        // nothing. Empty string lets the UI render "—" / "unknown".
+        discoveredAt: f.discoveredAt || f.detectedAt || f.created_at || f.createdAt || "",
         remediation: f.remediation || f.recommendation || "",
         // Preserve all backend fields needed for simulation
         role_name: f.role_name,

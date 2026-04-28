@@ -911,7 +911,11 @@ export function RemediationTimeline({
       status: (snapshot.rolled_back_at || snapshot.restored_at || snapshot.status === 'RESTORED' || snapshot.status === 'restored')
         ? 'rolled_back'
         : 'completed',
-      confidence_score: 0.95,
+      // Snapshot rows don't carry per-row confidence — only the originating
+      // remediation event does. Previously hardcoded to 0.95, which made the
+      // timeline summary's avg_confidence look authoritative. Use null so
+      // consumers can render "—" or skip these rows in the average.
+      confidence_score: null as number | null,
       approved_by: snapshot.triggered_by || 'system',
       snapshot_id: snapshot.snapshot_id,
       rollback_available: snapshot.rollback_available !== false,
@@ -1054,7 +1058,11 @@ export function RemediationTimeline({
               date: dateKey,
               events: 0,
               permissions_removed: 0,
-              security_score: 60 + ((periodDays[selectedPeriod] - i) / periodDays[selectedPeriod]) * 35,
+              // Honest signal: empty days have no security_score. The previous
+              // 60 + (...) * 35 formula faked a steady 60→95 ramp regardless
+              // of real measurements. Chart consumers should render gaps for
+              // null instead of an invented trend line.
+              security_score: null as number | null,
               score_delta: 0,
             })
           }
