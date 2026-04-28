@@ -494,7 +494,13 @@ export default function HomePage() {
     setSelectedSystem(null)
   }
 
-  if (selectedSystem) {
+  // Short-circuit to SystemDetailDashboard ONLY from the home tab — that's
+  // the "operator clicked a Top Accounts row" flow. Sidebar tabs (Attack
+  // Paths, Vulnerabilities, etc.) MUST fall through to their own case
+  // handlers below; this short-circuit used to fire whenever selectedSystem
+  // was set, which made every sidebar click bounce back to the system-
+  // detail page (the user reported "every click pushes me to alon-prod").
+  if (selectedSystem && activeSection === "home") {
     return (
       <ErrorBoundary componentName="System Dashboard">
         <SystemDetailDashboard systemName={selectedSystem} onBack={handleBackFromSystem} />
