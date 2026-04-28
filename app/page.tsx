@@ -229,19 +229,22 @@ export default function HomePage() {
       })
   }, [])
 
-  // Auto-pick a default system when none is in the URL.
-  // The home page renders fine with selectedSystem === null (HomeDashboardV2
-  // shows org-wide aggregates), but every sidebar section (Attack Paths,
-  // Vulnerabilities, Per-resource, Identities-by-system, etc.) requires
-  // selectedSystem to be truthy. Without auto-pick, clicking those tabs on
-  // a fresh visit shows "No system selected".
+  // Auto-pick a default system when the operator navigates AWAY from home
+  // and we have no system selected. The home page itself MUST stay null so
+  // HomeDashboardV2 renders the org-wide aggregate (commit 7650d03).
+  // Sidebar sections (Attack Paths, Vulnerabilities, Per-resource, etc.)
+  // need a selected system or they render "No system selected".
   //
-  // Data-driven: pick the first system from /api/systems. Not hardcoded —
-  // works for any tenant that has at least one system. If /api/systems is
-  // empty or fails, leave selectedSystem null and the sidebar sections
-  // will show their empty-state copy honestly.
+  // Pick by lowest health_score then highest resourceCount — the worst /
+  // largest system is the one with actual security work to do, which
+  // matches the Top Accounts list ordering on the home page. Data-driven,
+  // not "alon-prod" hardcoded.
+  //
+  // If /api/systems is empty or fails, leave selectedSystem null and the
+  // sidebar sections will show their honest empty-state copy.
   useEffect(() => {
-    if (systemFromUrl) return // URL wins, never override
+    if (activeSection === 'home') return // home renders aggregate; do not pick
+    if (systemFromUrl) return // URL wins
     if (selectedSystem) return // already picked
     let aborted = false
     fetch('/api/proxy/systems', { cache: 'no-store' })
@@ -249,8 +252,17 @@ export default function HomePage() {
       .then((data) => {
         if (aborted || !data) return
         const list: any[] = Array.isArray(data?.systems) ? data.systems : []
-        const first = list.find((s) => typeof s?.name === 'string' && s.name.length > 0)
-        if (first) setSelectedSystem(first.name)
+        const candidates = list
+          .filter((s) => typeof s?.name === 'string' && s.name.length > 0)
+          .sort((a, b) => {
+            const sa = typeof a.health_score === 'number' ? a.health_score : 100
+            const sb = typeof b.health_score === 'number' ? b.health_score : 100
+            if (sa !== sb) return sa - sb // lowest score wins
+            const ra = typeof a.resourceCount === 'number' ? a.resourceCount : 0
+            const rb = typeof b.resourceCount === 'number' ? b.resourceCount : 0
+            return rb - ra // tiebreak: largest resource count
+          })
+        if (candidates.length > 0) setSelectedSystem(candidates[0].name)
       })
       .catch(() => {
         // Silent — keep null and sidebar empty-states surface the gap.
@@ -258,7 +270,7 @@ export default function HomePage() {
     return () => {
       aborted = true
     }
-  }, [systemFromUrl, selectedSystem])
+  }, [activeSection, systemFromUrl, selectedSystem])
 
   const loadData = useCallback(async (isBackgroundRefresh = false) => {
     // Only show loading spinner on initial load when no cached data exists
