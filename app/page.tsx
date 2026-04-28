@@ -117,10 +117,14 @@ export default function HomePage() {
   const searchParams = useSearchParams()
   const systemFromUrl = searchParams.get('system')
   const [activeSection, setActiveSection] = useState("home")
-  // Default to alon-prod when no ?system= in the URL so every section
-  // (home, attack-paths, identities, etc.) renders content instead of
-  // each having to handle "no system selected" individually.
-  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl ?? "alon-prod")
+  // Initial selection is driven by the URL only. Previously this defaulted
+  // to "alon-prod" when ?system= was absent, which made a fresh visit
+  // (e.g. typing "cyntro" in the address bar) short-circuit through the
+  // `if (selectedSystem)` branch below and render SystemDetailDashboard
+  // instead of the home dashboard. Home tiles that need a system to show
+  // data still fall back to "alon-prod" at their callsite (see line ~524);
+  // that fallback is data, not navigation.
+  const [selectedSystem, setSelectedSystem] = useState<string | null>(systemFromUrl)
   const [data, setData] = useState<InfrastructureData | null>(null)
   const [securityFindings, setSecurityFindings] = useState<SecurityFinding[]>([])
   const [loading, setLoading] = useState(true)
