@@ -164,36 +164,105 @@ const getResourceIcon = (resourceType: string) => {
 // CUSTOM CHART COMPONENTS
 // ============================================================================
 
-// Custom dot component for checkpoints
+// Custom dot component for checkpoints. Tech-aesthetic upgrade:
+// - SVG glow filter wraps every dot
+// - Event days get an outer pulsing ring (animated via SVG <animate>)
+// - The most recent event additionally gets a "live" indicator
+// - Skip null security_score days entirely (empty days = gaps)
 const CheckpointDot = (props: any) => {
-  const { cx, cy, payload, onPointClick } = props
+  const { cx, cy, payload, onPointClick, mostRecentEventDate } = props
   const hasEvents = payload?.events > 0
-  // Skip rendering when security_score is null — that's an "empty day" per
-  // the honesty fix in commit a8e0dba; without this guard Recharts still
-  // calls the dot renderer with cy = chart-area top, which produced the
-  // top-edge dots the operator saw on every day in the screenshot.
+  const isMostRecent =
+    hasEvents && mostRecentEventDate && payload?.date === mostRecentEventDate
+
   if (payload?.security_score == null || cy == null || isNaN(cy)) {
     return null
   }
 
   return (
     <g
-      style={{ cursor: hasEvents ? "pointer" : "default" }}
+      style={{ cursor: hasEvents ? 'pointer' : 'default' }}
       onClick={(e) => {
         if (!hasEvents) return
         e.stopPropagation()
         onPointClick?.(payload?.date)
       }}
     >
-      {/* Base dot for all points */}
+      {/* Outer pulsing ring — events only */}
+      {hasEvents && (
+        <>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={10}
+            fill="none"
+            stroke="#818cf8"
+            strokeWidth={1.5}
+            opacity={0.8}
+          >
+            <animate
+              attributeName="r"
+              from={9}
+              to={20}
+              dur="2.4s"
+              repeatCount="indefinite"
+            />
+            <animate
+              attributeName="opacity"
+              from={0.7}
+              to={0}
+              dur="2.4s"
+              repeatCount="indefinite"
+            />
+          </circle>
+          {isMostRecent && (
+            <circle
+              cx={cx}
+              cy={cy}
+              r={14}
+              fill="none"
+              stroke="#22c55e"
+              strokeWidth={2}
+              opacity={0.9}
+            >
+              <animate
+                attributeName="r"
+                from={12}
+                to={26}
+                dur="1.6s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                from={0.9}
+                to={0}
+                dur="1.6s"
+                repeatCount="indefinite"
+              />
+            </circle>
+          )}
+        </>
+      )}
+
+      {/* Glow halo (filter via inline filter — works without external defs */}
       <circle
         cx={cx}
         cy={cy}
-        r={hasEvents ? 8 : 4}
-        fill={hasEvents ? "#8B5CF6" : "#10B981"}
-        stroke={hasEvents ? "#A78BFA" : "#34D399"}
-        strokeWidth={2}
+        r={hasEvents ? 12 : 6}
+        fill={hasEvents ? '#a78bfa' : '#10b981'}
+        opacity={0.18}
       />
+
+      {/* Base dot */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={hasEvents ? 7 : 3.5}
+        fill={hasEvents ? '#8b5cf6' : '#10b981'}
+        stroke={hasEvents ? '#c4b5fd' : '#6ee7b7'}
+        strokeWidth={hasEvents ? 2 : 1.5}
+      />
+
       {/* Inner dot for events (checkpoint indicator) */}
       {hasEvents && (
         <>
@@ -215,33 +284,82 @@ const CheckpointDot = (props: any) => {
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload
-    return (
-      <div
-        className="rounded-lg p-3 border shadow-lg"
-        style={{
-          background: "var(--bg-secondary)",
-          borderColor: "var(--border-subtle)",
-        }}
-      >
-        <p className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>
-          {label}
-        </p>
-        {data.events > 0 && (
-          <p className="text-xs mt-1 px-2 py-1 rounded bg-[#8b5cf6]/20 text-purple-400 font-medium">
-            📍 {data.events} Event{data.events > 1 ? 's' : ''} on this date
+  if (!active || !payload || !payload.length) return null
+  const data = payload[0].payload
+  const hasEvents = data.events > 0
+  const hasScore = typeof data.security_score === 'number'
+  return (
+    <div
+      className="rounded-xl border shadow-2xl overflow-hidden"
+      style={{
+        background:
+          'linear-gradient(155deg, rgba(15,23,42,0.96) 0%, rgba(30,27,75,0.96) 100%)',
+        borderColor: hasEvents ? '#6366f1' : '#1e293b',
+        boxShadow: hasEvents
+          ? '0 0 0 1px rgba(99,102,241,0.4), 0 12px 32px -8px rgba(99,102,241,0.5)'
+          : '0 12px 32px -8px rgba(0,0,0,0.5)',
+        minWidth: 180,
+      }}
+    >
+      {/* Top accent gradient — only when there are events */}
+      {hasEvents && (
+        <div
+          className="h-px w-full"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent, #818cf8 50%, transparent)',
+          }}
+        />
+      )}
+      <div className="p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${hasEvents ? 'animate-pulse' : ''}`}
+            style={{
+              background: hasEvents ? '#a78bfa' : '#475569',
+              boxShadow: hasEvents ? '0 0 6px #a78bfa' : 'none',
+            }}
+          />
+          <p
+            className="text-[10px] uppercase tracking-[0.18em] font-mono"
+            style={{ color: hasEvents ? '#a5b4fc' : '#64748b' }}
+          >
+            {hasEvents ? 'Activity' : 'Idle'}
+          </p>
+        </div>
+        <p className="font-semibold text-sm text-white mb-2.5">{label}</p>
+        <div className="space-y-1 text-[11px] font-mono">
+          {hasScore && (
+            <div className="flex items-center justify-between gap-3">
+              <span style={{ color: '#64748b' }}>score</span>
+              <span style={{ color: '#34d399' }}>
+                {Math.round(data.security_score)}%
+              </span>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <span style={{ color: '#64748b' }}>events</span>
+            <span style={{ color: hasEvents ? '#a78bfa' : '#475569' }}>
+              {data.events}
+            </span>
+          </div>
+          {(data.permissions_removed ?? 0) > 0 && (
+            <div className="flex items-center justify-between gap-3">
+              <span style={{ color: '#64748b' }}>perms removed</span>
+              <span style={{ color: '#fb923c' }}>
+                -{data.permissions_removed}
+              </span>
+            </div>
+          )}
+        </div>
+        {hasEvents && (
+          <p className="text-[10px] font-mono mt-2.5 pt-2 border-t border-indigo-900/40" style={{ color: '#818cf8' }}>
+            › click to inspect
           </p>
         )}
-        <div className="mt-2 space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-          <p>Security Score: <span className="font-medium text-emerald-400">{Math.round(data.security_score)}%</span></p>
-          <p>Events: <span className="font-medium">{data.events}</span></p>
-          <p>Permissions Removed: <span className="font-medium text-blue-400">{data.permissions_removed}</span></p>
-        </div>
       </div>
-    )
-  }
-  return null
+    </div>
+  )
 }
 
 // ============================================================================
@@ -1764,48 +1882,120 @@ export function RemediationTimeline({
               }}
             >
               <defs>
+                {/* Multi-stop fill: indigo at top → emerald in middle →
+                    transparent at bottom. Gives the chart a "depth" feel
+                    instead of flat green. */}
                 <linearGradient id="securityGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
+                  <stop offset="0%"  stopColor="#818cf8" stopOpacity={0.45} />
+                  <stop offset="40%" stopColor="#6366f1" stopOpacity={0.25} />
+                  <stop offset="80%" stopColor="#10b981" stopOpacity={0.10} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
                 </linearGradient>
+                {/* Stroke gradient — left-to-right hue shift gives the
+                    line a subtle "moving energy" appearance. */}
+                <linearGradient id="securityStroke" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%"  stopColor="#a78bfa" />
+                  <stop offset="50%" stopColor="#818cf8" />
+                  <stop offset="100%" stopColor="#34d399" />
+                </linearGradient>
+                {/* Drop-shadow filter for the area — subtle indigo glow
+                    behind the line. */}
+                <filter id="chartGlow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feFlood floodColor="#6366f1" floodOpacity="0.5" />
+                  <feComposite in2="blur" operator="in" result="glow" />
+                  <feMerge>
+                    <feMergeNode in="glow" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                {/* Soft grid pattern — radial dots instead of straight lines */}
+                <pattern id="dotGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <circle cx="10" cy="10" r="0.6" fill="#475569" opacity={0.35} />
+                </pattern>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+              {/* Background dotted-grid layer */}
+              <rect width="100%" height="100%" fill="url(#dotGrid)" />
+              {/* Reference line at score=100 — "ceiling" guide */}
+              <ReferenceLine y={100} stroke="#34d399" strokeDasharray="2 4" opacity={0.3} />
+              <CartesianGrid strokeDasharray="0" stroke="transparent" />
               <XAxis
                 dataKey="date"
-                tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'ui-monospace, monospace' }}
                 tickFormatter={formatDate}
-                axisLine={{ stroke: "#374151" }}
+                axisLine={{ stroke: '#1e293b' }}
+                tickLine={{ stroke: '#1e293b' }}
               />
               <YAxis
-                // Headroom above 100 so dots sitting at score=100 aren't
-                // visually clipped at the top edge of the chart area.
                 domain={[0, 110]}
                 ticks={[0, 25, 50, 75, 100]}
-                tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                axisLine={{ stroke: "#374151" }}
+                tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'ui-monospace, monospace' }}
+                axisLine={{ stroke: '#1e293b' }}
+                tickLine={{ stroke: '#1e293b' }}
+                tickFormatter={(v) => `${v}`}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{
+                  stroke: '#6366f1',
+                  strokeWidth: 1,
+                  strokeDasharray: '4 4',
+                  opacity: 0.6,
+                }}
+              />
               <Area
                 type="monotone"
                 dataKey="security_score"
-                stroke="#10B981"
-                strokeWidth={2}
+                stroke="url(#securityStroke)"
+                strokeWidth={2.5}
                 fillOpacity={1}
                 fill="url(#securityGradient)"
-                dot={<CheckpointDot onPointClick={(date: string) => setSelectedChartDate(prev => prev === date ? null : date)} />}
-                activeDot={{ r: 6, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
+                isAnimationActive={true}
+                animationDuration={900}
+                animationEasing="ease-out"
+                filter="url(#chartGlow)"
+                dot={(() => {
+                  // The most recent day with events gets the green "live"
+                  // halo. Computed once per chart render — Recharts passes
+                  // each point's payload to the dot, so we compare inside.
+                  const mostRecentEventDate = (() => {
+                    const eventDays = chartData.filter(d => d.events > 0)
+                    return eventDays.length > 0
+                      ? eventDays[eventDays.length - 1].date
+                      : null
+                  })()
+                  return (
+                    <CheckpointDot
+                      onPointClick={(date: string) =>
+                        setSelectedChartDate(prev => prev === date ? null : date)
+                      }
+                      mostRecentEventDate={mostRecentEventDate}
+                    />
+                  )
+                })()}
+                activeDot={{
+                  r: 7,
+                  stroke: '#a78bfa',
+                  strokeWidth: 2.5,
+                  fill: '#ffffff',
+                  style: { filter: 'drop-shadow(0 0 8px #a78bfa)' },
+                }}
               />
-              {/* Vertical lines for events — emphasize the selected day. */}
-              {chartData.filter(d => d.events > 0).map((point, idx) => (
-                <ReferenceLine
-                  key={idx}
-                  x={point.date}
-                  stroke="#8B5CF6"
-                  strokeDasharray="5 5"
-                  strokeWidth={selectedChartDate === point.date ? 3 : 2}
-                  opacity={selectedChartDate === point.date ? 1 : 0.7}
-                />
-              ))}
+              {/* Vertical event markers — gradient + emphasis on selected */}
+              {chartData.filter(d => d.events > 0).map((point, idx, arr) => {
+                const isMostRecent = idx === arr.length - 1
+                const isSelected = selectedChartDate === point.date
+                return (
+                  <ReferenceLine
+                    key={idx}
+                    x={point.date}
+                    stroke={isMostRecent ? '#22c55e' : '#8b5cf6'}
+                    strokeDasharray={isMostRecent ? '0' : '4 4'}
+                    strokeWidth={isSelected ? 3 : isMostRecent ? 2.5 : 1.5}
+                    opacity={isSelected ? 1 : isMostRecent ? 0.9 : 0.55}
+                  />
+                )
+              })}
             </AreaChart>
           </ResponsiveContainer>
 
