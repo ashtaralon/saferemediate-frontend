@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { Check, RotateCcw } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
@@ -93,16 +94,21 @@ export function RecentActivityCard() {
       ) : (
         <ul className="space-y-2">
           {items.slice(0, 8).map((item, i) => {
-            const dotColor =
-              item.kind === "rollback" ? "bg-amber-500" : "bg-emerald-500"
+            const isRollback = item.kind === "rollback"
+            const Icon = isRollback ? RotateCcw : Check
+            const iconWrap = isRollback
+              ? "bg-amber-100 text-amber-700"
+              : "bg-emerald-100 text-emerald-700"
             return (
               <li
                 key={`${item.kind}-${item.resource_id}-${i}`}
                 className="flex items-start gap-3 text-sm"
               >
                 <span
-                  className={`mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
-                />
+                  className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${iconWrap}`}
+                >
+                  <Icon className="h-3 w-3" strokeWidth={3} />
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-slate-900">
                     <span

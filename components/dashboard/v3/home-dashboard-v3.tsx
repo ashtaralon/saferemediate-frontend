@@ -10,6 +10,7 @@ import { SafeRemediationsQueueCard } from "./safe-remediations-queue-card"
 import { WildcardBloatCard } from "./wildcard-bloat-card"
 import { FamilyStrip } from "./family-strip"
 import { RecentActivityCard } from "./recent-activity-card"
+import { SeverityDonutCard } from "./severity-donut-card"
 import { NotWiredCard } from "./card-shell"
 import { labelClass } from "./styles"
 
@@ -71,6 +72,16 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
 
       {/* ── C. Family breakdown — Permissions / Network / Data ───── */}
       <FamilyStrip />
+
+      {/* ── C2. Issues by severity (real donut) ───────────────────── */}
+      <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <SeverityDonutCard />
+        <NotWiredCard
+          label="Issue status distribution"
+          reason="Donut for OPEN / IN_PROGRESS / RESOLVED. Backend /api/findings exposes status per finding but the org-wide rollup endpoint isn't there yet — needs a new aggregating proxy."
+          backlog="V3 Phase D"
+        />
+      </section>
 
       {/* ── D. Top 5 systems ──────────────────────────────────────── */}
       <TopSystemsCard />
