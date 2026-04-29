@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
+  accentByCategory,
   descriptorClass,
   heroNumberClass,
   scoreToneClass,
@@ -103,6 +104,7 @@ export function EvidenceHealthCardV3() {
         label="Evidence health"
         descriptor="Confidence in your AWS audit data sources"
         right={refreshButton}
+        className={accentByCategory.evidence}
       >
         <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
           No SignalSource nodes in graph yet. Audit scheduler populates every
@@ -117,6 +119,7 @@ export function EvidenceHealthCardV3() {
       label="Evidence health"
       descriptor="Aggregate is min across sources (weakest-link)"
       right={refreshButton}
+      className={accentByCategory.evidence}
     >
       <div className="flex items-baseline gap-3">
         <span className={`${heroNumberClass} ${scoreToneClass(data.aggregate_confidence)}`}>
@@ -152,28 +155,39 @@ export function EvidenceHealthCardV3() {
               </span>
             </div>
             <div className="space-y-1.5">
-              {acct.sources.map((s, i) => (
-                <div
-                  key={`${s.source_type}-${i}`}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span className="text-slate-700">
-                    {SOURCE_LABELS[s.source_type] ?? s.source_type}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {s.missing_reason && (
-                      <span className="rounded-sm bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-rose-700">
-                        {s.missing_reason.replace(/_/g, " ")}
+              {acct.sources.map((s, i) => {
+                const dotColor =
+                  s.confidence_score >= 75
+                    ? "bg-emerald-500"
+                    : s.confidence_score > 0
+                      ? "bg-amber-500"
+                      : "bg-rose-500"
+                return (
+                  <div
+                    key={`${s.source_type}-${i}`}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
+                      <span className="truncate text-slate-700">
+                        {SOURCE_LABELS[s.source_type] ?? s.source_type}
                       </span>
-                    )}
-                    <span
-                      className={`${scoreToneClass(s.confidence_score)} font-mono text-sm font-semibold tabular-nums`}
-                    >
-                      {s.confidence_score.toFixed(0)}
-                    </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {s.missing_reason && (
+                        <span className="rounded-sm bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-rose-700">
+                          {s.missing_reason.replace(/_/g, " ")}
+                        </span>
+                      )}
+                      <span
+                        className={`${scoreToneClass(s.confidence_score)} font-mono text-sm font-semibold tabular-nums`}
+                      >
+                        {s.confidence_score.toFixed(0)}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         ))}

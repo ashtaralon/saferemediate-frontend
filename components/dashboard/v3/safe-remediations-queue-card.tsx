@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
-import { descriptorClass } from "./styles"
+import { accentByCategory, descriptorClass } from "./styles"
 
 /**
  * Safe Remediations Queue.
@@ -87,6 +87,7 @@ export function SafeRemediationsQueueCard() {
     <Section
       label="Safe remediations queue"
       descriptor={`${ready.length} ready · ${blocked.length} blocked by safety gate`}
+      className={accentByCategory.queue}
     >
       {ready.length === 0 ? (
         <div className={descriptorClass}>

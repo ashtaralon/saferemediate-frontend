@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
-import { descriptorClass } from "./styles"
+import { accentByCategory, descriptorClass } from "./styles"
 
 /**
  * Recent Activity feed.
@@ -83,6 +83,7 @@ export function RecentActivityCard() {
     <Section
       label="Recent activity"
       descriptor={`${data.total ?? items.length} events · snapshots and rollbacks merged`}
+      className={accentByCategory.activity}
     >
       {items.length === 0 ? (
         <div className={descriptorClass}>
@@ -91,38 +92,45 @@ export function RecentActivityCard() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {items.slice(0, 8).map((item, i) => (
-            <li
-              key={`${item.kind}-${item.resource_id}-${i}`}
-              className="flex items-start justify-between gap-3 text-sm"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-slate-900">
-                  <span
-                    className={
-                      item.kind === "rollback"
-                        ? "text-amber-700"
-                        : "text-emerald-700"
-                    }
-                  >
-                    {item.kind === "rollback" ? "Rolled back" : "Snapshotted"}
-                  </span>{" "}
-                  <span className="font-medium">
-                    {item.resource_type}
-                  </span>{" "}
-                  <span className="font-mono text-xs text-slate-700">
-                    {item.resource_id}
-                  </span>
+          {items.slice(0, 8).map((item, i) => {
+            const dotColor =
+              item.kind === "rollback" ? "bg-amber-500" : "bg-emerald-500"
+            return (
+              <li
+                key={`${item.kind}-${item.resource_id}-${i}`}
+                className="flex items-start gap-3 text-sm"
+              >
+                <span
+                  className={`mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-slate-900">
+                    <span
+                      className={
+                        item.kind === "rollback"
+                          ? "text-amber-700"
+                          : "text-emerald-700"
+                      }
+                    >
+                      {item.kind === "rollback" ? "Rolled back" : "Snapshotted"}
+                    </span>{" "}
+                    <span className="font-medium">
+                      {item.resource_type}
+                    </span>{" "}
+                    <span className="font-mono text-xs text-slate-700">
+                      {item.resource_id}
+                    </span>
+                  </div>
+                  {item.detail && (
+                    <div className="mt-0.5 text-xs text-slate-500">{item.detail}</div>
+                  )}
                 </div>
-                {item.detail && (
-                  <div className="mt-0.5 text-xs text-slate-500">{item.detail}</div>
-                )}
-              </div>
-              <span className="shrink-0 text-xs text-slate-500 tabular-nums">
-                {relativeTime(item.timestamp)}
-              </span>
-            </li>
-          ))}
+                <span className="shrink-0 text-xs text-slate-500 tabular-nums">
+                  {relativeTime(item.timestamp)}
+                </span>
+              </li>
+            )
+          })}
         </ul>
       )}
 

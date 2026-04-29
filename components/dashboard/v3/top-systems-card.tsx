@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
-import { descriptorClass, labelClass, scoreToneClass } from "./styles"
+import { descriptorClass, labelClass, scorePillClass, scoreToneClass } from "./styles"
 
 /**
  * Top systems by BRSS.
@@ -125,8 +125,10 @@ export function TopSystemsCard() {
               >
                 <td className="py-2 font-medium text-slate-900">{rowName(s)}</td>
                 <td className="py-2 text-slate-500">{s.environment ?? "—"}</td>
-                <td className={`py-2 text-right font-semibold ${scoreToneClass(score)}`}>
-                  {score.toFixed(0)}
+                <td className="py-2 text-right">
+                  <span className={`font-semibold tabular-nums ${scorePillClass(score)}`}>
+                    {score.toFixed(0)}
+                  </span>
                 </td>
                 <td className="py-2 text-right tabular-nums text-rose-700">
                   {rowCritical(s) || "—"}

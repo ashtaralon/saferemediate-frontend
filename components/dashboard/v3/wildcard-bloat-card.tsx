@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
-import { descriptorClass, heroNumberClass, scoreToneClass, unitClass } from "./styles"
+import {
+  accentByCategory,
+  descriptorClass,
+  heroNumberClass,
+  scoreToneClass,
+  unitClass,
+} from "./styles"
 
 /**
  * Wildcard Bloat — point-in-time only.
@@ -71,6 +77,7 @@ export function WildcardBloatCard() {
     <Section
       label="Wildcard bloat"
       descriptor="Allowed actions sitting unused — point-in-time, not a delta"
+      className={accentByCategory.bloat}
     >
       <div className="flex items-baseline gap-3">
         <span className={`${heroNumberClass} ${scoreToneClass(toneScore)}`}>

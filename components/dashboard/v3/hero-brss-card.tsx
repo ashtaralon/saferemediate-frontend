@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
-import { descriptorClass, heroNumberClass, scoreToneClass, unitClass } from "./styles"
+import {
+  accentByCategory,
+  descriptorClass,
+  heroNumberClass,
+  scoreToneClass,
+  unitClass,
+} from "./styles"
 
 /**
  * Hero — Global Blast Radius Score.
@@ -75,6 +81,7 @@ export function HeroBrssCard() {
     <Section
       label="Global blast radius score"
       descriptor={`Weighted org aggregate · ${data.system_count} systems · ${data.resources_analyzed.toLocaleString()} resources`}
+      className={accentByCategory.brss}
     >
       <div className="flex items-end justify-between gap-6">
         <div className="flex items-baseline gap-3">
