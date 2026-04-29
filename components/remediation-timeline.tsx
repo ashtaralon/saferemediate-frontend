@@ -164,105 +164,36 @@ const getResourceIcon = (resourceType: string) => {
 // CUSTOM CHART COMPONENTS
 // ============================================================================
 
-// Custom dot component for checkpoints. Tech-aesthetic upgrade:
-// - SVG glow filter wraps every dot
-// - Event days get an outer pulsing ring (animated via SVG <animate>)
-// - The most recent event additionally gets a "live" indicator
-// - Skip null security_score days entirely (empty days = gaps)
+// Custom dot component for checkpoints
 const CheckpointDot = (props: any) => {
-  const { cx, cy, payload, onPointClick, mostRecentEventDate } = props
+  const { cx, cy, payload, onPointClick } = props
   const hasEvents = payload?.events > 0
-  const isMostRecent =
-    hasEvents && mostRecentEventDate && payload?.date === mostRecentEventDate
-
+  // Skip rendering when security_score is null — that's an "empty day" per
+  // the honesty fix in commit a8e0dba; without this guard Recharts still
+  // calls the dot renderer with cy = chart-area top, which produced the
+  // top-edge dots the operator saw on every day in the screenshot.
   if (payload?.security_score == null || cy == null || isNaN(cy)) {
     return null
   }
 
   return (
     <g
-      style={{ cursor: hasEvents ? 'pointer' : 'default' }}
+      style={{ cursor: hasEvents ? "pointer" : "default" }}
       onClick={(e) => {
         if (!hasEvents) return
         e.stopPropagation()
         onPointClick?.(payload?.date)
       }}
     >
-      {/* Outer pulsing ring — events only */}
-      {hasEvents && (
-        <>
-          <circle
-            cx={cx}
-            cy={cy}
-            r={10}
-            fill="none"
-            stroke="#818cf8"
-            strokeWidth={1.5}
-            opacity={0.8}
-          >
-            <animate
-              attributeName="r"
-              from={9}
-              to={20}
-              dur="2.4s"
-              repeatCount="indefinite"
-            />
-            <animate
-              attributeName="opacity"
-              from={0.7}
-              to={0}
-              dur="2.4s"
-              repeatCount="indefinite"
-            />
-          </circle>
-          {isMostRecent && (
-            <circle
-              cx={cx}
-              cy={cy}
-              r={14}
-              fill="none"
-              stroke="#22c55e"
-              strokeWidth={2}
-              opacity={0.9}
-            >
-              <animate
-                attributeName="r"
-                from={12}
-                to={26}
-                dur="1.6s"
-                repeatCount="indefinite"
-              />
-              <animate
-                attributeName="opacity"
-                from={0.9}
-                to={0}
-                dur="1.6s"
-                repeatCount="indefinite"
-              />
-            </circle>
-          )}
-        </>
-      )}
-
-      {/* Glow halo (filter via inline filter — works without external defs */}
+      {/* Base dot for all points */}
       <circle
         cx={cx}
         cy={cy}
-        r={hasEvents ? 12 : 6}
-        fill={hasEvents ? '#a78bfa' : '#10b981'}
-        opacity={0.18}
+        r={hasEvents ? 8 : 4}
+        fill={hasEvents ? "#8B5CF6" : "#10B981"}
+        stroke={hasEvents ? "#A78BFA" : "#34D399"}
+        strokeWidth={2}
       />
-
-      {/* Base dot */}
-      <circle
-        cx={cx}
-        cy={cy}
-        r={hasEvents ? 7 : 3.5}
-        fill={hasEvents ? '#8b5cf6' : '#10b981'}
-        stroke={hasEvents ? '#c4b5fd' : '#6ee7b7'}
-        strokeWidth={hasEvents ? 2 : 1.5}
-      />
-
       {/* Inner dot for events (checkpoint indicator) */}
       {hasEvents && (
         <>
@@ -284,82 +215,33 @@ const CheckpointDot = (props: any) => {
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload || !payload.length) return null
-  const data = payload[0].payload
-  const hasEvents = data.events > 0
-  const hasScore = typeof data.security_score === 'number'
-  return (
-    <div
-      className="rounded-xl border shadow-2xl overflow-hidden"
-      style={{
-        background:
-          'linear-gradient(155deg, rgba(15,23,42,0.96) 0%, rgba(30,27,75,0.96) 100%)',
-        borderColor: hasEvents ? '#6366f1' : '#1e293b',
-        boxShadow: hasEvents
-          ? '0 0 0 1px rgba(99,102,241,0.4), 0 12px 32px -8px rgba(99,102,241,0.5)'
-          : '0 12px 32px -8px rgba(0,0,0,0.5)',
-        minWidth: 180,
-      }}
-    >
-      {/* Top accent gradient — only when there are events */}
-      {hasEvents && (
-        <div
-          className="h-px w-full"
-          style={{
-            background:
-              'linear-gradient(90deg, transparent, #818cf8 50%, transparent)',
-          }}
-        />
-      )}
-      <div className="p-3">
-        <div className="flex items-center gap-2 mb-2">
-          <div
-            className={`w-1.5 h-1.5 rounded-full ${hasEvents ? 'animate-pulse' : ''}`}
-            style={{
-              background: hasEvents ? '#a78bfa' : '#475569',
-              boxShadow: hasEvents ? '0 0 6px #a78bfa' : 'none',
-            }}
-          />
-          <p
-            className="text-[10px] uppercase tracking-[0.18em] font-mono"
-            style={{ color: hasEvents ? '#a5b4fc' : '#64748b' }}
-          >
-            {hasEvents ? 'Activity' : 'Idle'}
-          </p>
-        </div>
-        <p className="font-semibold text-sm text-white mb-2.5">{label}</p>
-        <div className="space-y-1 text-[11px] font-mono">
-          {hasScore && (
-            <div className="flex items-center justify-between gap-3">
-              <span style={{ color: '#64748b' }}>score</span>
-              <span style={{ color: '#34d399' }}>
-                {Math.round(data.security_score)}%
-              </span>
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-3">
-            <span style={{ color: '#64748b' }}>events</span>
-            <span style={{ color: hasEvents ? '#a78bfa' : '#475569' }}>
-              {data.events}
-            </span>
-          </div>
-          {(data.permissions_removed ?? 0) > 0 && (
-            <div className="flex items-center justify-between gap-3">
-              <span style={{ color: '#64748b' }}>perms removed</span>
-              <span style={{ color: '#fb923c' }}>
-                -{data.permissions_removed}
-              </span>
-            </div>
-          )}
-        </div>
-        {hasEvents && (
-          <p className="text-[10px] font-mono mt-2.5 pt-2 border-t border-indigo-900/40" style={{ color: '#818cf8' }}>
-            › click to inspect
+  if (active && payload && payload.length) {
+    const data = payload[0].payload
+    return (
+      <div
+        className="rounded-lg p-3 border shadow-lg"
+        style={{
+          background: "var(--bg-secondary)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <p className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>
+          {label}
+        </p>
+        {data.events > 0 && (
+          <p className="text-xs mt-1 px-2 py-1 rounded bg-[#8b5cf6]/20 text-purple-400 font-medium">
+            📍 {data.events} Event{data.events > 1 ? 's' : ''} on this date
           </p>
         )}
+        <div className="mt-2 space-y-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+          <p>Security Score: <span className="font-medium text-emerald-400">{Math.round(data.security_score)}%</span></p>
+          <p>Events: <span className="font-medium">{data.events}</span></p>
+          <p>Permissions Removed: <span className="font-medium text-blue-400">{data.permissions_removed}</span></p>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
+  return null
 }
 
 // ============================================================================
@@ -859,351 +741,6 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
     </div>
   )
 }
-
-// ============================================================================
-// CHART DAY POPUP
-// ============================================================================
-// Tech-aesthetic modal that opens when the operator clicks a day on the
-// remediation chart. Lists every event on that day with full audit detail:
-// snapshot id, ISO timestamp, service + resource, action, status, confidence,
-// approver, permissions removed, reason. Click-through to the
-// EventDetailModal for the full diff/rollback flow.
-
-interface ChartDayPopupProps {
-  date: string | null
-  events: RemediationEvent[]
-  onClose: () => void
-  onEventClick: (event: RemediationEvent) => void
-}
-
-const ChartDayPopup = ({ date, events, onClose, onEventClick }: ChartDayPopupProps) => {
-  // Esc-to-close — wired before the early-return so the listener registers
-  // even if hooks order changes.
-  useEffect(() => {
-    if (!date) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [date, onClose])
-
-  if (!date) return null
-
-  const dayEvents = events.filter(e => e.timestamp.split('T')[0] === date)
-  const totalPerms = dayEvents.reduce(
-    (acc, e) => acc + (e.metadata?.permissions_removed || 0), 0
-  )
-  const rollbacks = dayEvents.filter(
-    e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
-  ).length
-  const uniqueResources = new Set(
-    dayEvents.map(e => `${e.resource_type}:${e.resource_id}`)
-  )
-  const successful = dayEvents.length - rollbacks
-
-  // Friendly date label — "Apr 25, 2026"
-  const friendlyDate = (() => {
-    try {
-      return new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        timeZone: 'UTC',
-      })
-    } catch {
-      return date
-    }
-  })()
-
-  const fmtTimestamp = (ts: string) => {
-    try {
-      const d = new Date(ts)
-      return {
-        time: d.toLocaleTimeString('en-US', {
-          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-        }),
-        iso: d.toISOString(),
-      }
-    } catch {
-      return { time: ts, iso: ts }
-    }
-  }
-
-  const serviceLabel = (rt: string) =>
-    rt === 'IAMRole' ? 'IAM' :
-    rt === 'SecurityGroup' ? 'EC2 Security Group' :
-    rt === 'S3Bucket' ? 'S3' :
-    rt || 'Unknown'
-
-  const serviceColor = (rt: string) =>
-    rt === 'IAMRole' ? '#a78bfa' :
-    rt === 'SecurityGroup' ? '#60a5fa' :
-    rt === 'S3Bucket' ? '#34d399' :
-    '#9ca3af'
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ animation: 'cyntroFadeIn 180ms ease-out' }}
-    >
-      {/* Backdrop with radial gradient — tech aesthetic */}
-      <div
-        className="absolute inset-0 backdrop-blur-md"
-        onClick={onClose}
-        style={{
-          background:
-            'radial-gradient(ellipse at center, rgba(15,23,42,0.85) 0%, rgba(2,6,23,0.95) 100%)',
-        }}
-      />
-
-      {/* Modal */}
-      <div
-        className="relative w-full max-w-3xl max-h-[88vh] overflow-hidden rounded-2xl border shadow-2xl"
-        style={{
-          background:
-            'linear-gradient(155deg, #0f172a 0%, #1e1b4b 60%, #0f172a 100%)',
-          borderColor: '#3730a3',
-          boxShadow:
-            '0 0 0 1px rgba(99,102,241,0.25), 0 25px 80px -20px rgba(99,102,241,0.5), 0 8px 32px rgba(0,0,0,0.4)',
-        }}
-      >
-        {/* Top accent line */}
-        <div
-          className="absolute top-0 left-0 right-0 h-px"
-          style={{
-            background:
-              'linear-gradient(90deg, transparent 0%, #818cf8 50%, transparent 100%)',
-          }}
-        />
-
-        {/* Header */}
-        <div className="px-6 pt-5 pb-4 border-b border-indigo-900/40">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2.5 mb-1">
-                <div
-                  className="w-2 h-2 rounded-full animate-pulse"
-                  style={{ background: '#a78bfa', boxShadow: '0 0 8px #a78bfa' }}
-                />
-                <p
-                  className="text-xs uppercase tracking-[0.2em] font-mono"
-                  style={{ color: '#a5b4fc' }}
-                >
-                  Remediation Activity
-                </p>
-              </div>
-              <h2 className="text-2xl font-bold text-white tracking-tight">
-                {friendlyDate}
-              </h2>
-              <p
-                className="text-xs mt-0.5 font-mono"
-                style={{ color: '#64748b' }}
-              >
-                {date}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white p-1.5 rounded-md hover:bg-slate-700/50 transition-colors"
-              aria-label="Close"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Day-summary tiles */}
-          <div className="grid grid-cols-4 gap-2 mt-4">
-            <DayStat label="Events" value={dayEvents.length} accent="#a78bfa" />
-            <DayStat label="Successful" value={successful} accent="#34d399" />
-            <DayStat label="Rolled Back" value={rollbacks} accent="#f59e0b" />
-            <DayStat label="Resources" value={uniqueResources.size} accent="#60a5fa" />
-          </div>
-          {totalPerms > 0 && (
-            <p className="text-xs font-mono mt-3" style={{ color: '#94a3b8' }}>
-              <span style={{ color: '#fb923c' }}>{totalPerms}</span> permission{totalPerms === 1 ? '' : 's'} removed across these events
-            </p>
-          )}
-        </div>
-
-        {/* Event cards */}
-        <div className="overflow-y-auto" style={{ maxHeight: 'calc(88vh - 240px)' }}>
-          {dayEvents.length === 0 ? (
-            <div className="p-12 text-center">
-              <p className="text-sm font-mono" style={{ color: '#64748b' }}>
-                ┌── no events on this day ──┐
-              </p>
-              <p className="text-xs mt-2" style={{ color: '#475569' }}>
-                The chart point may have been from a different filter window.
-              </p>
-            </div>
-          ) : (
-            <div className="p-4 space-y-2">
-              {dayEvents.map((e) => {
-                const ts = fmtTimestamp(e.timestamp)
-                const isRollback =
-                  e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
-                return (
-                  <button
-                    key={e.event_id}
-                    onClick={() => onEventClick(e)}
-                    className="w-full text-left rounded-lg border p-3 transition-all hover:border-indigo-500/60 hover:bg-indigo-950/30 group"
-                    style={{
-                      borderColor: '#1e293b',
-                      background: 'rgba(2,6,23,0.4)',
-                    }}
-                  >
-                    {/* Top row: status dot + service badge + timestamp */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <span
-                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                        style={{
-                          background: isRollback ? '#f59e0b' : '#34d399',
-                          boxShadow: `0 0 6px ${isRollback ? '#f59e0b' : '#34d399'}`,
-                        }}
-                      />
-                      <span
-                        className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
-                        style={{
-                          color: serviceColor(e.resource_type),
-                          background: `${serviceColor(e.resource_type)}1a`,
-                          border: `1px solid ${serviceColor(e.resource_type)}40`,
-                        }}
-                      >
-                        {serviceLabel(e.resource_type)}
-                      </span>
-                      <span
-                        className="text-[10px] font-mono uppercase tracking-wider"
-                        style={{ color: isRollback ? '#fbbf24' : '#86efac' }}
-                      >
-                        {e.action_type}
-                      </span>
-                      <span className="ml-auto text-[11px] font-mono" style={{ color: '#64748b' }} title={ts.iso}>
-                        {ts.time} UTC
-                      </span>
-                    </div>
-
-                    {/* Resource name */}
-                    <p className="text-sm font-mono text-white truncate mb-2" title={e.resource_id}>
-                      {e.resource_id || '(no resource id)'}
-                    </p>
-
-                    {/* Detail grid */}
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-mono">
-                      <div className="flex gap-1.5">
-                        <span style={{ color: '#475569' }}>snapshot_id:</span>
-                        <span className="truncate" style={{ color: '#94a3b8' }} title={e.snapshot_id || '—'}>
-                          {e.snapshot_id || '—'}
-                        </span>
-                      </div>
-                      <div className="flex gap-1.5">
-                        <span style={{ color: '#475569' }}>by:</span>
-                        <span style={{ color: '#cbd5e1' }}>
-                          {e.approved_by || '—'}
-                        </span>
-                      </div>
-                      {typeof e.confidence_score === 'number' && (
-                        <div className="flex gap-1.5">
-                          <span style={{ color: '#475569' }}>confidence:</span>
-                          <span style={{ color: '#a5b4fc' }}>
-                            {Math.round(e.confidence_score * 100)}%
-                          </span>
-                        </div>
-                      )}
-                      {(e.metadata?.permissions_removed ?? 0) > 0 && (
-                        <div className="flex gap-1.5">
-                          <span style={{ color: '#475569' }}>perms:</span>
-                          <span style={{ color: '#fb923c' }}>
-                            -{e.metadata.permissions_removed}
-                          </span>
-                        </div>
-                      )}
-                      {e.metadata?.reason && (
-                        <div className="col-span-2 flex gap-1.5 mt-0.5">
-                          <span style={{ color: '#475569' }}>reason:</span>
-                          <span className="italic truncate" style={{ color: '#94a3b8' }}>
-                            {e.metadata.reason}
-                          </span>
-                        </div>
-                      )}
-                      {e.metadata?.original_role && e.metadata?.new_role && (
-                        <div className="col-span-2 flex gap-1.5 mt-0.5 truncate">
-                          <span style={{ color: '#475569' }}>flow:</span>
-                          <span className="truncate" style={{ color: '#cbd5e1' }}>
-                            <span style={{ color: '#fca5a5' }}>{e.metadata.original_role}</span>
-                            {' → '}
-                            <span style={{ color: '#86efac' }}>{e.metadata.new_role}</span>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Hover hint */}
-                    <p
-                      className="text-[10px] font-mono mt-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                      style={{ color: '#818cf8' }}
-                    >
-                      › click for full detail + rollback
-                    </p>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-indigo-900/40 flex items-center justify-between">
-          <p className="text-[11px] font-mono" style={{ color: '#64748b' }}>
-            <span style={{ color: '#a5b4fc' }}>esc</span> · <span style={{ color: '#a5b4fc' }}>click outside</span> to close
-          </p>
-          <p className="text-[11px] font-mono" style={{ color: '#64748b' }}>
-            cyntro · remediation timeline
-          </p>
-        </div>
-      </div>
-
-      {/* Inline keyframes — defined here so the popup can fade-in without
-          touching globals.css */}
-      <style jsx>{`
-        @keyframes cyntroFadeIn {
-          from { opacity: 0; transform: scale(0.97); }
-          to   { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-const DayStat = ({ label, value, accent }: { label: string; value: number; accent: string }) => (
-  <div
-    className="rounded-lg px-3 py-2 border"
-    style={{
-      background: 'rgba(2,6,23,0.5)',
-      borderColor: `${accent}30`,
-    }}
-  >
-    <p className="text-[10px] uppercase tracking-wider font-mono" style={{ color: '#64748b' }}>
-      {label}
-    </p>
-    <p className="text-xl font-bold font-mono mt-0.5" style={{ color: accent }}>
-      {value}
-    </p>
-  </div>
-)
 
 // ============================================================================
 // MAIN COMPONENT
@@ -1882,123 +1419,128 @@ export function RemediationTimeline({
               }}
             >
               <defs>
-                {/* Multi-stop fill: indigo at top → emerald in middle →
-                    transparent at bottom. Gives the chart a "depth" feel
-                    instead of flat green. */}
                 <linearGradient id="securityGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"  stopColor="#818cf8" stopOpacity={0.45} />
-                  <stop offset="40%" stopColor="#6366f1" stopOpacity={0.25} />
-                  <stop offset="80%" stopColor="#10b981" stopOpacity={0.10} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
                 </linearGradient>
-                {/* Stroke gradient — left-to-right hue shift gives the
-                    line a subtle "moving energy" appearance. */}
-                <linearGradient id="securityStroke" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%"  stopColor="#a78bfa" />
-                  <stop offset="50%" stopColor="#818cf8" />
-                  <stop offset="100%" stopColor="#34d399" />
-                </linearGradient>
-                {/* Drop-shadow filter for the area — subtle indigo glow
-                    behind the line. */}
-                <filter id="chartGlow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feFlood floodColor="#6366f1" floodOpacity="0.5" />
-                  <feComposite in2="blur" operator="in" result="glow" />
-                  <feMerge>
-                    <feMergeNode in="glow" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-                {/* Soft grid pattern — radial dots instead of straight lines */}
-                <pattern id="dotGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <circle cx="10" cy="10" r="0.6" fill="#475569" opacity={0.35} />
-                </pattern>
               </defs>
-              {/* Background dotted-grid layer */}
-              <rect width="100%" height="100%" fill="url(#dotGrid)" />
-              {/* Reference line at score=100 — "ceiling" guide */}
-              <ReferenceLine y={100} stroke="#34d399" strokeDasharray="2 4" opacity={0.3} />
-              <CartesianGrid strokeDasharray="0" stroke="transparent" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'ui-monospace, monospace' }}
+                tick={{ fill: "#9CA3AF", fontSize: 11 }}
                 tickFormatter={formatDate}
-                axisLine={{ stroke: '#1e293b' }}
-                tickLine={{ stroke: '#1e293b' }}
+                axisLine={{ stroke: "#374151" }}
               />
               <YAxis
+                // Headroom above 100 so dots sitting at score=100 aren't
+                // visually clipped at the top edge of the chart area.
                 domain={[0, 110]}
                 ticks={[0, 25, 50, 75, 100]}
-                tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'ui-monospace, monospace' }}
-                axisLine={{ stroke: '#1e293b' }}
-                tickLine={{ stroke: '#1e293b' }}
-                tickFormatter={(v) => `${v}`}
+                tick={{ fill: "#9CA3AF", fontSize: 11 }}
+                axisLine={{ stroke: "#374151" }}
               />
-              <Tooltip
-                content={<CustomTooltip />}
-                cursor={{
-                  stroke: '#6366f1',
-                  strokeWidth: 1,
-                  strokeDasharray: '4 4',
-                  opacity: 0.6,
-                }}
-              />
+              <Tooltip content={<CustomTooltip />} />
               <Area
                 type="monotone"
                 dataKey="security_score"
-                stroke="url(#securityStroke)"
-                strokeWidth={2.5}
+                stroke="#10B981"
+                strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#securityGradient)"
-                isAnimationActive={true}
-                animationDuration={900}
-                animationEasing="ease-out"
-                filter="url(#chartGlow)"
-                dot={(() => {
-                  // The most recent day with events gets the green "live"
-                  // halo. Computed once per chart render — Recharts passes
-                  // each point's payload to the dot, so we compare inside.
-                  const mostRecentEventDate = (() => {
-                    const eventDays = chartData.filter(d => d.events > 0)
-                    return eventDays.length > 0
-                      ? eventDays[eventDays.length - 1].date
-                      : null
-                  })()
-                  return (
-                    <CheckpointDot
-                      onPointClick={(date: string) =>
-                        setSelectedChartDate(prev => prev === date ? null : date)
-                      }
-                      mostRecentEventDate={mostRecentEventDate}
-                    />
-                  )
-                })()}
-                activeDot={{
-                  r: 7,
-                  stroke: '#a78bfa',
-                  strokeWidth: 2.5,
-                  fill: '#ffffff',
-                  style: { filter: 'drop-shadow(0 0 8px #a78bfa)' },
-                }}
+                dot={<CheckpointDot onPointClick={(date: string) => setSelectedChartDate(prev => prev === date ? null : date)} />}
+                activeDot={{ r: 6, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
               />
-              {/* Vertical event markers — gradient + emphasis on selected */}
-              {chartData.filter(d => d.events > 0).map((point, idx, arr) => {
-                const isMostRecent = idx === arr.length - 1
-                const isSelected = selectedChartDate === point.date
-                return (
-                  <ReferenceLine
-                    key={idx}
-                    x={point.date}
-                    stroke={isMostRecent ? '#22c55e' : '#8b5cf6'}
-                    strokeDasharray={isMostRecent ? '0' : '4 4'}
-                    strokeWidth={isSelected ? 3 : isMostRecent ? 2.5 : 1.5}
-                    opacity={isSelected ? 1 : isMostRecent ? 0.9 : 0.55}
-                  />
-                )
-              })}
+              {/* Vertical lines for events — emphasize the selected day. */}
+              {chartData.filter(d => d.events > 0).map((point, idx) => (
+                <ReferenceLine
+                  key={idx}
+                  x={point.date}
+                  stroke="#8B5CF6"
+                  strokeDasharray="5 5"
+                  strokeWidth={selectedChartDate === point.date ? 3 : 2}
+                  opacity={selectedChartDate === point.date ? 1 : 0.7}
+                />
+              ))}
             </AreaChart>
           </ResponsiveContainer>
 
+          {/* Recap panel — opens when a chart point is clicked. */}
+          {selectedChartDate && (() => {
+            const dayEvents = events.filter(e =>
+              e.timestamp.split('T')[0] === selectedChartDate
+            )
+            const totalPerms = dayEvents.reduce(
+              (acc, e) => acc + (e.metadata.permissions_removed || 0), 0
+            )
+            const rollbacks = dayEvents.filter(
+              e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+            ).length
+            const uniqueResources = new Set(
+              dayEvents.map(e => `${e.resource_type}:${e.resource_id}`)
+            )
+            return (
+              <div
+                className="mt-3 rounded-lg border p-4"
+                style={{
+                  borderColor: 'var(--border, #e5e7eb)',
+                  background: 'var(--surface, rgba(139, 92, 246, 0.05))',
+                }}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Events on {formatDate(selectedChartDate)}
+                      </p>
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-purple-600 text-white">
+                        {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                      {totalPerms} permissions removed · {rollbacks} rollback{rollbacks === 1 ? '' : 's'} · {uniqueResources.size} unique resource{uniqueResources.size === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedChartDate(null)}
+                    className="text-xs px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                    style={{ color: 'var(--text-secondary)' }}
+                    aria-label="Clear day selection"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {dayEvents.length === 0 ? (
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    No events on this day in the current view.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {dayEvents.slice(0, 8).map((e) => (
+                      <li
+                        key={e.event_id}
+                        className="text-xs flex items-center gap-2"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${
+                            e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                        />
+                        <span className="truncate">{e.summary || `${e.action_type} on ${e.resource_id}`}</span>
+                      </li>
+                    ))}
+                    {dayEvents.length > 8 && (
+                      <li className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>
+                        … and {dayEvents.length - 8} more — see full list below
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )
+          })()}
           </>
         ) : (
           <div className="h-[200px] flex items-center justify-center">
@@ -2138,19 +1680,6 @@ export function RemediationTimeline({
           setSelectedEvent(null)
         }}
         onRollback={handleRollback}
-      />
-
-      {/* Chart day popup — shows when an operator clicks a chart point */}
-      <ChartDayPopup
-        date={selectedChartDate}
-        events={events}
-        onClose={() => setSelectedChartDate(null)}
-        onEventClick={(e) => {
-          // Close the day popup and open the per-event detail modal
-          setSelectedChartDate(null)
-          setSelectedEvent(e)
-          setShowModal(true)
-        }}
       />
     </div>
   )
