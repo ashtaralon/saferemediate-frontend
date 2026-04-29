@@ -487,7 +487,14 @@ export default function HomePage() {
   const securityHubHighlights = Object.entries(securityHubData.byProduct).slice(0, 3)
 
   const handleSystemSelect = (systemName: string) => {
+    // Selecting a system means "show me this system's detail view".
+    // The detail-view short-circuit below only fires when activeSection
+    // is "home", so we switch there too. Without this, clicking "View"
+    // on the Systems tab leaves activeSection="systems" and the case
+    // statement re-renders the systems list — operator's click does
+    // nothing visible.
     setSelectedSystem(systemName)
+    setActiveSection("home")
   }
 
   const handleBackFromSystem = () => {
