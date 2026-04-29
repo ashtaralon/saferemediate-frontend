@@ -3,7 +3,11 @@
 import { useState } from "react"
 import { RefreshCw } from "lucide-react"
 import { EvidenceHealthCardV3 } from "./evidence-health-card"
-import { NotWiredCard, Section } from "./card-shell"
+import { HeroBrssCard } from "./hero-brss-card"
+import { TopSystemsCard } from "./top-systems-card"
+import { DivergenceBanner } from "./divergence-banner"
+import { SafeRemediationsQueueCard } from "./safe-remediations-queue-card"
+import { NotWiredCard } from "./card-shell"
 import { labelClass } from "./styles"
 
 /**
@@ -57,11 +61,7 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
       {/* ── B. Hero row — BRSS (2/3) + AUTO Surface (1/3) ─────────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <NotWiredCard
-            label="Global blast radius score"
-            reason="Org-wide BRSS aggregation card not yet implemented. Per-system data exists at /api/issues/brss/history; Phase B will fan out and aggregate client-side."
-            backlog="V3 Phase B"
-          />
+          <HeroBrssCard />
         </div>
         <NotWiredCard
           label="Auto surface this month"
@@ -90,11 +90,7 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
       </section>
 
       {/* ── D. Top 5 systems ──────────────────────────────────────── */}
-      <NotWiredCard
-        label="Top 5 systems by blast radius"
-        reason="/api/systems exposes scores; mix-bar requires per-family fan-out across /api/service-risk-scores. Phase B."
-        backlog="V3 Phase B"
-      />
+      <TopSystemsCard />
 
       {/* ── E. Decision routing per family ────────────────────────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -115,20 +111,12 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
         />
       </section>
 
-      {/* ── F. Divergence banner (conditional render in Phase B) ──── */}
-      <NotWiredCard
-        label="Hard evidence conflicts"
-        reason="/api/evidence/divergence/summary exists and works. Card not yet built. Phase B."
-        backlog="V3 Phase B"
-      />
+      {/* ── F. Divergence banner — only renders when total_conflicts > 0 */}
+      <DivergenceBanner />
 
       {/* ── G. Queues row ─────────────────────────────────────────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <NotWiredCard
-          label="Safe remediations queue"
-          reason="/api/remediation-candidates exists with safety verdicts. Card not yet built. Phase B."
-          backlog="V3 Phase B"
-        />
+        <SafeRemediationsQueueCard />
         <EvidenceHealthCardV3 />
       </section>
 
