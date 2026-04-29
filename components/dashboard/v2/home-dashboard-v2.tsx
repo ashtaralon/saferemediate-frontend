@@ -63,6 +63,9 @@ export function HomeDashboardV2({ initialSystem }: HomeDashboardV2Props) {
         <PostureGradeCard state={posture} onRetry={() => refreshOne("posture")} />
       </section>
 
+      {/* ── B2. Evidence Health (real SignalSource confidence) ─────── */}
+      <EvidenceHealthCard />
+
       {/* ── C. Top accounts ────────────────────────────────────────── */}
       <TopAccountsCard
         state={systems}
@@ -82,9 +85,6 @@ export function HomeDashboardV2({ initialSystem }: HomeDashboardV2Props) {
 
       {/* ── E. Coverage strip ──────────────────────────────────────── */}
       <CoverageStrip posture={posture} issues={issues} />
-
-      {/* ── F. Evidence Health ─────────────────────────────────────── */}
-      <EvidenceHealthCard />
 
       {/* dev-only data sanity ribbon — hidden in prod builds */}
       {process.env.NODE_ENV === "development" ? (
