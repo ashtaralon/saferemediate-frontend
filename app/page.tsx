@@ -37,10 +37,13 @@ import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
 const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 !== "false"
-// V3 is opt-in while we build it out. Set NEXT_PUBLIC_DASHBOARD_V3=true on
-// Vercel to preview. Takes precedence over V2 when enabled. Will become
-// the default once Phases B/C/D land real-data cards in every section.
-const DASHBOARD_V3_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V3 === "true"
+// V3 is opt-in while we build it out. Set NEXT_PUBLIC_DASHBOARD_V3 to any
+// truthy value (true, 1, yes — case-insensitive) on Vercel to preview.
+// Takes precedence over V2 when enabled. Will become the default once
+// Phases B/C/D land real-data cards in every section.
+const DASHBOARD_V3_RAW = (process.env.NEXT_PUBLIC_DASHBOARD_V3 ?? "").trim().toLowerCase()
+const DASHBOARD_V3_ENABLED =
+  DASHBOARD_V3_RAW === "true" || DASHBOARD_V3_RAW === "1" || DASHBOARD_V3_RAW === "yes"
 
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
