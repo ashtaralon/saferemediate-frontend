@@ -852,13 +852,53 @@ export function RemediationTimeline({
 
         summary = `Created least-privilege role ${newRole} from ${originalRole} (removed ${permissionsRemoved} unused permissions)`
       } else {
-        // Same-role remediation or older format (SNAP-* with original_role but no new_role, or IAMRole-*)
-        let roleName = snapshot.original_role || snapshot.role_name || snapshot.current_state?.role_name || parsedBefore.role_name
+        // Same-role remediation or older format (SNAP-* with original_role but
+        // no new_role, or IAMRole-*).
+        //
+        // Aggressive role-name resolution — the previous chain stopped at four
+        // fields and missed snapshots whose role-name only appears in
+        // resource_id or in role_arn. Try every plausible source in order from
+        // most-specific to least, falling back to ARN parsing and then
+        // snapshot_id parsing before giving up with "Unknown Role".
+        let roleName: string | undefined =
+          snapshot.original_role ||
+          snapshot.role_name ||
+          snapshot.resource_id ||
+          snapshot.current_state?.role_name ||
+          snapshot.current_state?.resource_id ||
+          parsedBefore.role_name ||
+          parsedBefore.resource_id ||
+          parsedAfter.role_name
+
+        // ARN extraction: arn:aws:iam::1234:role/<name>
+        if (!roleName) {
+          const arn =
+            parsedBefore.role_arn ||
+            parsedAfter.role_arn ||
+            snapshot.role_arn ||
+            snapshot.current_state?.role_arn
+          if (arn && typeof arn === 'string') {
+            const lastSegment = arn.split('/').pop()
+            if (lastSegment) roleName = lastSegment
+          }
+        }
+
+        // snapshot_id parsing: IAMRole-<role-name>-<8-char-suffix>
         if (!roleName && snapshot.snapshot_id?.startsWith('IAMRole-')) {
           const parts = snapshot.snapshot_id.replace('IAMRole-', '').split('-')
           parts.pop()
-          roleName = parts.join('-') || 'Unknown Role'
+          const parsed = parts.join('-')
+          if (parsed) roleName = parsed
         }
+
+        // snapshot_id parsing: iam-<role-name>-<...> (older format)
+        if (!roleName && snapshot.snapshot_id?.startsWith('iam-')) {
+          const parts = snapshot.snapshot_id.replace('iam-', '').split('-')
+          if (parts.length > 1) parts.pop()
+          const parsed = parts.join('-')
+          if (parsed) roleName = parsed
+        }
+
         resourceId = roleName || 'Unknown Role'
 
         // Use permissions_removed count from snapshot, or calculate from before/after states
@@ -1080,14 +1120,25 @@ export function RemediationTimeline({
           finalChartData = Array.from(chartDataMap.values())
         }
 
-        // Calculate summary if Neo4j didn't provide it
+        // Calculate summary if Neo4j didn't provide it.
+        // avg_confidence: events whose confidence_score is null (snapshot
+        // rows after the honesty fix that removed the hardcoded 0.95 — see
+        // commit a8e0dba) MUST NOT pollute the average. Filter to numeric
+        // values, then compute. Empty filtered set → 0.
+        const eventsWithConfidence = allEvents.filter(
+          e => typeof e.confidence_score === 'number'
+        )
         const finalSummary: TimelineSummary = neo4jSummary || {
           total_events: allEvents.length,
           total_permissions_removed: allEvents.reduce((acc, e) => acc + (e.metadata.permissions_removed || 0), 0),
           completed_events: allEvents.filter(e => e.status === 'completed').length,
           rollback_events: allEvents.filter(e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK').length,
-          avg_confidence: allEvents.length > 0
-            ? Math.round(allEvents.reduce((acc, e) => acc + e.confidence_score * 100, 0) / allEvents.length)
+          avg_confidence: eventsWithConfidence.length > 0
+            ? Math.round(
+                eventsWithConfidence.reduce(
+                  (acc, e) => acc + (e.confidence_score as number) * 100, 0
+                ) / eventsWithConfidence.length
+              )
             : 0,
           period_start: startDate.toISOString().split('T')[0],
           period_end: today.toISOString().split('T')[0],
