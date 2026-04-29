@@ -11,6 +11,7 @@ import { WildcardBloatCard } from "./wildcard-bloat-card"
 import { FamilyStrip } from "./family-strip"
 import { RecentActivityCard } from "./recent-activity-card"
 import { SeverityDonutCard } from "./severity-donut-card"
+import { AttackPathsCard } from "./attack-paths-card"
 import { NotWiredCard } from "./card-shell"
 import { labelClass } from "./styles"
 
@@ -69,6 +70,12 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
         </div>
         <WildcardBloatCard />
       </section>
+
+      {/* ── B2. Top attack paths to crown jewels ──────────────────── */}
+      {/* Promoted up here ('what's on fire right now') so it sits above
+          the family breakdown and above the systems table. Drill-in
+          to /attack-paths for the full graph view. */}
+      <AttackPathsCard />
 
       {/* ── C. Family breakdown — Permissions / Network / Data ───── */}
       <FamilyStrip />
