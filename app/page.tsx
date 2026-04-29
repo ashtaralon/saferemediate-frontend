@@ -29,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Activity, AlertOctagon, ArrowUpRight, RefreshCw, Shield, Sparkles, TrendingDown } from "lucide-react"
 import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
+import { EvidenceHealthCard } from "@/components/dashboard/evidence-health-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
 
@@ -806,6 +807,8 @@ export default function HomePage() {
                     </CardContent>
                   </Card>
                 )}
+
+                <EvidenceHealthCard />
               </div>
             </div>
 
