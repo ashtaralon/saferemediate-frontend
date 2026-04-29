@@ -166,11 +166,25 @@ const getResourceIcon = (resourceType: string) => {
 
 // Custom dot component for checkpoints
 const CheckpointDot = (props: any) => {
-  const { cx, cy, payload } = props
+  const { cx, cy, payload, onPointClick } = props
   const hasEvents = payload?.events > 0
+  // Skip rendering when security_score is null — that's an "empty day" per
+  // the honesty fix in commit a8e0dba; without this guard Recharts still
+  // calls the dot renderer with cy = chart-area top, which produced the
+  // top-edge dots the operator saw on every day in the screenshot.
+  if (payload?.security_score == null || cy == null || isNaN(cy)) {
+    return null
+  }
 
   return (
-    <g>
+    <g
+      style={{ cursor: hasEvents ? "pointer" : "default" }}
+      onClick={(e) => {
+        if (!hasEvents) return
+        e.stopPropagation()
+        onPointClick?.(payload?.date)
+      }}
+    >
       {/* Base dot for all points */}
       <circle
         cx={cx}
@@ -179,7 +193,6 @@ const CheckpointDot = (props: any) => {
         fill={hasEvents ? "#8B5CF6" : "#10B981"}
         stroke={hasEvents ? "#A78BFA" : "#34D399"}
         strokeWidth={2}
-        style={{ cursor: hasEvents ? "pointer" : "default" }}
       />
       {/* Inner dot for events (checkpoint indicator) */}
       {hasEvents && (
@@ -750,6 +763,9 @@ export function RemediationTimeline({
   const [showModal, setShowModal] = useState(false)
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null)
   const [eventFilter, setEventFilter] = useState<"actionable" | "all">("actionable")
+  // Click on a chart point → focus recap panel for that day's events.
+  // null means no day is focused (events list shows all).
+  const [selectedChartDate, setSelectedChartDate] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Filter events based on selected filter
@@ -1386,8 +1402,22 @@ export function RemediationTimeline({
             <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: "var(--action-primary)" }} />
           </div>
         ) : chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart
+              data={chartData}
+              margin={{ top: 16, right: 10, left: 0, bottom: 0 }}
+              onClick={(e: any) => {
+                // Recharts calls onClick with { activeLabel, activePayload }.
+                // activeLabel is the X-axis value (date) of the clicked
+                // point. Setting selectedChartDate opens the recap panel.
+                const date = e?.activeLabel
+                if (typeof date === 'string' && date) {
+                  // Toggle: clicking the same day clears the selection.
+                  setSelectedChartDate(prev => (prev === date ? null : date))
+                }
+              }}
+            >
               <defs>
                 <linearGradient id="securityGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
@@ -1402,7 +1432,10 @@ export function RemediationTimeline({
                 axisLine={{ stroke: "#374151" }}
               />
               <YAxis
-                domain={[0, 100]}
+                // Headroom above 100 so dots sitting at score=100 aren't
+                // visually clipped at the top edge of the chart area.
+                domain={[0, 110]}
+                ticks={[0, 25, 50, 75, 100]}
                 tick={{ fill: "#9CA3AF", fontSize: 11 }}
                 axisLine={{ stroke: "#374151" }}
               />
@@ -1414,22 +1447,101 @@ export function RemediationTimeline({
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#securityGradient)"
-                dot={<CheckpointDot />}
+                dot={<CheckpointDot onPointClick={(date: string) => setSelectedChartDate(prev => prev === date ? null : date)} />}
                 activeDot={{ r: 6, stroke: "#10B981", strokeWidth: 2, fill: "#ffffff" }}
               />
-              {/* Vertical lines for events */}
+              {/* Vertical lines for events — emphasize the selected day. */}
               {chartData.filter(d => d.events > 0).map((point, idx) => (
                 <ReferenceLine
                   key={idx}
                   x={point.date}
                   stroke="#8B5CF6"
                   strokeDasharray="5 5"
-                  strokeWidth={2}
-                  opacity={0.7}
+                  strokeWidth={selectedChartDate === point.date ? 3 : 2}
+                  opacity={selectedChartDate === point.date ? 1 : 0.7}
                 />
               ))}
             </AreaChart>
           </ResponsiveContainer>
+
+          {/* Recap panel — opens when a chart point is clicked. */}
+          {selectedChartDate && (() => {
+            const dayEvents = events.filter(e =>
+              e.timestamp.split('T')[0] === selectedChartDate
+            )
+            const totalPerms = dayEvents.reduce(
+              (acc, e) => acc + (e.metadata.permissions_removed || 0), 0
+            )
+            const rollbacks = dayEvents.filter(
+              e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+            ).length
+            const uniqueResources = new Set(
+              dayEvents.map(e => `${e.resource_type}:${e.resource_id}`)
+            )
+            return (
+              <div
+                className="mt-3 rounded-lg border p-4"
+                style={{
+                  borderColor: 'var(--border, #e5e7eb)',
+                  background: 'var(--surface, rgba(139, 92, 246, 0.05))',
+                }}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Events on {formatDate(selectedChartDate)}
+                      </p>
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-purple-600 text-white">
+                        {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                      {totalPerms} permissions removed · {rollbacks} rollback{rollbacks === 1 ? '' : 's'} · {uniqueResources.size} unique resource{uniqueResources.size === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedChartDate(null)}
+                    className="text-xs px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                    style={{ color: 'var(--text-secondary)' }}
+                    aria-label="Clear day selection"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {dayEvents.length === 0 ? (
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    No events on this day in the current view.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {dayEvents.slice(0, 8).map((e) => (
+                      <li
+                        key={e.event_id}
+                        className="text-xs flex items-center gap-2"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${
+                            e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                        />
+                        <span className="truncate">{e.summary || `${e.action_type} on ${e.resource_id}`}</span>
+                      </li>
+                    ))}
+                    {dayEvents.length > 8 && (
+                      <li className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>
+                        … and {dayEvents.length - 8} more — see full list below
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )
+          })()}
+          </>
         ) : (
           <div className="h-[200px] flex items-center justify-center">
             <p style={{ color: "var(--text-secondary)" }}>No data available for this period</p>
