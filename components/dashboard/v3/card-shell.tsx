@@ -10,12 +10,14 @@ export function Section({
   label,
   descriptor,
   right,
+  icon,
   children,
   className = "",
 }: {
   label?: string
   descriptor?: string
   right?: ReactNode
+  icon?: ReactNode
   children: ReactNode
   className?: string
 }) {
@@ -24,7 +26,12 @@ export function Section({
       {(label || right) && (
         <header className="mb-3 flex items-start justify-between gap-3">
           <div>
-            {label && <div className={labelClass}>{label}</div>}
+            {label && (
+              <div className={`${labelClass} flex items-center gap-1.5`}>
+                {icon}
+                <span>{label}</span>
+              </div>
+            )}
             {descriptor && <div className={`${descriptorClass} mt-1`}>{descriptor}</div>}
           </div>
           {right && <div className="flex items-center gap-2">{right}</div>}

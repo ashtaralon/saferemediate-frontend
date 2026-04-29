@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Globe } from "lucide-react"
+import { Crown, Globe } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
 
@@ -114,6 +114,7 @@ export function AttackPathsCard() {
         label="Top attack paths to crown jewels"
         descriptor="No crown jewels currently have inbound attack paths"
         className="border-l-[3px] border-l-rose-500"
+        icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
         right={summary}
       >
         <div className={descriptorClass}>
@@ -128,6 +129,7 @@ export function AttackPathsCard() {
       label="Top attack paths to crown jewels"
       descriptor="Sorted by priority_score · click to drill into the path graph"
       className="border-l-[3px] border-l-rose-500"
+      icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
       right={summary}
     >
       <ul className="space-y-2">
