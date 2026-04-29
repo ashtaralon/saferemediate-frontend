@@ -12,6 +12,7 @@ import { FamilyStrip } from "./family-strip"
 import { RecentActivityCard } from "./recent-activity-card"
 import { SeverityDonutCard } from "./severity-donut-card"
 import { AttackPathsCard } from "./attack-paths-card"
+import { LPTopIssuesCard } from "./lp-top-issues-card"
 import { NotWiredCard } from "./card-shell"
 import { labelClass } from "./styles"
 
@@ -77,10 +78,16 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
           or the systems table. */}
       <FamilyStrip />
 
-      {/* ── D. Attack paths (50%) + Severity donut (50%) ──────────── */}
+      {/* ── D. Attack paths (50%) + (Severity donut + LP top issues) (50%) ── */}
+      {/* Right column stacks the donut on top of the LP-issues list so
+          dead space below the donut becomes a real, sorted list of
+          biggest LP offenders. */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <AttackPathsCard />
-        <SeverityDonutCard />
+        <div className="flex flex-col gap-5">
+          <SeverityDonutCard />
+          <LPTopIssuesCard />
+        </div>
       </section>
 
       {/* ── D. Top 5 systems ──────────────────────────────────────── */}
