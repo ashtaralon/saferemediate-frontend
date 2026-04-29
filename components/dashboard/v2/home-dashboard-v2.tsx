@@ -12,6 +12,7 @@ import { SafeRemediationsQueue } from "./safe-remediations-queue"
 import { IdentityAttackPathsQueue } from "./identity-attack-paths-queue"
 import { CategoryGrid } from "./category-grid"
 import { TopAccountsCard } from "./top-accounts-card"
+import { EvidenceHealthCard } from "../evidence-health-card"
 
 interface HomeDashboardV2Props {
   initialSystem: string
@@ -81,6 +82,9 @@ export function HomeDashboardV2({ initialSystem }: HomeDashboardV2Props) {
 
       {/* ── E. Coverage strip ──────────────────────────────────────── */}
       <CoverageStrip posture={posture} issues={issues} />
+
+      {/* ── F. Evidence Health ─────────────────────────────────────── */}
+      <EvidenceHealthCard />
 
       {/* dev-only data sanity ribbon — hidden in prod builds */}
       {process.env.NODE_ENV === "development" ? (
