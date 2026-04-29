@@ -743,6 +743,351 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
 }
 
 // ============================================================================
+// CHART DAY POPUP
+// ============================================================================
+// Tech-aesthetic modal that opens when the operator clicks a day on the
+// remediation chart. Lists every event on that day with full audit detail:
+// snapshot id, ISO timestamp, service + resource, action, status, confidence,
+// approver, permissions removed, reason. Click-through to the
+// EventDetailModal for the full diff/rollback flow.
+
+interface ChartDayPopupProps {
+  date: string | null
+  events: RemediationEvent[]
+  onClose: () => void
+  onEventClick: (event: RemediationEvent) => void
+}
+
+const ChartDayPopup = ({ date, events, onClose, onEventClick }: ChartDayPopupProps) => {
+  // Esc-to-close — wired before the early-return so the listener registers
+  // even if hooks order changes.
+  useEffect(() => {
+    if (!date) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [date, onClose])
+
+  if (!date) return null
+
+  const dayEvents = events.filter(e => e.timestamp.split('T')[0] === date)
+  const totalPerms = dayEvents.reduce(
+    (acc, e) => acc + (e.metadata?.permissions_removed || 0), 0
+  )
+  const rollbacks = dayEvents.filter(
+    e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+  ).length
+  const uniqueResources = new Set(
+    dayEvents.map(e => `${e.resource_type}:${e.resource_id}`)
+  )
+  const successful = dayEvents.length - rollbacks
+
+  // Friendly date label — "Apr 25, 2026"
+  const friendlyDate = (() => {
+    try {
+      return new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    } catch {
+      return date
+    }
+  })()
+
+  const fmtTimestamp = (ts: string) => {
+    try {
+      const d = new Date(ts)
+      return {
+        time: d.toLocaleTimeString('en-US', {
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        }),
+        iso: d.toISOString(),
+      }
+    } catch {
+      return { time: ts, iso: ts }
+    }
+  }
+
+  const serviceLabel = (rt: string) =>
+    rt === 'IAMRole' ? 'IAM' :
+    rt === 'SecurityGroup' ? 'EC2 Security Group' :
+    rt === 'S3Bucket' ? 'S3' :
+    rt || 'Unknown'
+
+  const serviceColor = (rt: string) =>
+    rt === 'IAMRole' ? '#a78bfa' :
+    rt === 'SecurityGroup' ? '#60a5fa' :
+    rt === 'S3Bucket' ? '#34d399' :
+    '#9ca3af'
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ animation: 'cyntroFadeIn 180ms ease-out' }}
+    >
+      {/* Backdrop with radial gradient — tech aesthetic */}
+      <div
+        className="absolute inset-0 backdrop-blur-md"
+        onClick={onClose}
+        style={{
+          background:
+            'radial-gradient(ellipse at center, rgba(15,23,42,0.85) 0%, rgba(2,6,23,0.95) 100%)',
+        }}
+      />
+
+      {/* Modal */}
+      <div
+        className="relative w-full max-w-3xl max-h-[88vh] overflow-hidden rounded-2xl border shadow-2xl"
+        style={{
+          background:
+            'linear-gradient(155deg, #0f172a 0%, #1e1b4b 60%, #0f172a 100%)',
+          borderColor: '#3730a3',
+          boxShadow:
+            '0 0 0 1px rgba(99,102,241,0.25), 0 25px 80px -20px rgba(99,102,241,0.5), 0 8px 32px rgba(0,0,0,0.4)',
+        }}
+      >
+        {/* Top accent line */}
+        <div
+          className="absolute top-0 left-0 right-0 h-px"
+          style={{
+            background:
+              'linear-gradient(90deg, transparent 0%, #818cf8 50%, transparent 100%)',
+          }}
+        />
+
+        {/* Header */}
+        <div className="px-6 pt-5 pb-4 border-b border-indigo-900/40">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2.5 mb-1">
+                <div
+                  className="w-2 h-2 rounded-full animate-pulse"
+                  style={{ background: '#a78bfa', boxShadow: '0 0 8px #a78bfa' }}
+                />
+                <p
+                  className="text-xs uppercase tracking-[0.2em] font-mono"
+                  style={{ color: '#a5b4fc' }}
+                >
+                  Remediation Activity
+                </p>
+              </div>
+              <h2 className="text-2xl font-bold text-white tracking-tight">
+                {friendlyDate}
+              </h2>
+              <p
+                className="text-xs mt-0.5 font-mono"
+                style={{ color: '#64748b' }}
+              >
+                {date}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-white p-1.5 rounded-md hover:bg-slate-700/50 transition-colors"
+              aria-label="Close"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Day-summary tiles */}
+          <div className="grid grid-cols-4 gap-2 mt-4">
+            <DayStat label="Events" value={dayEvents.length} accent="#a78bfa" />
+            <DayStat label="Successful" value={successful} accent="#34d399" />
+            <DayStat label="Rolled Back" value={rollbacks} accent="#f59e0b" />
+            <DayStat label="Resources" value={uniqueResources.size} accent="#60a5fa" />
+          </div>
+          {totalPerms > 0 && (
+            <p className="text-xs font-mono mt-3" style={{ color: '#94a3b8' }}>
+              <span style={{ color: '#fb923c' }}>{totalPerms}</span> permission{totalPerms === 1 ? '' : 's'} removed across these events
+            </p>
+          )}
+        </div>
+
+        {/* Event cards */}
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(88vh - 240px)' }}>
+          {dayEvents.length === 0 ? (
+            <div className="p-12 text-center">
+              <p className="text-sm font-mono" style={{ color: '#64748b' }}>
+                ┌── no events on this day ──┐
+              </p>
+              <p className="text-xs mt-2" style={{ color: '#475569' }}>
+                The chart point may have been from a different filter window.
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 space-y-2">
+              {dayEvents.map((e) => {
+                const ts = fmtTimestamp(e.timestamp)
+                const isRollback =
+                  e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
+                return (
+                  <button
+                    key={e.event_id}
+                    onClick={() => onEventClick(e)}
+                    className="w-full text-left rounded-lg border p-3 transition-all hover:border-indigo-500/60 hover:bg-indigo-950/30 group"
+                    style={{
+                      borderColor: '#1e293b',
+                      background: 'rgba(2,6,23,0.4)',
+                    }}
+                  >
+                    {/* Top row: status dot + service badge + timestamp */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                        style={{
+                          background: isRollback ? '#f59e0b' : '#34d399',
+                          boxShadow: `0 0 6px ${isRollback ? '#f59e0b' : '#34d399'}`,
+                        }}
+                      />
+                      <span
+                        className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded"
+                        style={{
+                          color: serviceColor(e.resource_type),
+                          background: `${serviceColor(e.resource_type)}1a`,
+                          border: `1px solid ${serviceColor(e.resource_type)}40`,
+                        }}
+                      >
+                        {serviceLabel(e.resource_type)}
+                      </span>
+                      <span
+                        className="text-[10px] font-mono uppercase tracking-wider"
+                        style={{ color: isRollback ? '#fbbf24' : '#86efac' }}
+                      >
+                        {e.action_type}
+                      </span>
+                      <span className="ml-auto text-[11px] font-mono" style={{ color: '#64748b' }} title={ts.iso}>
+                        {ts.time} UTC
+                      </span>
+                    </div>
+
+                    {/* Resource name */}
+                    <p className="text-sm font-mono text-white truncate mb-2" title={e.resource_id}>
+                      {e.resource_id || '(no resource id)'}
+                    </p>
+
+                    {/* Detail grid */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-mono">
+                      <div className="flex gap-1.5">
+                        <span style={{ color: '#475569' }}>snapshot_id:</span>
+                        <span className="truncate" style={{ color: '#94a3b8' }} title={e.snapshot_id || '—'}>
+                          {e.snapshot_id || '—'}
+                        </span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <span style={{ color: '#475569' }}>by:</span>
+                        <span style={{ color: '#cbd5e1' }}>
+                          {e.approved_by || '—'}
+                        </span>
+                      </div>
+                      {typeof e.confidence_score === 'number' && (
+                        <div className="flex gap-1.5">
+                          <span style={{ color: '#475569' }}>confidence:</span>
+                          <span style={{ color: '#a5b4fc' }}>
+                            {Math.round(e.confidence_score * 100)}%
+                          </span>
+                        </div>
+                      )}
+                      {(e.metadata?.permissions_removed ?? 0) > 0 && (
+                        <div className="flex gap-1.5">
+                          <span style={{ color: '#475569' }}>perms:</span>
+                          <span style={{ color: '#fb923c' }}>
+                            -{e.metadata.permissions_removed}
+                          </span>
+                        </div>
+                      )}
+                      {e.metadata?.reason && (
+                        <div className="col-span-2 flex gap-1.5 mt-0.5">
+                          <span style={{ color: '#475569' }}>reason:</span>
+                          <span className="italic truncate" style={{ color: '#94a3b8' }}>
+                            {e.metadata.reason}
+                          </span>
+                        </div>
+                      )}
+                      {e.metadata?.original_role && e.metadata?.new_role && (
+                        <div className="col-span-2 flex gap-1.5 mt-0.5 truncate">
+                          <span style={{ color: '#475569' }}>flow:</span>
+                          <span className="truncate" style={{ color: '#cbd5e1' }}>
+                            <span style={{ color: '#fca5a5' }}>{e.metadata.original_role}</span>
+                            {' → '}
+                            <span style={{ color: '#86efac' }}>{e.metadata.new_role}</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Hover hint */}
+                    <p
+                      className="text-[10px] font-mono mt-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ color: '#818cf8' }}
+                    >
+                      › click for full detail + rollback
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-indigo-900/40 flex items-center justify-between">
+          <p className="text-[11px] font-mono" style={{ color: '#64748b' }}>
+            <span style={{ color: '#a5b4fc' }}>esc</span> · <span style={{ color: '#a5b4fc' }}>click outside</span> to close
+          </p>
+          <p className="text-[11px] font-mono" style={{ color: '#64748b' }}>
+            cyntro · remediation timeline
+          </p>
+        </div>
+      </div>
+
+      {/* Inline keyframes — defined here so the popup can fade-in without
+          touching globals.css */}
+      <style jsx>{`
+        @keyframes cyntroFadeIn {
+          from { opacity: 0; transform: scale(0.97); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+const DayStat = ({ label, value, accent }: { label: string; value: number; accent: string }) => (
+  <div
+    className="rounded-lg px-3 py-2 border"
+    style={{
+      background: 'rgba(2,6,23,0.5)',
+      borderColor: `${accent}30`,
+    }}
+  >
+    <p className="text-[10px] uppercase tracking-wider font-mono" style={{ color: '#64748b' }}>
+      {label}
+    </p>
+    <p className="text-xl font-bold font-mono mt-0.5" style={{ color: accent }}>
+      {value}
+    </p>
+  </div>
+)
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
@@ -1464,83 +1809,6 @@ export function RemediationTimeline({
             </AreaChart>
           </ResponsiveContainer>
 
-          {/* Recap panel — opens when a chart point is clicked. */}
-          {selectedChartDate && (() => {
-            const dayEvents = events.filter(e =>
-              e.timestamp.split('T')[0] === selectedChartDate
-            )
-            const totalPerms = dayEvents.reduce(
-              (acc, e) => acc + (e.metadata.permissions_removed || 0), 0
-            )
-            const rollbacks = dayEvents.filter(
-              e => e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
-            ).length
-            const uniqueResources = new Set(
-              dayEvents.map(e => `${e.resource_type}:${e.resource_id}`)
-            )
-            return (
-              <div
-                className="mt-3 rounded-lg border p-4"
-                style={{
-                  borderColor: 'var(--border, #e5e7eb)',
-                  background: 'var(--surface, rgba(139, 92, 246, 0.05))',
-                }}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                        Events on {formatDate(selectedChartDate)}
-                      </p>
-                      <span className="text-xs px-2 py-0.5 rounded-md bg-purple-600 text-white">
-                        {dayEvents.length} {dayEvents.length === 1 ? 'event' : 'events'}
-                      </span>
-                    </div>
-                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                      {totalPerms} permissions removed · {rollbacks} rollback{rollbacks === 1 ? '' : 's'} · {uniqueResources.size} unique resource{uniqueResources.size === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedChartDate(null)}
-                    className="text-xs px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
-                    style={{ color: 'var(--text-secondary)' }}
-                    aria-label="Clear day selection"
-                  >
-                    ✕
-                  </button>
-                </div>
-                {dayEvents.length === 0 ? (
-                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    No events on this day in the current view.
-                  </p>
-                ) : (
-                  <ul className="space-y-1.5 max-h-48 overflow-y-auto">
-                    {dayEvents.slice(0, 8).map((e) => (
-                      <li
-                        key={e.event_id}
-                        className="text-xs flex items-center gap-2"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        <span
-                          className={`inline-block w-1.5 h-1.5 rounded-full ${
-                            e.status === 'rolled_back' || e.action_type === 'ROLLBACK'
-                              ? 'bg-amber-500'
-                              : 'bg-emerald-500'
-                          }`}
-                        />
-                        <span className="truncate">{e.summary || `${e.action_type} on ${e.resource_id}`}</span>
-                      </li>
-                    ))}
-                    {dayEvents.length > 8 && (
-                      <li className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>
-                        … and {dayEvents.length - 8} more — see full list below
-                      </li>
-                    )}
-                  </ul>
-                )}
-              </div>
-            )
-          })()}
           </>
         ) : (
           <div className="h-[200px] flex items-center justify-center">
@@ -1680,6 +1948,19 @@ export function RemediationTimeline({
           setSelectedEvent(null)
         }}
         onRollback={handleRollback}
+      />
+
+      {/* Chart day popup — shows when an operator clicks a chart point */}
+      <ChartDayPopup
+        date={selectedChartDate}
+        events={events}
+        onClose={() => setSelectedChartDate(null)}
+        onEventClick={(e) => {
+          // Close the day popup and open the per-event detail modal
+          setSelectedChartDate(null)
+          setSelectedEvent(e)
+          setShowModal(true)
+        }}
       />
     </div>
   )
