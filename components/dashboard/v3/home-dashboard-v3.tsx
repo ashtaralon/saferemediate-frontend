@@ -71,23 +71,16 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
         <WildcardBloatCard />
       </section>
 
-      {/* ── B2. Top attack paths to crown jewels ──────────────────── */}
-      {/* Promoted up here ('what's on fire right now') so it sits above
-          the family breakdown and above the systems table. Drill-in
-          to /attack-paths for the full graph view. */}
-      <AttackPathsCard />
-
       {/* ── C. Family breakdown — Permissions / Network / Data ───── */}
+      {/* Sits directly below the hero so the operator sees the
+          posture-by-family lens before drilling into attack paths
+          or the systems table. */}
       <FamilyStrip />
 
-      {/* ── C2. Issues by severity (real donut) ───────────────────── */}
+      {/* ── D. Attack paths (50%) + Severity donut (50%) ──────────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <AttackPathsCard />
         <SeverityDonutCard />
-        <NotWiredCard
-          label="Issue status distribution"
-          reason="Donut for OPEN / IN_PROGRESS / RESOLVED. Backend /api/findings exposes status per finding but the org-wide rollup endpoint isn't there yet — needs a new aggregating proxy."
-          backlog="V3 Phase D"
-        />
       </section>
 
       {/* ── D. Top 5 systems ──────────────────────────────────────── */}
