@@ -77,7 +77,7 @@ export function WildcardBloatCard() {
     <Section
       label="Wildcard bloat"
       descriptor="Allowed actions sitting unused — point-in-time, not a delta"
-      className={accentByCategory.bloat}
+      className={`${accentByCategory.bloat} bg-gradient-to-br from-amber-50/70 via-white to-white`}
     >
       <div className="flex items-baseline gap-3">
         <span className={`${heroNumberClass} ${scoreToneClass(toneScore)}`}>

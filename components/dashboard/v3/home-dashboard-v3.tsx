@@ -76,23 +76,14 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
       <TopSystemsCard />
 
       {/* ── E. Decision routing per family ────────────────────────── */}
-      <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <NotWiredCard
-          label="Permission gaps · decision routing"
-          reason="decision_canonical is computed at simulate-fix time but NOT persisted on SecurityFinding nodes. Aggregating org-wide would require fanning out simulate-fix per finding (1k+ requests). Backend persistence work needed before this can be honest."
-          backlog="V3 Phase D · backend ticket"
-        />
-        <NotWiredCard
-          label="Network exposure · decision routing"
-          reason="Same blocker — decision_canonical not persisted."
-          backlog="V3 Phase D · backend ticket"
-        />
-        <NotWiredCard
-          label="Data exposure · decision routing"
-          reason="Same blocker — decision_canonical not persisted."
-          backlog="V3 Phase D · backend ticket"
-        />
-      </section>
+      {/* Collapsed into a single compact card while decision_canonical
+          isn't persisted on findings. Will expand to 3 real cards once
+          the backend ticket lands. */}
+      <NotWiredCard
+        label="Decision routing · permissions / network / data"
+        reason="decision_canonical is computed at simulate-fix time but not persisted on SecurityFinding nodes. Aggregating org-wide would require fanning out simulate-fix per finding (1k+ requests). Will become a 3-card row once the backend persists the verdict."
+        backlog="V3 Phase D · backend ticket"
+      />
 
       {/* ── F. Divergence banner — only renders when total_conflicts > 0 */}
       <DivergenceBanner />

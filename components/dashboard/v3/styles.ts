@@ -14,7 +14,7 @@ export const labelClass =
 export const descriptorClass = "text-[12px] text-slate-500"
 
 export const heroNumberClass =
-  "text-[44px] font-bold leading-none tracking-tight text-slate-900"
+  "text-[56px] font-bold leading-none tracking-tight text-slate-900"
 
 export const numberClass =
   "text-[32px] font-bold leading-none tracking-tight text-slate-900"
@@ -50,6 +50,27 @@ export const accentByCategory: Record<
   evidence: "border-l-[3px] border-l-slate-400",
   activity: "border-l-[3px] border-l-emerald-500",
   queue: "border-l-[3px] border-l-emerald-500",
+}
+
+/**
+ * Hero gradient — very low-saturation tint for the hero row. Gives
+ * the BRSS and Bloat cards visual weight without crossing into
+ * decoration. Layered behind sectionClass.
+ */
+export const heroGradientByCategory: Record<"brss" | "bloat", string> = {
+  brss: "bg-gradient-to-br from-indigo-50/70 via-white to-white",
+  bloat: "bg-gradient-to-br from-amber-50/70 via-white to-white",
+}
+
+/**
+ * Family progress bar — thin colored fill on slate track, score%.
+ */
+export function familyBarClass(family: "permissions" | "network" | "data"): string {
+  return {
+    permissions: "bg-violet-500",
+    network: "bg-blue-500",
+    data: "bg-teal-500",
+  }[family]
 }
 
 /**

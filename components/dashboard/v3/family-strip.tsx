@@ -132,6 +132,12 @@ export function FamilyStrip() {
               </span>
               <span className={unitClass}>/100</span>
             </div>
+            <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100">
+              <div
+                className={`h-1.5 rounded-full ${pip}`}
+                style={{ width: `${Math.max(0, Math.min(100, family.score))}%` }}
+              />
+            </div>
           </Section>
         )
       })}
