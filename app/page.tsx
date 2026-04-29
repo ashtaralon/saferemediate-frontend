@@ -32,10 +32,15 @@ import { PostureScoreCard } from "@/components/dashboard/posture-score-card"
 import { EvidenceHealthCard } from "@/components/dashboard/evidence-health-card"
 import { MicroEnforcementScore } from "@/components/dashboard/micro-enforcement-score"
 import { HomeDashboardV2 } from "@/components/dashboard/v2/home-dashboard-v2"
+import { HomeDashboardV3 } from "@/components/dashboard/v3/home-dashboard-v3"
 
 // V2 is the default home. Set NEXT_PUBLIC_DASHBOARD_V2=false in Vercel to
 // roll back to the legacy home without a code redeploy.
 const DASHBOARD_V2_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V2 !== "false"
+// V3 is opt-in while we build it out. Set NEXT_PUBLIC_DASHBOARD_V3=true on
+// Vercel to preview. Takes precedence over V2 when enabled. Will become
+// the default once Phases B/C/D land real-data cards in every section.
+const DASHBOARD_V3_ENABLED = process.env.NEXT_PUBLIC_DASHBOARD_V3 === "true"
 
 const FETCH_TIMEOUT = 30000 // 30 second timeout (proxy routes use 28s, so client needs 30s+)
 
@@ -576,6 +581,9 @@ export default function HomePage() {
   const renderContent = () => {
     switch (activeSection) {
       case "home":
+        if (DASHBOARD_V3_ENABLED) {
+          return <HomeDashboardV3 initialSystem={selectedSystem ?? ""} />
+        }
         if (DASHBOARD_V2_ENABLED) {
           // No system in URL → render with empty system; V2's SystemInput
           // at the top of HomeDashboardV2 prompts the operator to pick.
