@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
+const CACHE_KEY = "systems-with-families"
 
 /**
  * GET /api/proxy/systems/with-families
@@ -28,6 +30,10 @@ type ServiceRiskResp = {
 }
 
 export async function GET(_req: NextRequest) {
+  const cached = getCached(CACHE_KEY)
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  }
   try {
     const sysRes = await fetch(`${BACKEND_URL}/api/systems`, {
       headers: { "Content-Type": "application/json" },
@@ -65,11 +71,13 @@ export async function GET(_req: NextRequest) {
       .filter((p): p is PromiseRejectedResult => p.status === "rejected")
       .map((p) => String(p.reason))
 
-    return NextResponse.json({
+    const payload = {
       systems: fulfilled,
       total: fulfilled.length,
       errors,
-    })
+    }
+    setCached(CACHE_KEY, payload, TTL_STD)
+    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(
       {

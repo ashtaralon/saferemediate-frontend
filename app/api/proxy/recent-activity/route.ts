@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
+const CACHE_KEY = "recent-activity"
 
 /**
  * GET /api/proxy/recent-activity
@@ -27,6 +29,10 @@ type ActivityItem = {
 }
 
 export async function GET(_req: NextRequest) {
+  const cached = getCached(CACHE_KEY)
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  }
   const items: ActivityItem[] = []
   const errors: string[] = []
 
@@ -84,9 +90,11 @@ export async function GET(_req: NextRequest) {
     return b.timestamp.localeCompare(a.timestamp)
   })
 
-  return NextResponse.json({
+  const payload = {
     items: items.slice(0, 20),
     total: items.length,
     errors,
-  })
+  }
+  setCached(CACHE_KEY, payload, TTL_STD)
+  return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
 
@@ -45,6 +46,11 @@ export async function GET(req: NextRequest) {
   }
 
   // Mode 2: org-wide fan-out
+  const cacheKey = "evidence-coverage-orgwide"
+  const cached = getCached(cacheKey)
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  }
   try {
     const acctsRes = await fetch(`${BACKEND_URL}/api/accounts`, {
       headers: { "Content-Type": "application/json" },
@@ -105,12 +111,14 @@ export async function GET(req: NextRequest) {
       { healthy: 0, degraded: 0, missing: 0, total: 0 },
     )
 
-    return NextResponse.json({
+    const payload = {
       accounts: fulfilled,
       aggregate_confidence,
       health,
       errors,
-    })
+    }
+    setCached(cacheKey, payload, TTL_STD)
+    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(
       { error: "coverage_fanout_error", message: e instanceof Error ? e.message : String(e) },

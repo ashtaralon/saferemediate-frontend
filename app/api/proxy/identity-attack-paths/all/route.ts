@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
+import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
+const CACHE_KEY = "identity-attack-paths-all"
 
 /**
  * GET /api/proxy/identity-attack-paths/all
@@ -31,6 +33,10 @@ type CrownJewel = {
 }
 
 export async function GET(_req: NextRequest) {
+  const cached = getCached(CACHE_KEY)
+  if (cached) {
+    return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
+  }
   try {
     const sysRes = await fetch(`${BACKEND_URL}/api/systems`, {
       headers: { "Content-Type": "application/json" },
@@ -83,14 +89,16 @@ export async function GET(_req: NextRequest) {
       return pb - pa
     })
 
-    return NextResponse.json({
+    const payload = {
       crown_jewels: allJewels,
       total_jewels: allJewels.length,
       total_paths: totalPaths,
       exposed_jewels: exposedJewels,
       systems_scanned: fulfilled.filter((f) => f.name).length,
       errors,
-    })
+    }
+    setCached(CACHE_KEY, payload, TTL_STD)
+    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(
       {
