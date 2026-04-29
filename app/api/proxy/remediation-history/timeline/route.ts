@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
 
     const resourceId = searchParams.get("resource_id")
     const resourceType = searchParams.get("resource_type")
+    const system = searchParams.get("system")
     const envelope = searchParams.get("envelope") === "true"
 
     const queryParams = new URLSearchParams()
@@ -21,6 +22,7 @@ export async function GET(req: NextRequest) {
     if (endDate) queryParams.set("end_date", endDate)
     if (resourceId) queryParams.set("resource_id", resourceId)
     if (resourceType) queryParams.set("resource_type", resourceType)
+    if (system) queryParams.set("system", system)
     queryParams.set("limit", limit)
     if (envelope) queryParams.set("envelope", "true")
 

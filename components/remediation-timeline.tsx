@@ -1012,7 +1012,7 @@ export function RemediationTimeline({
         const [neo4jEnvResult, sgRes, iamRes] = await Promise.all([
           // 1. Neo4j Timeline API (primary source for recorded events) - use proxy to avoid CORS
           fetchWithEnvelope<any>(
-            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200`
+            `/api/proxy/remediation-history/timeline?start_date=${startDate.toISOString()}&end_date=${today.toISOString()}&limit=200${systemId ? `&system=${encodeURIComponent(systemId)}` : ''}`
           ).catch(() => null),
           // 2. Snapshots (to include any checkpoints not yet in Neo4j)
           fetch('/api/proxy/snapshots', { cache: 'no-store' }).catch(() => null),
