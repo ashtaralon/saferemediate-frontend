@@ -7,6 +7,9 @@ import { HeroBrssCard } from "./hero-brss-card"
 import { TopSystemsCard } from "./top-systems-card"
 import { DivergenceBanner } from "./divergence-banner"
 import { SafeRemediationsQueueCard } from "./safe-remediations-queue-card"
+import { WildcardBloatCard } from "./wildcard-bloat-card"
+import { FamilyStrip } from "./family-strip"
+import { RecentActivityCard } from "./recent-activity-card"
 import { NotWiredCard } from "./card-shell"
 import { labelClass } from "./styles"
 
@@ -58,36 +61,16 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
         </button>
       </header>
 
-      {/* ── B. Hero row — BRSS (2/3) + AUTO Surface (1/3) ─────────── */}
+      {/* ── B. Hero row — BRSS (2/3) + Wildcard bloat (1/3) ───────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <HeroBrssCard />
         </div>
-        <NotWiredCard
-          label="Auto surface this month"
-          reason="No backend tracker for AUTO surface % exists. Per-CISO conversation, this card will be replaced with 'Wildcard bloat' (point-in-time) using /api/least-privilege/metrics in Phase C."
-          backlog="V3 Phase C"
-        />
+        <WildcardBloatCard />
       </section>
 
       {/* ── C. Family breakdown — Permissions / Network / Data ───── */}
-      <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <NotWiredCard
-          label="Permissions"
-          reason="Aggregation across systems via /api/service-risk-scores/{sys}.layers needs a fan-out proxy. Phase C."
-          backlog="V3 Phase C"
-        />
-        <NotWiredCard
-          label="Network"
-          reason="Same source — needs proxy fan-out across systems. Phase C."
-          backlog="V3 Phase C"
-        />
-        <NotWiredCard
-          label="Data"
-          reason="Same source — needs proxy fan-out across systems. Phase C."
-          backlog="V3 Phase C"
-        />
-      </section>
+      <FamilyStrip />
 
       {/* ── D. Top 5 systems ──────────────────────────────────────── */}
       <TopSystemsCard />
@@ -124,14 +107,10 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <NotWiredCard
           label="This week's narrowing"
-          reason="Only point-in-time bloat metric available (/api/least-privilege/metrics). Delta requires a backend narrowing-history endpoint. Phase C ships honest point-in-time framing."
-          backlog="V3 Phase C"
+          reason="Only point-in-time wildcard bloat is shown above (hero row). Week-over-week delta still requires a backend narrowing-history endpoint that doesn't exist yet."
+          backlog="backend ticket"
         />
-        <NotWiredCard
-          label="Recent activity"
-          reason="/api/snapshots and /api/automation-rules/rollback/history both exist. Card needs a merging proxy that aggregates by timestamp. Phase C."
-          backlog="V3 Phase C"
-        />
+        <RecentActivityCard />
       </section>
     </div>
   )
