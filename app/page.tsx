@@ -562,6 +562,20 @@ export default function HomePage() {
     setSelectedSystem(null)
   }
 
+  // Sidebar click handler — needs to do more than just setActiveSection,
+  // because clicking "Home" while a system is selected was bouncing to
+  // the alon-prod system detail dashboard (the home short-circuit below
+  // fires whenever selectedSystem is set AND activeSection === "home").
+  // Now: Home click also clears selectedSystem so the actual home
+  // dashboard renders. Other sections leave selectedSystem alone — they
+  // need it to scope their content (e.g. Attack Paths / LP / etc.).
+  const handleSidebarClick = (id: string) => {
+    if (id === "home") {
+      setSelectedSystem(null)
+    }
+    setActiveSection(id)
+  }
+
   // Short-circuit to SystemDetailDashboard ONLY from the home tab — that's
   // the "operator clicked a Top Accounts row" flow. Sidebar tabs (Attack
   // Paths, Vulnerabilities, etc.) MUST fall through to their own case
@@ -579,7 +593,7 @@ export default function HomePage() {
   if (loading) {
     return (
       <div className="flex min-h-screen bg-gray-50">
-        <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={0} pendingTagsCount={pendingTagsCount} />
+        <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={0} pendingTagsCount={pendingTagsCount} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2D51DA] mx-auto mb-4"></div>
@@ -1025,7 +1039,7 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <LeftSidebarNav activeItem={activeSection} onItemClick={setActiveSection} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
+      <LeftSidebarNav activeItem={activeSection} onItemClick={handleSidebarClick} issuesCount={statsData.totalIssues} pendingTagsCount={pendingTagsCount} />
       <div className="flex-1 p-8">{renderContent()}</div>
 
       {/* Traffic Simulator Modal */}
