@@ -835,9 +835,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Business Criticality</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Environment</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Health</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Critical</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>High</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Total</th>
+                {/* Per-system aggregates from /api/proxy/systems include
+                   ALL findings (open + accepted + suppressed). The System
+                   Detail page filters to "open" findings only, so its
+                   counts are typically lower. The header labels make the
+                   scope explicit so the two views aren't read as
+                   contradictory by the design review (2026-04-30). */}
+                <th
+                  className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Total critical findings for this system across all statuses (open + accepted + suppressed). System Detail page filters to open-only."
+                >
+                  Critical (all)
+                </th>
+                <th
+                  className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Total high findings for this system across all statuses. System Detail page filters to open-only."
+                >
+                  High (all)
+                </th>
+                <th
+                  className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-secondary)" }}
+                  title="Total findings (all severities + all statuses) for this system."
+                >
+                  Total
+                </th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Last Scan</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Owner</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>Actions</th>
@@ -1017,12 +1041,43 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
         >
           <div className="flex items-center gap-2 mb-2">
             <Shield className="w-5 h-5" style={{ color: "#8b5cf6" }} />
-            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Permission Gap</span>
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Permission Gap{systemName ? ` · ${systemName}` : ""}
+            </span>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "#8b5cf6" }}>{gapData.unused}</div>
-          <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            {gapData.allowed} allowed, {gapData.used} used
-          </div>
+          {/* Three-state KPI — explicit about scope so it doesn't silently
+             contradict the org-wide Wildcard Bloat number on the home
+             dashboard. Per dashboard design review (2026-04-30): home
+             showed 6,005 unused permissions while this KPI showed 0. The
+             0 wasn't wrong on its own — it's that the KPI is system-
+             scoped (queries /api/proxy/gap-analysis?systemName=…) but
+             rendered like an org-wide aggregate, with no scope label. */}
+          {!systemName ? (
+            <>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Pick a system
+              </div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Per-system gap analysis. Org-wide bloat lives on the home dashboard.
+              </div>
+            </>
+          ) : gapData.allowed === 0 ? (
+            <>
+              <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+                No analysis yet
+              </div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Run the LP collector for {systemName} or wait for the next cycle.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold" style={{ color: "#8b5cf6" }}>{gapData.unused}</div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                {gapData.allowed} allowed, {gapData.used} used
+              </div>
+            </>
+          )}
         </div>
 
         <div

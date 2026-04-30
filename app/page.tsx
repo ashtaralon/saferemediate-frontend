@@ -506,6 +506,21 @@ export default function HomePage() {
   const hasUnifiedSummary = issuesSummary && issuesSummary.total > 0
   const hasBackendStats = backendStats.critical > 0 || backendStats.high > 0 || backendStats.medium > 0 || backendStats.low > 0
 
+  // Fallback chain for the sidebar Issues badge + the overview cards.
+  // Per dashboard design review (2026-04-30), the sidebar showed "4"
+  // while Systems Overview rows totalled 27 critical findings. Root
+  // cause: the third-tier fallback used securityFindings.length — the
+  // count of findings the PAGE happened to fetch into local state —
+  // and called it "totalIssues." That number depends on local fetch
+  // race conditions, not on org-wide aggregates.
+  //
+  // New fallback chain:
+  //   Tier 1: data.issuesSummary.total          (canonical, org-wide)
+  //   Tier 2: data.securityIssues.totalIssues   (backend per-severity)
+  //   Tier 3: don't fabricate a number         — surface as undefined so
+  //                                              the sidebar omits the badge
+  //                                              instead of showing a misleading
+  //                                              local-array length.
   const securityIssuesData = hasUnifiedSummary ? {
     critical: issuesSummary.by_severity?.critical || 0,
     high: issuesSummary.by_severity?.high || 0,
@@ -519,7 +534,9 @@ export default function HomePage() {
     high: computedFindingsStats.high,
     medium: computedFindingsStats.medium,
     low: computedFindingsStats.low,
-    totalIssues: securityFindings.length,
+    // Intentional: leave totalIssues at backendStats's default (0). The
+    // sidebar badge code treats 0/undefined as "no badge" so the user
+    // sees an absence rather than a wrong number.
   })
 
   const complianceSystems = data?.complianceSystems || []
