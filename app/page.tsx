@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { ErrorBoundary } from "@/components/ui/error-boundary"
 import { LeftSidebarNav } from "@/components/left-sidebar-nav"
 import { HomeStatsBanner } from "@/components/home-stats-banner"
@@ -122,9 +122,8 @@ function setCachedData(key: string, data: any): void {
   }
 }
 
-// Whitelist of section ids the sidebar can route to. Anything not in this
-// set (e.g. someone typed ?section=hax) collapses to "home" so the renderer
-// switch lands on a defined case instead of the empty default.
+// Whitelist of section ids the sidebar can route to. Used for the
+// initial-mount URL hydration only — see KNOWN_SECTIONS-driven init below.
 const KNOWN_SECTIONS = new Set([
   "home",
   "copilot",
@@ -143,25 +142,25 @@ const KNOWN_SECTIONS = new Set([
 export default function HomePage() {
   const searchParams = useSearchParams()
   const systemFromUrl = searchParams.get('system')
-  // URL is the source of truth for which section is active. The sidebar
-  // navigates by updating ?section=<id>; refresh + back/forward + Cmd-click
-  // + deep links all "just work" because they all change the URL.
-  // Default to "home" when no section is set OR when the value is unknown.
-  const sectionFromUrl = searchParams.get('section')
-  const activeSection =
-    sectionFromUrl && KNOWN_SECTIONS.has(sectionFromUrl) ? sectionFromUrl : "home"
-  // setActiveSection is preserved for in-component handlers that switch
-  // sections programmatically (e.g. "Review issues" buttons on the home
-  // page). It navigates via URL so refresh / back / share all keep the
-  // user's place — no local activeSection state to drift out of sync.
-  const router = useRouter()
-  const setActiveSection = useCallback(
-    (id: string) => {
-      const url = id === "home" ? "/" : `/?section=${id}`
-      router.push(url)
-    },
-    [router]
-  )
+  // EMERGENCY ROLLBACK (2026-04-30): activeSection is back to local
+  // useState, NOT derived from URL. The URL-driven version (commit
+  // 150387b) caused user to get stuck on the Attack Paths tab —
+  // sidebar Link clicks didn't navigate. Reverting to local state
+  // restores reliable nav at the cost of:
+  //   - URL stays at / regardless of section
+  //   - Refresh drops back to home
+  //   - Deep links like /?section=attack-paths don't auto-route
+  //
+  // We DO seed activeSection from ?section= on first mount so deep
+  // links partially work (the page lands in the right section after
+  // hard refresh). After mount, sidebar clicks + setActiveSection
+  // mutate local state without touching the URL.
+  const sectionFromUrlOnMount = searchParams.get('section')
+  const initialSection =
+    sectionFromUrlOnMount && KNOWN_SECTIONS.has(sectionFromUrlOnMount)
+      ? sectionFromUrlOnMount
+      : "home"
+  const [activeSection, setActiveSection] = useState<string>(initialSection)
   // Initial selection is URL-driven; we don't hardcode any system here.
   // When ?system= is absent we auto-pick the first system from /api/systems
   // in a useEffect below — data-driven, not "alon-prod"-driven. That keeps

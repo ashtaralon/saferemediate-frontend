@@ -123,15 +123,42 @@ export function LeftSidebarNav({
           }
           const commonClass = "relative w-full flex items-center gap-3 px-6 py-3 text-sm font-medium transition-all overflow-hidden"
 
-          // All items render as <Link>. The href IS the source of truth
-          // for which section is active — useSearchParams in app/page.tsx
-          // re-derives activeSection on every URL change. The previous
-          // version also fired onItemClick, which called router.push to
-          // the SAME url that the Link was already navigating to. That
-          // double-navigation race may have been the cause of "stuck on
-          // Attack Paths" reports — two simultaneous router.push calls
-          // for the same URL can leave the router in an inconsistent
-          // state. Now: Link href is the only navigation trigger.
+          // EMERGENCY ROLLBACK (2026-04-30): user reported being stuck
+          // on the Attack Paths tab — could not click sidebar items to
+          // navigate elsewhere. The IA fix in 150387b converted these
+          // from <button> to <Link> with router.push, and subsequent
+          // patches tried to defend against double-push races and
+          // stacking-context issues without success.
+          //
+          // Reverted to the original <button onClick> pattern: clicking
+          // a sidebar item calls onItemClick(id), which sets local
+          // state in app/page.tsx (the activeSection state path is
+          // still wired). Navigation works because it doesn't depend on
+          // the router at all — pure React state.
+          //
+          // Cost of this rollback (will be re-fixed in a follow-up that
+          // we can verify in the browser):
+          //   - Cmd/Ctrl-click sidebar item won't open in new tab
+          //   - Right-click → "Open in new tab" won't work
+          //   - URL stays at / regardless of which section is shown
+          //   - Refresh drops back to home
+          //   - Deep links like /?section=attack-paths still REDIRECT to
+          //     home because the URL state stops driving the renderer
+          //
+          // PendingTags keeps its real <Link href> because that page
+          // is a separate Next.js route, not a sidebar section.
+          if (item.href.startsWith("/?")) {
+            return (
+              <button
+                key={item.id}
+                onClick={() => onItemClick?.(item.id)}
+                className={commonClass}
+                style={commonStyle}
+              >
+                {body}
+              </button>
+            )
+          }
           return (
             <Link
               key={item.id}
