@@ -42,7 +42,13 @@ export interface UseRetryFetchOptions {
   initialDelayMs?: number
   /** Cap for backoff delay (ms). Default 4000. */
   maxDelayMs?: number
-  /** Per-attempt fetch timeout (ms). Default 30000. */
+  /** Per-attempt fetch timeout (ms). Default 15000.
+   *
+   * Picked to fail fast enough that the worst-case retry chain
+   * (initialDelayMs + 2x + 4x + 8x backoff with 3 retries at 15s each)
+   * surfaces an error within ~50s instead of ~125s. Healthy responses
+   * complete in <1s; if a request takes >15s it's almost certainly
+   * not going to recover with more time. */
   timeoutMs?: number
   /** RequestInit for fetch (cache, headers, etc.). */
   fetchInit?: RequestInit
@@ -72,7 +78,7 @@ export function useRetryFetch<T = unknown>(
     maxRetries = 3,
     initialDelayMs = 250,
     maxDelayMs = 4000,
-    timeoutMs = 30000,
+    timeoutMs = 15000,
     fetchInit,
     refetchKey,
     isTransientStatus,
