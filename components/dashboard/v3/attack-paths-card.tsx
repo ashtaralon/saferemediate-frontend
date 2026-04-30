@@ -98,22 +98,57 @@ export function AttackPathsCard() {
   )
 
   if (jewels.length === 0) {
+    // Distinguish "no jewels because everything is clean" from "no
+    // jewels because per-system fetches failed". Previously we always
+    // showed "0 systems scanned. None surfaced reachable jewels" which
+    // is wrong when ALL systems failed — the proxy fan-out errored and
+    // we'd never surface that to the operator. Now: if errors[] is
+    // populated, we say so AND list what failed (truncated).
+    const errs = data.errors ?? []
+    const hasErrors = errs.length > 0
+    const scanned = data.systems_scanned ?? 0
     return (
       <Section
         label="Top attack paths to crown jewels"
-        descriptor="No crown jewels currently have inbound attack paths"
-        className="border-l-[3px] border-l-rose-500"
+        descriptor={
+          hasErrors
+            ? "Per-system fan-out failed — see details below"
+            : "No crown jewels currently have inbound attack paths"
+        }
+        className={`border-l-[3px] ${hasErrors ? "border-l-amber-500" : "border-l-rose-500"}`}
         icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
         right={
-        <span className="flex items-center gap-2">
-          <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
-          {summary}
-        </span>
-      }
+          <span className="flex items-center gap-2">
+            <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+            {summary}
+          </span>
+        }
       >
-        <div className={descriptorClass}>
-          {data.systems_scanned ?? 0} systems scanned. None surfaced reachable jewels.
-        </div>
+        {hasErrors ? (
+          <div className="space-y-2">
+            <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 text-xs">
+              <div className="font-semibold text-amber-800">
+                {scanned} system(s) scanned · {errs.length} fan-out error(s)
+              </div>
+              <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-amber-700">
+                {errs.slice(0, 4).map((e, i) => (
+                  <li key={i} className="truncate">
+                    · {e}
+                  </li>
+                ))}
+                {errs.length > 4 && (
+                  <li className="text-amber-600">
+                    + {errs.length - 4} more
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <div className={descriptorClass}>
+            {scanned} systems scanned. None surfaced reachable jewels.
+          </div>
+        )}
       </Section>
     )
   }
