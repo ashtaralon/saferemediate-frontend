@@ -51,8 +51,16 @@ export function LeftSidebarNav({
   ]
 
   return (
+    // relative + z-30 creates a stacking context above the page body so
+    // sidebar Links always receive clicks. User reported "stuck on
+    // Attack Paths" — couldn't click sidebar to leave. The Attack Paths
+    // page renders a full-height container (h-[calc(100vh-4rem)]) with
+    // heavy graph viz; if any descendant creates a new stacking context
+    // that overlaps the sidebar visually, clicks could land on the
+    // overlay instead of the sidebar Link. relative z-30 forces the
+    // sidebar's stacking context to win without disturbing layout.
     <div
-      className="w-64 min-h-screen border-r"
+      className="w-64 min-h-screen border-r relative z-30"
       style={{
         background: "var(--bg-secondary)",
         borderColor: "var(--border-subtle)",
@@ -115,17 +123,21 @@ export function LeftSidebarNav({
           }
           const commonClass = "relative w-full flex items-center gap-3 px-6 py-3 text-sm font-medium transition-all overflow-hidden"
 
-          // All items now render as <Link>. onClick (when provided) still
-          // fires before navigation so the parent can run any imperative
-          // setup (e.g. clearing a search filter) — but URL update is
-          // authoritative and cannot be skipped.
+          // All items render as <Link>. The href IS the source of truth
+          // for which section is active — useSearchParams in app/page.tsx
+          // re-derives activeSection on every URL change. The previous
+          // version also fired onItemClick, which called router.push to
+          // the SAME url that the Link was already navigating to. That
+          // double-navigation race may have been the cause of "stuck on
+          // Attack Paths" reports — two simultaneous router.push calls
+          // for the same URL can leave the router in an inconsistent
+          // state. Now: Link href is the only navigation trigger.
           return (
             <Link
               key={item.id}
               href={item.href}
               className={commonClass}
               style={commonStyle}
-              onClick={onItemClick ? () => onItemClick(item.id) : undefined}
             >
               {body}
             </Link>
