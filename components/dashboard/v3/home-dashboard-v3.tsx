@@ -14,6 +14,7 @@ import { SeverityDonutCard } from "./severity-donut-card"
 import { AttackPathsCard } from "./attack-paths-card"
 import { LPTopIssuesCard } from "./lp-top-issues-card"
 import { NotWiredCard } from "./card-shell"
+import { NarrowingSummaryCard } from "./narrowing-summary-card"
 import { PageHeader } from "@/components/ui/page-header"
 
 /**
@@ -118,11 +119,7 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
 
       {/* ── H. Activity row ───────────────────────────────────────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <NotWiredCard
-          label="This week's narrowing"
-          reason="Only point-in-time wildcard bloat is shown above (hero row). Week-over-week delta still requires a backend narrowing-history endpoint that doesn't exist yet."
-          backlog="backend ticket"
-        />
+        <NarrowingSummaryCard />
         <RecentActivityCard />
       </section>
     </div>
