@@ -25,6 +25,10 @@ type SourceSummary = {
   enabled: boolean
   confidence_score: number
   missing_reason: string | null
+  // Region is set for per-region sources (VPC Flow Logs, IAM Access
+  // Analyzer, AWS Config, X-Ray) and null for account-level sources
+  // (CloudTrail mgmt, IAM Access Advisor, S3 access logs).
+  region?: string | null
 }
 
 type AccountCoverage = {
@@ -161,6 +165,11 @@ export function EvidenceHealthCardV3() {
                       <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`} />
                       <span className="truncate text-slate-700">
                         {SOURCE_LABELS[s.source_type] ?? s.source_type}
+                        {s.region ? (
+                          <span className="ml-1.5 font-mono text-[11px] text-slate-500">
+                            {s.region}
+                          </span>
+                        ) : null}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">

@@ -86,25 +86,13 @@ export async function GET(req: NextRequest) {
         if (!r.ok) throw new Error(`backend ${r.status} for ${a.account_id}`)
         const data = await r.json()
 
-        // Dedupe sources by source_type — the backend currently emits
-        // multiple SignalSource nodes per source type per account
-        // (e.g. 2× IAM Access Analyzer, 2× VPC Flow Logs in user
-        // bug report 2026-04-30). A graph data-quality issue in the
-        // SignalSource collector. The proxy collapses by source_type
-        // keeping the FIRST occurrence (deterministic, no value
-        // judgment about which is "better"). The real fix belongs in
-        // the backend collector; this is a readability bandage.
-        if (Array.isArray(data?.sources)) {
-          const seen = new Set<string>()
-          data.sources = data.sources.filter((s: any) => {
-            const key = s?.source_type
-            if (!key) return true
-            if (seen.has(key)) return false
-            seen.add(key)
-            return true
-          })
-        }
-
+        // NOTE (2026-04-30): an earlier version of this proxy deduped
+        // sources by source_type, but that was wrong — multiple entries
+        // for the same type are legitimate when the source is per-region
+        // (VPC Flow Logs, IAM Access Analyzer, AWS Config, X-Ray all
+        // run per-region in unified/evidence/auditor.py). The dedup
+        // hid real per-region data. The UI now disambiguates by region
+        // in the label, so the proxy is a clean passthrough.
         return { account_id: a.account_id, cloud: a.cloud, ...data }
       }),
     )
