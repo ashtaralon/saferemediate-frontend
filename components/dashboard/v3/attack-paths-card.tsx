@@ -1,7 +1,7 @@
 "use client"
 
 import { Crown, Globe } from "lucide-react"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 
@@ -68,10 +68,17 @@ function priorityToneClass(score: number): string {
 }
 
 export function AttackPathsCard() {
-  // SWR — N+1 fan-out endpoint, very slow on cold start.
-  const { data, loading, error, retry } = useCachedFetch<PathsResponse>(
+  // Action-driving data — strict 10-min staleness. Anything older falls
+  // back to the loading skeleton instead of showing stale "top attack
+  // path" data, because acting on a 12h-old top path could mean
+  // remediating something that was already fixed.
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<PathsResponse>(
     "/api/proxy/identity-attack-paths/all",
-    { cacheKey: "identity-attack-paths-all", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "identity-attack-paths-all",
+      maxStaleMs: 10 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+    }
   )
 
   if (loading && !data) return <LoadingCard label="Top attack paths to crown jewels" />
@@ -94,7 +101,12 @@ export function AttackPathsCard() {
         descriptor="No crown jewels currently have inbound attack paths"
         className="border-l-[3px] border-l-rose-500"
         icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
-        right={summary}
+        right={
+        <span className="flex items-center gap-2">
+          <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+          {summary}
+        </span>
+      }
       >
         <div className={descriptorClass}>
           {data.systems_scanned ?? 0} systems scanned. None surfaced reachable jewels.
@@ -109,7 +121,12 @@ export function AttackPathsCard() {
       descriptor="Sorted by priority_score · click to drill into the path graph"
       className="border-l-[3px] border-l-rose-500"
       icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}
-      right={summary}
+      right={
+        <span className="flex items-center gap-2">
+          <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+          {summary}
+        </span>
+      }
     >
       <ul className="space-y-2">
         {jewels.map((j) => {

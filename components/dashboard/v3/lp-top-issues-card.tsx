@@ -1,6 +1,6 @@
 "use client"
 
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { descriptorClass } from "./styles"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 
@@ -64,10 +64,15 @@ function gapPillClass(pct: number): string {
 }
 
 export function LPTopIssuesCard() {
-  // SWR — slow Cypher query for least-privilege analysis.
-  const { data, loading, error, retry } = useCachedFetch<IssuesResp>(
+  // Action-driving — strict 10-min staleness. LP issues feed remediation
+  // decisions; stale data could route the operator to already-fixed roles.
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<IssuesResp>(
     "/api/proxy/least-privilege/issues",
-    { cacheKey: "lp-issues", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "lp-issues",
+      maxStaleMs: 10 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+    }
   )
 
   if (loading && !data) return <LoadingCard label="Top least-privilege issues" />
@@ -81,9 +86,12 @@ export function LPTopIssuesCard() {
     .slice(0, 6)
 
   const headerSummary = (
-    <span className="text-xs text-slate-500">
-      <span className="font-semibold text-rose-700">{summary.criticalCount ?? 0}</span> crit ·{" "}
-      <span className="font-semibold text-amber-700">{summary.highCount ?? 0}</span> high
+    <span className="flex items-center gap-2">
+      <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+      <span className="text-xs text-slate-500">
+        <span className="font-semibold text-rose-700">{summary.criticalCount ?? 0}</span> crit ·{" "}
+        <span className="font-semibold text-amber-700">{summary.highCount ?? 0}</span> high
+      </span>
     </span>
   )
 

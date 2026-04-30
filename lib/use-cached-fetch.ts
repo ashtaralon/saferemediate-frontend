@@ -50,6 +50,13 @@ export interface UseCachedFetchResult<T> {
   data: T | null
   /** True when `data` is from localStorage and a background refresh is running. */
   isStale: boolean
+  /** Timestamp (Date.now() ms) the rendered `data` was fetched. Null when
+   *  data came from this session's network (i.e. fresh). Used by the UI
+   *  to show "as of X min ago, refreshing" indicators when isStale=true.
+   *  Critical for honest staleness signaling per
+   *  feedback_no_mock_numbers_in_ui.md — the user must see when they're
+   *  looking at cached data. */
+  cachedAt: number | null
   /** True only on the first ever load with no cache available. */
   loading: boolean
   /** Surfaced ONLY when there's no cached fallback to show. */
@@ -61,7 +68,7 @@ export interface UseCachedFetchResult<T> {
 const CACHE_PREFIX = "cyntro:swr:"
 const DEFAULT_MAX_STALE_MS = 24 * 60 * 60 * 1000 // 24h
 
-function readCache<T>(key: string, maxAge: number): T | null {
+function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | null {
   if (typeof window === "undefined") return null
   try {
     const raw = window.localStorage.getItem(CACHE_PREFIX + key)
@@ -69,7 +76,7 @@ function readCache<T>(key: string, maxAge: number): T | null {
     const entry: CacheEntry<T> = JSON.parse(raw)
     if (typeof entry?.ts !== "number") return null
     if (Date.now() - entry.ts > maxAge) return null
-    return entry.data
+    return { data: entry.data, ts: entry.ts }
   } catch {
     return null
   }
@@ -95,8 +102,9 @@ export function useCachedFetch<T = unknown>(
   // Synchronous initial read so the first paint renders cached data
   // without a flash of the loading state.
   const initial = readCache<T>(cacheKey, maxStaleMs)
-  const [data, setData] = useState<T | null>(initial)
+  const [data, setData] = useState<T | null>(initial?.data ?? null)
   const [isStale, setIsStale] = useState<boolean>(initial !== null)
+  const [cachedAt, setCachedAt] = useState<number | null>(initial?.ts ?? null)
   // loading is true ONLY on first ever load with no cache. If we have
   // cached data to show, the user sees it instantly and any background
   // refresh is invisible (just isStale flips false when it lands).
@@ -129,6 +137,11 @@ export function useCachedFetch<T = unknown>(
       if (myEpoch !== epochRef.current) return
       setData(json)
       setIsStale(false)
+      // cachedAt = null means "this data is fresh from the network in
+      // this session." The UI suppresses the stale indicator in that
+      // case. Set to null explicitly so a previous cached-then-refreshed
+      // render flips correctly.
+      setCachedAt(null)
       setError(null)
       setLoading(false)
       writeCache(cacheKey, json)
@@ -158,5 +171,5 @@ export function useCachedFetch<T = unknown>(
     fetchFresh()
   }, [fetchFresh])
 
-  return { data, isStale, loading, error, retry }
+  return { data, isStale, cachedAt, loading, error, retry }
 }

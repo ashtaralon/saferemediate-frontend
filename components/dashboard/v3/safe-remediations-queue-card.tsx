@@ -1,7 +1,7 @@
 "use client"
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
 /**
@@ -47,10 +47,15 @@ type CandidatesResponse = {
 }
 
 export function SafeRemediationsQueueCard() {
-  // SWR — slow Cypher (33s in design review).
-  const { data, loading, error, retry } = useCachedFetch<CandidatesResponse>(
+  // Action queue — strict 10-min staleness. Showing yesterday's "ready
+  // to apply" list could include items already remediated.
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<CandidatesResponse>(
     "/api/proxy/remediation-candidates?limit=10",
-    { cacheKey: "remediation-candidates", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "remediation-candidates",
+      maxStaleMs: 10 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+    }
   )
 
   if (loading && !data) return <LoadingCard label="Safe remediations queue" />
@@ -69,6 +74,7 @@ export function SafeRemediationsQueueCard() {
       label="Safe remediations queue"
       descriptor={`${ready.length} ready · ${blocked.length} blocked by safety gate`}
       className={accentByCategory.queue}
+      right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >
       {ready.length === 0 ? (
         <div className={descriptorClass}>

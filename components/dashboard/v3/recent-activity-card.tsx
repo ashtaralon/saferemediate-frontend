@@ -2,7 +2,7 @@
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Check, RotateCcw } from "lucide-react"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
 /**
@@ -49,9 +49,15 @@ function relativeTime(iso: string | null): string {
 }
 
 export function RecentActivityCard() {
-  const { data, loading, error, retry } = useCachedFetch<ActivityResponse>(
+  // Activity by definition is recent — strict 5-min staleness. Anything
+  // older isn't "recent" anymore.
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<ActivityResponse>(
     "/api/proxy/recent-activity",
-    { cacheKey: "recent-activity", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "recent-activity",
+      maxStaleMs: 5 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+    }
   )
 
   if (loading && !data) return <LoadingCard label="Recent activity" />
@@ -65,6 +71,7 @@ export function RecentActivityCard() {
       label="Recent activity"
       descriptor={`${data.total ?? items.length} events · snapshots and rollbacks merged`}
       className={accentByCategory.activity}
+      right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >
       {items.length === 0 ? (
         <div className={descriptorClass}>

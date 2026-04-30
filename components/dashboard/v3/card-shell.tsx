@@ -110,6 +110,48 @@ export function LoadingCard({
 }
 
 /**
+ * StaleIndicator — small pill rendered on a card when its data is from
+ * localStorage cache and a background refresh is in flight. Per memory
+ * feedback_no_mock_numbers_in_ui.md, the user must be able to tell when
+ * they're looking at cached data vs live data; this pill is that signal.
+ *
+ * The pill shows the age of the cached data ("as of 4 min ago, refreshing")
+ * so the operator can decide whether the data is fresh enough to act on.
+ *
+ * Place inside a card's header `right` slot, or anywhere the card
+ * visually exposes its load state.
+ */
+function formatAgeBrief(seconds: number): string {
+  if (seconds < 60) return `${seconds}s ago`
+  const m = Math.floor(seconds / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  return `${d}d ago`
+}
+
+export function StaleIndicator({
+  cachedAt,
+  isStale,
+}: {
+  cachedAt: number | null
+  isStale: boolean
+}) {
+  if (!isStale || cachedAt === null) return null
+  const ageSeconds = Math.max(0, Math.floor((Date.now() - cachedAt) / 1000))
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+      title={`Showing cached data fetched ${formatAgeBrief(ageSeconds)}. A fresh request is in progress and the card will update when it returns.`}
+    >
+      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+      as of {formatAgeBrief(ageSeconds)}, refreshing
+    </span>
+  )
+}
+
+/**
  * ErrorCard — renders when fetch fails. Shows the actual error so the
  * operator can act, not a generic "something went wrong."
  */

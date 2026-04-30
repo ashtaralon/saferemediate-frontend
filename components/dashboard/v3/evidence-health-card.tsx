@@ -2,7 +2,7 @@
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { RefreshCw } from "lucide-react"
-import { ErrorCard, LoadingCard, Section } from "./card-shell"
+import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import {
   accentByCategory,
   descriptorClass,
@@ -57,10 +57,16 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 export function EvidenceHealthCardV3() {
-  // SWR — N+1 fan-out (per-account evidence coverage).
-  const { data, loading, error, retry } = useCachedFetch<CoverageResponse>(
+  // Coverage drives operator action ("turn on CloudTrail data events"),
+  // so 15-min staleness max — short enough that newly-enabled sources
+  // show up reasonably fast.
+  const { data, loading, error, retry, isStale, cachedAt } = useCachedFetch<CoverageResponse>(
     "/api/proxy/evidence/coverage",
-    { cacheKey: "evidence-coverage", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "evidence-coverage",
+      maxStaleMs: 15 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+    }
   )
 
   if (loading && !data) return <LoadingCard label="Evidence health" />
@@ -68,14 +74,17 @@ export function EvidenceHealthCardV3() {
   if (!data) return null
 
   const refreshButton = (
-    <button
-      onClick={retry}
-      disabled={loading}
-      className="text-slate-400 transition hover:text-slate-700"
-      aria-label="Refresh"
-    >
-      <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-    </button>
+    <span className="flex items-center gap-2">
+      <StaleIndicator cachedAt={cachedAt} isStale={isStale} />
+      <button
+        onClick={retry}
+        disabled={loading}
+        className="text-slate-400 transition hover:text-slate-700"
+        aria-label="Refresh"
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+      </button>
+    </span>
   )
 
   // Honest empty state when the SignalSource subsystem hasn't populated.
