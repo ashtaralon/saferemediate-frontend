@@ -29,7 +29,38 @@ interface System {
   high: number
   total: number
   lastScan: string
+  // ISO timestamp from backend (or null if never scanned). Used to compute
+  // staleness deterministically — if older than STALE_THRESHOLD_DAYS, the
+  // row's health number gets faded and a "stale" badge appears next to
+  // the lastScan cell. Without this signal, a system can show a confident
+  // green health=95 next to "Last scan 22 days ago" — that contradicts
+  // the freshness story. Per dashboard design review (2026-04-30).
+  lastScanAt: string | null
   owner: string
+}
+
+// Threshold for marking a row as stale. Picked at 7 days because most
+// shops re-ingest weekly; anything older than that is genuinely
+// out-of-date for security posture purposes. Tunable; if/when we surface
+// per-tenant scan SLOs we should drive this from config.
+const STALE_THRESHOLD_DAYS = 7
+
+function daysSinceScan(lastScanAt: string | null): number | null {
+  if (!lastScanAt) return null
+  const ts = Date.parse(lastScanAt)
+  if (Number.isNaN(ts)) return null
+  const ms = Date.now() - ts
+  if (ms < 0) return 0
+  return Math.floor(ms / (1000 * 60 * 60 * 24))
+}
+
+function isStale(lastScanAt: string | null): boolean {
+  // null timestamp = "never scanned" — treat as stale by default rather
+  // than as fresh. Same posture as feedback_safety_language.md: don't
+  // claim a clean state we can't prove.
+  if (!lastScanAt) return true
+  const d = daysSinceScan(lastScanAt)
+  return d === null || d >= STALE_THRESHOLD_DAYS
 }
 
 interface AvailableSystem {
@@ -166,6 +197,7 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
               high: sys.high_count ?? sys.highIssues ?? 0,
               total: resourceCount,
               lastScan: sys.lastScan || "Just now",
+              lastScanAt: sys.lastScanAt ?? null,
               owner: sys.owner || "Platform Team",
             }
           })
@@ -357,6 +389,9 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
       high: 0,
       total: 0,
       lastScan: "Pending",
+      // Newly-added system has never been scanned — null means "stale by
+      // default" per isStale() semantics, which is the honest read.
+      lastScanAt: null,
       owner: sys.owner || "Unassigned",
     }
 
@@ -821,6 +856,12 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                 }
                 const critHex = critColorMap[getCriticalityColor(system.criticality)] || "#6b7280"
                 const healthColor = getHealthColor(system.health).match(/#[0-9a-fA-F]+/)?.[0] || "#6b7280"
+                // Stale rows fade the health number + show a stale badge in
+                // the lastScan cell. The health number is still readable but
+                // visually de-emphasized so operators don't act on a green
+                // 95 backed by a 22-day-old scan. Per design review.
+                const stale = isStale(system.lastScanAt)
+                const daysOld = daysSinceScan(system.lastScanAt)
                 return (
                   <tr
                     key={idx}
@@ -844,7 +885,18 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className="text-sm font-bold" style={{ color: healthColor }}>
+                      <span
+                        className="text-sm font-bold"
+                        style={{
+                          color: healthColor,
+                          opacity: stale ? 0.45 : 1,
+                        }}
+                        title={
+                          stale
+                            ? `Health score is faded because the last scan is ${daysOld === null ? "missing or older than threshold" : `${daysOld} days old`}. Re-ingest to refresh.`
+                            : undefined
+                        }
+                      >
                         {system.health || "--"}
                       </span>
                     </td>
@@ -876,7 +928,22 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                       <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{system.total}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>{system.lastScan}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>{system.lastScan}</span>
+                        {stale && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                            style={{ background: "#f9731620", color: "#f97316", border: "1px solid #f9731640" }}
+                            title={
+                              system.lastScanAt
+                                ? `Last scan is ${daysOld} days old (≥ ${STALE_THRESHOLD_DAYS}-day stale threshold). Numbers may not reflect current AWS state.`
+                                : "No scan recorded for this system. Numbers below are not validated against current AWS state."
+                            }
+                          >
+                            stale
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{system.owner}</span>
