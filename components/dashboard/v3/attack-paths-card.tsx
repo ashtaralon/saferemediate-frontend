@@ -76,7 +76,10 @@ export function AttackPathsCard() {
     "/api/proxy/identity-attack-paths/all",
     {
       cacheKey: "identity-attack-paths-all",
-      maxStaleMs: 10 * 60 * 1000,
+      // 1h "fresh" window. Beyond that, refresh runs in background.
+      // If the refresh fails, the hook's last-resort fallback shows
+      // older-but-still-readable cache (up to 7d) rather than a 504.
+      maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
     }
   )

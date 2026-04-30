@@ -68,7 +68,7 @@ export function EvidenceHealthCardV3() {
     "/api/proxy/evidence/coverage",
     {
       cacheKey: "evidence-coverage",
-      maxStaleMs: 15 * 60 * 1000,
+      maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
     }
   )

@@ -82,6 +82,16 @@ function readCache<T>(key: string, maxAge: number): { data: T; ts: number } | nu
   }
 }
 
+/** Read cache without applying a maxAge filter — used as the "last
+ *  resort" fallback when a fresh fetch fails. Better to show 6-hour
+ *  old data with a clear stale indicator than to show a blank error
+ *  to an operator trying to work. The hard cap is 7 days — beyond
+ *  that the data is too dated to be useful even as fallback. */
+const FALLBACK_HARD_CAP_MS = 7 * 24 * 60 * 60 * 1000
+function readCacheAny<T>(key: string): { data: T; ts: number } | null {
+  return readCache<T>(key, FALLBACK_HARD_CAP_MS)
+}
+
 function writeCache<T>(key: string, data: T): void {
   if (typeof window === "undefined") return
   try {
@@ -126,11 +136,23 @@ export function useCachedFetch<T = unknown>(
       const res = await fetch(url, { ...fetchInit, signal: controller.signal })
       if (myEpoch !== epochRef.current) return
       if (!res.ok) {
-        // Only surface error when we have no cached fallback to show.
-        // Otherwise let the user keep seeing stale data — better than
-        // an error flash over data they were just looking at.
-        if (data === null) setError(`HTTP ${res.status}`)
-        if (data === null) setLoading(false)
+        // Only surface error when we have no cached fallback to show
+        // — including older-than-maxStaleMs cache, which we can use as
+        // last-resort fallback. Better to show 6h-old data with a
+        // clear "as of 6h ago, refreshing" pill than to block the
+        // operator with a 504 error message.
+        if (data === null) {
+          const fallback = readCacheAny<T>(cacheKey)
+          if (fallback) {
+            setData(fallback.data)
+            setIsStale(true)
+            setCachedAt(fallback.ts)
+            setLoading(false)
+            return
+          }
+          setError(`HTTP ${res.status}`)
+          setLoading(false)
+        }
         return
       }
       const json = (await res.json()) as T
@@ -149,6 +171,17 @@ export function useCachedFetch<T = unknown>(
       if (myEpoch !== epochRef.current) return
       if (err instanceof Error && err.name === "AbortError") return
       if (data === null) {
+        // Same fallback as the !res.ok path — try last-resort cache
+        // first before erroring. Keeps the operator's screen populated
+        // with usable data rather than a 504 message.
+        const fallback = readCacheAny<T>(cacheKey)
+        if (fallback) {
+          setData(fallback.data)
+          setIsStale(true)
+          setCachedAt(fallback.ts)
+          setLoading(false)
+          return
+        }
         setError(err instanceof Error ? err.message : String(err))
         setLoading(false)
       }

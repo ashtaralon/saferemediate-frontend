@@ -58,7 +58,10 @@ export function RecentActivityCard() {
     "/api/proxy/recent-activity",
     {
       cacheKey: "recent-activity",
-      maxStaleMs: 5 * 60 * 1000,
+      // 30-min freshness window. Recent activity feels stale beyond
+      // that, but we still keep last-resort cache available for
+      // up to 7 days when fresh fetch fails.
+      maxStaleMs: 30 * 60 * 1000,
       fetchInit: { cache: "no-store" },
     }
   )

@@ -70,7 +70,7 @@ export function LPTopIssuesCard() {
     "/api/proxy/least-privilege/issues",
     {
       cacheKey: "lp-issues",
-      maxStaleMs: 10 * 60 * 1000,
+      maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
     }
   )

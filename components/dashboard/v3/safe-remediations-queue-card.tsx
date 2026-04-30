@@ -53,7 +53,7 @@ export function SafeRemediationsQueueCard() {
     "/api/proxy/remediation-candidates?limit=10",
     {
       cacheKey: "remediation-candidates",
-      maxStaleMs: 10 * 60 * 1000,
+      maxStaleMs: 60 * 60 * 1000,
       fetchInit: { cache: "no-store" },
     }
   )
