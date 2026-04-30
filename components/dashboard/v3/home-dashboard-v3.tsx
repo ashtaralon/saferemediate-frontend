@@ -14,7 +14,7 @@ import { SeverityDonutCard } from "./severity-donut-card"
 import { AttackPathsCard } from "./attack-paths-card"
 import { LPTopIssuesCard } from "./lp-top-issues-card"
 import { NotWiredCard } from "./card-shell"
-import { labelClass } from "./styles"
+import { PageHeader } from "@/components/ui/page-header"
 
 /**
  * V3 home dashboard — editorial typography, real-data discipline.
@@ -48,21 +48,25 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
   return (
     <div className="mx-auto flex max-w-[1400px] flex-col gap-5 p-6" key={refreshKey}>
       {/* ── A. Header ─────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between rounded-[14px] border border-slate-200 bg-white px-5 py-4">
-        <div>
-          <div className={labelClass}>Cyntro · home</div>
-          <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">
-            Security posture
-          </h1>
-        </div>
-        <button
-          onClick={refresh}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
-        </button>
-      </header>
+      <PageHeader
+        eyebrow="Cyntro · home"
+        title="Security posture"
+        actions={
+          <button
+            onClick={refresh}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        }
+      />
+      {/* TODO: wire `provenance` once each card surfaces its trust state.
+         Per design review, the header is the right place for a synthetic
+         page-level provenance (worst-confidence + oldest-freshness across
+         the cards below). Until each card emits provenance through the
+         proxy, the header degrades to identity + actions only — better
+         than a fabricated confidence pill. */}
 
       {/* ── B. Hero row — BRSS (2/3) + Wildcard bloat (1/3) ───────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">

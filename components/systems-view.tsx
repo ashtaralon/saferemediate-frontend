@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { NewSystemsModal } from "./new-systems-modal"
+import { PageHeader } from "@/components/ui/page-header"
 
 interface System {
   name: string
@@ -667,12 +668,16 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Systems Overview</h2>
-          <div className="flex items-center gap-4 mt-1">
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>{localSystems.length} systems monitored across all environments</p>
+      {/* PageHeader — shared with Home V3 and Issues so the three top-
+         level dashboards present a consistent identity. Per the dashboard
+         design review (2026-04-30): trust pill goes here once each page
+         wires its provenance; for now identity + scan-status + actions. */}
+      <PageHeader
+        eyebrow="Cyntro · systems"
+        title="Systems Overview"
+        subtitle={`${localSystems.length} systems monitored across all environments`}
+        actions={
+          <>
             <div className="flex items-center gap-2">
               {isScanning ? (
                 <div className="flex items-center gap-2" style={{ color: "#8b5cf6" }}>
@@ -691,25 +696,33 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
                 </div>
               )}
             </div>
-          </div>
-          {gapData.unused > 0 && (
-            <div className="mt-2 inline-flex items-center gap-2 bg-[#eab30810] border border-[#eab30840] text-[#eab308] px-3 py-1 rounded-full text-xs font-medium">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              Auto-remediation pending: {gapData.unused} permissions at 99% confidence
-            </div>
-          )}
-        </div>
+            <button
+              onClick={() => fetchSystemsData()}
+              disabled={isScanning}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 hover:opacity-90"
+              style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => fetchSystemsData()}
-            disabled={isScanning}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 hover:opacity-90"
-            style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+      {/* Auto-remediation pending badge — kept under the header rather
+         than inside it so it can fade in/out without disturbing the
+         identity row. */}
+      {gapData.unused > 0 && (
+        <div className="inline-flex items-center gap-2 bg-[#eab30810] border border-[#eab30840] text-[#eab308] px-3 py-1 rounded-full text-xs font-medium">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Auto-remediation pending: {gapData.unused} permissions at 99% confidence
+        </div>
+      )}
+
+      {/* Secondary action row — re-ingest + add-system dropdown. Kept
+         separate from the PageHeader actions slot so the dropdown's
+         absolute-positioned panel doesn't fight with header layout. */}
+      <div className="flex items-center justify-end gap-2">
 
           <button
             onClick={() => handleReingest("all")}
@@ -787,7 +800,6 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
             <Download className="w-3.5 h-3.5" />
             Export Report
           </button>
-        </div>
       </div>
 
       {/* Search and Filter */}

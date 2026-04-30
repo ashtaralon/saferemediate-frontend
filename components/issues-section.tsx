@@ -5,6 +5,7 @@ import { AlertTriangle, Shield, RefreshCw, Play, CheckCircle, Loader2, Search } 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { PageHeader } from "@/components/ui/page-header"
 import { SimulateFixModal } from "@/components/SimulateFixModal"
 import { SGInspectorSheet } from "@/components/inspector/SGInspectorSheet"
 import { fetchSecurityFindings, triggerScan, getScanStatus } from "@/lib/api-client"
@@ -263,39 +264,41 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
 
   return (
     <div className="space-y-4">
-      {/* Header with actions */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">Security Findings</h3>
-            <Badge variant="secondary">{findings.length}</Badge>
-          </div>
-          {lastScanTime && (
-            <span className="text-sm text-muted-foreground">
-              Last scan: {lastScanTime.toLocaleTimeString()} ({getTimeAgo(lastScanTime)})
-            </span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading || scanning}>
-            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button variant="default" size="sm" onClick={handleScan} disabled={scanning || loading}>
-            {scanning ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                Scanning...
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 mr-1" />
-                Scan Now
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+      {/* PageHeader — shared across Home / Issues / Systems Overview so
+         the three top-level dashboards have a single header treatment.
+         Per dashboard design review (2026-04-30): trust pill goes here
+         once each page wires its provenance; for now identity + actions
+         only. */}
+      <PageHeader
+        eyebrow={`Cyntro · issues${lastScanTime ? ` · last scan ${getTimeAgo(lastScanTime)}` : ""}`}
+        title="Security Findings"
+        subtitle={
+          findings.length > 0
+            ? `${findings.length} finding${findings.length === 1 ? "" : "s"} in scope`
+            : undefined
+        }
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={loading || scanning}>
+              <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button variant="default" size="sm" onClick={handleScan} disabled={scanning || loading}>
+              {scanning ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  Scanning...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-1" />
+                  Scan Now
+                </>
+              )}
+            </Button>
+          </>
+        }
+      />
 
       {/* No findings */}
       {findings.length === 0 && (
