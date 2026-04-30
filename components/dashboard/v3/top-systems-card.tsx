@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
 
@@ -109,33 +109,13 @@ function MixBar({ layers }: { layers: LayerMap | null | undefined }) {
 }
 
 export function TopSystemsCard() {
-  const [data, setData] = useState<SystemsResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<SystemsResponse>(
+    "/api/proxy/systems/with-families",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/systems/with-families", { cache: "no-store" })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Top systems by blast radius" />
-  if (error) return <ErrorCard label="Top systems by blast radius" error={error} onRetry={load} />
+  if (loading && !data) return <LoadingCard label="Top systems by blast radius" attempt={attempt} retrying={retrying} />
+  if (error) return <ErrorCard label="Top systems by blast radius" error={error} onRetry={retry} />
   if (!data) return null
 
   const systems = (data.systems ?? [])

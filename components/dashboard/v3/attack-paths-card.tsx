@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { Crown, Globe } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 
 /**
  * Top Attack Paths to Crown Jewels.
@@ -68,35 +68,13 @@ function priorityToneClass(score: number): string {
 }
 
 export function AttackPathsCard() {
-  const [data, setData] = useState<PathsResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<PathsResponse>(
+    "/api/proxy/identity-attack-paths/all",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/identity-attack-paths/all", {
-        cache: "no-store",
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Top attack paths to crown jewels" />
-  if (error) return <ErrorCard label="Top attack paths" error={error} onRetry={load} />
+  if (loading && !data) return <LoadingCard label="Top attack paths to crown jewels" attempt={attempt} retrying={retrying} />
+  if (error) return <ErrorCard label="Top attack paths" error={error} onRetry={retry} />
   if (!data) return null
 
   const jewels = (data.crown_jewels ?? []).slice(0, 8)

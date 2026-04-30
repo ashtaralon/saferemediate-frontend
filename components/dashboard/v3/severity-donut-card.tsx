@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, heroNumberClass } from "./styles"
@@ -33,33 +33,13 @@ const SEVERITY_COLORS = {
 }
 
 export function SeverityDonutCard() {
-  const [data, setData] = useState<IssuesSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<IssuesSummary>(
+    "/api/proxy/issues/summary",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/issues/summary", { cache: "no-store" })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Issues by severity" />
-  if (error) return <ErrorCard label="Issues by severity" error={error} onRetry={load} />
+  if (loading && !data) return <LoadingCard label="Issues by severity" attempt={attempt} retrying={retrying} />
+  if (error) return <ErrorCard label="Issues by severity" error={error} onRetry={retry} />
   if (!data) return null
 
   const total = data.total ?? 0

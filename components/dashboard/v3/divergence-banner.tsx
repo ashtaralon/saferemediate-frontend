@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { labelClass } from "./styles"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 
 /**
  * Divergence banner — conditional render only when total_conflicts > 0.
@@ -23,23 +23,13 @@ type DivergenceSummary = {
 }
 
 export function DivergenceBanner() {
-  const [data, setData] = useState<DivergenceSummary | null>(null)
-
-  const load = async () => {
-    try {
-      const res = await fetch("/api/proxy/evidence/divergence/summary", {
-        cache: "no-store",
-      })
-      if (!res.ok) return
-      setData(await res.json())
-    } catch {
-      // silent — banner is non-blocking; absence is honest
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
+  // Banner is non-blocking — absence is honest. Use the retry hook so a
+  // cold-start 504 doesn't silently hide a real conflict; if all retries
+  // fail we just don't render (same posture as the original silent catch).
+  const { data } = useRetryFetch<DivergenceSummary>(
+    "/api/proxy/evidence/divergence/summary",
+    { fetchInit: { cache: "no-store" } }
+  )
 
   const total = data?.total_conflicts ?? 0
   if (total === 0) return null

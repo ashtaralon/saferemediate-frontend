@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { RefreshCw } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
@@ -57,38 +57,18 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 export function EvidenceHealthCardV3() {
-  const [data, setData] = useState<CoverageResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<CoverageResponse>(
+    "/api/proxy/evidence/coverage",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/evidence/coverage", { cache: "no-store" })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Evidence health" />
-  if (error) return <ErrorCard label="Evidence health" error={error} onRetry={load} />
+  if (loading && !data) return <LoadingCard label="Evidence health" attempt={attempt} retrying={retrying} />
+  if (error) return <ErrorCard label="Evidence health" error={error} onRetry={retry} />
   if (!data) return null
 
   const refreshButton = (
     <button
-      onClick={load}
+      onClick={retry}
       disabled={loading}
       className="text-slate-400 transition hover:text-slate-700"
       aria-label="Refresh"

@@ -77,8 +77,21 @@ export function NotWiredCard({
 /**
  * LoadingCard — used while real data is in flight. NEVER displays
  * pseudo numbers (e.g. "0" as a placeholder). Skeleton bars only.
+ *
+ * Optional `attempt` prop surfaces auto-retry progress so users can
+ * tell the card is recovering, not silently stuck. Used by
+ * useRetryFetch-backed cards.
  */
-export function LoadingCard({ label }: { label: string }) {
+export function LoadingCard({
+  label,
+  attempt,
+  retrying,
+}: {
+  label: string
+  attempt?: number
+  retrying?: boolean
+}) {
+  const showRetry = retrying && typeof attempt === "number" && attempt > 0
   return (
     <div className={sectionClass}>
       <div className={labelClass}>{label}</div>
@@ -86,6 +99,12 @@ export function LoadingCard({ label }: { label: string }) {
         <div className="h-8 w-32 animate-pulse rounded bg-slate-200" />
         <div className="h-3 w-48 animate-pulse rounded bg-slate-100" />
       </div>
+      {showRetry && (
+        <div className="mt-3 inline-flex items-center gap-1.5 rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+          Retrying… attempt {attempt + 1}
+        </div>
+      )}
     </div>
   )
 }

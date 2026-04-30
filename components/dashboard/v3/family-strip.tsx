@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
   accentByCategory,
@@ -47,43 +47,23 @@ const DISPLAY: Array<{
 ]
 
 export function FamilyStrip() {
-  const [data, setData] = useState<FamilyData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/family-aggregate", { cache: "no-store" })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<FamilyData>(
+    "/api/proxy/family-aggregate",
+    { fetchInit: { cache: "no-store" } }
+  )
 
   if (loading && !data) {
     return (
       <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <LoadingCard label="Permissions" />
-        <LoadingCard label="Network" />
-        <LoadingCard label="Data" />
+        <LoadingCard label="Permissions" attempt={attempt} retrying={retrying} />
+        <LoadingCard label="Network" attempt={attempt} retrying={retrying} />
+        <LoadingCard label="Data" attempt={attempt} retrying={retrying} />
       </section>
     )
   }
 
   if (error) {
-    return <ErrorCard label="Family breakdown" error={error} onRetry={load} />
+    return <ErrorCard label="Family breakdown" error={error} onRetry={retry} />
   }
 
   if (!data) return null

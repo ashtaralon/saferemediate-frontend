@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
   accentByCategory,
@@ -46,35 +46,20 @@ const GRADE_COLORS: Record<string, string> = {
 }
 
 export function HeroBrssCard() {
-  const [data, setData] = useState<PostureScore | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<PostureScore>(
+    "/api/proxy/posture-score",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/posture-score", { cache: "no-store" })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      const body: PostureScore = await res.json()
-      if (body.error) throw new Error(body.message || body.error)
-      setData(body)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+  if (loading && !data) return <LoadingCard label="Global blast radius score" attempt={attempt} retrying={retrying} />
+  // The /api/proxy/posture-score endpoint may return HTTP 200 with an
+  // `error` field in the body to signal an upstream failure that should
+  // be surfaced to the user. The hook only treats HTTP status as the
+  // error signal, so we post-validate the body here.
+  const bodyError = data?.error ? data.message || data.error : null
+  if (error || bodyError) {
+    return <ErrorCard label="Global blast radius score" error={error || bodyError || ""} onRetry={retry} />
   }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Global blast radius score" />
-  if (error) return <ErrorCard label="Global blast radius score" error={error} onRetry={load} />
   if (!data) return null
 
   return (

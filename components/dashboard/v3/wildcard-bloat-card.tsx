@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
   accentByCategory,
@@ -9,6 +8,7 @@ import {
   scoreToneClass,
   unitClass,
 } from "./styles"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 
 /**
  * Wildcard Bloat — point-in-time only.
@@ -38,35 +38,13 @@ type LpMetrics = {
 }
 
 export function WildcardBloatCard() {
-  const [data, setData] = useState<LpMetrics | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<LpMetrics>(
+    "/api/proxy/least-privilege/metrics",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/least-privilege/metrics", {
-        cache: "no-store",
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Wildcard bloat" />
-  if (error) return <ErrorCard label="Wildcard bloat" error={error} onRetry={load} />
+  if (loading && !data) return <LoadingCard label="Wildcard bloat" attempt={attempt} retrying={retrying} />
+  if (error) return <ErrorCard label="Wildcard bloat" error={error} onRetry={retry} />
   if (!data) return null
 
   const pct = Math.round(data.averageBloatPercentage)

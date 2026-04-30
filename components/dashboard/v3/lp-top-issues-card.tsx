@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass } from "./styles"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 
 /**
  * Top least-privilege issues — real data, sorted by gap%.
@@ -64,35 +64,26 @@ function gapPillClass(pct: number): string {
 }
 
 export function LPTopIssuesCard() {
-  const [data, setData] = useState<IssuesResp | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // useRetryFetch handles cold-start 504s automatically — the design
+  // review caught this card permanently stuck on "HTTP 504" when the
+  // proxy timed out at first load, even though the underlying endpoint
+  // started responding seconds later. Now: 4 attempts with exponential
+  // backoff, then surfaces the error with a manual retry button.
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<IssuesResp>(
+    "/api/proxy/least-privilege/issues",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/least-privilege/issues", {
-        cache: "no-store",
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.message || `HTTP ${res.status}`)
-      }
-      setData(await res.json())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+  if (loading && !data) {
+    return (
+      <LoadingCard
+        label="Top least-privilege issues"
+        attempt={attempt}
+        retrying={retrying}
+      />
+    )
   }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Top least-privilege issues" />
-  if (error) return <ErrorCard label="Top least-privilege issues" error={error} onRetry={load} />
+  if (error) return <ErrorCard label="Top least-privilege issues" error={error} onRetry={retry} />
   if (!data) return null
 
   const summary = data.summary ?? {}

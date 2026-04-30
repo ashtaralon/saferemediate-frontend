@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useRetryFetch } from "@/lib/use-retry-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
@@ -47,37 +47,17 @@ type CandidatesResponse = {
 }
 
 export function SafeRemediationsQueueCard() {
-  const [data, setData] = useState<CandidatesResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<CandidatesResponse>(
+    "/api/proxy/remediation-candidates?limit=10",
+    { fetchInit: { cache: "no-store" } }
+  )
 
-  const load = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/proxy/remediation-candidates?limit=10", {
-        cache: "no-store",
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `HTTP ${res.status}`)
-      }
-      const body: CandidatesResponse = await res.json()
-      if (body.error) throw new Error(body.error)
-      setData(body)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+  if (loading && !data) return <LoadingCard label="Safe remediations queue" attempt={attempt} retrying={retrying} />
+  // Endpoint may return 200 with body.error to signal upstream failure.
+  const bodyError = data?.error ? data.error : null
+  if (error || bodyError) {
+    return <ErrorCard label="Safe remediations queue" error={error || bodyError || ""} onRetry={retry} />
   }
-
-  useEffect(() => {
-    load()
-  }, [])
-
-  if (loading && !data) return <LoadingCard label="Safe remediations queue" />
-  if (error) return <ErrorCard label="Safe remediations queue" error={error} onRetry={load} />
   if (!data) return null
 
   const ready = (data.candidates ?? []).filter((c) => c.safety?.can_auto_apply === true)
