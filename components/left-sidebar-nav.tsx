@@ -17,30 +17,37 @@ export function LeftSidebarNav({
   issuesCount = 0,
   pendingTagsCount = 0,
 }: LeftSidebarNavProps) {
-  // `href` renders as a real Link (navigates). Default items use `onItemClick`
-  // and stay in the section-switcher model of app/page.tsx. The PendingTags
-  // surface is a standalone Next.js route (app/pending-tags/page.tsx) so it's
-  // linkable + bookmarkable — hence it uses `href`.
+  // Every item now renders as a real Next.js <Link>. URL is the source of
+  // truth for which section is active — that fixes:
+  //   - Cmd/Ctrl-click → "Open in new tab" works (was broken: items were buttons)
+  //   - Refresh keeps the user's place (was broken: refresh dropped to home)
+  //   - Browser back/forward navigates between sections (was broken: URL never changed)
+  //   - Sharing a deep link like /?section=attack-paths works
+  //   - Screen readers announce items as navigation (was broken: announced as buttons)
+  //
+  // Items with their own dedicated route (e.g. PendingTags at /pending-tags)
+  // keep that route. Everything else uses the section-switcher pattern via
+  // ?section=<id> on the root route.
   const menuItems: Array<{
     id: string
     label: string
     icon: any
     count?: number
-    href?: string
+    href: string
   }> = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "copilot", label: "Ask Copilot", icon: Sparkles },
-    { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount },
-    { id: "least-privilege", label: "Least Privilege", icon: Shield },
-    { id: "attack-paths", label: "Attack Paths", icon: Route },
-    { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
-    { id: "systems", label: "Systems", icon: Server },
-    { id: "compliance", label: "Compliance", icon: Grid3x3 },
-    { id: "identities", label: "Identities", icon: Fingerprint },
-    { id: "per-resource", label: "Shared Resource", icon: Split },
+    { id: "home", label: "Home", icon: Home, href: "/" },
+    { id: "copilot", label: "Ask Copilot", icon: Sparkles, href: "/?section=copilot" },
+    { id: "issues", label: "Issues", icon: AlertTriangle, count: issuesCount, href: "/?section=issues" },
+    { id: "least-privilege", label: "Least Privilege", icon: Shield, href: "/?section=least-privilege" },
+    { id: "attack-paths", label: "Attack Paths", icon: Route, href: "/?section=attack-paths" },
+    { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug, href: "/?section=vulnerabilities" },
+    { id: "systems", label: "Systems", icon: Server, href: "/?section=systems" },
+    { id: "compliance", label: "Compliance", icon: Grid3x3, href: "/?section=compliance" },
+    { id: "identities", label: "Identities", icon: Fingerprint, href: "/?section=identities" },
+    { id: "per-resource", label: "Shared Resource", icon: Split, href: "/?section=per-resource" },
     { id: "pending-tags", label: "Pending Tags", icon: Tag, count: pendingTagsCount, href: "/pending-tags" },
-    { id: "automation", label: "Automation", icon: Zap },
-    { id: "integrations", label: "Integrations", icon: Plug },
+    { id: "automation", label: "Automation", icon: Zap, href: "/?section=automation" },
+    { id: "integrations", label: "Integrations", icon: Plug, href: "/?section=integrations" },
   ]
 
   return (
@@ -108,26 +115,20 @@ export function LeftSidebarNav({
           }
           const commonClass = "relative w-full flex items-center gap-3 px-6 py-3 text-sm font-medium transition-all overflow-hidden"
 
-          // Items with `href` render as real Next.js Links so the destination
-          // page (e.g. /pending-tags) is bookmarkable + shareable. Others
-          // stay inside the section-switcher model.
-          if (item.href) {
-            return (
-              <Link key={item.id} href={item.href} className={commonClass} style={commonStyle}>
-                {body}
-              </Link>
-            )
-          }
-
+          // All items now render as <Link>. onClick (when provided) still
+          // fires before navigation so the parent can run any imperative
+          // setup (e.g. clearing a search filter) — but URL update is
+          // authoritative and cannot be skipped.
           return (
-            <button
+            <Link
               key={item.id}
-              onClick={() => onItemClick?.(item.id)}
+              href={item.href}
               className={commonClass}
               style={commonStyle}
+              onClick={onItemClick ? () => onItemClick(item.id) : undefined}
             >
               {body}
-            </button>
+            </Link>
           )
         })}
       </nav>
