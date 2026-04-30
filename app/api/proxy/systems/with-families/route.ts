@@ -5,28 +5,40 @@ import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "systems-with-families"
 
+export const maxDuration = 30
+
 /**
  * GET /api/proxy/systems/with-families
  *
- * Returns the list of systems WITH their per-family layer scores
- * (privilege / network / data). Required to render the mix-bar in
- * the Top 5 systems table.
+ * Per-system data with per-family layer scores (privilege/network/data).
+ * Used by the home dashboard's "Top systems by blast radius" card and
+ * by the dense-table operator home.
  *
- * Fans out: /api/systems → /api/service-risk-scores/{system_name}
- * for each. Per-system error isolation; failures end up in errors[],
- * the system row still appears (just without family data).
+ * Pre-2026-05-01 this proxy did the fan-out itself: /api/systems +
+ * one /api/service-risk-scores/{name} per system. That meant N+1 HTTP
+ * roundtrips Vercel↔Render and triggered timeouts under load.
  *
- * Honest: no synthesis. If service-risk-scores returns empty layers,
- * we surface that — never invent a mix.
+ * Now passthrough to backend /api/service-risk-scores/all-systems —
+ * server-side fan-out via asyncio.gather. Single HTTP call from
+ * Vercel; backend's 5-min cache absorbs repeats.
  */
 
 type Layer = { name: string; score: number; resource_count: number }
-type LayerMap = Record<string, Layer>
 
-type ServiceRiskResp = {
-  system_name?: string
-  layers?: LayerMap
-  error?: string
+type System = {
+  name?: string
+  SystemName?: string
+  layers?: Record<string, Layer>
+  system_score?: number
+  criticality?: string
+  resource_count?: number
+}
+
+type AllSystemsResponse = {
+  systems?: System[]
+  total?: number
+  aggregate_layers?: Record<string, any>
+  errors?: string[]
 }
 
 export async function GET(_req: NextRequest) {
@@ -35,58 +47,41 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
   try {
-    const sysRes = await fetch(`${BACKEND_URL}/api/systems`, {
+    const r = await fetch(`${BACKEND_URL}/api/service-risk-scores/all-systems`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
+      signal: AbortSignal.timeout(25000),
     })
-    if (!sysRes.ok) {
+    if (!r.ok) {
       return NextResponse.json(
-        { error: "systems_endpoint_unavailable", backend_status: sysRes.status },
+        {
+          error: "all_systems_endpoint_unavailable",
+          backend_status: r.status,
+          systems: [],
+          total: 0,
+          errors: [`backend ${r.status}`],
+        },
         { status: 502 },
       )
     }
-    const sysData = await sysRes.json()
-    const systems: any[] = Array.isArray(sysData?.systems) ? sysData.systems : []
-
-    const enriched = await Promise.allSettled(
-      systems.map(async (s) => {
-        const name = s.SystemName ?? s.name
-        if (!name) return { ...s, layers: null }
-        const r = await fetch(
-          `${BACKEND_URL}/api/service-risk-scores/${encodeURIComponent(name)}`,
-          { cache: "no-store" },
-        )
-        if (!r.ok) {
-          throw new Error(`backend ${r.status} for ${name}`)
-        }
-        const data: ServiceRiskResp = await r.json()
-        return { ...s, layers: data.layers ?? null }
-      }),
-    )
-
-    const fulfilled = enriched
-      .filter((p): p is PromiseFulfilledResult<any> => p.status === "fulfilled")
-      .map((p) => p.value)
-    const errors = enriched
-      .filter((p): p is PromiseRejectedResult => p.status === "rejected")
-      .map((p) => String(p.reason))
-
+    const data: AllSystemsResponse = await r.json()
+    // The backend already returns the shape this proxy used to produce
+    // (systems[] each with `layers`). Just pass it through verbatim.
     const payload = {
-      systems: fulfilled,
-      total: fulfilled.length,
-      errors,
+      systems: data.systems ?? [],
+      total: data.total ?? 0,
+      errors: data.errors ?? [],
     }
-    // 5-min TTL — N+1 fan-out (one /api/service-risk-scores/<system>
-    // per system). Bumped from TTL_STD (60s) → TTL_SLOW (5min) because
-    // the data changes only on re-ingest and the cold-start hit was a
-    // major contributor to "stuck" home dashboard loads.
     setCached(CACHE_KEY, payload, TTL_SLOW)
     return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(
       {
-        error: "systems_with_families_error",
+        error: "systems_with_families_proxy_error",
         message: e instanceof Error ? e.message : String(e),
+        systems: [],
+        total: 0,
+        errors: [e instanceof Error ? e.message : String(e)],
       },
       { status: 502 },
     )

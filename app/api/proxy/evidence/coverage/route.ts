@@ -1,34 +1,38 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
+
+export const maxDuration = 30
 
 /**
  * GET /api/proxy/evidence/coverage
  *
  * Two modes:
- *   1. ?account_id=X — proxy direct to backend /api/evidence/coverage
- *   2. (no query)    — fan out across /api/accounts, aggregate per-account
- *                      health into an org-wide rollup
+ *   1. ?account_id=X — direct passthrough for one account
+ *   2. (no query)    — passthrough to backend /api/evidence/coverage/all
+ *                      which does the org-wide aggregation server-side.
  *
- * Honesty contract:
- *   - aggregate_confidence is min across accounts (weakest-link), matching
- *     the backend's per-account aggregation
- *   - If any account fan-out fails, surface it in `errors[]` rather than
- *     silently dropping
- *   - Empty accounts list → return zeros + an explicit "no accounts" flag
- *     so the UI can render an honest empty state, not a fake 100%
+ * Pre-2026-05-01 this proxy did the org-wide fan-out itself
+ * (/api/accounts + per-account /coverage). That hit Render free-tier
+ * concurrent-request limits and produced timeouts. The backend now
+ * does the fan-out in-process via asyncio.gather; this proxy is a
+ * thin passthrough.
  */
 export async function GET(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get("account_id")
 
-  // Mode 1: direct passthrough for a specific account
+  // Mode 1: per-account passthrough (unchanged).
   if (accountId) {
     try {
       const res = await fetch(
         `${BACKEND_URL}/api/evidence/coverage?account_id=${encodeURIComponent(accountId)}`,
-        { headers: { "Content-Type": "application/json" }, cache: "no-store" },
+        {
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          signal: AbortSignal.timeout(20000),
+        },
       )
       if (!res.ok) {
         return NextResponse.json(
@@ -45,91 +49,44 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Mode 2: org-wide fan-out
+  // Mode 2: org-wide aggregator.
   const cacheKey = "evidence-coverage-orgwide"
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
   try {
-    const acctsRes = await fetch(`${BACKEND_URL}/api/accounts`, {
+    const r = await fetch(`${BACKEND_URL}/api/evidence/coverage/all`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
+      signal: AbortSignal.timeout(25000),
     })
-    if (!acctsRes.ok) {
+    if (!r.ok) {
       return NextResponse.json(
-        { error: "accounts_endpoint_unavailable", backend_status: acctsRes.status },
+        {
+          error: "coverage_all_endpoint_unavailable",
+          backend_status: r.status,
+          accounts: [],
+          aggregate_confidence: 0,
+          health: { healthy: 0, degraded: 0, missing: 0, total: 0 },
+          errors: [`backend ${r.status}`],
+        },
         { status: 502 },
       )
     }
-    const acctsData = await acctsRes.json()
-    const accounts: Array<{ cloud: string; account_id: string; source_count: number }> =
-      Array.isArray(acctsData?.accounts) ? acctsData.accounts : []
-
-    if (accounts.length === 0) {
-      return NextResponse.json({
-        no_accounts: true,
-        message:
-          "No SignalSource accounts in graph. Backend collectors / evidence-audit scheduler have not populated data yet.",
+    const data = await r.json()
+    setCached(cacheKey, data, TTL_SLOW)
+    return NextResponse.json(data, { headers: { "X-Cache": "MISS" } })
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: "coverage_proxy_error",
+        message: e instanceof Error ? e.message : String(e),
         accounts: [],
         aggregate_confidence: 0,
         health: { healthy: 0, degraded: 0, missing: 0, total: 0 },
-      })
-    }
-
-    const perAccount = await Promise.allSettled(
-      accounts.map(async (a) => {
-        const r = await fetch(
-          `${BACKEND_URL}/api/evidence/coverage?account_id=${encodeURIComponent(a.account_id)}&cloud=${encodeURIComponent(a.cloud)}`,
-          { headers: { "Content-Type": "application/json" }, cache: "no-store" },
-        )
-        if (!r.ok) throw new Error(`backend ${r.status} for ${a.account_id}`)
-        const data = await r.json()
-
-        // NOTE (2026-04-30): an earlier version of this proxy deduped
-        // sources by source_type, but that was wrong — multiple entries
-        // for the same type are legitimate when the source is per-region
-        // (VPC Flow Logs, IAM Access Analyzer, AWS Config, X-Ray all
-        // run per-region in unified/evidence/auditor.py). The dedup
-        // hid real per-region data. The UI now disambiguates by region
-        // in the label, so the proxy is a clean passthrough.
-        return { account_id: a.account_id, cloud: a.cloud, ...data }
-      }),
-    )
-
-    const fulfilled = perAccount
-      .filter((p): p is PromiseFulfilledResult<any> => p.status === "fulfilled")
-      .map((p) => p.value)
-    const errors = perAccount
-      .filter((p): p is PromiseRejectedResult => p.status === "rejected")
-      .map((p) => String(p.reason))
-
-    const aggregate_confidence =
-      fulfilled.length === 0
-        ? 0
-        : Math.min(...fulfilled.map((f) => Number(f.aggregate_confidence) || 0))
-
-    const health = fulfilled.reduce(
-      (acc, f) => ({
-        healthy: acc.healthy + (f.health?.healthy || 0),
-        degraded: acc.degraded + (f.health?.degraded || 0),
-        missing: acc.missing + (f.health?.missing || 0),
-        total: acc.total + (f.health?.total || 0),
-      }),
-      { healthy: 0, degraded: 0, missing: 0, total: 0 },
-    )
-
-    const payload = {
-      accounts: fulfilled,
-      aggregate_confidence,
-      health,
-      errors,
-    }
-    setCached(cacheKey, payload, TTL_STD)
-    return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
-  } catch (e) {
-    return NextResponse.json(
-      { error: "coverage_fanout_error", message: e instanceof Error ? e.message : String(e) },
+        errors: [e instanceof Error ? e.message : String(e)],
+      },
       { status: 502 },
     )
   }
