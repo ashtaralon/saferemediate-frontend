@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "family-aggregate"
@@ -122,7 +122,14 @@ export async function GET(_req: NextRequest) {
       total_systems: systems.length,
       errors,
     }
-    setCached(CACHE_KEY, payload, TTL_STD)
+    // 5-min TTL because this org-wide aggregate fans out N+1 Cypher
+    // queries (one per system) and the data only meaningfully changes
+    // when a system gets re-ingested. Used to be 60s — bumped because
+    // user reported the FamilyStrip card "loaded very very slow and
+    // stuck" on the home dashboard. The N+1 fan-out + Render cold-start
+    // means a fresh miss can take 30s+; serving 5-min-old data instead
+    // is the right trade.
+    setCached(CACHE_KEY, payload, TTL_SLOW)
     return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(

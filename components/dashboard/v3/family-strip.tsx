@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
   accentByCategory,
@@ -47,22 +47,29 @@ const DISPLAY: Array<{
 ]
 
 export function FamilyStrip() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<FamilyData>(
+  // useCachedFetch (stale-while-revalidate via localStorage). User
+  // reported this card "loaded very very slow and stuck" — the
+  // /api/proxy/family-aggregate endpoint fans out N+1 Cypher queries
+  // and can take 30s+ on cold-start. Now: second visit (and every
+  // subsequent visit) renders the cached data INSTANTLY while a
+  // background fetch refreshes it. The user only ever sees a real
+  // skeleton on the first visit ever; thereafter it's perceived-instant.
+  const { data, loading, error, retry } = useCachedFetch<FamilyData>(
     "/api/proxy/family-aggregate",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "family-aggregate", fetchInit: { cache: "no-store" } }
   )
 
   if (loading && !data) {
     return (
       <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <LoadingCard label="Permissions" attempt={attempt} retrying={retrying} />
-        <LoadingCard label="Network" attempt={attempt} retrying={retrying} />
-        <LoadingCard label="Data" attempt={attempt} retrying={retrying} />
+        <LoadingCard label="Permissions" />
+        <LoadingCard label="Network" />
+        <LoadingCard label="Data" />
       </section>
     )
   }
 
-  if (error) {
+  if (error && !data) {
     return <ErrorCard label="Family breakdown" error={error} onRetry={retry} />
   }
 
