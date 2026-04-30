@@ -75,31 +75,57 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [sgModalOpen, setSgModalOpen] = useState(false)
   const [modalResource, setModalResource] = useState<{ name: string; sgId?: string } | null>(null)
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(
-        `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`
-      )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const raw = await res.json()
-      const json: IdentityAttackPathsResponse = isTrustEnvelope(raw)
-        ? (raw.result as IdentityAttackPathsResponse)
-        : (raw as IdentityAttackPathsResponse)
-      if ((json as any).error) throw new Error((json as any).error)
-      setProvenance(isTrustEnvelope(raw) ? raw.provenance : null)
-      setData(json)
-      // initial jewel pick now happens in the listMode-aware effect below
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load attack paths")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [systemName])
+  // AbortController-aware fetch. The user reported feeling "stuck" on
+  // the Attack Paths tab and unable to switch sections — most likely
+  // because the underlying /api/proxy/identity-attack-paths endpoint
+  // can take 30s+ on cold-start, and the previous fetch had no
+  // AbortController, so:
+  //   1. user clicks Attack Paths → fetch starts, takes 30s
+  //   2. user clicks Issues mid-fetch
+  //   3. React unmounts this component
+  //   4. the leaked fetch keeps running, eventually setState's into a
+  //      detached component (React warns but no-ops)
+  //   5. if user clicks back to Attack Paths, ANOTHER 30s fetch starts
+  //
+  // Now: each mount installs an AbortController; unmount aborts the
+  // in-flight request so cancellation is immediate. The "Retry"
+  // button still calls fetchData, which auto-replaces any in-flight
+  // controller via the same useEffect cleanup.
+  const fetchData = useCallback(
+    async (signal?: AbortSignal): Promise<void> => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(
+          `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`,
+          { signal }
+        )
+        if (signal?.aborted) return
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const raw = await res.json()
+        if (signal?.aborted) return
+        const json: IdentityAttackPathsResponse = isTrustEnvelope(raw)
+          ? (raw.result as IdentityAttackPathsResponse)
+          : (raw as IdentityAttackPathsResponse)
+        if ((json as any).error) throw new Error((json as any).error)
+        setProvenance(isTrustEnvelope(raw) ? raw.provenance : null)
+        setData(json)
+      } catch (e: any) {
+        // AbortError is expected when the user navigates away mid-
+        // fetch — don't surface it as a render-able error.
+        if (e?.name === "AbortError" || signal?.aborted) return
+        setError(e?.message ?? "Failed to load attack paths")
+      } finally {
+        if (!signal?.aborted) setIsLoading(false)
+      }
+    },
+    [systemName]
+  )
 
   useEffect(() => {
-    fetchData()
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
   }, [fetchData])
 
   const jewelPaths = useMemo(() => {
@@ -402,7 +428,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
           <p className="text-sm text-white font-medium">Failed to load attack paths</p>
           <p className="text-xs text-slate-400">{error}</p>
           <button
-            onClick={fetchData}
+            onClick={() => fetchData()}
             className="mt-2 px-4 py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
           >
             Retry
@@ -524,7 +550,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
               </button>
             </div>
             <button
-              onClick={fetchData}
+              onClick={() => fetchData()}
               className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
               title="Refresh"
             >
