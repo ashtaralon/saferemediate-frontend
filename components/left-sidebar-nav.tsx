@@ -125,29 +125,24 @@ export function LeftSidebarNav({
 
           // EMERGENCY ROLLBACK (2026-04-30): user reported being stuck
           // on the Attack Paths tab — could not click sidebar items to
-          // navigate elsewhere. The IA fix in 150387b converted these
-          // from <button> to <Link> with router.push, and subsequent
-          // patches tried to defend against double-push races and
-          // stacking-context issues without success.
+          // navigate elsewhere. Reverted to the original <button onClick>
+          // pattern. Sidebar clicks call onItemClick(id) → setActiveSection
+          // in app/page.tsx → React state-driven render swap. No router
+          // involvement, so no Next.js routing race condition.
           //
-          // Reverted to the original <button onClick> pattern: clicking
-          // a sidebar item calls onItemClick(id), which sets local
-          // state in app/page.tsx (the activeSection state path is
-          // still wired). Navigation works because it doesn't depend on
-          // the router at all — pure React state.
+          // The discriminator for button-vs-Link: items that map to a
+          // sidebar SECTION (managed by activeSection state) render as
+          // buttons. Items with their own dedicated Next.js page route
+          // (e.g. pending-tags at /pending-tags) render as Links.
           //
-          // Cost of this rollback (will be re-fixed in a follow-up that
-          // we can verify in the browser):
-          //   - Cmd/Ctrl-click sidebar item won't open in new tab
-          //   - Right-click → "Open in new tab" won't work
-          //   - URL stays at / regardless of which section is shown
-          //   - Refresh drops back to home
-          //   - Deep links like /?section=attack-paths still REDIRECT to
-          //     home because the URL state stops driving the renderer
-          //
-          // PendingTags keeps its real <Link href> because that page
-          // is a separate Next.js route, not a sidebar section.
-          if (item.href.startsWith("/?")) {
+          // First version of this revert checked `href.startsWith("/?")`,
+          // but Home had `href: "/"` which doesn't match — so Home fell
+          // through to the <Link> branch and the URL changed but
+          // activeSection didn't update. Now using an explicit set of
+          // dedicated-route ids so additions in either direction are
+          // unambiguous.
+          const DEDICATED_ROUTE_IDS = new Set(["pending-tags"])
+          if (!DEDICATED_ROUTE_IDS.has(item.id)) {
             return (
               <button
                 key={item.id}
