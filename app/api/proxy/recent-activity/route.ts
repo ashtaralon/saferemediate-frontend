@@ -5,6 +5,12 @@ import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "recent-activity"
 
+// Explicit Vercel route config — vercel.json's app/api/**/*.ts entry
+// covers this, but the per-route export is more reliably applied
+// in Next.js App Router. 30s is plenty for 3 parallel backend calls
+// (each capped at 8s by our own AbortController).
+export const maxDuration = 30
+
 /**
  * GET /api/proxy/recent-activity
  *
@@ -38,11 +44,14 @@ type ActivityItem = {
   permissions_removed?: number
 }
 
-// Per-fetch timeout. Render cold-start can be 30s+; most calls are
-// <1s. We give each fetch 20s — enough to clear cold-start, short
-// enough that one stuck endpoint doesn't burn the Vercel function's
-// total time budget (default 10s on hobby, 60s on pro).
-const PER_FETCH_TIMEOUT_MS = 20_000
+// Per-fetch timeout. /api/remediation-history/timeline cold-call is
+// ~9s; subsequent calls <200ms. We use 8s here so that a slow first
+// call surfaces as a clean per-source error (visible in errors[])
+// instead of letting the function get killed by Vercel's overall
+// function timeout — which would abort ALL in-flight fetches on
+// shutdown and produce three AbortError messages even when 2 of 3
+// would have succeeded fast.
+const PER_FETCH_TIMEOUT_MS = 8_000
 
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController()
