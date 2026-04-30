@@ -36,19 +36,26 @@ import { useCallback, useEffect, useRef, useState } from "react"
 const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 429, 502, 503, 504, 522, 524])
 
 export interface UseRetryFetchOptions {
-  /** Maximum number of retries AFTER the initial attempt. Default 3. */
+  /** Maximum number of retries AFTER the initial attempt. Default 0.
+   *
+   * Originally this defaulted to 3 to auto-recover from cold-start 504s.
+   * That caused multiple cascading bugs (commits 862ab4c → 13f2ba1 →
+   * 4b99de2 → THIS commit) where retries either took too long or got
+   * stuck in abort loops. Default-off until the cards that actually
+   * benefit from retry opt in via this prop. */
   maxRetries?: number
   /** Initial backoff delay (ms). Doubles each retry. Default 250. */
   initialDelayMs?: number
   /** Cap for backoff delay (ms). Default 4000. */
   maxDelayMs?: number
-  /** Per-attempt fetch timeout (ms). Default 45000.
+  /** Per-attempt fetch timeout (ms). Default 0 = no timeout.
    *
-   * Generous because Render free-tier cold-start is 30-60s; we don't
-   * want to abort an in-flight request that's about to succeed. If the
-   * timeout DOES fire, we treat it as fatal (no retry) — see comment
-   * in runAttempt. The retry path is reserved for actual server-side
-   * transient failures (504 etc.), not for our own impatience. */
+   * Originally defaulted to 30s, then 15s, then 45s. None worked: the
+   * timer aborts in-flight requests that would have eventually
+   * succeeded, which caused users to see permanently-stuck cards while
+   * Render was cold-starting. Default off so the browser's natural
+   * timeout (~5 min) handles the worst case. Cards with known-fast
+   * endpoints can still set timeoutMs explicitly. */
   timeoutMs?: number
   /** RequestInit for fetch (cache, headers, etc.). */
   fetchInit?: RequestInit
@@ -75,10 +82,10 @@ export function useRetryFetch<T = unknown>(
   options: UseRetryFetchOptions = {}
 ): UseRetryFetchResult<T> {
   const {
-    maxRetries = 3,
+    maxRetries = 0,
     initialDelayMs = 250,
     maxDelayMs = 4000,
-    timeoutMs = 45000,
+    timeoutMs = 0,
     fetchInit,
     refetchKey,
     isTransientStatus,
@@ -118,12 +125,17 @@ export function useRetryFetch<T = unknown>(
       const controller = new AbortController()
       abortRef.current = controller
 
-      // Per-attempt timeout. We treat AbortError from this timer as a
-      // transient failure (worth retrying); AbortError from cleanup
-      // (unmount or new attempt) is NOT — caught via myEpoch check.
-      const timeoutId = setTimeout(() => {
-        controller.abort(new DOMException("Request timed out", "TimeoutError"))
-      }, timeoutMs)
+      // Per-attempt timeout — only armed when timeoutMs > 0. The hook's
+      // default is 0 (no timeout) because aborting in-flight requests
+      // that would have eventually succeeded was the actual root cause
+      // of the "page stuck loading" bug across commits 862ab4c →
+      // 13f2ba1 → 4b99de2. Cards can still opt in to a timeout when
+      // they have a known-fast endpoint.
+      const timeoutId = timeoutMs > 0
+        ? setTimeout(() => {
+            controller.abort(new DOMException("Request timed out", "TimeoutError"))
+          }, timeoutMs)
+        : null
 
       setAttempt(attemptIndex)
       setLoading(true)
@@ -134,7 +146,7 @@ export function useRetryFetch<T = unknown>(
           ...fetchInit,
           signal: controller.signal,
         })
-        clearTimeout(timeoutId)
+        if (timeoutId !== null) clearTimeout(timeoutId)
 
         if (myEpoch !== epochRef.current) return // superseded
 
@@ -177,7 +189,7 @@ export function useRetryFetch<T = unknown>(
         setLoading(false)
         setRetrying(false)
       } catch (err) {
-        clearTimeout(timeoutId)
+        if (timeoutId !== null) clearTimeout(timeoutId)
         if (myEpoch !== epochRef.current) return // superseded by retry/unmount
 
         // Bug-fix (2026-04-30 — second user report): the original logic
