@@ -42,13 +42,13 @@ export interface UseRetryFetchOptions {
   initialDelayMs?: number
   /** Cap for backoff delay (ms). Default 4000. */
   maxDelayMs?: number
-  /** Per-attempt fetch timeout (ms). Default 15000.
+  /** Per-attempt fetch timeout (ms). Default 45000.
    *
-   * Picked to fail fast enough that the worst-case retry chain
-   * (initialDelayMs + 2x + 4x + 8x backoff with 3 retries at 15s each)
-   * surfaces an error within ~50s instead of ~125s. Healthy responses
-   * complete in <1s; if a request takes >15s it's almost certainly
-   * not going to recover with more time. */
+   * Generous because Render free-tier cold-start is 30-60s; we don't
+   * want to abort an in-flight request that's about to succeed. If the
+   * timeout DOES fire, we treat it as fatal (no retry) — see comment
+   * in runAttempt. The retry path is reserved for actual server-side
+   * transient failures (504 etc.), not for our own impatience. */
   timeoutMs?: number
   /** RequestInit for fetch (cache, headers, etc.). */
   fetchInit?: RequestInit
@@ -78,7 +78,7 @@ export function useRetryFetch<T = unknown>(
     maxRetries = 3,
     initialDelayMs = 250,
     maxDelayMs = 4000,
-    timeoutMs = 15000,
+    timeoutMs = 45000,
     fetchInit,
     refetchKey,
     isTransientStatus,
@@ -180,13 +180,25 @@ export function useRetryFetch<T = unknown>(
         clearTimeout(timeoutId)
         if (myEpoch !== epochRef.current) return // superseded by retry/unmount
 
-        // AbortError due to our own timeout → transient. AbortError due
-        // to unmount/cleanup is filtered out by the epoch check above.
+        // Bug-fix (2026-04-30 — second user report): the original logic
+        // treated our own TimeoutError as a transient failure worth
+        // retrying. That meant a slow-but-eventually-successful backend
+        // (Render cold-start, slow Cypher query) got its in-flight
+        // request aborted, retried, aborted again, retried again — the
+        // user saw a card permanently stuck in a "loading → retrying →
+        // loading → retrying" loop instead of just waiting for the
+        // backend to respond.
+        //
+        // New rule: only RETRY for genuine network-layer failures
+        // (TypeError thrown by fetch when the connection itself fails).
+        // Our own timeouts are FATAL — we set the timeout precisely
+        // because we believe waiting longer won't help; retrying with
+        // a fresh request that has the same timeout guarantees nothing.
         const name = err instanceof Error ? err.name : ""
-        const isTimeoutOrNetwork =
-          name === "TimeoutError" || name === "AbortError" || err instanceof TypeError
+        const isOurTimeout = name === "TimeoutError" || name === "AbortError"
+        const isNetworkError = err instanceof TypeError
 
-        if (isTimeoutOrNetwork && attemptIndex < maxRetries) {
+        if (isNetworkError && attemptIndex < maxRetries) {
           const delay = Math.min(initialDelayMs * 2 ** attemptIndex, maxDelayMs)
           setRetrying(true)
           setError(null)
@@ -199,7 +211,10 @@ export function useRetryFetch<T = unknown>(
         }
 
         const message = err instanceof Error ? err.message : String(err)
-        setError(message || "Network error")
+        const finalMessage = isOurTimeout
+          ? `Request timed out after ${Math.round(timeoutMs / 1000)}s — backend may be cold-starting; click Retry to try again`
+          : message || "Network error"
+        setError(finalMessage)
         setData(null)
         setLoading(false)
         setRetrying(false)
