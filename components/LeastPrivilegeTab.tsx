@@ -1241,12 +1241,79 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
     )
   }
 
+  // Discriminate the empty states. The previous "No GAP issues found / All
+  // permissions are being used. Your system follows least privilege." was
+  // emitted whenever data.resources.length === 0 — but that's true under
+  // three different conditions, only one of which is "system is clean":
+  //
+  //   (A) System filter has no LP-tracked resources in this scope
+  //       e.g. /api/proxy/least-privilege/issues?systemName=alon-prod returns []
+  //       while the org-wide call returns 13 issues. The honest answer is
+  //       "no issues *for this system*", not "permissions are clean."
+  //   (B) No resources tracked at all (collector hasn't ingested yet,
+  //       observation window empty, no roles in the account).
+  //   (C) Resources exist and every one has gap == 0 — the genuine
+  //       "system is clean" path. We can only claim this when summary
+  //       reports a non-zero resource count AND zero excess permissions.
+  //
+  // Picking the wrong empty state is the most credibility-damaging single
+  // screen in the product per the dashboard design review (2026-04-30):
+  // home shows 13 LP issues / 55 excess permissions, this page says
+  // "All permissions are being used."
   if (!data || data.resources.length === 0) {
+    const isSystemScoped = !!systemName
+    const orgIssues =
+      data?.summary?.iamIssuesCount ??
+      data?.summary?.totalExcessPermissions ??
+      null
+
+    // (A) Filter scope: a system is selected but has no LP issues in scope.
+    if (isSystemScoped) {
+      return (
+        <div className="text-center py-12">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
+          <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+            No LP issues for system <span className="font-mono">{systemName}</span>
+          </p>
+          <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+            This system has no resources flagged for least-privilege gap analysis. Other systems
+            in the organization may still have issues — clear the filter or pick another system.
+          </p>
+        </div>
+      )
+    }
+
+    // (B) No system filter, but the API returned no resources at all. We
+    // genuinely don't know if this means "clean" or "not yet ingested."
+    // Lead with the diagnostic, not the conclusion.
+    return (
+      <div className="text-center py-12">
+        <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--text-secondary)" }} />
+        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+          No least-privilege resources tracked
+        </p>
+        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+          The least-privilege analyzer returned no resources. This usually means the LP collector
+          hasn&apos;t completed an ingestion yet, or the observation window has no eligible roles
+          in scope. It does <em>not</em> mean there are no issues — run the collector and refresh.
+        </p>
+      </div>
+    )
+  }
+
+  // (C) Resources exist but all have gap == 0. This IS the clean path.
+  // Render before the table so the operator sees the conclusion first.
+  if (data.resources.length > 0 && (data.summary?.totalExcessPermissions ?? 0) === 0) {
     return (
       <div className="text-center py-12">
         <CheckCircle2 className="w-16 h-16 mx-auto mb-4" style={{ color: "#22c55e" }} />
-        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>No GAP issues found!</p>
-        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>All permissions are being used. Your system follows least privilege.</p>
+        <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
+          No LP gaps detected
+        </p>
+        <p className="text-sm mt-2" style={{ color: "var(--text-secondary)" }}>
+          Tracked {data.resources.length} resource{data.resources.length === 1 ? "" : "s"} —
+          all permissions in scope are observed in use. {systemName ? `Scope: ${systemName}.` : "Scope: organization."}
+        </p>
       </div>
     )
   }
