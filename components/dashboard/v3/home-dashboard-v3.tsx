@@ -99,13 +99,16 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
       <TopSystemsCard />
 
       {/* ── E. Decision routing per family ────────────────────────── */}
-      {/* Collapsed into a single compact card while decision_canonical
-          isn't persisted on findings. Will expand to 3 real cards once
-          the backend ticket lands. */}
+      {/* Held back until SG and S3 have simulate-fix endpoints that compute
+          a canonical verdict. Today only IAMRole runs the full safety
+          matrix (api/least_privilege.py simulate-fix); SG/S3 fall back to
+          the legacy gate, so two of the three columns would be empty.
+          Persisting decision_canonical on SecurityFinding is the smaller
+          half of the work — the real blocker is parity across families. */}
       <NotWiredCard
         label="Decision routing · permissions / network / data"
-        reason="decision_canonical is computed at simulate-fix time but not persisted on SecurityFinding nodes. Aggregating org-wide would require fanning out simulate-fix per finding (1k+ requests). Will become a 3-card row once the backend persists the verdict."
-        backlog="V3 Phase D · backend ticket"
+        reason="Only IAMRole has a simulate-fix endpoint that computes a canonical verdict (AUTO_EXECUTE / REQUIRE_APPROVAL / BLOCK / …). SG and S3 still go through the legacy safety gate without producing a comparable verdict, so a 3-card row would have two empty columns. Holding the row until SG/S3 simulate-fix lands and persists decision_canonical."
+        backlog="V3 Phase D · gated on sg-simulate-fix + s3-simulate-fix"
       />
 
       {/* ── F. Divergence banner — only renders when total_conflicts > 0 */}
