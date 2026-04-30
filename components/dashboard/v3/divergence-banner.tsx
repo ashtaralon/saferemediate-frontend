@@ -1,7 +1,7 @@
 "use client"
 
 import { labelClass } from "./styles"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 /**
  * Divergence banner — conditional render only when total_conflicts > 0.
@@ -26,9 +26,9 @@ export function DivergenceBanner() {
   // Banner is non-blocking — absence is honest. Use the retry hook so a
   // cold-start 504 doesn't silently hide a real conflict; if all retries
   // fail we just don't render (same posture as the original silent catch).
-  const { data } = useRetryFetch<DivergenceSummary>(
+  const { data } = useCachedFetch<DivergenceSummary>(
     "/api/proxy/evidence/divergence/summary",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "divergence-summary", fetchInit: { cache: "no-store" } }
   )
 
   const total = data?.total_conflicts ?? 0

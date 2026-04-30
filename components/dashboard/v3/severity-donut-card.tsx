@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, heroNumberClass } from "./styles"
@@ -33,13 +33,13 @@ const SEVERITY_COLORS = {
 }
 
 export function SeverityDonutCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<IssuesSummary>(
+  const { data, loading, error, retry } = useCachedFetch<IssuesSummary>(
     "/api/proxy/issues/summary",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "issues-summary", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Issues by severity" attempt={attempt} retrying={retrying} />
-  if (error) return <ErrorCard label="Issues by severity" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Issues by severity" />
+  if (error && !data) return <ErrorCard label="Issues by severity" error={error} onRetry={retry} />
   if (!data) return null
 
   const total = data.total ?? 0

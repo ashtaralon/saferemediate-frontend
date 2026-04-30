@@ -2,7 +2,7 @@
 
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass } from "./styles"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 /**
  * Top least-privilege issues — real data, sorted by gap%.
@@ -64,26 +64,14 @@ function gapPillClass(pct: number): string {
 }
 
 export function LPTopIssuesCard() {
-  // useRetryFetch handles cold-start 504s automatically — the design
-  // review caught this card permanently stuck on "HTTP 504" when the
-  // proxy timed out at first load, even though the underlying endpoint
-  // started responding seconds later. Now: 4 attempts with exponential
-  // backoff, then surfaces the error with a manual retry button.
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<IssuesResp>(
+  // SWR — slow Cypher query for least-privilege analysis.
+  const { data, loading, error, retry } = useCachedFetch<IssuesResp>(
     "/api/proxy/least-privilege/issues",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "lp-issues", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) {
-    return (
-      <LoadingCard
-        label="Top least-privilege issues"
-        attempt={attempt}
-        retrying={retrying}
-      />
-    )
-  }
-  if (error) return <ErrorCard label="Top least-privilege issues" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Top least-privilege issues" />
+  if (error && !data) return <ErrorCard label="Top least-privilege issues" error={error} onRetry={retry} />
   if (!data) return null
 
   const summary = data.summary ?? {}

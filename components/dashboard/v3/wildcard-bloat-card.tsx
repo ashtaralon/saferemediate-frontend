@@ -8,7 +8,7 @@ import {
   scoreToneClass,
   unitClass,
 } from "./styles"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 /**
  * Wildcard Bloat — point-in-time only.
@@ -38,13 +38,13 @@ type LpMetrics = {
 }
 
 export function WildcardBloatCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<LpMetrics>(
+  const { data, loading, error, retry } = useCachedFetch<LpMetrics>(
     "/api/proxy/least-privilege/metrics",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "lp-metrics", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Wildcard bloat" attempt={attempt} retrying={retrying} />
-  if (error) return <ErrorCard label="Wildcard bloat" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Wildcard bloat" />
+  if (error && !data) return <ErrorCard label="Wildcard bloat" error={error} onRetry={retry} />
   if (!data) return null
 
   const pct = Math.round(data.averageBloatPercentage)

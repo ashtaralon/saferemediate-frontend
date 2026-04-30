@@ -3,7 +3,7 @@
 import { Crown, Globe } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass } from "./styles"
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 /**
  * Top Attack Paths to Crown Jewels.
@@ -68,13 +68,14 @@ function priorityToneClass(score: number): string {
 }
 
 export function AttackPathsCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<PathsResponse>(
+  // SWR — N+1 fan-out endpoint, very slow on cold start.
+  const { data, loading, error, retry } = useCachedFetch<PathsResponse>(
     "/api/proxy/identity-attack-paths/all",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "identity-attack-paths-all", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Top attack paths to crown jewels" attempt={attempt} retrying={retrying} />
-  if (error) return <ErrorCard label="Top attack paths" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Top attack paths to crown jewels" />
+  if (error && !data) return <ErrorCard label="Top attack paths" error={error} onRetry={retry} />
   if (!data) return null
 
   const jewels = (data.crown_jewels ?? []).slice(0, 8)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { descriptorClass, labelClass, scorePillClass } from "./styles"
 
@@ -109,13 +109,14 @@ function MixBar({ layers }: { layers: LayerMap | null | undefined }) {
 }
 
 export function TopSystemsCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<SystemsResponse>(
+  // SWR via localStorage — N+1 fan-out endpoint, slow on cold start.
+  const { data, loading, error, retry } = useCachedFetch<SystemsResponse>(
     "/api/proxy/systems/with-families",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "systems-with-families", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Top systems by blast radius" attempt={attempt} retrying={retrying} />
-  if (error) return <ErrorCard label="Top systems by blast radius" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Top systems by blast radius" />
+  if (error && !data) return <ErrorCard label="Top systems by blast radius" error={error} onRetry={retry} />
   if (!data) return null
 
   const systems = (data.systems ?? [])

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
   accentByCategory,
@@ -46,18 +46,16 @@ const GRADE_COLORS: Record<string, string> = {
 }
 
 export function HeroBrssCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<PostureScore>(
+  const { data, loading, error, retry } = useCachedFetch<PostureScore>(
     "/api/proxy/posture-score",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "posture-score", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Global blast radius score" attempt={attempt} retrying={retrying} />
-  // The /api/proxy/posture-score endpoint may return HTTP 200 with an
-  // `error` field in the body to signal an upstream failure that should
-  // be surfaced to the user. The hook only treats HTTP status as the
-  // error signal, so we post-validate the body here.
+  if (loading && !data) return <LoadingCard label="Global blast radius score" />
+  // /api/proxy/posture-score may return HTTP 200 with an `error` field
+  // in the body to signal upstream failure. Post-validate.
   const bodyError = data?.error ? data.message || data.error : null
-  if (error || bodyError) {
+  if ((error || bodyError) && !data) {
     return <ErrorCard label="Global blast radius score" error={error || bodyError || ""} onRetry={retry} />
   }
   if (!data) return null

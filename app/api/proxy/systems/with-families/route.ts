@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getBackendBaseUrl } from "@/lib/server/backend-url"
-import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
+import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
 const CACHE_KEY = "systems-with-families"
@@ -76,7 +76,11 @@ export async function GET(_req: NextRequest) {
       total: fulfilled.length,
       errors,
     }
-    setCached(CACHE_KEY, payload, TTL_STD)
+    // 5-min TTL — N+1 fan-out (one /api/service-risk-scores/<system>
+    // per system). Bumped from TTL_STD (60s) → TTL_SLOW (5min) because
+    // the data changes only on re-ingest and the cold-start hit was a
+    // major contributor to "stuck" home dashboard loads.
+    setCached(CACHE_KEY, payload, TTL_SLOW)
     return NextResponse.json(payload, { headers: { "X-Cache": "MISS" } })
   } catch (e) {
     return NextResponse.json(

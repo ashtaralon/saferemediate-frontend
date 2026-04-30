@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Check, RotateCcw } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
@@ -49,13 +49,13 @@ function relativeTime(iso: string | null): string {
 }
 
 export function RecentActivityCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<ActivityResponse>(
+  const { data, loading, error, retry } = useCachedFetch<ActivityResponse>(
     "/api/proxy/recent-activity",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "recent-activity", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Recent activity" attempt={attempt} retrying={retrying} />
-  if (error) return <ErrorCard label="Recent activity" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Recent activity" />
+  if (error && !data) return <ErrorCard label="Recent activity" error={error} onRetry={retry} />
   if (!data) return null
 
   const items = data.items ?? []

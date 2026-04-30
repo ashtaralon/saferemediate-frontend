@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { RefreshCw } from "lucide-react"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import {
@@ -57,13 +57,14 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 export function EvidenceHealthCardV3() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<CoverageResponse>(
+  // SWR — N+1 fan-out (per-account evidence coverage).
+  const { data, loading, error, retry } = useCachedFetch<CoverageResponse>(
     "/api/proxy/evidence/coverage",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "evidence-coverage", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Evidence health" attempt={attempt} retrying={retrying} />
-  if (error) return <ErrorCard label="Evidence health" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Evidence health" />
+  if (error && !data) return <ErrorCard label="Evidence health" error={error} onRetry={retry} />
   if (!data) return null
 
   const refreshButton = (

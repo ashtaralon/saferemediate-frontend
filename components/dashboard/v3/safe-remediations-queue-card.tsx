@@ -1,6 +1,6 @@
 "use client"
 
-import { useRetryFetch } from "@/lib/use-retry-fetch"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { ErrorCard, LoadingCard, Section } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
@@ -47,15 +47,16 @@ type CandidatesResponse = {
 }
 
 export function SafeRemediationsQueueCard() {
-  const { data, loading, error, attempt, retrying, retry } = useRetryFetch<CandidatesResponse>(
+  // SWR — slow Cypher (33s in design review).
+  const { data, loading, error, retry } = useCachedFetch<CandidatesResponse>(
     "/api/proxy/remediation-candidates?limit=10",
-    { fetchInit: { cache: "no-store" } }
+    { cacheKey: "remediation-candidates", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Safe remediations queue" attempt={attempt} retrying={retrying} />
+  if (loading && !data) return <LoadingCard label="Safe remediations queue" />
   // Endpoint may return 200 with body.error to signal upstream failure.
   const bodyError = data?.error ? data.error : null
-  if (error || bodyError) {
+  if ((error || bodyError) && !data) {
     return <ErrorCard label="Safe remediations queue" error={error || bodyError || ""} onRetry={retry} />
   }
   if (!data) return null
