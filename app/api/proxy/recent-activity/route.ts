@@ -38,6 +38,22 @@ type ActivityItem = {
   permissions_removed?: number
 }
 
+// Per-fetch timeout. Render cold-start can be 30s+; most calls are
+// <1s. We give each fetch 20s — enough to clear cold-start, short
+// enough that one stuck endpoint doesn't burn the Vercel function's
+// total time budget (default 10s on hobby, 60s on pro).
+const PER_FETCH_TIMEOUT_MS = 20_000
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PER_FETCH_TIMEOUT_MS)
+  try {
+    return await fetch(url, { cache: "no-store", signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function GET(_req: NextRequest) {
   const cached = getCached(CACHE_KEY)
   if (cached) {
@@ -46,15 +62,23 @@ export async function GET(_req: NextRequest) {
   const items: ActivityItem[] = []
   const errors: string[] = []
 
-  // Remediation events — most useful + most operator-relevant. These
-  // are the per-action audit records we write on every apply/rollback,
-  // including today's safety_signals payload.
-  try {
-    const r = await fetch(`${BACKEND_URL}/api/remediation-history/timeline?limit=20`, {
-      cache: "no-store",
-    })
-    if (r.ok) {
-      const data = await r.json()
+  // Fan all three fetches out in parallel. Earlier version ran them
+  // sequentially, which meant the slowest single endpoint ate the
+  // Vercel function's time budget and left the later fetches to be
+  // killed mid-flight — surfacing as 502s for each. With Promise.
+  // allSettled, each call has its own time budget independently.
+  const [remediationRes, snapshotsRes, rollbacksRes] = await Promise.allSettled([
+    fetchWithTimeout(`${BACKEND_URL}/api/remediation-history/timeline?limit=20`),
+    fetchWithTimeout(`${BACKEND_URL}/api/snapshots`),
+    fetchWithTimeout(`${BACKEND_URL}/api/automation-rules/rollback/history`),
+  ])
+
+  // Remediation events — most useful + operator-relevant. RemediationEvent
+  // nodes carry per-action safety_signals (commit 9cb9104) so this feed
+  // is the source of truth for "what just happened on this account".
+  if (remediationRes.status === "fulfilled" && remediationRes.value.ok) {
+    try {
+      const data = await remediationRes.value.json()
       const events = Array.isArray(data?.events) ? data.events : []
       for (const ev of events) {
         items.push({
@@ -71,18 +95,19 @@ export async function GET(_req: NextRequest) {
             undefined,
         })
       }
-    } else {
-      errors.push(`remediation-events: backend ${r.status}`)
+    } catch (e) {
+      errors.push(`remediation-events parse: ${e instanceof Error ? e.message : String(e)}`)
     }
-  } catch (e) {
-    errors.push(`remediation-events: ${e instanceof Error ? e.message : String(e)}`)
+  } else if (remediationRes.status === "fulfilled") {
+    errors.push(`remediation-events: backend ${remediationRes.value.status}`)
+  } else {
+    errors.push(`remediation-events: ${String(remediationRes.reason)}`)
   }
 
   // Snapshots
-  try {
-    const r = await fetch(`${BACKEND_URL}/api/snapshots`, { cache: "no-store" })
-    if (r.ok) {
-      const data = await r.json()
+  if (snapshotsRes.status === "fulfilled" && snapshotsRes.value.ok) {
+    try {
+      const data = await snapshotsRes.value.json()
       const snapshots = Array.isArray(data?.snapshots) ? data.snapshots : []
       for (const s of snapshots) {
         items.push({
@@ -93,20 +118,19 @@ export async function GET(_req: NextRequest) {
           detail: s.snapshot_type,
         })
       }
-    } else {
-      errors.push(`snapshots: backend ${r.status}`)
+    } catch (e) {
+      errors.push(`snapshots parse: ${e instanceof Error ? e.message : String(e)}`)
     }
-  } catch (e) {
-    errors.push(`snapshots: ${e instanceof Error ? e.message : String(e)}`)
+  } else if (snapshotsRes.status === "fulfilled") {
+    errors.push(`snapshots: backend ${snapshotsRes.value.status}`)
+  } else {
+    errors.push(`snapshots: ${String(snapshotsRes.reason)}`)
   }
 
   // Rollback history
-  try {
-    const r = await fetch(`${BACKEND_URL}/api/automation-rules/rollback/history`, {
-      cache: "no-store",
-    })
-    if (r.ok) {
-      const data = await r.json()
+  if (rollbacksRes.status === "fulfilled" && rollbacksRes.value.ok) {
+    try {
+      const data = await rollbacksRes.value.json()
       const rollbacks = Array.isArray(data?.rollbacks) ? data.rollbacks : []
       for (const rb of rollbacks) {
         items.push({
@@ -117,11 +141,13 @@ export async function GET(_req: NextRequest) {
           detail: rb.reason ?? rb.rule_name,
         })
       }
-    } else {
-      errors.push(`rollbacks: backend ${r.status}`)
+    } catch (e) {
+      errors.push(`rollbacks parse: ${e instanceof Error ? e.message : String(e)}`)
     }
-  } catch (e) {
-    errors.push(`rollbacks: ${e instanceof Error ? e.message : String(e)}`)
+  } else if (rollbacksRes.status === "fulfilled") {
+    errors.push(`rollbacks: backend ${rollbacksRes.value.status}`)
+  } else {
+    errors.push(`rollbacks: ${String(rollbacksRes.reason)}`)
   }
 
   // Sort by timestamp desc; null timestamps go last.
