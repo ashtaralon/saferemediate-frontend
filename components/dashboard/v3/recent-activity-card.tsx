@@ -1,27 +1,30 @@
 "use client"
 
 import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { Check, RotateCcw } from "lucide-react"
+import { Check, RotateCcw, Zap } from "lucide-react"
 import { ErrorCard, LoadingCard, Section, StaleIndicator } from "./card-shell"
 import { accentByCategory, descriptorClass } from "./styles"
 
 /**
  * Recent Activity feed.
  *
- * Real source: /api/proxy/recent-activity (merges /api/snapshots and
- * /api/automation-rules/rollback/history server-side, sorted by
- * timestamp desc).
+ * Real source: /api/proxy/recent-activity (merges three sources server-
+ * side: RemediationEvent timeline, snapshots, rollback history — sorted
+ * by timestamp desc).
  *
- * Honest: surface real timestamps, real resource ids. If both sources
+ * Honest: surface real timestamps, real resource ids. If all sources
  * are empty the card says so.
  */
 
 type ActivityItem = {
-  kind: "snapshot" | "rollback"
+  kind: "remediation" | "snapshot" | "rollback"
   timestamp: string | null
   resource_type?: string
   resource_id?: string
   detail?: string
+  action_type?: string
+  status?: string
+  permissions_removed?: number
 }
 
 type ActivityResponse = {
@@ -81,11 +84,26 @@ export function RecentActivityCard() {
       ) : (
         <ul className="space-y-2">
           {items.slice(0, 8).map((item, i) => {
+            // Three event kinds: remediation (apply), rollback, snapshot.
+            // Pick icon + tone for each.
+            const isRemediation = item.kind === "remediation"
             const isRollback = item.kind === "rollback"
-            const Icon = isRollback ? RotateCcw : Check
-            const iconWrap = isRollback
-              ? "bg-amber-100 text-amber-700"
-              : "bg-emerald-100 text-emerald-700"
+            const Icon = isRemediation ? Zap : isRollback ? RotateCcw : Check
+            const iconWrap = isRemediation
+              ? "bg-blue-100 text-blue-700"
+              : isRollback
+                ? "bg-amber-100 text-amber-700"
+                : "bg-emerald-100 text-emerald-700"
+            const verbLabel = isRemediation
+              ? "Remediated"
+              : isRollback
+                ? "Rolled back"
+                : "Snapshotted"
+            const verbToneClass = isRemediation
+              ? "text-blue-700"
+              : isRollback
+                ? "text-amber-700"
+                : "text-emerald-700"
             return (
               <li
                 key={`${item.kind}-${item.resource_id}-${i}`}
@@ -98,18 +116,8 @@ export function RecentActivityCard() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-slate-900">
-                    <span
-                      className={
-                        item.kind === "rollback"
-                          ? "text-amber-700"
-                          : "text-emerald-700"
-                      }
-                    >
-                      {item.kind === "rollback" ? "Rolled back" : "Snapshotted"}
-                    </span>{" "}
-                    <span className="font-medium">
-                      {item.resource_type}
-                    </span>{" "}
+                    <span className={verbToneClass}>{verbLabel}</span>{" "}
+                    <span className="font-medium">{item.resource_type}</span>{" "}
                     <span className="font-mono text-xs text-slate-700">
                       {item.resource_id}
                     </span>
@@ -117,6 +125,12 @@ export function RecentActivityCard() {
                   {item.detail && (
                     <div className="mt-0.5 text-xs text-slate-500">{item.detail}</div>
                   )}
+                  {isRemediation && item.permissions_removed ? (
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      −{item.permissions_removed} permission
+                      {item.permissions_removed === 1 ? "" : "s"} removed
+                    </div>
+                  ) : null}
                 </div>
                 <span className="shrink-0 text-xs text-slate-500 tabular-nums">
                   {relativeTime(item.timestamp)}
