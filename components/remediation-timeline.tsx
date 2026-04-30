@@ -38,6 +38,139 @@ import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelop
 // TYPES
 // ============================================================================
 
+// Structured safety_signals — written by the backend (build_safety_signals)
+// and rendered as the per-event SafetyPipelineStrip. Surfaces what safety
+// machinery actually ran on this remediation so operators see the moat,
+// not just a "completed" badge.
+type CheckStatus = "passed" | "skipped" | "failed"
+
+interface SafetySignals {
+  force_override: boolean
+  force_override_reason?: string | null
+  snapshot: {
+    id: string | null
+    captured: boolean
+    phase: string | null
+  }
+  confidence: {
+    score: number  // 0..1
+    tier: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN"
+  }
+  scope_restricted: boolean
+  restrictions_applied: string[]
+  drift_detected: boolean
+  evidence_quality: "high" | "medium" | "low" | "unknown"
+  checks: Partial<Record<
+    | "view_parity"
+    | "preflight_invariants"
+    | "confidence_gate"
+    | "implicit_dependencies"
+    | "drift_guard"
+    | "snapshot"
+    | "snapshot_loaded",
+    CheckStatus
+  >>
+}
+
+const CHECK_LABELS: Record<string, string> = {
+  view_parity: "view parity",
+  preflight_invariants: "invariants",
+  confidence_gate: "confidence",
+  implicit_dependencies: "implicit deps",
+  drift_guard: "drift guard",
+  snapshot: "snapshot",
+  snapshot_loaded: "snapshot",
+}
+
+const CHECK_TOOLTIPS: Record<string, string> = {
+  view_parity: "Graph policy hash matched live AWS at preflight time",
+  preflight_invariants: "Hard safety invariants (protected perms, etc.) checked",
+  confidence_gate: "Confidence scoring gate (visibility + trust ramp + evidence)",
+  implicit_dependencies: "S3→KMS Class-H dependency check",
+  drift_guard: "AWS state was unchanged between snapshot and rollback",
+  snapshot: "Pre-mutation snapshot written to S3 + DynamoDB + Neo4j",
+  snapshot_loaded: "Snapshot loaded and validated for rollback",
+}
+
+const checkPillStyle = (status: CheckStatus): string => {
+  // Tailwind-style classes the rest of the file uses
+  if (status === "passed")
+    return "bg-emerald-900/40 text-emerald-300 border-emerald-700/50"
+  if (status === "failed")
+    return "bg-red-900/40 text-red-300 border-red-700/50"
+  return "bg-zinc-800/50 text-zinc-400 border-zinc-700/40"
+}
+
+interface SafetyPipelineStripProps {
+  signals?: SafetySignals
+  legacyConfidenceScore?: number
+}
+
+// Renders the per-event safety pipeline strip. When `signals` is absent
+// (events written before the schema change), falls back to the legacy
+// confidence-only display so the UI stays consistent across history.
+const SafetyPipelineStrip: React.FC<SafetyPipelineStripProps> = ({
+  signals,
+  legacyConfidenceScore,
+}) => {
+  if (!signals) {
+    if (!legacyConfidenceScore || legacyConfidenceScore <= 0) return null
+    return (
+      <span className="text-emerald-400 ml-2">
+        {Math.round(legacyConfidenceScore * 100)}% confidence
+      </span>
+    )
+  }
+
+  const checkEntries = Object.entries(signals.checks) as [string, CheckStatus][]
+  const confidencePct = Math.round((signals.confidence?.score || 0) * 100)
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 ml-2 align-middle">
+      {confidencePct > 0 && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-md border border-emerald-700/50 bg-emerald-900/30 text-emerald-300 font-medium"
+          title={`Decision confidence: ${signals.confidence.tier}`}
+        >
+          {confidencePct}% · {signals.confidence.tier}
+        </span>
+      )}
+      {checkEntries.map(([name, status]) => (
+        <span
+          key={name}
+          className={`text-[10px] px-1.5 py-0.5 rounded-md border font-medium whitespace-nowrap ${checkPillStyle(status)}`}
+          title={CHECK_TOOLTIPS[name] || name}
+        >
+          {CHECK_LABELS[name] || name}
+          {status === "failed" && " ✗"}
+          {status === "skipped" && " —"}
+        </span>
+      ))}
+      {signals.scope_restricted && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-md border border-amber-700/50 bg-amber-900/30 text-amber-300 font-medium whitespace-nowrap"
+          title={
+            signals.restrictions_applied.length
+              ? `Scope narrowed: ${signals.restrictions_applied.join("; ")}`
+              : "Scope narrowed by safety invariants"
+          }
+        >
+          scope narrowed
+        </span>
+      )}
+      {signals.drift_detected && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded-md border border-rose-700/50 bg-rose-900/30 text-rose-300 font-medium whitespace-nowrap"
+          title="AWS drifted from snapshot before this action"
+        >
+          drift detected
+        </span>
+      )}
+    </span>
+  )
+}
+
+
 interface RemediationEvent {
   event_id: string
   timestamp: string
@@ -55,6 +188,7 @@ interface RemediationEvent {
     reason?: string
     rules_count?: { inbound: number; outbound: number }
     removed_permissions?: string[]
+    safety_signals?: SafetySignals
     [key: string]: any
   }
   before_state: Record<string, any>
@@ -543,6 +677,40 @@ const EventDetailModal = ({ event, isOpen, onClose, onRollback }: EventDetailMod
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Structured safety pipeline — what machinery actually ran */}
+          {event.metadata?.safety_signals && (
+            <div className="rounded-lg p-4 border border-zinc-700/60 bg-zinc-900/40">
+              <div className="text-xs uppercase tracking-wide text-zinc-400 mb-2">
+                Safety pipeline
+              </div>
+              <SafetyPipelineStrip signals={event.metadata.safety_signals} />
+              {event.metadata.safety_signals.snapshot.captured && (
+                <div className="text-xs text-zinc-300 mt-3">
+                  <span className="text-zinc-500">Snapshot:</span>{" "}
+                  <span className="font-mono">{event.metadata.safety_signals.snapshot.id}</span>
+                  {event.metadata.safety_signals.snapshot.phase && (
+                    <span className="text-zinc-500 ml-2">
+                      · phase {event.metadata.safety_signals.snapshot.phase}
+                    </span>
+                  )}
+                </div>
+              )}
+              {event.metadata.safety_signals.scope_restricted &&
+                event.metadata.safety_signals.restrictions_applied.length > 0 && (
+                  <div className="text-xs text-amber-300 mt-2">
+                    <span className="text-zinc-500">Scope restrictions:</span>{" "}
+                    {event.metadata.safety_signals.restrictions_applied.join("; ")}
+                  </div>
+              )}
+              {event.metadata.safety_signals.force_override_reason && (
+                <div className="text-xs text-amber-300 mt-2">
+                  <span className="text-zinc-500">Force reason:</span>{" "}
+                  {event.metadata.safety_signals.force_override_reason}
+                </div>
+              )}
             </div>
           )}
 
@@ -1689,11 +1857,10 @@ export function RemediationTimeline({
                         {event.source === 'neo4j' && (
                           <span className="text-purple-400 ml-2">● Neo4j</span>
                         )}
-                        {event.confidence_score > 0 && (
-                          <span className="text-emerald-400 ml-2">
-                            {Math.round(event.confidence_score * 100)}% confidence
-                          </span>
-                        )}
+                        <SafetyPipelineStrip
+                          signals={event.metadata?.safety_signals}
+                          legacyConfidenceScore={event.confidence_score}
+                        />
                       </p>
                     </div>
                   </div>
