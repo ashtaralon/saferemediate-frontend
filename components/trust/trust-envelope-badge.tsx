@@ -46,16 +46,24 @@ function formatAge(seconds: number | null): string {
   return `${d}d ago`
 }
 
+// Color palette per confidence tier. Two prior bugs caught by the
+// dashboard design review (2026-04-30):
+//  - high used text-emerald-300 on bg-emerald-900/30. Over the light-theme
+//    pages (Remediation History) this rendered as near-invisible green-on-
+//    green. Bumped to text-emerald-100 for foreground + a bolder bg/30
+//    fill so contrast holds in both light- and dark-themed parents.
+//  - low used the same amber palette as medium. Severity convention is
+//    red for low/critical risk on confidence — restored to rose family.
 function confidenceStyles(c: Confidence) {
   switch (c) {
     case "high":
-      return { bg: "bg-emerald-900/30", border: "border-emerald-600/50", text: "text-emerald-300", dot: "bg-emerald-400" }
+      return { bg: "bg-emerald-600/20", border: "border-emerald-500/60", text: "text-emerald-100", dot: "bg-emerald-400" }
     case "medium":
-      return { bg: "bg-amber-900/30", border: "border-amber-600/50", text: "text-amber-300", dot: "bg-amber-400" }
+      return { bg: "bg-amber-600/20", border: "border-amber-500/60", text: "text-amber-100", dot: "bg-amber-400" }
     case "low":
-      return { bg: "bg-amber-900/30", border: "border-amber-600/50", text: "text-amber-300", dot: "bg-amber-400" }
+      return { bg: "bg-rose-600/20", border: "border-rose-500/60", text: "text-rose-100", dot: "bg-rose-400" }
     default:
-      return { bg: "bg-slate-800/50", border: "border-slate-600/50", text: "text-slate-400", dot: "bg-slate-500" }
+      return { bg: "bg-slate-800/50", border: "border-slate-600/50", text: "text-slate-300", dot: "bg-slate-500" }
   }
 }
 
@@ -63,8 +71,6 @@ function freshnessStyles(s: FreshnessStatus) {
   switch (s) {
     case "fresh":
       return "text-emerald-400"
-    case "stale":
-      return "text-amber-400"
     case "stale":
       return "text-amber-400"
     default:

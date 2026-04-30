@@ -931,6 +931,15 @@ export default function HomePage() {
         )
 
       case "issues":
+        // IssuesSection is the single source of truth for findings on this
+        // page. It does its own fetchSecurityFindings() call AND renders
+        // both the empty state ("No Findings Loaded — Click Scan Now") and
+        // the findings list. The previous render also stacked a separate
+        // <SecurityFindingsList> that read from page-level state populated
+        // by ITS OWN fetchSecurityFindings() call — when the two fetches
+        // disagreed (race / cache / one failed), users saw the empty state
+        // above a populated list. Per the dashboard design review, that
+        // contradiction was visible at every page load.
         return (
           <div className="space-y-6">
             <IssuesSection
@@ -944,10 +953,6 @@ export default function HomePage() {
               totalCritical={securityIssuesData.critical}
               missionCriticalCount={0}
             />
-            <div className="bg-white rounded-lg p-6 border border-[var(--border,#e5e7eb)]">
-              <h2 className="text-xl font-semibold text-[var(--foreground,#111827)] mb-4">All Security Findings</h2>
-              <SecurityFindingsList findings={securityFindings} />
-            </div>
           </div>
         )
 

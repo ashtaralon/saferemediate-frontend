@@ -142,18 +142,43 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
   }
 
   // Get severity color
+  // Tailwind classes for the severity *badge* (pill). Previous values
+  // bg-[#f9731610]0 / bg-[#eab30810]0 / bg-[#3b82f610]0 were malformed —
+  // looks like a formatter ate "/100" and emitted "10]0". Tailwind treats
+  // those as invalid arbitrary values and renders without a background,
+  // which is why the design review (2026-04-30) saw badges that didn't
+  // match severity.
   const getSeverityColor = (severity: string) => {
     switch (severity?.toLowerCase()) {
       case "critical":
         return "bg-red-600 text-white"
       case "high":
-        return "bg-[#f9731610]0 text-white"
+        return "bg-orange-500 text-white"
       case "medium":
-        return "bg-[#eab30810]0 text-black"
+        return "bg-yellow-500 text-black"
       case "low":
-        return "bg-[#3b82f610]0 text-white"
+        return "bg-blue-500 text-white"
       default:
         return "bg-gray-500 text-white"
+    }
+  }
+
+  // Card-left-border accent so the row's severity is scannable from a
+  // distance, not just from reading the pill. Wiz-style. Per the design
+  // review, the existing convention was correct (red/orange/yellow/blue
+  // 600) but never actually applied to the card class.
+  const getSeverityBorderClass = (severity: string) => {
+    switch (severity?.toLowerCase()) {
+      case "critical":
+        return "border-l-4 border-l-red-600"
+      case "high":
+        return "border-l-4 border-l-orange-500"
+      case "medium":
+        return "border-l-4 border-l-yellow-500"
+      case "low":
+        return "border-l-4 border-l-blue-500"
+      default:
+        return "border-l-4 border-l-gray-400"
     }
   }
 
@@ -314,7 +339,7 @@ export function IssuesSection({ systemName }: IssuesSectionProps) {
         {findings.map((finding) => (
           <div
             key={finding.id || finding.finding_id}
-            className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+            className={`border rounded-lg p-4 hover:bg-muted/50 transition-colors ${getSeverityBorderClass(finding.severity)}`}
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
