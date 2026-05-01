@@ -93,17 +93,28 @@ export function PendingApprovals({ systemName }: { systemName?: string }) {
     try {
       setError(null)
       const res = await fetch("/api/proxy/auto-tagger/pending?status=pending", {
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(28000),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // The proxy now always returns 200 with a structured payload — a
+      // non-OK here means the proxy itself failed (network blip, auth)
+      // not the backend.
+      if (!res.ok) throw new Error(`Approvals proxy HTTP ${res.status}`)
       const data = await res.json()
+      // Proxy surfaces backend degradation as `unavailable: true` plus
+      // an operator-readable `message`; treat that as an inline error
+      // distinct from "no pending tags" (empty pending array).
+      if (data?.unavailable) {
+        setError(data.message || "Approvals service unavailable")
+        setPending([])
+        return
+      }
       let items: PendingTag[] = data.pending || []
       if (systemName) {
         items = items.filter((p) => p.system_name === systemName)
       }
       setPending(items)
     } catch (err: any) {
-      setError(err.message || "Failed to load")
+      setError(err?.message || "Approvals service unreachable")
     } finally {
       setLoading(false)
     }
