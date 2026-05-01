@@ -46,7 +46,28 @@ const DISPLAY: Array<{
   { key: "data", label: "Data", accent: accentByCategory.data, pip: "bg-teal-500" },
 ]
 
-export function FamilyStrip() {
+const GRID_COLS_BY_COUNT: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-3",
+}
+
+/**
+ * `families` lets the home layout split the strip — e.g. Data tile
+ * stacked under the BRSS hero, Permissions/Network rendered as a
+ * separate 2-col strip below. Defaults to all three.
+ *
+ * Both call sites share the same /api/proxy/family-aggregate fetch
+ * via the shared `family-aggregate` cacheKey: useCachedFetch reads
+ * localStorage on mount, so the second consumer renders from cache
+ * without an extra HTTP roundtrip on the warm path.
+ */
+export function FamilyStrip({ families }: { families?: string[] } = {}) {
+  const tiles = families
+    ? DISPLAY.filter((d) => families.includes(d.key))
+    : DISPLAY
+  const gridCols = GRID_COLS_BY_COUNT[tiles.length] ?? "grid-cols-1 sm:grid-cols-3"
+
   // useCachedFetch (stale-while-revalidate via localStorage). User
   // reported this card "loaded very very slow and stuck" — the
   // /api/proxy/family-aggregate endpoint fans out N+1 Cypher queries
@@ -61,10 +82,10 @@ export function FamilyStrip() {
 
   if (loading && !data) {
     return (
-      <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <LoadingCard label="Permissions" />
-        <LoadingCard label="Network" />
-        <LoadingCard label="Data" />
+      <section className={`grid gap-5 ${gridCols}`}>
+        {tiles.map((t) => (
+          <LoadingCard key={t.key} label={t.label} />
+        ))}
       </section>
     )
   }
@@ -76,8 +97,8 @@ export function FamilyStrip() {
   if (!data) return null
 
   return (
-    <section className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-      {DISPLAY.map(({ key, label, accent, pip }) => {
+    <section className={`grid gap-5 ${gridCols}`}>
+      {tiles.map(({ key, label, accent, pip }) => {
         const labelWithPip = (
           <span className="inline-flex items-center gap-2">
             <span className={`inline-block h-2 w-2 rounded-full ${pip}`} />

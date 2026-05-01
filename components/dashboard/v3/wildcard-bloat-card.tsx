@@ -55,7 +55,7 @@ export function WildcardBloatCard() {
     <Section
       label="Wildcard bloat"
       descriptor="Allowed actions sitting unused — point-in-time, not a delta"
-      className={`${accentByCategory.bloat} bg-gradient-to-br from-amber-50/70 via-white to-white`}
+      className={`${accentByCategory.bloat} bg-gradient-to-br from-amber-50/70 via-white to-white h-full flex flex-col`}
     >
       <div className="flex items-baseline gap-3">
         <span className={`${heroNumberClass} ${scoreToneClass(toneScore)}`}>
@@ -64,7 +64,9 @@ export function WildcardBloatCard() {
         <span className={unitClass}>%</span>
       </div>
 
-      <div className={`${descriptorClass} mt-3 space-y-1`}>
+      {/* mt-auto pushes the descriptor block to the bottom when the card
+          gets stretched to match a taller neighbor (BRSS + Data stack). */}
+      <div className={`${descriptorClass} mt-auto pt-4 space-y-1`}>
         <div>
           <span className="font-semibold text-slate-700">
             {data.totalUnusedPermissions.toLocaleString()}
