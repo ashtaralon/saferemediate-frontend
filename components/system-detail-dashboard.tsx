@@ -363,10 +363,21 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [activeTab, setActiveTab] = useState("overview")
   const [issues, setIssues] = useState<CriticalIssue[]>([])
 
-  // System metadata (criticality + environment) from backend
-  const [systemMeta, setSystemMeta] = useState<{ criticality: string; environment: string }>({
+  // System metadata from backend (criticality + environment + the
+  // real account_id and region derived from resource ARNs by
+  // /api/systems). account_id and region are nullable — when the
+  // collector hasn't surfaced them yet, the System Context card
+  // renders "—" rather than fabricating "eu-west-1" / "745783559495".
+  const [systemMeta, setSystemMeta] = useState<{
+    criticality: string
+    environment: string
+    accountId: string | null
+    region: string | null
+  }>({
     criticality: "",
     environment: "",
+    accountId: null,
+    region: null,
   })
 
   // Initialize severityCounts with default values
@@ -784,6 +795,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
           setSystemMeta({
             criticality: match.criticality || "",
             environment: match.environment || "",
+            accountId: match.account_id || match.accountId || null,
+            region: match.region || null,
           })
         }
       }
@@ -1291,7 +1304,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   )}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                  AWS eu-west-1 • {systemMeta.environment || "Production"} environment{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                  {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"} • {systemMeta.environment || "Environment pending"}{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
                 </p>
               </div>
             </div>
@@ -1863,11 +1876,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <div className="space-y-4">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-[var(--muted-foreground,#6b7280)]">Account</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">745783559495</span>
+                      <span className="font-medium text-[var(--foreground,#111827)]">
+                        {systemMeta.accountId ?? "—"}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-[var(--muted-foreground,#6b7280)]">Region</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">eu-west-1</span>
+                      <span className="font-medium text-[var(--foreground,#111827)]">
+                        {systemMeta.region ?? "—"}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-[var(--muted-foreground,#6b7280)]">Last behavioral sync</span>

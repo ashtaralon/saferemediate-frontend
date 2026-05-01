@@ -15,9 +15,14 @@ export async function GET() {
   }
 
   try {
-    console.log("[API Proxy] Fetching available systems from:", `${backendUrl}/api/systems/available`)
+    // Backend exposes the systems list at /api/systems — there is no
+    // /available route, and hitting it used to return 405 silently,
+    // which made `fetchSystemMeta` fail and forced every System Context
+    // card into the literal-string fallback ("Standard / Production /
+    // eu-west-1"). Route to the real endpoint.
+    console.log("[API Proxy] Fetching available systems from:", `${backendUrl}/api/systems`)
 
-    const response = await fetch(`${backendUrl}/api/systems/available`, {
+    const response = await fetch(`${backendUrl}/api/systems`, {
       headers: {
         Accept: "application/json",
         "ngrok-skip-browser-warning": "true",
