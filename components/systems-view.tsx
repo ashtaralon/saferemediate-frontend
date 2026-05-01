@@ -107,12 +107,20 @@ export function SystemsView({ systems: propSystems = [], onSystemSelect, systemN
 
   // Fetch gap-analysis from real CloudTrail data
   const fetchGapAnalysisFromFindings = useCallback(async () => {
+    // SystemsView is rendered on /systems without a systemName prop —
+    // the page is the org-wide list, not a per-system view. Without
+    // this guard, fetchSystemsData unconditionally calls this and
+    // fires `?systemName=undefined` (literal string), which the
+    // backend then rejects after a wasted round trip. Skip cleanly
+    // when there's no system to scope the gap analysis to.
+    if (!systemName) {
+      return
+    }
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 30000)
-      
-      // Use gap-analysis proxy which has real CloudTrail data
-      const res = await fetch(`/api/proxy/gap-analysis?systemName=${systemName}`, {
+
+      const res = await fetch(`/api/proxy/gap-analysis?systemName=${encodeURIComponent(systemName)}`, {
         signal: controller.signal,
       })
       
