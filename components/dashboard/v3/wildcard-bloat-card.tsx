@@ -11,21 +11,19 @@ import {
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 
 /**
- * Wildcard Bloat — point-in-time only.
- *
- * Replaces the original "AUTO Surface this month" mockup card. AUTO
- * Surface % has no backend tracker; renaming wouldn't make data exist.
+ * Wildcard Bloat — point-in-time + week-over-week delta.
  *
  * What the metric IS (honest):
  *   averageBloatPercentage = unused_actions / total_allowed across the
- *   roles we've analyzed. It's the "how wide is your wildcard surface"
- *   number — *right now*, not a delta.
+ *   roles we've analyzed. The "how wide is your wildcard surface" number.
  *
- * What it ISN'T:
- *   - Not "narrowed this week" — there's no narrowing-history endpoint
- *   - Not a delta of any kind — single point-in-time observation
- *
- * Honest framing in the descriptor.
+ * WoW delta (added 2026-05-01): backend persists LPMetricsSnapshot
+ * nodes on every metrics call (1h throttle). compute_wow_delta picks
+ * the snapshot closest to 7 days back and returns
+ * `bloatPercentageDeltaPp = current - baseline` in percentage points.
+ * Negative = bloat shrank (improvement); positive = bloat grew.
+ * Null on fresh installs that don't have 7 days of history yet —
+ * card hides the delta block silently in that case.
  */
 
 type LpMetrics = {
@@ -35,6 +33,9 @@ type LpMetrics = {
   averageBloatPercentage: number
   totalUnusedPermissions: number
   lastAnalysisDate: string
+  bloatPercentageDeltaPp?: number | null
+  bloatBaselineAgeDays?: number | null
+  bloatBaselineTimestamp?: string | null
 }
 
 export function WildcardBloatCard() {
@@ -62,6 +63,23 @@ export function WildcardBloatCard() {
           {pct}
         </span>
         <span className={unitClass}>%</span>
+        {/* WoW delta. For bloat, lower is better — a NEGATIVE delta is
+            an improvement (rendered green). Hides silently when the
+            backend has no baseline yet (first week after install). */}
+        {data.bloatPercentageDeltaPp != null && (
+          <span
+            className={`text-sm font-mono tabular-nums ${
+              data.bloatPercentageDeltaPp < 0
+                ? "text-emerald-600"
+                : data.bloatPercentageDeltaPp > 0
+                  ? "text-rose-600"
+                  : "text-slate-500"
+            }`}
+          >
+            {data.bloatPercentageDeltaPp > 0 ? "+" : ""}
+            {data.bloatPercentageDeltaPp.toFixed(1)}pp
+          </span>
+        )}
       </div>
 
       <div className={`${descriptorClass} mt-3 space-y-1`}>
@@ -75,9 +93,21 @@ export function WildcardBloatCard() {
           </span>{" "}
           / {data.analyzedRoles} roles
         </div>
-        <div className="text-slate-500">
-          Week-over-week delta requires backend narrowing-history endpoint (not yet implemented).
-        </div>
+        {data.bloatPercentageDeltaPp != null && data.bloatBaselineAgeDays != null ? (
+          <div className="text-slate-500">
+            vs {data.bloatBaselineAgeDays}d ago
+            {data.bloatPercentageDeltaPp < 0
+              ? " — narrowing"
+              : data.bloatPercentageDeltaPp > 0
+                ? " — widening"
+                : " — flat"}
+          </div>
+        ) : (
+          <div className="text-slate-500">
+            Week-over-week delta accumulates from snapshot history; appears once
+            the backend has ~7 days of metrics captured.
+          </div>
+        )}
       </div>
     </Section>
   )
