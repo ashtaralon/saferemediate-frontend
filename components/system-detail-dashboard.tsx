@@ -1099,21 +1099,68 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     setIssues(issues.map((issue) => ({ ...issue, selected: !allSelected })))
   }
 
-  // Tabs array - removed Configuration History and Disaster Recovery, added Security Posture + Behavioral Intelligence
-  const tabs = [
-    { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "identities", label: "Identities", icon: Users },
-    { id: "resource", label: "Shared Resource", icon: Wrench },
-    { id: "least-privilege", label: "Least Privilege", icon: ShieldCheck },
-    { id: "crown-jewels", label: "Crown Jewels", icon: ShieldAlert },
-    { id: "attack-paths", label: "Attack Paths", icon: Target },
-    { id: "vulnerabilities", label: "Vulnerabilities", icon: Bug },
-    { id: "all-services", label: "All Services", icon: Server },
-    { id: "orphan-services", label: "Orphan Services", icon: Unplug },
-    { id: "dependency-map", label: "Dependency Map", icon: Map },
-    { id: "automation", label: "Automation", icon: Zap },
-    { id: "history", label: "Remediation History", icon: History }, // Temporal Timeline
+  // Tabs grouped to fit one line cleanly. Was 12 flat tabs that wrapped
+  // into two rows on standard widths and destroyed the visual anchor.
+  // Five groups, each holding the leaves users actually pivot between.
+  // ``activeTab`` still holds the LEAF id (e.g. "least-privilege") so
+  // every existing `{activeTab === "..."}` block below renders unchanged.
+  type TabLeaf = { id: string; label: string }
+  type TabGroup = {
+    id: string
+    label: string
+    icon: any
+    // leaf set when the group is itself a single page (no sub-tabs).
+    leaf?: string
+    children?: TabLeaf[]
+  }
+  const tabGroups: TabGroup[] = [
+    { id: "overview", label: "Overview", icon: BarChart3, leaf: "overview" },
+    {
+      id: "inventory",
+      label: "Inventory",
+      icon: Server,
+      children: [
+        { id: "all-services", label: "All Services" },
+        { id: "orphan-services", label: "Orphan" },
+        { id: "identities", label: "Identities" },
+        { id: "resource", label: "Shared Resources" },
+      ],
+    },
+    {
+      id: "risk",
+      label: "Risk",
+      icon: ShieldAlert,
+      children: [
+        { id: "least-privilege", label: "Least Privilege" },
+        { id: "vulnerabilities", label: "Vulnerabilities" },
+        { id: "attack-paths", label: "Attack Paths" },
+        { id: "crown-jewels", label: "Crown Jewels" },
+      ],
+    },
+    { id: "topology", label: "Topology", icon: Map, leaf: "dependency-map" },
+    {
+      id: "history",
+      label: "History",
+      icon: History,
+      children: [
+        { id: "history", label: "Remediation Events" },
+        { id: "automation", label: "Automation" },
+      ],
+    },
   ]
+  const activeGroup =
+    tabGroups.find(
+      (g) => g.leaf === activeTab || g.children?.some((c) => c.id === activeTab),
+    ) ?? tabGroups[0]
+  const handleGroupClick = (g: TabGroup) => {
+    if (g.leaf) {
+      setActiveTab(g.leaf)
+    } else if (g.children?.length) {
+      // First child becomes the active sub-tab on group click. Operators
+      // can still pick a different sub-tab below.
+      setActiveTab(g.children[0].id)
+    }
+  }
 
   const resourceTypes = [
     { name: "Compute", count: 8, icon: Server, color: "bg-[#3b82f620] text-[#3b82f6]", description: "EC2, Lambda, ECS" },
@@ -1361,26 +1408,50 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </button>
             </div>
           </div>
-          {/* Tabs */}
+          {/* Top-level tab groups — five-wide row that no longer wraps. */}
           <div className="flex items-center gap-1 mt-6 border-b border-[var(--border,#e5e7eb)] -mb-px">
-            {tabs.map((tab) => {
-              const IconComponent = tab.icon
+            {tabGroups.map((g) => {
+              const IconComponent = g.icon
+              const isActive = g.id === activeGroup.id
               return (
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  key={g.id}
+                  onClick={() => handleGroupClick(g)}
                   className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.id
+                    isActive
                       ? "border-[#2D51DA] text-[#2D51DA]"
                       : "border-transparent text-[var(--muted-foreground,#6b7280)] hover:text-[var(--foreground,#374151)]"
                   }`}
                 >
                   <IconComponent className="w-4 h-4" />
-                  {tab.label}
+                  {g.label}
                 </button>
               )
             })}
           </div>
+          {/* Sub-tabs strip — shown only when the active group has
+              children. Compact, no icons; the group icon already
+              identifies the section. */}
+          {activeGroup.children?.length ? (
+            <div className="flex items-center gap-1 px-1 pt-2 text-xs">
+              {activeGroup.children.map((c) => {
+                const isActive = c.id === activeTab
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setActiveTab(c.id)}
+                    className={`px-3 py-1.5 rounded-md font-medium transition-colors ${
+                      isActive
+                        ? "bg-[#2D51DA15] text-[#2D51DA]"
+                        : "text-[var(--muted-foreground,#6b7280)] hover:bg-[var(--bg-secondary,#f3f4f6)] hover:text-[var(--foreground,#374151)]"
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
 
