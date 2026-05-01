@@ -4,7 +4,13 @@ import { getCached, setCached, TTL_SLOW } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
 
-export const maxDuration = 30
+// Render free tier cold-starts in ~30-50s. The previous 30s ceiling
+// + 25s fetch timeouts produced spurious 502s on the first hit after
+// the dyno slept — even though the underlying backend endpoint was
+// healthy at warm. Bump to 60s so cold-starts complete; per-fetch
+// timeouts below stay strictly less than maxDuration so we still
+// produce a clean structured 502 if something genuinely hangs.
+export const maxDuration = 60
 
 /**
  * GET /api/proxy/evidence/coverage
@@ -31,7 +37,7 @@ export async function GET(req: NextRequest) {
         {
           headers: { "Content-Type": "application/json" },
           cache: "no-store",
-          signal: AbortSignal.timeout(20000),
+          signal: AbortSignal.timeout(55000),
         },
       )
       if (!res.ok) {
@@ -59,7 +65,7 @@ export async function GET(req: NextRequest) {
     const r = await fetch(`${BACKEND_URL}/api/evidence/coverage/all`, {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(55000),
     })
     if (!r.ok) {
       return NextResponse.json(

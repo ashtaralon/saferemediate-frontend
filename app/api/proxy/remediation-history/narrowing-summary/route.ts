@@ -4,7 +4,11 @@ import { getCached, setCached, TTL_STD } from "@/lib/server/proxy-cache"
 
 const BACKEND_URL = getBackendBaseUrl()
 
-export const maxDuration = 30
+// Same cold-start tolerance as evidence/coverage — Render free tier
+// can take 30-50s to wake. Was producing spurious 502s on first hit
+// even though /api/remediation-history/narrowing-summary returns
+// in ~180ms once warm.
+export const maxDuration = 60
 
 /**
  * GET /api/proxy/remediation-history/narrowing-summary?days=7
@@ -33,7 +37,7 @@ export async function GET(req: NextRequest) {
       {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(55000),
       },
     )
     if (!r.ok) {
