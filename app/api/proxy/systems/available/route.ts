@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server"
 
+// Force the route to be dynamically rendered on every request and
+// disable any Next.js fetch cache. Without this, Vercel's edge can
+// keep returning a stale response from the old shape (when the
+// proxy still pointed at /api/systems/available which 405'd and
+// returned `systems: []`) — which is what kept the System Context
+// card showing "Account —" even after the proxy edit shipped.
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 export async function GET() {
   const backendUrl = "https://saferemediate-backend-f.onrender.com"
 
@@ -23,6 +32,7 @@ export async function GET() {
     console.log("[API Proxy] Fetching available systems from:", `${backendUrl}/api/systems`)
 
     const response = await fetch(`${backendUrl}/api/systems`, {
+      cache: "no-store",
       headers: {
         Accept: "application/json",
         "ngrok-skip-browser-warning": "true",
@@ -54,11 +64,23 @@ export async function GET() {
     const data = JSON.parse(text)
     console.log("[API Proxy] Available systems parsed:", data)
 
-    return NextResponse.json({
-      success: true,
-      systems: data.systems || [],
-      total: data.total || 0,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        systems: data.systems || [],
+        total: data.total || 0,
+      },
+      {
+        headers: {
+          // Belt-and-braces: tell every cache between us and the browser
+          // not to keep this. The systems list changes when collectors
+          // run; rendering yesterday's payload made the System Context
+          // card show "—" for hours after the new account_id/region
+          // wiring landed.
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      },
+    )
   } catch (error) {
     console.error("[API Proxy] Error fetching available systems:", error)
 
