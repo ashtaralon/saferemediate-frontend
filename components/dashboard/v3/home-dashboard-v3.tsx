@@ -69,30 +69,29 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
          proxy, the header degrades to identity + actions only — better
          than a fabricated confidence pill. */}
 
-      {/* ── B. Hero row — BRSS + family strip stacked (left 2/3) | Wildcard (1/3, full height) ── */}
-      {/* Layout per Alon's request:
-          - Left column (2/3): BRSS on top, then 3 compact family tiles
-            (Data / Permissions / Network) below — strip lives inside
-            the left column, NOT spanning full width.
-          - Right column (1/3): Wildcard bloat stretches down through
-            both rows via h-full so the right side stays balanced
-            instead of leaving dead space below it. */}
+      {/* ── B. Hero row — BRSS + family strip (left 2/3) | Issues by severity (1/3, full height) ── */}
+      {/* Severity donut moved into the hero right slot per Alon — it
+          surfaces total active findings + critical/high/medium/low
+          breakdown, which is the operator's primary action lens. The
+          card stretches via h-full to match the BRSS+strip stack on
+          the left. Wildcard bloat moved into Section D where it sits
+          above LP top issues. */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="flex flex-col gap-5 lg:col-span-2">
           <HeroBrssCard />
           <FamilyStrip families={["data", "privilege", "network"]} />
         </div>
-        <WildcardBloatCard />
+        <SeverityDonutCard />
       </section>
 
-      {/* ── D. Attack paths (50%) + (Severity donut + LP top issues) (50%) ── */}
-      {/* Right column stacks the donut on top of the LP-issues list so
-          dead space below the donut becomes a real, sorted list of
-          biggest LP offenders. */}
+      {/* ── D. Attack paths (50%) + (Wildcard bloat + LP top issues) (50%) ── */}
+      {/* Right column stacks Wildcard bloat above the LP-issues list so
+          dead space below the bloat number becomes a real, sorted list
+          of biggest LP offenders. */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <AttackPathsCard />
         <div className="flex flex-col gap-5">
-          <SeverityDonutCard />
+          <WildcardBloatCard />
           <LPTopIssuesCard />
         </div>
       </section>

@@ -62,7 +62,7 @@ export function SeverityDonutCard() {
       <Section
         label="Issues by severity"
         descriptor="No active findings — all clear."
-        className="border-l-[3px] border-l-emerald-500"
+        className="border-l-[3px] border-l-emerald-500 h-full flex flex-col"
       >
         <div className="flex items-center gap-3 py-2">
           <span className={`${heroNumberClass} text-emerald-700`}>0</span>
@@ -76,7 +76,7 @@ export function SeverityDonutCard() {
     <Section
       label="Issues by severity"
       descriptor="Active findings across all systems"
-      className="border-l-[3px] border-l-rose-500"
+      className="border-l-[3px] border-l-rose-500 h-full flex flex-col"
     >
       <div className="flex items-center gap-5">
         <div className="relative h-[140px] w-[140px] shrink-0">
@@ -123,7 +123,10 @@ export function SeverityDonutCard() {
         </div>
       </div>
 
-      <p className={`${descriptorClass} mt-3 border-t border-slate-100 pt-2`}>
+      {/* mt-auto pushes the source-of-truth caption to the bottom so
+          the extra height from h-full (when card sits in the hero
+          right slot) doesn't look like dead space. */}
+      <p className={`${descriptorClass} mt-auto pt-4 border-t border-slate-100`}>
         Counts pulled live from /api/issues/summary — no fabrication.
       </p>
     </Section>
