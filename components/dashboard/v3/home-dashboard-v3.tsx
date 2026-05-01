@@ -69,24 +69,19 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
          proxy, the header degrades to identity + actions only — better
          than a fabricated confidence pill. */}
 
-      {/* ── B. Hero row — BRSS + Data (2/3 stacked) | Wildcard bloat (1/3) ── */}
-      {/* Data tile sits under the BRSS hero (left column) so the
-          posture-by-family lens leads with data — the family most
-          customers care about first. Wildcard bloat extends the full
-          height of the left stack via h-full so the right column
-          doesn't visually float above empty space. */}
+      {/* ── B. Hero row — BRSS (2/3) + Wildcard bloat (1/3) ───────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <div className="flex flex-col gap-5 lg:col-span-2">
+        <div className="lg:col-span-2">
           <HeroBrssCard />
-          <FamilyStrip families={["data"]} />
         </div>
         <WildcardBloatCard />
       </section>
 
-      {/* ── C. Family breakdown — Permissions / Network ───────────── */}
-      {/* Data has been hoisted into the hero stack above; this strip
-          carries Permissions and Network only, in 2 cols. */}
-      <FamilyStrip families={["privilege", "network"]} />
+      {/* ── C. Family breakdown — Data / Permissions / Network ───── */}
+      {/* Data first so the family directly under the BRSS hero column
+          leads the strip, matching the operator's eye path from hero
+          to family lens. All three columns are equal width. */}
+      <FamilyStrip families={["data", "privilege", "network"]} />
 
       {/* ── D. Attack paths (50%) + (Severity donut + LP top issues) (50%) ── */}
       {/* Right column stacks the donut on top of the LP-issues list so

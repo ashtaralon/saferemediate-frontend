@@ -63,8 +63,12 @@ const GRID_COLS_BY_COUNT: Record<number, string> = {
  * without an extra HTTP roundtrip on the warm path.
  */
 export function FamilyStrip({ families }: { families?: string[] } = {}) {
+  // Preserve the order the caller passed in (`families` is the source
+  // of truth for ordering). Falling back to DISPLAY's natural order
+  // when no prop is given.
+  const byKey = new Map(DISPLAY.map((d) => [d.key, d]))
   const tiles = families
-    ? DISPLAY.filter((d) => families.includes(d.key))
+    ? families.map((k) => byKey.get(k)).filter((d): d is (typeof DISPLAY)[number] => Boolean(d))
     : DISPLAY
   const gridCols = GRID_COLS_BY_COUNT[tiles.length] ?? "grid-cols-1 sm:grid-cols-3"
 
