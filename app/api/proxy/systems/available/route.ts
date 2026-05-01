@@ -9,6 +9,16 @@ import { NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+// Render free-tier cold-starts on /api/systems were measured at
+// 13.6s+ (the systems endpoint runs an aggregated Cypher with
+// resource counts + finding counts + region + ARN collection per
+// system). Vercel's default function timeout (10s on Hobby) was
+// killing the proxy before the backend responded — visible as
+// repeated `(pending)` rows in DevTools that never settled.
+// Match the maxDuration of /api/proxy/systems so cold-starts
+// can complete on first hit.
+export const maxDuration = 120
+
 export async function GET() {
   const backendUrl = "https://saferemediate-backend-f.onrender.com"
 
@@ -33,6 +43,10 @@ export async function GET() {
 
     const response = await fetch(`${backendUrl}/api/systems`, {
       cache: "no-store",
+      // 90s leaves margin under the 120s maxDuration; covers the
+      // 13s cold-start observed on Render free tier with a buffer
+      // for slow Cypher execution under high resource counts.
+      signal: AbortSignal.timeout(90000),
       headers: {
         Accept: "application/json",
         "ngrok-skip-browser-warning": "true",
