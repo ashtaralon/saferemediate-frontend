@@ -13,7 +13,7 @@ import { RecentActivityCard } from "./recent-activity-card"
 import { SeverityDonutCard } from "./severity-donut-card"
 import { AttackPathsCard } from "./attack-paths-card"
 import { LPTopIssuesCard } from "./lp-top-issues-card"
-import { NotWiredCard } from "./card-shell"
+import { DecisionRoutingCard } from "./decision-routing-card"
 import { NarrowingSummaryCard } from "./narrowing-summary-card"
 import { PageHeader } from "@/components/ui/page-header"
 
@@ -100,17 +100,14 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
       <TopSystemsCard />
 
       {/* ── E. Decision routing per family ────────────────────────── */}
-      {/* Held back until SG and S3 have simulate-fix endpoints that compute
-          a canonical verdict. Today only IAMRole runs the full safety
-          matrix (api/least_privilege.py simulate-fix); SG/S3 fall back to
-          the legacy gate, so two of the three columns would be empty.
-          Persisting decision_canonical on SecurityFinding is the smaller
-          half of the work — the real blocker is parity across families. */}
-      <NotWiredCard
-        label="Decision routing · permissions / network / data"
-        reason="Only IAMRole has a simulate-fix endpoint that computes a canonical verdict (AUTO_EXECUTE / REQUIRE_APPROVAL / BLOCK / …). SG and S3 still go through the legacy safety gate without producing a comparable verdict, so a 3-card row would have two empty columns. Holding the row until SG/S3 simulate-fix lands and persists decision_canonical."
-        backlog="V3 Phase D · gated on sg-simulate-fix + s3-simulate-fix"
-      />
+      {/* Bulk verdict aggregator: backend runs the canonical
+          UnifiedConfidenceScorer + thresholds.decide() for each finding,
+          buckets by (family × DecisionOutcome). Same matrix that gates
+          real AWS mutations in the unified pipeline, so verdicts here
+          can't drift from production. Card caps at 30 findings cold-
+          start (~25-30s) due to scorer's per-resource graph cost; warm
+          cache is instant. See backend api/findings_decision_routing.py. */}
+      <DecisionRoutingCard />
 
       {/* ── F. Divergence banner — only renders when total_conflicts > 0 */}
       <DivergenceBanner />
