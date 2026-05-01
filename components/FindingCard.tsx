@@ -34,6 +34,38 @@ const getLPPhase = (observationDays: number | undefined) => {
   return { label: "Enforcing", color: "bg-[#22c55e20] text-[#22c55e] border-[#22c55e30]", tip: "Canary/auto-remediation eligible" }
 }
 
+// Map a backend resource_type / resourceType value to an operator-readable
+// label. Returning null when the type is unknown lets the caller decide
+// whether to hide the chip or show "Resource"; we don't fabricate a
+// type — that's how the prior hardcoded "IAM Role" badge ended up
+// labeling SecurityGroup findings as IAM Roles for weeks.
+const RESOURCE_TYPE_LABELS: Record<string, string> = {
+  IAMRole: "IAM Role",
+  IAMUser: "IAM User",
+  IAMGroup: "IAM Group",
+  IAMPolicy: "IAM Policy",
+  SecurityGroup: "Security Group",
+  S3Bucket: "S3 Bucket",
+  EC2Instance: "EC2",
+  RDSInstance: "RDS",
+  Lambda: "Lambda",
+  LambdaFunction: "Lambda",
+  KMSKey: "KMS Key",
+  SecretsManager: "Secrets Manager",
+  SNSTopic: "SNS Topic",
+  SQSQueue: "SQS Queue",
+  ECRRepository: "ECR Repository",
+  APIGateway: "API Gateway",
+  NetworkACL: "Network ACL",
+  VPC: "VPC",
+  Subnet: "Subnet",
+}
+
+const formatResourceTypeLabel = (rawType: unknown): string | null => {
+  if (typeof rawType !== "string" || rawType.trim() === "") return null
+  return RESOURCE_TYPE_LABELS[rawType] ?? rawType
+}
+
 const getSeverityColor = (severity: string) => {
   switch (severity?.toLowerCase()) {
     case "critical":
@@ -115,7 +147,14 @@ export function FindingCard({ finding, onSimulate, isSimulating }: FindingCardPr
                     <Badge className={getSeverityColor(severity)}>
                       {severity.toUpperCase()}
                     </Badge>
-                    <Badge variant="outline">IAM Role</Badge>
+                    {(() => {
+                      const label = formatResourceTypeLabel(
+                        (finding as any).resourceType ??
+                          (finding as any).resource_type ??
+                          (iamData as any).resource_type
+                      )
+                      return label ? <Badge variant="outline">{label}</Badge> : null
+                    })()}
                     {iamData.confidence && (
                       <Badge variant="outline" className="text-xs">
                         {iamData.confidence}% confidence
