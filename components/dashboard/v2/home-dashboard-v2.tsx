@@ -16,9 +16,14 @@ import { EvidenceHealthCard } from "../evidence-health-card"
 
 interface HomeDashboardV2Props {
   initialSystem: string
+  // Driven by app/page.tsx so dashboard "View all" buttons mutate
+  // the activeSection state instead of pushing /?section=… into the
+  // URL. Without this, in-page navigation pinned operators to the
+  // target section on every refresh.
+  onNavigateToSection?: (id: string) => void
 }
 
-export function HomeDashboardV2({ initialSystem }: HomeDashboardV2Props) {
+export function HomeDashboardV2({ initialSystem, onNavigateToSection }: HomeDashboardV2Props) {
   const [systemName, setSystemName] = useState(initialSystem)
   const { enforcement, posture, issues, attackPaths, findings, systems, refresh, refreshOne } =
     useHomeData(systemName)
@@ -77,7 +82,11 @@ export function HomeDashboardV2({ initialSystem }: HomeDashboardV2Props) {
       {/* ── D. Queue row — 2 cards ─────────────────────────────────── */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SafeRemediationsQueue state={enforcement} onRetry={() => refreshOne("enforcement")} />
-        <IdentityAttackPathsQueue state={attackPaths} onRetry={() => refreshOne("attackPaths")} />
+        <IdentityAttackPathsQueue
+          state={attackPaths}
+          onRetry={() => refreshOne("attackPaths")}
+          onNavigateToSection={onNavigateToSection}
+        />
       </section>
 
       {/* ── D. Category grid ───────────────────────────────────────── */}

@@ -40,9 +40,14 @@ import { PageHeader } from "@/components/ui/page-header"
 
 interface HomeDashboardV3Props {
   initialSystem: string
+  // See HomeDashboardV2Props.onNavigateToSection — same callback,
+  // wired through so AttackPathsCard's "View all paths" button can
+  // mutate activeSection state instead of navigating to a non-existent
+  // /attack-paths route.
+  onNavigateToSection?: (id: string) => void
 }
 
-export function HomeDashboardV3(_props: HomeDashboardV3Props) {
+export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
   const [refreshKey, setRefreshKey] = useState(0)
   const refresh = () => setRefreshKey((k) => k + 1)
 
@@ -89,7 +94,7 @@ export function HomeDashboardV3(_props: HomeDashboardV3Props) {
           dead space below the bloat number becomes a real, sorted list
           of biggest LP offenders. */}
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <AttackPathsCard />
+        <AttackPathsCard onNavigateToSection={onNavigateToSection} />
         <div className="flex flex-col gap-5">
           <WildcardBloatCard />
           <LPTopIssuesCard />

@@ -67,7 +67,11 @@ function priorityToneClass(score: number): string {
   return "rounded-md bg-slate-100 px-2 py-0.5 text-slate-400"
 }
 
-export function AttackPathsCard() {
+interface AttackPathsCardProps {
+  onNavigateToSection?: (id: string) => void
+}
+
+export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = {}) {
   // Action-driving data — strict 10-min staleness. Anything older falls
   // back to the loading skeleton instead of showing stale "top attack
   // path" data, because acting on a 12h-old top path could mean
@@ -213,12 +217,13 @@ export function AttackPathsCard() {
 
       <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500">
         <span>Globe icon = internet-exposed crown jewel</span>
-        <a
-          href="/attack-paths"
+        <button
+          type="button"
+          onClick={() => onNavigateToSection?.("attack-paths")}
           className="font-medium text-slate-700 hover:text-slate-900"
         >
           View all paths →
-        </a>
+        </button>
       </div>
     </Section>
   )

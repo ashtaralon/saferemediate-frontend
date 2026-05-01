@@ -122,45 +122,24 @@ function setCachedData(key: string, data: any): void {
   }
 }
 
-// Whitelist of section ids the sidebar can route to. Used for the
-// initial-mount URL hydration only — see KNOWN_SECTIONS-driven init below.
-const KNOWN_SECTIONS = new Set([
-  "home",
-  "copilot",
-  "issues",
-  "least-privilege",
-  "attack-paths",
-  "vulnerabilities",
-  "systems",
-  "compliance",
-  "identities",
-  "per-resource",
-  "automation",
-  "integrations",
-])
-
 export default function HomePage() {
   const searchParams = useSearchParams()
   const systemFromUrl = searchParams.get('system')
-  // EMERGENCY ROLLBACK (2026-04-30): activeSection is back to local
-  // useState, NOT derived from URL. The URL-driven version (commit
-  // 150387b) caused user to get stuck on the Attack Paths tab —
-  // sidebar Link clicks didn't navigate. Reverting to local state
-  // restores reliable nav at the cost of:
-  //   - URL stays at / regardless of section
-  //   - Refresh drops back to home
-  //   - Deep links like /?section=attack-paths don't auto-route
-  //
-  // We DO seed activeSection from ?section= on first mount so deep
-  // links partially work (the page lands in the right section after
-  // hard refresh). After mount, sidebar clicks + setActiveSection
-  // mutate local state without touching the URL.
-  const sectionFromUrlOnMount = searchParams.get('section')
-  const initialSection =
-    sectionFromUrlOnMount && KNOWN_SECTIONS.has(sectionFromUrlOnMount)
-      ? sectionFromUrlOnMount
-      : "home"
-  const [activeSection, setActiveSection] = useState<string>(initialSection)
+  // Refresh now always lands on Home (matches the 2026-04-30 rollback
+  // intent). Reading ?section= on mount was masking the fact that
+  // dashboard "View all" buttons + a stale V3 link were quietly
+  // pinning users to /?section=attack-paths — once that param landed
+  // in the URL, every refresh re-seeded activeSection back to that
+  // section and the operator was stuck. The fix has two parts:
+  //   1. Drop the URL seed here (this change).
+  //   2. Stop dashboard cards from putting ?section= into the URL —
+  //      v2 IdentityAttackPathsQueue and v3 attack-paths-card now
+  //      drive section changes via the onNavigateToSection callback.
+  // Tradeoff: deep links like /?section=attack-paths no longer
+  // auto-route. That's an explicit choice — refresh-stickiness has
+  // burned operators (see this commit's ticket); shareable section
+  // links never had a tested operator workflow.
+  const [activeSection, setActiveSection] = useState<string>("home")
   // Initial selection is URL-driven; we don't hardcode any system here.
   // When ?system= is absent we auto-pick the first system from /api/systems
   // in a useEffect below — data-driven, not "alon-prod"-driven. That keeps
@@ -651,14 +630,14 @@ export default function HomePage() {
     switch (activeSection) {
       case "home":
         if (DASHBOARD_V3_ENABLED) {
-          return <HomeDashboardV3 initialSystem={selectedSystem ?? ""} />
+          return <HomeDashboardV3 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
         }
         if (DASHBOARD_V2_ENABLED) {
           // No system in URL → render with empty system; V2's SystemInput
           // at the top of HomeDashboardV2 prompts the operator to pick.
           // Previously defaulted to "alon-prod", which silently routed every
           // fresh visit into one specific demo system's data.
-          return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} />
+          return <HomeDashboardV2 initialSystem={selectedSystem ?? ""} onNavigateToSection={handleSidebarClick} />
         }
         const gapAllowed = gapData?.allowed ?? 0
         const gapUsed = gapData?.used ?? 0

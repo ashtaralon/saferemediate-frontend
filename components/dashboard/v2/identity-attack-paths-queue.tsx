@@ -1,7 +1,6 @@
 "use client"
 
 import { useMemo } from "react"
-import { useRouter } from "next/navigation"
 import { ArrowRight, Crown, Route } from "lucide-react"
 import { DashboardCard, DashboardEmptyState } from "./dashboard-card"
 import { StatusChip } from "./status-chip"
@@ -15,6 +14,12 @@ interface IdentityAttackPathsQueueProps {
   state: SourceState<IdentityAttackPathsData>
   onRetry: () => void
   maxVisible?: number
+  // Section-change callback wired through home-dashboard-v2. The "View
+  // all" + per-row "Investigate" actions previously did
+  // ``router.push("/?section=attack-paths")`` which pinned the URL —
+  // every refresh re-seeded the operator into the Attack Paths tab.
+  // Now we mutate activeSection state directly; URL stays at /.
+  onNavigateToSection?: (id: string) => void
 }
 
 interface RichPath {
@@ -61,8 +66,8 @@ export function IdentityAttackPathsQueue({
   state,
   onRetry,
   maxVisible = 5,
+  onNavigateToSection,
 }: IdentityAttackPathsQueueProps) {
-  const router = useRouter()
   const raw: any = state.data
   const paths: RichPath[] = raw?.paths ?? raw?.attack_paths ?? []
   const jewels: Jewel[] = raw?.crown_jewels ?? []
@@ -95,7 +100,7 @@ export function IdentityAttackPathsQueue({
         totalPaths > 0 ? (
           <button
             type="button"
-            onClick={() => router.push("/?section=attack-paths")}
+            onClick={() => onNavigateToSection?.("attack-paths")}
             className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
           >
             View all
@@ -115,9 +120,7 @@ export function IdentityAttackPathsQueue({
               key={`${p.id ?? 'path'}-${idx}`}
               path={p}
               jewel={p.crown_jewel_id ? jewelById.get(p.crown_jewel_id) : undefined}
-              onInvestigate={() =>
-                router.push(`/?section=attack-paths&path=${encodeURIComponent(p.id ?? "")}`)
-              }
+              onInvestigate={() => onNavigateToSection?.("attack-paths")}
             />
           ))}
           {hiddenCount > 0 ? (
