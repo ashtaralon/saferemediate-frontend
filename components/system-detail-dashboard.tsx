@@ -1552,11 +1552,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 <div className="mt-4 space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-[var(--muted-foreground,#6b7280)]">Environment</span>
-                    <span className="font-medium text-[var(--foreground,#111827)]">{systemMeta.environment || "Production"}</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">
+                      {systemMeta.environment || "—"}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[var(--muted-foreground,#6b7280)]">Criticality</span>
-                    <span className="font-medium text-[var(--foreground,#111827)]">{systemMeta.criticality || "Standard"}</span>
+                    <span className="font-medium text-[var(--foreground,#111827)]">
+                      {systemMeta.criticality || "—"}
+                    </span>
                   </div>
                 </div>
               </div>
