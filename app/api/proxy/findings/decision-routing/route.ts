@@ -22,14 +22,23 @@ export const maxDuration = 60
  */
 export async function GET(req: NextRequest) {
   const limit = req.nextUrl.searchParams.get("limit") || "30"
-  const cacheKey = `decision-routing-${limit}`
+  // system_name (optional) — when present, scopes the verdict aggregation
+  // to a single system. Used by the System Detail page; org-wide aggregate
+  // (no system_name) is used by the home dashboard.
+  const systemName = req.nextUrl.searchParams.get("system_name") || ""
+  const cacheKey = systemName
+    ? `decision-routing-${limit}-sys-${systemName}`
+    : `decision-routing-${limit}`
   const cached = getCached(cacheKey)
   if (cached) {
     return NextResponse.json(cached, { headers: { "X-Cache": "HIT" } })
   }
+  const backendQs = systemName
+    ? `limit=${encodeURIComponent(limit)}&system_name=${encodeURIComponent(systemName)}`
+    : `limit=${encodeURIComponent(limit)}`
   try {
     const r = await fetch(
-      `${BACKEND_URL}/api/findings/decision-routing?limit=${encodeURIComponent(limit)}`,
+      `${BACKEND_URL}/api/findings/decision-routing?${backendQs}`,
       {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

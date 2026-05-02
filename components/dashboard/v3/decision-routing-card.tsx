@@ -41,6 +41,7 @@ type DecisionRoutingResp = {
   unmapped_findings?: number
   score_failures?: number
   limit?: number
+  scope?: { kind: "system" | "org"; system_name: string | null }
   by_family?: {
     permissions?: DecisionBucket
     network?: DecisionBucket
@@ -193,18 +194,31 @@ function FamilyColumn({
   )
 }
 
-export function DecisionRoutingCard() {
+/**
+ * Render in two modes:
+ *   - default (no `systemName`): org-wide aggregate, used by Home V3
+ *   - `systemName="X"`: filters findings to one system, used by the
+ *     System Detail page. Same backend endpoint with ?system_name=X.
+ *
+ * The card auto-detects which mode it's in from the response's `scope`
+ * metadata so the descriptor reads "for X" when scoped.
+ */
+export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}) {
+  const url = systemName
+    ? `/api/proxy/findings/decision-routing?limit=30&system_name=${encodeURIComponent(systemName)}`
+    : "/api/proxy/findings/decision-routing?limit=30"
+  const cacheKey = systemName
+    ? `decision-routing-30-sys-${systemName}`
+    : "decision-routing-30"
+
   const { data, loading, error, retry, isStale, cachedAt } =
-    useCachedFetch<DecisionRoutingResp>(
-      "/api/proxy/findings/decision-routing?limit=30",
-      {
-        cacheKey: "decision-routing-30",
-        // Backend caches 5min; proxy caches 5min; longer browser
-        // freshness is fine here because matrix verdicts shift slowly.
-        maxStaleMs: 30 * 60 * 1000,
-        fetchInit: { cache: "no-store" },
-      },
-    )
+    useCachedFetch<DecisionRoutingResp>(url, {
+      cacheKey,
+      // Backend caches 5min; proxy caches 5min; longer browser
+      // freshness is fine here because matrix verdicts shift slowly.
+      maxStaleMs: 30 * 60 * 1000,
+      fetchInit: { cache: "no-store" },
+    })
 
   if (loading && !data) return <LoadingCard label="Decision routing per family" />
   if (error && !data)
@@ -218,18 +232,23 @@ export function DecisionRoutingCard() {
   const unmapped = data.unmapped_findings ?? 0
   const limit = data.limit ?? 30
   const partial = total > scored
+  const scopedTo =
+    data.scope?.kind === "system" && data.scope.system_name
+      ? data.scope.system_name
+      : null
+  const scopeSuffix = scopedTo ? ` for ${scopedTo}` : ""
 
   return (
     <Section
-      label="Decision routing"
+      label={scopedTo ? `Decision routing · ${scopedTo}` : "Decision routing"}
       descriptor={
         scored === 0
-          ? "No findings scored yet"
+          ? `No findings scored yet${scopeSuffix}`
           : partial
-            ? `Top ${scored} of ${total} findings scored (capped at ${limit})${
+            ? `Top ${scored} of ${total} findings scored${scopeSuffix} (capped at ${limit})${
                 unmapped > 0 ? ` · ${unmapped} unmapped` : ""
               }`
-            : `${scored} findings scored${
+            : `${scored} findings scored${scopeSuffix}${
                 unmapped > 0 ? ` · ${unmapped} unmapped` : ""
               }`
       }

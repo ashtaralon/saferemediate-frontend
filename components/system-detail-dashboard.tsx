@@ -47,6 +47,7 @@ import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
+import { DecisionRoutingCard } from "./dashboard/v3/decision-routing-card"
 import { LiveNowStrip } from "./live-now-strip"
 import { PendingDecisionsPanel } from "./pending-decisions-panel"
 import { fetchSecurityFindings } from "@/lib/api-client"
@@ -1835,6 +1836,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 ) : null}
               </div>
             </div>
+
+            {/* Decision routing — system-scoped variant of the home V3
+                card. Same backend endpoint with ?system_name=X. Surfaces
+                family verdicts (Auto / Approval / Manual / Block) and
+                "Why Cyntro is not acting yet" buckets (low telemetry,
+                short observation, evidence conflict, drift, …) for THIS
+                system's findings. Operator's first question on a system
+                page is "can Cyntro act here?" — this answers it. */}
+            <DecisionRoutingCard systemName={systemName} />
 
             {/* Live Now strip — slim full-width "what just happened on
                 this system" line. Reads the most recent RemediationEvent
