@@ -358,6 +358,14 @@ interface GapAnalysis {
   gap: number
   gapPercent: number
   confidence: number
+  // Scope of the gap-analysis numbers. The proxy currently resolves
+  // each system to a primary IAM role (see app/api/proxy/gap-analysis/
+  // route.ts SYSTEM_TO_ROLE_MAP) — so the numbers describe one role's
+  // posture, not the system's full IAM surface. Surfaced explicitly
+  // on the Access Exposure card so operators don't read "1 unused"
+  // as a system-wide claim. When system-aggregated gap analysis lands
+  // (post-Findings-Reconciliation sprint) this field becomes optional.
+  roleName?: string
   relationshipBreakdown?: Record<string, number>
 }
 
@@ -611,12 +619,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       const gap = Number(data.summary?.unused_count || data.unused_actions || data.unused_count) || 0
       const confidence = Number(data.summary?.lp_score || data.confidence || data.statistics?.confidence) || 75
 
+      // Capture the resolved role name from the proxy response so the
+      // Access Exposure card can surface its scope honestly. The proxy
+      // resolves each systemName → a single IAM role; without surfacing
+      // that, "1 unused permission" reads as a system-wide claim when
+      // it's actually about one role.
+      const roleName: string | undefined =
+        data.role_name || data.roleName || data.summary?.role_name
       setGapAnalysis({
         allowed,
         actual,
         gap,
         gapPercent: allowed > 0 ? Math.round((gap / allowed) * 100) : 0,
         confidence,
+        roleName,
       })
 
       // Handle new format: unused_permissions array instead of unused_actions_list
@@ -1577,7 +1593,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
                             Why {brssOverlay.score} not {brssBaseScore}?
                           </p>
-                          {brssOverlay.weak_planes.length >= 2 ? (
+                          {/* Convergence line gates on the actual
+                              MULTIPLIER, not on weak_planes.length.
+                              All three planes can be technically <70
+                              (showing in weak_planes) yet still produce
+                              load < 1.0 → multiplier 1.0 → no actual
+                              score effect. Rendering "convergence ×1.00"
+                              under "Why X not Y?" was misleading: it
+                              implied convergence drove the gap when
+                              the gap was 100% visibility penalty.
+                              Only show when the multiplier is genuinely
+                              boosting risk. */}
+                          {brssOverlay.convergence_multiplier > 1.0 ? (
                             <p className="text-xs text-[var(--muted-foreground,#374151)]">
                               Cross-plane convergence ×{brssOverlay.convergence_multiplier.toFixed(2)} —{" "}
                               <span className="font-medium text-rose-700">
@@ -1677,7 +1704,24 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
               <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
-                  <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Access Exposure</p>
+                  <div className="flex flex-col">
+                    <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">
+                      Access Exposure
+                    </p>
+                    {/* Scope qualifier: the gap-analysis numbers in this
+                        card describe ONE primary IAM role (resolved by
+                        the proxy's SYSTEM_TO_ROLE_MAP), not the system's
+                        full IAM surface. Surfacing the role name keeps
+                        the card from reading as a system-wide claim. */}
+                    {gapAnalysis.roleName ? (
+                      <p
+                        className="mt-0.5 text-[10px] text-[var(--muted-foreground,#9ca3af)] truncate"
+                        title={`Numbers below are for IAM role ${gapAnalysis.roleName}, not the full system`}
+                      >
+                        Role: {gapAnalysis.roleName}
+                      </p>
+                    ) : null}
+                  </div>
                   <Zap className="w-4 h-4 text-[#8b5cf6]" />
                 </div>
                 <div className="flex items-end gap-2">
