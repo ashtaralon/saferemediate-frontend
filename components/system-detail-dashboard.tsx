@@ -186,14 +186,29 @@ const DependencyMapTab = dynamic(() => import("./dependency-map-tab"), {
   ),
 })
 
-const AttackPathsTab = dynamic(() => import("./attack-paths-tab"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
-      <RefreshCw className="w-8 h-8 text-rose-500 animate-spin" />
-    </div>
-  ),
-})
+// Per-system Attack Paths now reuses the same rich identity-attack-paths
+// visualization rendered on the home dashboard sidebar (dark theme,
+// severity hero, attack-chain strip, hop-by-hop graph viz, crown-jewel
+// list panel). The component already takes a ``systemName`` prop and
+// hits ``/api/proxy/identity-attack-paths/<systemName>`` so the data
+// scope is the same set of resources tagged into this system. Replaced
+// the legacy AttackPathsTab — operators were getting two different
+// visual languages for the same concept across the org-level and
+// per-system views.
+const SystemAttackPaths = dynamic(
+  () =>
+    import("./identity-attack-paths/identity-attack-paths").then(
+      (m) => ({ default: m.IdentityAttackPaths }),
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-rose-500 animate-spin" />
+      </div>
+    ),
+  },
+)
 
 const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"), {
   ssr: false,
@@ -2175,7 +2190,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
       {activeTab === "attack-paths" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
-          <AttackPathsTab key={`${systemName}-${refreshKey}`} systemName={systemName} />
+          <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 
