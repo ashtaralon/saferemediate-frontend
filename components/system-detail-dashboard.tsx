@@ -48,6 +48,7 @@ import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
 import { LiveNowStrip } from "./live-now-strip"
+import { PendingDecisionsPanel } from "./pending-decisions-panel"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding, BlastRadiusScore } from "@/lib/types"
 import {
@@ -2147,7 +2148,25 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-4 space-y-6">
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+                {/* Pending Decisions panel — replaces the legacy
+                    Immediate Priorities block. The old panel was a
+                    Tier-1 set of nav links to other tabs ("Open
+                    vulnerabilities →", "Open least privilege →"); this
+                    is Tier-2: a curated list of findings the engine has
+                    routed for human review, each opening the existing
+                    SimulateFixModal inline so the operator gets a
+                    real-data preview + Apply path without leaving the
+                    overview. The legacy ``topPriorityItems`` derivation
+                    above stays in place for now but is no longer
+                    rendered — left as a deletable scratchpad in case
+                    the rebrand needs a fallback. */}
+                <PendingDecisionsPanel
+                  systemName={systemName}
+                  findings={securityFindings}
+                  onOpenFullQueue={() => setActiveTab("vulnerabilities")}
+                />
+                {false && (
+                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                   <div className="flex items-center gap-2 mb-4">
                     <ShieldAlert className="w-5 h-5 text-[#ef4444]" />
                     <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Immediate Priorities</h3>
@@ -2178,6 +2197,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* System Context block was deleted in this commit:
                     Account/Region were duplicates of the page header
