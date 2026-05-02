@@ -1618,7 +1618,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
                   <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
@@ -1632,9 +1632,32 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <span className="px-2 py-1 rounded-full bg-[#f9731610] text-[#f97316]">{severityCounts.high} high</span>
                   <span className="px-2 py-1 rounded-full bg-[#eab30810] text-[#a16207]">{severityCounts.medium} medium</span>
                 </div>
+                {/* Top contributing finding pulled from BRSS drivers —
+                    same data the Top Drivers list uses, surfaced here so
+                    the operator can scan severity + the worst offender
+                    in one glance. */}
+                {brssTopDriver ? (
+                  <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Top driver
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[var(--foreground,#111827)] truncate" title={brssTopDriver.resource_id}>
+                      {brssTopDriver.resource_id}
+                    </p>
+                    <p className="text-xs text-[var(--muted-foreground,#6b7280)]">
+                      {(brssTopDriver.severity ?? '').toString().toUpperCase()} · {brssTopDriver.resource_type ?? 'Resource'}
+                    </p>
+                  </div>
+                ) : null}
+                <button
+                  onClick={() => setActiveTab("vulnerabilities")}
+                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                >
+                  Review findings →
+                </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Access Exposure</p>
                   <Zap className="w-4 h-4 text-[#8b5cf6]" />
@@ -1644,15 +1667,40 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">unused permissions</span>
                 </div>
                 <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">{gapAnalysis.gapPercent}% removable from observed usage</p>
-                <div className="mt-4 h-2 rounded-full bg-gray-100 overflow-hidden">
+                {/* Used-vs-granted split. Was a single bar without the
+                    underlying numbers, so operators couldn't tell "1 of
+                    1 unused" (drop everything) from "1 of 200 unused"
+                    (small footprint, almost clean). */}
+                <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Granted
+                    </p>
+                    <p className="mt-0.5 text-base font-semibold text-[var(--foreground,#111827)]">
+                      {gapAnalysis.allowed || "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Observed used
+                    </p>
+                    <p className="mt-0.5 text-base font-semibold text-[var(--foreground,#111827)]">
+                      {gapAnalysis.actual || "—"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
                   <div className="h-full rounded-full bg-[#8b5cf6]" style={{ width: `${Math.min(100, actualPercent)}%` }} />
                 </div>
-                <button onClick={() => setActiveTab("least-privilege")} className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline">
+                <button
+                  onClick={() => setActiveTab("least-privilege")}
+                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                >
                   Open access workflow →
                 </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">System Footprint</p>
                   <Server className="w-4 h-4 text-[#3b82f6]" />
@@ -1675,6 +1723,24 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                     </span>
                   </div>
                 </div>
+                {/* Resource family breakdown — same data the System
+                    Context card has lower on the page, surfaced here
+                    so the hero row also tells you WHAT 63 resources
+                    actually means (compute-heavy vs network-heavy vs
+                    data-heavy). Shown as compact dot+label rows to
+                    keep the card scannable at the same height. */}
+                {resourceTypes && resourceTypes.length > 0 ? (
+                  <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)] space-y-1.5">
+                    {resourceTypes.slice(0, 5).map((r) => (
+                      <div key={r.name} className="flex items-center justify-between text-xs">
+                        <span className="text-[var(--muted-foreground,#6b7280)]">{r.name}</span>
+                        <span className="font-medium text-[var(--foreground,#111827)] tabular-nums">
+                          {r.count}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
 
