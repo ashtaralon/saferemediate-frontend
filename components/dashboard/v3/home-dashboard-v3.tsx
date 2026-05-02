@@ -16,6 +16,7 @@ import { LPTopIssuesCard } from "./lp-top-issues-card"
 import { DecisionRoutingCard } from "./decision-routing-card"
 import { NarrowingSummaryCard } from "./narrowing-summary-card"
 import { PageHeader } from "@/components/ui/page-header"
+import { LiveNowStrip } from "@/components/live-now-strip"
 
 /**
  * V3 home dashboard — editorial typography, real-data discipline.
@@ -73,6 +74,15 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
          the cards below). Until each card emits provenance through the
          proxy, the header degrades to identity + actions only — better
          than a fabricated confidence pill. */}
+
+      {/* Live Now strip — org-wide latest RemediationEvent (no
+          systemName prop = org scope). Same component shipped on the
+          per-system Overview tab; reused so home and System Detail
+          share one visual language for "what just happened."
+          onOpenHistory is intentionally omitted: there is no global
+          history section in V3, so the strip hides the View link
+          rather than navigating somewhere ambiguous. */}
+      <LiveNowStrip />
 
       {/* ── B. Hero row — BRSS + family strip (left 2/3) | Issues by severity (1/3, full height) ── */}
       {/* Severity donut moved into the hero right slot per Alon — it
