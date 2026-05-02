@@ -13,23 +13,46 @@ import {
 /**
  * Hero — Global Blast Radius Score.
  *
- * Real source: /api/proxy/posture-score (org-wide aggregate already
- * computed server-side as weighted average across systems).
+ * Primary source: /api/proxy/global-org-score
+ *   Convergence-aware org aggregate computed by
+ *   unified.scoring.global_org_score.compose_global_org_score(). Builds
+ *   on top of per-system BRSS — does NOT replace per-resource scoring.
+ *   Returns the per-system breakdowns so this card can name worst
+ *   systems and weak planes inline (real data, not Phase C).
  *
- * Trend (added 2026-05-01): /api/proxy/posture-score/trend reads
- * persisted BlastRadiusSnapshot history and returns a daily
- * resource-weighted series. Was a NotWired disclosure here until
- * the snapshot store was exposed via that endpoint.
+ * Fallback: /api/proxy/posture-score
+ *   Legacy weighted-mean of health_score. Used only when the new
+ *   endpoint isn't yet reachable (Render deploy lag, dyno cold-
+ *   start past timeout). Lets the card stay responsive during the
+ *   global-org-score rollout.
  *
- * What's NOT shown (and why):
- *   - "Top driver" line — requires per-resource contribution
- *     attribution against the org-wide aggregate, which isn't surfaced
- *     by /api/posture-score today. Phase C work.
- *
- * Honest framing: large score + grade + 30-day spark + delta + how
- * many systems & resources contributed. Operator can see what's behind
- * the number AND which way it's moving.
+ * Trend: /api/proxy/posture-score/trend reads persisted
+ *   BlastRadiusSnapshot history and returns a daily resource-weighted
+ *   series.
  */
+
+type GlobalOrgScore = {
+  global_score: number | null
+  org_risk?: number
+  weighted_mean_risk?: number
+  weighted_p90_risk?: number
+  resources_analyzed: number
+  system_count: number
+  worst_systems?: string[]
+  system_breakdowns?: Array<{
+    system_name: string
+    system_score: number
+    weak_planes?: string[]
+    convergence_multiplier?: number
+    visibility_penalty?: number
+    system_risk?: number
+    environment?: string
+  }>
+  version?: string
+  partial?: { succeeded: number; failed: number; discovered: number }
+  error?: string
+  message?: string
+}
 
 type PostureScore = {
   overall_score: number
@@ -39,6 +62,14 @@ type PostureScore = {
   source: string
   error?: string
   message?: string
+}
+
+function gradeFromScore(score: number): "A" | "B" | "C" | "D" | "F" {
+  if (score >= 90) return "A"
+  if (score >= 80) return "B"
+  if (score >= 70) return "C"
+  if (score >= 60) return "D"
+  return "F"
 }
 
 type TrendPoint = { date: string; score: number; system_count: number }
@@ -102,9 +133,36 @@ function TrendSpark({ series }: { series: TrendPoint[] }) {
 }
 
 export function HeroBrssCard() {
-  const { data, loading, error, retry } = useCachedFetch<PostureScore>(
+  // Primary: convergence-aware org score from the new module.
+  const {
+    data: orgData,
+    loading: orgLoading,
+    error: orgError,
+    retry: orgRetry,
+  } = useCachedFetch<GlobalOrgScore>(
+    "/api/proxy/global-org-score",
+    { cacheKey: "global-org-score", fetchInit: { cache: "no-store" } },
+  )
+
+  // Fallback: legacy weighted-mean. Only consulted when primary
+  // failed or returned null score (rolling deploy, cold start).
+  const orgUsable =
+    orgData &&
+    typeof orgData.global_score === "number" &&
+    !orgData.error
+  const {
+    data: legacyData,
+    loading: legacyLoading,
+    error: legacyError,
+    retry: legacyRetry,
+  } = useCachedFetch<PostureScore>(
     "/api/proxy/posture-score",
-    { cacheKey: "posture-score", fetchInit: { cache: "no-store" } }
+    {
+      cacheKey: "posture-score",
+      fetchInit: { cache: "no-store" },
+      // Don't even fire when primary is healthy.
+      enabled: !orgUsable,
+    } as any,
   )
 
   // Trend is a secondary fetch — never blocks the hero score from
@@ -115,14 +173,65 @@ export function HeroBrssCard() {
     { cacheKey: "posture-trend-30d", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Global blast radius score" />
-  // /api/proxy/posture-score may return HTTP 200 with an `error` field
-  // in the body to signal upstream failure. Post-validate.
-  const bodyError = data?.error ? data.message || data.error : null
-  if ((error || bodyError) && !data) {
-    return <ErrorCard label="Global blast radius score" error={error || bodyError || ""} onRetry={retry} />
+  // Decide which source backs the render this turn. Prefer the new
+  // org module when usable; otherwise the legacy aggregate.
+  const usingOrg = orgUsable
+  const score: number | null = usingOrg
+    ? (orgData!.global_score as number)
+    : legacyData && typeof legacyData.overall_score === "number"
+      ? legacyData.overall_score
+      : null
+  const systemCount = usingOrg
+    ? orgData!.system_count
+    : (legacyData?.system_count ?? 0)
+  const resourcesAnalyzed = usingOrg
+    ? orgData!.resources_analyzed
+    : (legacyData?.resources_analyzed ?? 0)
+  const grade = score === null ? "F" : gradeFromScore(score)
+  const worstSystems = usingOrg ? (orgData!.worst_systems ?? []) : []
+  // Distinct list of weak planes across the worst-3 systems — used
+  // for the inline "weak planes" attribution under the score.
+  const weakPlanesAcrossWorst: string[] = []
+  if (usingOrg && Array.isArray(orgData!.system_breakdowns)) {
+    const seen = new Set<string>()
+    for (const wsName of (orgData!.worst_systems ?? []).slice(0, 3)) {
+      const b = orgData!.system_breakdowns.find((x) => x.system_name === wsName)
+      for (const plane of b?.weak_planes ?? []) {
+        if (!seen.has(plane)) {
+          seen.add(plane)
+          weakPlanesAcrossWorst.push(plane)
+        }
+      }
+    }
   }
-  if (!data) return null
+
+  const loading =
+    score === null && (orgLoading || (!usingOrg && legacyLoading))
+  if (loading) return <LoadingCard label="Global blast radius score" />
+  if (score === null) {
+    const msg =
+      orgError ||
+      orgData?.message ||
+      orgData?.error ||
+      legacyError ||
+      legacyData?.message ||
+      legacyData?.error ||
+      "Score unavailable"
+    return (
+      <ErrorCard
+        label="Global blast radius score"
+        error={msg}
+        onRetry={() => (usingOrg ? orgRetry() : legacyRetry())}
+      />
+    )
+  }
+  // Compatibility shim — preserves the rest of the render below.
+  const data: { overall_score: number; grade: string; resources_analyzed: number; system_count: number } = {
+    overall_score: score,
+    grade,
+    resources_analyzed: resourcesAnalyzed,
+    system_count: systemCount,
+  }
 
   return (
     <Section
@@ -191,10 +300,37 @@ export function HeroBrssCard() {
         </div>
       )}
 
-      <p className={`${descriptorClass} mt-4`}>
-        Top-driver attribution (which resources moved the score) requires
-        per-resource contribution analysis against the org aggregate — Phase C work.
-      </p>
+      {/* Inline attribution — replaces the "Phase C" disclosure. Real
+          data when the new org module backs the render: weak planes
+          surfaced from the worst-3 systems' per-family scores, plus
+          the worst system names. Hidden cleanly when only the legacy
+          aggregate is available (no per-system breakdowns to attribute
+          from). */}
+      {usingOrg && (worstSystems.length > 0 || weakPlanesAcrossWorst.length > 0) ? (
+        <div className={`${descriptorClass} mt-4 space-y-1`}>
+          {weakPlanesAcrossWorst.length > 0 ? (
+            <p>
+              Weak planes:{" "}
+              <span className="font-medium text-rose-700">
+                {weakPlanesAcrossWorst.join(" + ")}
+              </span>
+            </p>
+          ) : null}
+          {worstSystems.length > 0 ? (
+            <p>
+              Worst systems:{" "}
+              <span className="font-medium text-slate-800">
+                {worstSystems.slice(0, 3).join(", ")}
+              </span>
+            </p>
+          ) : null}
+        </div>
+      ) : !usingOrg ? (
+        <p className={`${descriptorClass} mt-4`}>
+          Showing legacy weighted-mean score — convergence-aware org score
+          temporarily unavailable. Retry once backend warms.
+        </p>
+      ) : null}
     </Section>
   )
 }
