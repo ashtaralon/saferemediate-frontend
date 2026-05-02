@@ -127,7 +127,7 @@ export function HeroBrssCard() {
   return (
     <Section
       label="Global blast radius score"
-      descriptor={`Weighted org aggregate · ${data.system_count} systems · ${data.resources_analyzed.toLocaleString()} resources`}
+      descriptor={`Weighted by production criticality, exposed systems, and cross-plane convergence · ${data.system_count} systems · ${data.resources_analyzed.toLocaleString()} resources`}
       className={`${accentByCategory.brss} bg-gradient-to-br from-indigo-50/70 via-white to-white`}
     >
       <div className="flex items-end justify-between gap-6">
