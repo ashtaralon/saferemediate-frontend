@@ -35,7 +35,14 @@ import {
   Bug,
   Unplug,
   Target,
+  MoreHorizontal,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
@@ -1356,8 +1363,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* 1. Sync from AWS → Neo4j */}
+            {/* Header actions hierarchy:
+                  Primary  — Sync from AWS    (operator's daily action;
+                                               the only large branded
+                                               button)
+                  Compact  — Refresh           (icon-only; daily but
+                                               cheap to surface)
+                  Overflow — Tag / Auto-Tag /
+                             Schedule          (rare; behind ⋯ menu)
+                Was five peer-weight buttons that all looked equally
+                important. Operators reported scanning past Sync to
+                find the action they actually wanted. */}
+            <div className="flex items-center gap-2">
               <SyncFromAWSButton
                 onSyncComplete={() => {
                   setLastSyncedAt(new Date().toISOString())
@@ -1366,46 +1383,55 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 className="flex-shrink-0"
               />
 
-              {/* 2. Refresh from Neo4j (re-read existing data) */}
               <button
                 onClick={() => {
                   setRefreshKey((k) => k + 1)
                 }}
-                className="flex items-center gap-2 px-4 py-2 border border-[var(--border,#e5e7eb)] text-[var(--foreground,#374151)] rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                title="Refresh from Neo4j (re-read existing data)"
+                aria-label="Refresh"
+                className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
-                Refresh
               </button>
 
-              <button
-                onClick={() => setShowTagModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-              >
-                <Tag className="w-4 h-4" />
-                Tag All Resources
-              </button>
-
-              <button
-                onClick={handleManualAutoTag}
-                disabled={autoTaggerLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-[#8b5cf6] text-white rounded-lg hover:bg-[#7c3aed] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-              >
-                {autoTaggerLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Tagging...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    Auto-Tag Connected Resources
-                  </>
-                )}
-              </button>
-              <button className="flex items-center gap-2 px-4 py-2 bg-[#2D51DA] text-white rounded-lg hover:bg-[#2343B8] transition-colors">
-                <Calendar className="w-4 h-4" />
-                Schedule Maintenance
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label="More actions"
+                    title="More actions"
+                    className="flex items-center justify-center w-9 h-9 border border-[var(--border,#e5e7eb)] text-[var(--muted-foreground,#6b7280)] rounded-lg hover:bg-gray-50 hover:text-[var(--foreground,#374151)] transition-colors"
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setShowTagModal(true)}>
+                    <Tag className="w-4 h-4 mr-2" />
+                    Tag all resources
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleManualAutoTag}
+                    disabled={autoTaggerLoading}
+                  >
+                    {autoTaggerLoading ? (
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Zap className="w-4 h-4 mr-2" />
+                    )}
+                    {autoTaggerLoading ? "Tagging…" : "Auto-tag connected resources"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      // Schedule Maintenance was a no-op label-only
+                      // button before; preserving the not-yet-wired
+                      // behavior here — wiring it is a follow-up.
+                    }}
+                  >
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Schedule maintenance
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
           {/* Top-level tab groups — five-wide row that no longer wraps. */}
