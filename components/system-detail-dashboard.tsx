@@ -47,6 +47,7 @@ import { SyncFromAWSButton } from "@/components/SyncFromAWSButton"
 import SimulationResultsModal from "@/components/SimulationResultsModal"
 import { SecurityFindingsList } from "./issues/security-findings-list"
 import { PendingApprovals } from "./pending-approvals"
+import { LiveNowStrip } from "./live-now-strip"
 import { fetchSecurityFindings } from "@/lib/api-client"
 import type { SecurityFinding, BlastRadiusScore } from "@/lib/types"
 import {
@@ -1743,6 +1744,18 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 ) : null}
               </div>
             </div>
+
+            {/* Live Now strip — slim full-width "what just happened on
+                this system" line. Reads the most recent RemediationEvent
+                joined to a resource carrying this SystemName (real Neo4j
+                data, not fabricated). Three-state aware: loading,
+                has-event, idle, error. Operator's daily question
+                ("did anything happen here?") now has an answer above
+                the fold. */}
+            <LiveNowStrip
+              systemName={systemName}
+              onOpenHistory={() => setActiveTab("history")}
+            />
 
             {/* Drivers + Trend — combined into a single 12-col row so
                 the supporting "what's pulling the score down" content

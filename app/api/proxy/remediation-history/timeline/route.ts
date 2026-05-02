@@ -14,7 +14,9 @@ export async function GET(req: NextRequest) {
 
     const resourceId = searchParams.get("resource_id")
     const resourceType = searchParams.get("resource_type")
-    const system = searchParams.get("system")
+    // Accept either ?system_name= (the backend's canonical key) or
+    // ?system= (legacy frontend convention) and forward as system_name.
+    const systemName = searchParams.get("system_name") || searchParams.get("system")
     const envelope = searchParams.get("envelope") === "true"
 
     const queryParams = new URLSearchParams()
@@ -22,7 +24,7 @@ export async function GET(req: NextRequest) {
     if (endDate) queryParams.set("end_date", endDate)
     if (resourceId) queryParams.set("resource_id", resourceId)
     if (resourceType) queryParams.set("resource_type", resourceType)
-    if (system) queryParams.set("system", system)
+    if (systemName) queryParams.set("system_name", systemName)
     queryParams.set("limit", limit)
     if (envelope) queryParams.set("envelope", "true")
 
