@@ -1500,7 +1500,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "overview" && (
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {/* items-start so each hero card sizes to its own content
+                instead of stretching to match the tallest (BRSS). The
+                visual "empty middle" in the lighter cards was cells
+                being stretched + content honest-pinned to top/bottom
+                via mt-auto. Ragged-bottom alignment reads denser than
+                forced equal heights with whitespace. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
               <div
                 className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] ${brssSurface}`}
                 data-testid="blast-radius-card"
@@ -1619,7 +1625,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
                   <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
@@ -1628,15 +1634,51 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <span className="text-4xl font-bold text-[var(--foreground,#111827)]">{totalFindings}</span>
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">open findings</span>
                 </div>
-                <div className="mt-4 flex items-center gap-2 text-xs">
-                  <span className="px-2 py-1 rounded-full bg-[#ef444410] text-[#ef4444]">{severityCounts.critical} critical</span>
-                  <span className="px-2 py-1 rounded-full bg-[#f9731610] text-[#f97316]">{severityCounts.high} high</span>
-                  <span className="px-2 py-1 rounded-full bg-[#eab30810] text-[#a16207]">{severityCounts.medium} medium</span>
-                </div>
-                {/* Top contributing finding pulled from BRSS drivers —
-                    same data the Top Drivers list uses, surfaced here so
-                    the operator can scan severity + the worst offender
-                    in one glance. */}
+                {/* Severity distribution bar — visual proportion of
+                    critical/high/medium/low. Was three pills with no
+                    visual weight; this gives the eye a density signal
+                    in one horizontal strip alongside the count. */}
+                {totalFindings > 0 ? (
+                  <div className="mt-4">
+                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      {severityCounts.critical > 0 ? (
+                        <div
+                          className="bg-[#ef4444]"
+                          style={{ width: `${(severityCounts.critical / totalFindings) * 100}%` }}
+                          title={`${severityCounts.critical} critical`}
+                        />
+                      ) : null}
+                      {severityCounts.high > 0 ? (
+                        <div
+                          className="bg-[#f97316]"
+                          style={{ width: `${(severityCounts.high / totalFindings) * 100}%` }}
+                          title={`${severityCounts.high} high`}
+                        />
+                      ) : null}
+                      {severityCounts.medium > 0 ? (
+                        <div
+                          className="bg-[#eab308]"
+                          style={{ width: `${(severityCounts.medium / totalFindings) * 100}%` }}
+                          title={`${severityCounts.medium} medium`}
+                        />
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 text-xs flex-wrap">
+                      {severityCounts.critical > 0 ? (
+                        <span className="text-[#ef4444] tabular-nums">{severityCounts.critical} critical</span>
+                      ) : null}
+                      {severityCounts.high > 0 ? (
+                        <span className="text-[#f97316] tabular-nums">{severityCounts.high} high</span>
+                      ) : null}
+                      {severityCounts.medium > 0 ? (
+                        <span className="text-[#a16207] tabular-nums">{severityCounts.medium} medium</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {/* Top contributing finding from BRSS drivers — surfaced
+                    here so the operator can scan severity + the worst
+                    offender in one glance. */}
                 {brssTopDriver ? (
                   <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)]">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
@@ -1652,13 +1694,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 ) : null}
                 <button
                   onClick={() => setActiveTab("vulnerabilities")}
-                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                  className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
                 >
                   Review findings →
                 </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Access Exposure</p>
                   <Zap className="w-4 h-4 text-[#8b5cf6]" />
@@ -1668,10 +1710,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   <span className="text-sm text-[var(--muted-foreground,#6b7280)] mb-1">unused permissions</span>
                 </div>
                 <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2">{gapAnalysis.gapPercent}% removable from observed usage</p>
-                {/* Used-vs-granted split. Was a single bar without the
-                    underlying numbers, so operators couldn't tell "1 of
-                    1 unused" (drop everything) from "1 of 200 unused"
-                    (small footprint, almost clean). */}
                 <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
@@ -1693,9 +1731,43 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
                   <div className="h-full rounded-full bg-[#8b5cf6]" style={{ width: `${Math.min(100, actualPercent)}%` }} />
                 </div>
+                {/* Top unused permissions, surfaced from the same
+                    /api/iam-roles/.../gap-analysis call that produced
+                    the count. Operators don't have to click through to
+                    "what specifically is unused" — the answer is the
+                    next 3 lines. */}
+                {Array.isArray(unusedActionsList) && unusedActionsList.length > 0 ? (
+                  <div className="mt-4 pt-4 border-t border-[var(--border,#eef2f7)]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                      Top unused {unusedActionsList.length > 3 ? `(${unusedActionsList.length} total)` : ""}
+                    </p>
+                    <div className="mt-1.5 space-y-0.5">
+                      {unusedActionsList.slice(0, 3).map((p) => (
+                        <p
+                          key={typeof p === "string" ? p : JSON.stringify(p)}
+                          className="text-xs font-mono text-[var(--foreground,#111827)] truncate"
+                          title={typeof p === "string" ? p : JSON.stringify(p)}
+                        >
+                          {typeof p === "string" ? p : (p as any).action || (p as any).name || JSON.stringify(p)}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {/* Telemetry confidence backing the gap. A 1-of-N
+                    "removable" claim with 40% confidence is a wildly
+                    different action than the same claim with 90%. */}
+                {gapAnalysis.confidence ? (
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="text-[var(--muted-foreground,#6b7280)]">Telemetry confidence</span>
+                    <span className="font-medium tabular-nums text-[var(--foreground,#111827)]">
+                      {gapAnalysis.confidence}%
+                    </span>
+                  </div>
+                ) : null}
                 <button
                   onClick={() => setActiveTab("least-privilege")}
-                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                  className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
                 >
                   Open access workflow →
                 </button>
