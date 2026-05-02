@@ -1678,14 +1678,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             </div>
 
-            {/* Top Blast Radius Drivers — per-resource factor breakdown.
-                Proves decomposability: every score point lost is attributable to
-                a specific resource × factor. The "+N if fixed" lift is the
-                approximate score gain from remediating that resource to clean.
-            */}
+            {/* Drivers + Trend — combined into a single 12-col row so
+                the supporting "what's pulling the score down" content
+                lives in one band instead of two stacked full-width
+                sections. Each child stays self-conditional so either
+                renders independently when the other has no data. */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
             {brss && brss.top_drivers && brss.top_drivers.length > 0 && (
               <div
-                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]"
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] xl:col-span-8"
                 data-testid="blast-radius-drivers"
               >
                 <div className="flex items-start justify-between gap-4 mb-5">
@@ -1858,14 +1859,15 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </div>
             )}
 
-            {/* Blast Radius Score — trend chart.
-                Reads from the persisted BRSS snapshot series. Snapshots are
-                written on: first scan, score delta ≥ 2, or every 1 hour even
-                if stable. Empty/single-point states are expected on fresh
-                systems — chart degrades gracefully. */}
+            {/* Trend chart shares the row with Drivers (col-span-4 of
+                the same 12-col grid opened above). Reads the persisted
+                BRSS snapshot series — snapshots are written on first
+                scan, score delta ≥ 2, or every 1 hour even if stable.
+                Empty/single-point states are expected on fresh systems
+                and degrade gracefully. */}
             {brss && (
               <div
-                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]"
+                className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] xl:col-span-4"
                 data-testid="blast-radius-trend"
               >
                 <div className="flex items-start justify-between gap-4 mb-4">
@@ -1949,6 +1951,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 )}
               </div>
             )}
+            </div>
+            {/* end Drivers + Trend row */}
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-4 space-y-6">
