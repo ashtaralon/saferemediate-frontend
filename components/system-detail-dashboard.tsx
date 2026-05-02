@@ -1268,67 +1268,6 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   })()
   const actualPercent = gapAnalysis.allowed > 0 ? Math.round((gapAnalysis.actual / gapAnalysis.allowed) * 100) : 0
   const totalResourcesCount = resourceTypes.reduce((sum, resource) => sum + resource.count, 0)
-  const topPriorityItems = [
-    severityCounts.critical > 0
-      ? {
-          title: `${severityCounts.critical} critical finding${severityCounts.critical === 1 ? "" : "s"} need immediate review`,
-          detail: "Critical issues are the fastest path to material risk for this system.",
-          cta: "Open vulnerabilities",
-          action: () => setActiveTab("vulnerabilities"),
-          tone: "critical" as const,
-        }
-      : null,
-    severityCounts.high > 0
-      ? {
-          title: `${severityCounts.high} high-severity finding${severityCounts.high === 1 ? "" : "s"} still open`,
-          detail: "These findings are raising pressure on the system even if nothing is critical right now.",
-          cta: "Review findings",
-          action: () => setActiveTab("vulnerabilities"),
-          tone: "high" as const,
-        }
-      : null,
-    gapAnalysis.gap > 0
-      ? {
-          title: `${gapAnalysis.gap} unused permission${gapAnalysis.gap === 1 ? "" : "s"} can likely be removed`,
-          detail: `${gapAnalysis.gapPercent}% of observed access looks removable based on current telemetry.`,
-          cta: "Open least privilege",
-          action: () => setActiveTab("least-privilege"),
-          tone: gapAnalysis.gapPercent >= 50 ? ("high" as const) : ("medium" as const),
-        }
-      : null,
-    !hasEnforcementTelemetry
-      ? {
-          title: "This system is missing current enforcement telemetry",
-          detail: "Run a sync or refresh to calculate a system-scoped enforcement score from live checks.",
-          cta: "Refresh overview",
-          action: () => setRefreshKey((k) => k + 1),
-          tone: "medium" as const,
-        }
-      : null,
-  ].filter((item): item is {
-    title: string
-    detail: string
-    cta: string
-    action: () => void
-    tone: "critical" | "high" | "medium"
-  } => item !== null)
-  const overviewIssuePreview = issues
-    .filter((issue) => issue.severity !== "low")
-    .slice(0, 3)
-    .map((issue) => ({
-      id: issue.id,
-      title: issue.title,
-      impact: issue.impact,
-      affected: issue.affected,
-    }))
-  const overviewFindingsPreview = securityFindings
-    .slice(0, 3)
-    .map((finding) => ({
-      id: finding.id,
-      title: finding.title,
-      description: finding.description,
-      severity: String(finding.severity || "unknown").toUpperCase(),
-    }))
 
   // =============================================================================
   // RENDER
@@ -2148,56 +2087,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               <div className="xl:col-span-4 space-y-6">
-                {/* Pending Decisions panel — replaces the legacy
-                    Immediate Priorities block. The old panel was a
-                    Tier-1 set of nav links to other tabs ("Open
-                    vulnerabilities →", "Open least privilege →"); this
-                    is Tier-2: a curated list of findings the engine has
-                    routed for human review, each opening the existing
-                    SimulateFixModal inline so the operator gets a
-                    real-data preview + Apply path without leaving the
-                    overview. The legacy ``topPriorityItems`` derivation
-                    above stays in place for now but is no longer
-                    rendered — left as a deletable scratchpad in case
-                    the rebrand needs a fallback. */}
                 <PendingDecisionsPanel
                   systemName={systemName}
                   findings={securityFindings}
                   onOpenFullQueue={() => setActiveTab("vulnerabilities")}
                 />
-                {false && (
-                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <ShieldAlert className="w-5 h-5 text-[#ef4444]" />
-                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Immediate Priorities</h3>
-                  </div>
-                  {topPriorityItems.length === 0 ? (
-                    <div className="rounded-lg border border-[#22c55e30] bg-[#22c55e08] p-4">
-                      <div className="flex items-start gap-3">
-                        <CheckCircle className="w-5 h-5 text-[#22c55e] mt-0.5" />
-                        <div>
-                          <p className="text-sm font-semibold text-[#166534]">No urgent drivers detected</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                            This system currently looks stable from the summary signals we track here.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {topPriorityItems.map((item) => (
-                        <div key={item.title} className={`rounded-lg border p-4 ${item.tone === "critical" ? "border-[#ef444430] bg-[#ef444408]" : item.tone === "high" ? "border-[#f9731630] bg-[#f9731608]" : "border-[#eab30830] bg-[#eab30808]"}`}>
-                          <p className="text-sm font-semibold text-[var(--foreground,#111827)]">{item.title}</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{item.detail}</p>
-                          <button onClick={item.action} className="mt-3 text-sm font-medium text-[#2D51DA] hover:underline">
-                            {item.cta} →
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                )}
 
                 {/* System Context block was deleted in this commit:
                     Account/Region were duplicates of the page header
