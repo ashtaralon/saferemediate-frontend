@@ -1958,9 +1958,36 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       Persisted snapshots over time. Movement attributable to remediation, not scope shifts.
                     </p>
                   </div>
-                  <span className="shrink-0 text-[11px] font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
-                    Last {brssHistory.length || '—'} snapshot{brssHistory.length === 1 ? '' : 's'}
-                  </span>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] font-semibold text-[var(--muted-foreground,#6b7280)] uppercase tracking-wider">
+                      Last {brssHistory.length || '—'} snapshot{brssHistory.length === 1 ? '' : 's'}
+                    </p>
+                    {/* Delta over the visible window. Operators couldn't
+                        read movement from the chart alone — at fixed
+                        0-100 axis, a 2-point change looks like a flat
+                        line. The signed delta makes "stable, slow
+                        improvement" legible without staring at the y. */}
+                    {brssHistory.length >= 2 ? (() => {
+                      const first = brssHistory[0]?.score ?? 0
+                      const last = brssHistory[brssHistory.length - 1]?.score ?? 0
+                      const delta = last - first
+                      const sign = delta > 0 ? "+" : ""
+                      // BRSS direction: HIGHER is healthier (≥80 green
+                      // hero, <60 red hero — see brssAccent above). So
+                      // a positive delta means posture improved.
+                      const tone =
+                        delta > 0.5
+                          ? "text-emerald-700"
+                          : delta < -0.5
+                            ? "text-rose-700"
+                            : "text-slate-500"
+                      return (
+                        <p className={`mt-1 text-sm font-semibold tabular-nums ${tone}`}>
+                          Δ {sign}{delta.toFixed(1)} pts
+                        </p>
+                      )
+                    })() : null}
+                  </div>
                 </div>
 
                 {brssHistory.length < 2 ? (
@@ -1998,12 +2025,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           tick={{ fontSize: 11 }}
                           minTickGap={24}
                         />
+                        {/* Autofit Y to the data band with comfortable
+                            padding, clamped to [0, 100]. The fixed 0-100
+                            scale was making any change look flat — at
+                            ~45 score, a 2-point swing was invisible.
+                            Autofit makes movement legible; the inline
+                            Δ callout above the chart preserves the
+                            absolute-reference signal. */}
                         <YAxis
-                          domain={[0, 100]}
+                          domain={[
+                            (dataMin: number) => Math.max(0, Math.floor(dataMin - 5)),
+                            (dataMax: number) => Math.min(100, Math.ceil(dataMax + 5)),
+                          ]}
                           stroke="#94a3b8"
                           tick={{ fontSize: 11 }}
                           width={38}
                         />
+                        {/* Reference lines render only when the autofit
+                            window includes them — Recharts clips them
+                            silently when out of range, which is what we
+                            want (no clutter when the score band is far
+                            from the threshold). */}
                         <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="3 3" label={{ value: 'Coverage floor', fontSize: 10, fill: '#64748b', position: 'insideTopRight' }} />
                         <ReferenceLine y={80} stroke="#bbf7d0" strokeDasharray="3 3" label={{ value: 'Healthy', fontSize: 10, fill: '#16a34a', position: 'insideTopRight' }} />
                         <RechartsTooltip
