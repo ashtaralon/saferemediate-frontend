@@ -1500,15 +1500,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "overview" && (
         <>
           <div className="max-w-[1800px] mx-auto px-8 py-6 space-y-6">
-            {/* items-start so each hero card sizes to its own content
-                instead of stretching to match the tallest (BRSS). The
-                visual "empty middle" in the lighter cards was cells
-                being stretched + content honest-pinned to top/bottom
-                via mt-auto. Ragged-bottom alignment reads denser than
-                forced equal heights with whitespace. */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
+            {/* All four hero cards stretch to a uniform height (default
+                grid behavior — items-stretch). Each card is `flex
+                flex-col` so its content distributes top-to-bottom; the
+                action link at the bottom uses `mt-auto` so it always
+                anchors to the card's lower edge regardless of content
+                length. Combined with the densification work, the
+                hero row reads as four equal-weight peers. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div
-                className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] ${brssSurface}`}
+                className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] h-full ${brssSurface}`}
                 data-testid="blast-radius-card"
               >
                 <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
@@ -1622,7 +1623,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
                   <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
@@ -1691,13 +1692,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 ) : null}
                 <button
                   onClick={() => setActiveTab("vulnerabilities")}
-                  className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
                 >
                   Review findings →
                 </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Access Exposure</p>
                   <Zap className="w-4 h-4 text-[#8b5cf6]" />
@@ -1764,13 +1765,13 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 ) : null}
                 <button
                   onClick={() => setActiveTab("least-privilege")}
-                  className="mt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
+                  className="mt-auto pt-4 text-sm font-medium text-[#2D51DA] hover:underline self-start"
                 >
                   Open access workflow →
                 </button>
               </div>
 
-              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col">
+              <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">System Footprint</p>
                   <Server className="w-4 h-4 text-[#3b82f6]" />
