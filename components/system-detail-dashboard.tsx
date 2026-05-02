@@ -1227,7 +1227,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const healthScore = hasEnforcementTelemetry ? healthScoreFromApi : null
 
   // Blast Radius Score presentation scaffolding (replaces Enforcement Score card).
-  const brssScore = brss ? brss.score : null
+  // Operator-facing score: prefer the convergence-adjusted overlay
+  // when the backend computed one. Falls back to the base BRSS score
+  // when overlay computation failed or hasn't deployed yet — the
+  // overlay is enrichment, not a hard dependency. The base score is
+  // still tracked separately for the "raw BRSS" sub-pill below.
+  const brssOverlay = brss?.overlay && !brss.overlay.error ? brss.overlay : null
+  const brssScore = brss ? (brssOverlay?.score ?? brss.score) : null
+  const brssBaseScore = brss ? brss.score : null
   const brssTopDriver = brss && brss.top_drivers && brss.top_drivers.length > 0 ? brss.top_drivers[0] : null
   const brssCoveragePercent = brss ? Math.round(brss.coverage_ratio * 100) : null
   const brssAccent = brssScore === null
@@ -1558,6 +1565,36 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                           ) : null}
                         </div>
                       )}
+                      {/* Convergence-overlay attribution — only renders
+                          when the backend computed an overlay AND it
+                          materially changed the score. Operators see
+                          WHY the displayed score differs from the raw
+                          BRSS without us hiding either number. */}
+                      {brssOverlay &&
+                       brssBaseScore !== null &&
+                       brssOverlay.score !== brssBaseScore ? (
+                        <div className="mt-3 pt-3 border-t border-white/40 space-y-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
+                            Why {brssOverlay.score} not {brssBaseScore}?
+                          </p>
+                          {brssOverlay.weak_planes.length >= 2 ? (
+                            <p className="text-xs text-[var(--muted-foreground,#374151)]">
+                              Cross-plane convergence ×{brssOverlay.convergence_multiplier.toFixed(2)} —{" "}
+                              <span className="font-medium text-rose-700">
+                                {brssOverlay.weak_planes.join(" + ")}
+                              </span>{" "}
+                              are weak together
+                            </p>
+                          ) : null}
+                          {brssOverlay.visibility_penalty >= 0.5 ? (
+                            <p className="text-xs text-[var(--muted-foreground,#374151)]">
+                              Visibility penalty +{brssOverlay.visibility_penalty.toFixed(1)} pts
+                              {" "}({Math.round(brssOverlay.visibility_ratio * 100)}% telemetry,
+                              {" "}{brssOverlay.environment})
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>

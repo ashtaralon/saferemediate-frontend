@@ -272,7 +272,7 @@ export interface BrssDelta {
 }
 
 export interface BlastRadiusScore {
-  score: number                        // coverage-bounded final
+  score: number                        // coverage-bounded final (BASE)
   score_raw: number                    // before coverage ceiling
   coverage_ceiling: number
   coverage_ratio: number
@@ -287,6 +287,24 @@ export interface BlastRadiusScore {
   delta: BrssDelta
   snapshot_persisted: boolean
   version: "brss-v1"
+  // Phase 3 — per-system convergence overlay. Optional because the
+  // backend wraps the overlay computation in its own try/except so a
+  // failure there can't break the base BRSS payload. When present
+  // the operator-facing score is overlay.score (post-multiplier);
+  // the legacy ``score`` field is the pre-overlay base.
+  overlay?: {
+    score: number
+    score_base: number
+    convergence_multiplier: number
+    convergence_load: number
+    weak_planes: string[]
+    visibility_penalty: number
+    visibility_ratio: number
+    environment: string
+    base_breakdown?: unknown
+    version?: string
+    error?: string
+  }
 }
 
 export interface ResourceChange {
