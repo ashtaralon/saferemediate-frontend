@@ -48,9 +48,71 @@ type DecisionRoutingResp = {
     other?: DecisionBucket
   }
   by_decision_total?: DecisionBucket
+  blocking_reasons?: Record<string, number>
+  blocked_total?: number
   supported_families?: string[]
   generated_at?: string
   error?: string
+}
+
+// Reason key → operator-readable label + actionable hint.
+// Keys must match BLOCKING_REASON_BUCKETS in the backend module
+// api/findings_decision_routing.py — adding a new bucket there
+// without adding a label here surfaces the raw key in the UI as
+// fallback (still honest, just less polished).
+const BLOCKING_REASON_LABELS: Record<string, { label: string; hint: string }> = {
+  low_telemetry_coverage: {
+    label: "Low telemetry coverage",
+    hint: "Enable CloudTrail / VPC Flow / Config to lift these out of manual",
+  },
+  short_observation_window: {
+    label: "Short observation window",
+    hint: "Resource is too new — wait for behavioral baseline to accumulate",
+  },
+  no_evidence_for_resource: {
+    label: "No evidence collected",
+    hint: "SignalSource has no data for this resource's account/region",
+  },
+  evidence_collection_pending: {
+    label: "Evidence collection pending",
+    hint: "Tracked source not yet synced; wait for next collection cycle",
+  },
+  low_quality_evidence: {
+    label: "Degraded evidence quality",
+    hint: "C_source confidence below 75 — investigate weakest source",
+  },
+  evidence_conflict_ct_vs_aa: {
+    label: "CT vs Access Analyzer conflict",
+    hint: "Hard binary disagreement — needs manual reconciliation",
+  },
+  implicit_dependency_unresolved: {
+    label: "Implicit dependency uncertain",
+    hint: "KMS / Secrets Manager dependency graph incomplete",
+  },
+  stale_analysis_hash: {
+    label: "Stale analysis hash (drift)",
+    hint: "Resource state changed since last collector sync — re-sync",
+  },
+  drift_unverifiable: {
+    label: "Drift unverifiable",
+    hint: "Analysis-time hash missing — never synced by collector",
+  },
+  flow_log_survival_check_failed: {
+    label: "Flow log survival check failed",
+    hint: "Preflight VPC Flow consistency gate fired",
+  },
+  simulation_failed: {
+    label: "Simulation failed",
+    hint: "iam:SimulatePrincipalPolicy errored — retry or escalate",
+  },
+  dr_breakglass_excluded: {
+    label: "DR / break-glass tagged",
+    hint: "Resource is intentionally excluded from automation",
+  },
+  other: {
+    label: "Other gate",
+    hint: "Unrecognized scorer gate — surface raw to product",
+  },
 }
 
 const FAMILIES: Array<{
@@ -185,6 +247,48 @@ export function DecisionRoutingCard() {
           />
         ))}
       </div>
+
+      {/* Why Cyntro Is Not Acting Yet — bucketed gates from the scorer.
+          Renders only when there are blocked findings to explain.
+          The breakdown is the operator-grade version of the bare BLOCK
+          count: instead of "9 blocked", show what would unblock them
+          (enable telemetry, wait for observation window, resolve
+          conflict, etc.). Each entry is one gate type that fired. */}
+      {data.blocking_reasons &&
+        Object.keys(data.blocking_reasons).length > 0 && (
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50/50 p-3">
+            <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+              Why Cyntro is not acting yet
+              <span className="font-mono text-[10px] tabular-nums text-amber-600">
+                · {data.blocked_total ?? 0} blocked
+              </span>
+            </div>
+            <ul className="space-y-1">
+              {Object.entries(data.blocking_reasons)
+                .sort(([, a], [, b]) => b - a)
+                .map(([key, count]) => {
+                  const meta = BLOCKING_REASON_LABELS[key] ?? {
+                    label: key,
+                    hint: "Unrecognized gate — see backend module",
+                  }
+                  return (
+                    <li
+                      key={key}
+                      className="flex items-baseline justify-between gap-3 text-[12px]"
+                    >
+                      <span className="text-slate-700">
+                        <span className="font-semibold">{meta.label}</span>
+                        <span className="ml-2 text-slate-500">— {meta.hint}</span>
+                      </span>
+                      <span className="font-mono font-semibold tabular-nums text-amber-700">
+                        {count}
+                      </span>
+                    </li>
+                  )
+                })}
+            </ul>
+          </div>
+        )}
 
       <p className={`${descriptorClass} mt-3`}>
         Verdicts from the unified scorer (Patent A4 matrix) — same logic that
