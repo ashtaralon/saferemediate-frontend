@@ -1571,27 +1571,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                             : "Run a scan to calculate system blast radius"}
                       </p>
 
-                      <div className="mt-4 flex flex-wrap items-center gap-2">
-                        {brssCoveragePercent !== null && brss && (
-                          <CoveragePill brss={brss} testId="coverage-pill" />
-                        )}
-                        {brssDeltaText && (
-                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
-                            {brssDeltaText}
-                          </span>
-                        )}
-                        {brss?.resource_count ? (
-                          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur">
-                            {brss.resource_count} resources scored
-                          </span>
-                        ) : null}
-                      </div>
+                      {/* Slimmed: dropped the standalone CoveragePill and
+                          "No change since last snapshot" badge — both are
+                          duplicates of signal already on the page. Coverage
+                          is in the header sub-text above; the trend Δ
+                          callout on the Score Trend card carries the
+                          movement signal. Resources-scored count folded
+                          into the families row to save a vertical band. */}
 
                       {/* Per-family breakdown — bridges the "why does Overview
                           say 42 but LP tab say 66?" question by showing each
                           family's scoped score. Same formula, different scopes. */}
                       {brss && brss.per_family && Object.keys(brss.per_family).length > 0 && (
-                        <div className="mt-3 flex flex-wrap items-center gap-1.5" data-testid="brss-family-breakdown">
+                        <div className="mt-4 flex flex-wrap items-center gap-1.5" data-testid="brss-family-breakdown">
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
                             Families
                           </span>
@@ -1618,6 +1610,11 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                                 </span>
                               )
                             })}
+                          {brss?.resource_count ? (
+                            <span className="ml-auto text-[10px] font-medium text-[var(--muted-foreground,#6b7280)] tabular-nums">
+                              {brss.resource_count} scored
+                            </span>
+                          ) : null}
                         </div>
                       )}
                     </div>
