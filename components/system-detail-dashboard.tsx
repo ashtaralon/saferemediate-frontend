@@ -1374,7 +1374,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   )}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                  {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"} • {systemMeta.environment || "Environment pending"}{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                  {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"} • {systemMeta.environment || "Environment pending"}{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}{autoTagStatus.totalCycles > 0 ? ` • ${autoTagStatus.totalCycles} auto-tag cycles` : ""}
                 </p>
               </div>
             </div>
@@ -2179,50 +2179,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   )}
                 </div>
 
-                <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Activity className="w-5 h-5 text-[#3b82f6]" />
-                    <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">System Context</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Account</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">
-                        {systemMeta.accountId ?? "—"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Region</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">
-                        {systemMeta.region ?? "—"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Last behavioral sync</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">{autoTagStatus.lastSync}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-[var(--muted-foreground,#6b7280)]">Auto-tag cycles</span>
-                      <span className="font-medium text-[var(--foreground,#111827)]">{autoTagStatus.totalCycles}</span>
-                    </div>
-                  </div>
-                  <div className="mt-5 pt-5 border-t border-[var(--border,#eef2f7)] space-y-3">
-                    {resourceTypes.map((resource) => (
-                      <div key={resource.name} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${resource.color}`}>
-                            <resource.icon className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-[var(--foreground,#111827)]">{resource.name}</p>
-                            <p className="text-xs text-[var(--muted-foreground,#6b7280)]">{resource.description}</p>
-                          </div>
-                        </div>
-                        <span className="text-sm font-semibold text-[var(--foreground,#111827)]">{resource.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                {/* System Context block was deleted in this commit:
+                    Account/Region were duplicates of the page header
+                    sub-text; Last sync is also in the header now;
+                    auto-tag cycles folded into the header sub-text
+                    (only renders when > 0). The resource family
+                    breakdown that lived here is identical to the one
+                    inside the System Footprint hero card above. Net
+                    result: zero unique signal lost. */}
               </div>
 
               <div className="xl:col-span-8 space-y-6">
@@ -2243,97 +2207,16 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-[#8b5cf6]" />
-                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Access Posture</h3>
-                      </div>
-                      <span className="text-xs px-2 py-1 rounded-full bg-[#8b5cf615] text-[#7c3aed]">
-                        {loadingGap ? "Loading..." : `${gapAnalysis.confidence || 99}% confidence`}
-                      </span>
-                    </div>
-                    {gapError ? (
-                      <div className="rounded-lg border border-[#ef444430] bg-[#ef444408] p-4">
-                        <p className="text-sm font-medium text-[#ef4444]">Unable to load access posture</p>
-                        <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{gapError}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="space-y-4">
-                          <div>
-                            <div className="flex items-center justify-between text-sm mb-1">
-                              <span className="text-[var(--muted-foreground,#6b7280)]">Granted</span>
-                              <span className="font-medium text-[var(--foreground,#111827)]">{gapAnalysis.allowed}</span>
-                            </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-gray-300 rounded-full w-full" />
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex items-center justify-between text-sm mb-1">
-                              <span className="text-[var(--muted-foreground,#6b7280)]">Observed used</span>
-                              <span className="font-medium text-[#8b5cf6]">{gapAnalysis.actual}</span>
-                            </div>
-                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-[#8b5cf6] rounded-full" style={{ width: `${Math.min(100, actualPercent)}%` }} />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-4 rounded-lg border border-[#ef444430] bg-[#ef444408] p-4">
-                          <p className="text-sm font-semibold text-[#ef4444]">{gapAnalysis.gap} permissions remain unused</p>
-                          <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                            {gapAnalysis.gapPercent}% of current grants look removable based on observed behavior.
-                          </p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)]">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
-                        <h3 className="text-lg font-semibold text-[var(--foreground,#111827)]">Issue Preview</h3>
-                      </div>
-                      <button onClick={() => setActiveTab("vulnerabilities")} className="text-sm font-medium text-[#2D51DA] hover:underline">
-                        Open full workflow →
-                      </button>
-                    </div>
-                    {overviewIssuePreview.length > 0 ? (
-                      <div className="space-y-3">
-                        {overviewIssuePreview.map((issue) => (
-                          <div key={issue.id} className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
-                            <p className="text-sm font-semibold text-[var(--foreground,#111827)]">{issue.title}</p>
-                            <p className="text-xs text-[#ef4444] mt-1">{issue.impact}</p>
-                            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">{issue.affected}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : overviewFindingsPreview.length > 0 ? (
-                      <div className="space-y-3">
-                        {overviewFindingsPreview.map((finding) => (
-                          <div key={finding.id} className="rounded-lg border border-[var(--border,#e5e7eb)] p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-semibold text-[var(--foreground,#111827)] line-clamp-1">{finding.title}</p>
-                              <span className="text-[10px] px-2 py-1 rounded-full bg-[#ef444410] text-[#ef4444]">{finding.severity}</span>
-                            </div>
-                            <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-2 line-clamp-2">{finding.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-[#22c55e30] bg-[#22c55e08] p-5 text-center">
-                        <CheckCircle className="w-8 h-8 text-[#22c55e] mx-auto mb-2" />
-                        <p className="text-sm font-semibold text-[#166534]">No urgent issues in preview</p>
-                        <p className="text-xs text-[var(--muted-foreground,#6b7280)] mt-1">
-                          The system summary is currently not surfacing urgent findings here.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                {/* Access Posture and Issue Preview were deleted in this
+                    commit. Access Posture rendered the same four numbers
+                    (Granted / Observed used / N unused / confidence)
+                    already in the Access Exposure hero card above —
+                    pure duplicate. Issue Preview rendered the same 3
+                    findings as the Security Findings list further down
+                    the page, just in a different card style. Both
+                    consolidated into existing surfaces; the Security
+                    Findings list at the bottom of the Overview is now
+                    the single canonical findings render. */}
               </div>
             </div>
 
