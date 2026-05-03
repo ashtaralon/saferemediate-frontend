@@ -515,22 +515,61 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   // =============================================================================
   const fetchIssuesSummary = async () => {
     try {
-      // Fetch summary and detailed issues in parallel
-      const [summaryRes, issuesRes] = await Promise.all([
+      // Fetch summary, detailed issues, AND the canonical severity-summary
+      // in parallel. severity-summary reads from the SecurityFinding store
+      // (the canonical findings entity); issues-summary recomputes from
+      // raw resource properties (r.gap_count > 0 / r.exposed_count > 0).
+      // The two can disagree on the same system — alon-prod showed 28
+      // SecurityFindings vs 0 issues-summary issues. We keep
+      // issues-summary for BRSS / avg_health_score / infrastructure
+      // counts, but Findings Pressure now reads severity-summary so it
+      // matches Decision Routing on the same page.
+      const [summaryRes, issuesRes, severityRes] = await Promise.all([
         fetch(`/api/proxy/issues-summary?systemName=${encodeURIComponent(systemName)}`),
-        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`)
+        fetch(`/api/proxy/least-privilege/issues?systemName=${encodeURIComponent(systemName)}`),
+        fetch(`/api/proxy/findings/severity-summary?systemName=${encodeURIComponent(systemName)}&status=open`)
       ])
+
+      // SecurityFinding-derived severity counts win — issues-summary's
+      // resource-property counts are kept only as a fallback when the
+      // canonical endpoint errors.
+      let canonicalSeverity: { critical: number; high: number; medium: number; total: number } | null = null
+      if (severityRes.ok) {
+        try {
+          const sd = await severityRes.json()
+          if (!sd?.error && typeof sd?.total === "number") {
+            canonicalSeverity = {
+              critical: Number(sd.critical) || 0,
+              high: Number(sd.high) || 0,
+              medium: Number(sd.medium) || 0,
+              total: Number(sd.total) || 0,
+            }
+          }
+        } catch {
+          // fall through to issues-summary fallback
+        }
+      }
 
       if (summaryRes.ok) {
         const data = await summaryRes.json()
         console.log("[v0] Issues summary:", data)
 
         if (data.success !== false) {
+          // Prefer canonical SecurityFinding-derived counts when present
+          const sev = canonicalSeverity ?? {
+            critical: Number(data.critical) || 0,
+            high: Number(data.high) || 0,
+            medium: Number(data.medium) || 0,
+            total:
+              (Number(data.critical) || 0) +
+              (Number(data.high) || 0) +
+              (Number(data.medium) || 0),
+          }
           setSeverityCounts({
-            critical: data.critical || 0,
-            high: data.high || 0,
-            medium: data.medium || 0,
-            passing: 100 - (data.critical || 0) - (data.high || 0) - (data.medium || 0),
+            critical: sev.critical,
+            high: sev.high,
+            medium: sev.medium,
+            passing: Math.max(0, 100 - sev.critical - sev.high - sev.medium),
           })
           const checksCount = Number(data.resources?.total || data.total || 0)
           setTotalChecks(checksCount)
