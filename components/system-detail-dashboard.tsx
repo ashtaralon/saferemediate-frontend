@@ -63,6 +63,7 @@ import {
   YAxis,
 } from "recharts"
 import { CoveragePill } from "@/components/brss/coverage-pill"
+import { SystemBlastRadiusHero } from "@/components/system-detail/blast-radius-hero"
 
 // Lazy load heavy components with dynamic imports for better performance
 const CloudGraphTab = dynamic(
@@ -1510,163 +1511,23 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                 anchors to the card's lower edge regardless of content
                 length. Combined with the densification work, the
                 hero row reads as four equal-weight peers. */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div
-                className={`relative overflow-hidden rounded-[22px] border p-6 shadow-[0_18px_50px_-30px_rgba(15,23,42,0.35)] h-full ${brssSurface}`}
-                data-testid="blast-radius-card"
-              >
-                <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
-                <div className="absolute bottom-0 left-0 h-20 w-20 rounded-full bg-white/30 blur-2xl" />
-                <div className="relative">
-                  <div className="flex items-start justify-between gap-4 mb-5">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground,#6b7280)]">
-                        Blast Radius Score
-                      </p>
-                      <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-                        {brssCoveragePercent !== null
-                          ? `Coverage ${brssCoveragePercent}% · Confidence: ${brssConfidence.label}`
-                          : "Coverage pending · Confidence: Unknown"}
-                      </p>
-                    </div>
-                    <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${brssConfidence.cls}`}>
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      {brssConfidence.label} confidence
-                    </div>
-                  </div>
+            {/* Blast Radius Score — full-width editorial hero scoped to
+                this system. Mirrors the global hero pattern (big number +
+                grade + trend + weak planes) with the per-plane breakdown
+                rendered as three sibling cards underneath. Replaced the
+                single circle-+-family-pills card with this layout because
+                operators learned the editorial pattern on Home and asked
+                for parity on system pages. The remaining three operational
+                cards (Findings Pressure, Access Exposure, System Footprint)
+                drop down into a 3-col grid below. */}
+            <SystemBlastRadiusHero
+              brss={brss}
+              brssHistory={brssHistory}
+              systemName={systemName}
+              resourceCount={totalResourcesCount}
+            />
 
-                  <div className="flex items-center gap-5">
-                    <div className="relative w-24 h-24 flex-shrink-0">
-                      <svg className="w-24 h-24 -rotate-90">
-                        <circle cx="48" cy="48" r="38" stroke="rgba(255,255,255,0.72)" strokeWidth="10" fill="none" />
-                        <circle
-                          cx="48"
-                          cy="48"
-                          r="38"
-                          stroke={brssAccent}
-                          strokeWidth="10"
-                          fill="none"
-                          strokeDasharray={`${2 * Math.PI * 38}`}
-                          strokeDashoffset={`${2 * Math.PI * 38 * (1 - ((brssScore ?? 0) / 100))}`}
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="flex items-end gap-0.5 leading-none">
-                          <span className="text-[32px] font-bold tracking-tight text-[var(--foreground,#111827)]">
-                            {brssScore ?? "—"}
-                          </span>
-                          {brssScore !== null && (
-                            <span className="mb-1 text-sm font-semibold text-[var(--muted-foreground,#6b7280)]">/ 100</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="text-base font-semibold text-[var(--foreground,#111827)]">
-                        {brssTitle}
-                      </p>
-                      <p className="mt-1 text-sm text-[var(--muted-foreground,#6b7280)]">
-                        {brssTopDriver
-                          ? `Top driver: ${brssTopDriver.resource_name} · ${brssTopDriver.severity}`
-                          : brssScore !== null
-                            ? "No dominant driver — evenly distributed risk"
-                            : "Run a scan to calculate system blast radius"}
-                      </p>
-
-                      {/* Slimmed: dropped the standalone CoveragePill and
-                          "No change since last snapshot" badge — both are
-                          duplicates of signal already on the page. Coverage
-                          is in the header sub-text above; the trend Δ
-                          callout on the Score Trend card carries the
-                          movement signal. Resources-scored count folded
-                          into the families row to save a vertical band. */}
-
-                      {/* Per-family breakdown — bridges the "why does Overview
-                          say 42 but LP tab say 66?" question by showing each
-                          family's scoped score. Same formula, different scopes. */}
-                      {brss && brss.per_family && Object.keys(brss.per_family).length > 0 && (
-                        <div className="mt-4 flex flex-wrap items-center gap-1.5" data-testid="brss-family-breakdown">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#6b7280)]">
-                            Families
-                          </span>
-                          {Object.entries(brss.per_family)
-                            .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([family, score]) => {
-                              const color = score >= 80 ? '#059669'
-                                : score >= 60 ? '#b45309'
-                                : score >= 40 ? '#c2410c'
-                                : '#b91c1c'
-                              const bg = score >= 80 ? 'rgba(16,185,129,0.12)'
-                                : score >= 60 ? 'rgba(245,158,11,0.14)'
-                                : score >= 40 ? 'rgba(249,115,22,0.14)'
-                                : 'rgba(239,68,68,0.14)'
-                              return (
-                                <span
-                                  key={family}
-                                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                                  style={{ background: bg, color }}
-                                  title={`${family} family score (same BRSS formula, scoped)`}
-                                >
-                                  <span className="uppercase tracking-wider">{family}</span>
-                                  <span className="tabular-nums">{score}</span>
-                                </span>
-                              )
-                            })}
-                          {brss?.resource_count ? (
-                            <span className="ml-auto text-[10px] font-medium text-[var(--muted-foreground,#6b7280)] tabular-nums">
-                              {brss.resource_count} scored
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-                      {/* Convergence-overlay attribution — only renders
-                          when the backend computed an overlay AND it
-                          materially changed the score. Operators see
-                          WHY the displayed score differs from the raw
-                          BRSS without us hiding either number. */}
-                      {brssOverlay &&
-                       brssBaseScore !== null &&
-                       brssOverlay.score !== brssBaseScore ? (
-                        <div className="mt-3 pt-3 border-t border-white/40 space-y-1">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground,#9ca3af)]">
-                            Why {brssOverlay.score} not {brssBaseScore}?
-                          </p>
-                          {/* Convergence line gates on the actual
-                              MULTIPLIER, not on weak_planes.length.
-                              All three planes can be technically <70
-                              (showing in weak_planes) yet still produce
-                              load < 1.0 → multiplier 1.0 → no actual
-                              score effect. Rendering "convergence ×1.00"
-                              under "Why X not Y?" was misleading: it
-                              implied convergence drove the gap when
-                              the gap was 100% visibility penalty.
-                              Only show when the multiplier is genuinely
-                              boosting risk. */}
-                          {brssOverlay.convergence_multiplier > 1.0 ? (
-                            <p className="text-xs text-[var(--muted-foreground,#374151)]">
-                              Cross-plane convergence ×{brssOverlay.convergence_multiplier.toFixed(2)} —{" "}
-                              <span className="font-medium text-rose-700">
-                                {brssOverlay.weak_planes.join(" + ")}
-                              </span>{" "}
-                              are weak together
-                            </p>
-                          ) : null}
-                          {brssOverlay.visibility_penalty >= 0.5 ? (
-                            <p className="text-xs text-[var(--muted-foreground,#374151)]">
-                              Visibility penalty +{brssOverlay.visibility_penalty.toFixed(1)} pts
-                              {" "}({Math.round(brssOverlay.visibility_ratio * 100)}% telemetry,
-                              {" "}{brssOverlay.environment})
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               <div className="bg-white rounded-xl p-6 border border-[var(--border,#e5e7eb)] flex flex-col h-full">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-xs font-medium text-[var(--muted-foreground,#6b7280)] uppercase tracking-wide">Findings Pressure</p>
