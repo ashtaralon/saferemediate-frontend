@@ -173,53 +173,58 @@ export function SystemBlastRadiusHero({
         descriptor={`Weighted by production criticality, exposed resources, and cross-plane convergence · ${systemName} · ${resourceCount} resources · ${coveragePercent}% coverage`}
         className={`${accentByCategory.brss} bg-gradient-to-br from-indigo-50/70 via-white to-white`}
       >
-        <div className="flex items-end justify-between gap-6">
-          <div className="flex items-baseline gap-3">
-            <span className={`${heroNumberClass} ${scoreToneClass(score)}`}>
-              {score.toFixed(0)}
-            </span>
-            <span className={unitClass}>/100</span>
-          </div>
-          <div
-            className={`rounded-lg px-3 py-1.5 text-2xl font-bold ${
+        {/* Tight cluster — number + unit + grade live together at the
+            left edge instead of being pushed apart by `justify-between`.
+            The previous layout pinned the grade to the right of the
+            full-width section, leaving a wide dead band between the two.
+            Trend, weak-planes, and convergence stack underneath the
+            number in a single column to keep the eye moving down rather
+            than scanning a sparse horizontal row. */}
+        <div className="flex flex-wrap items-baseline gap-3">
+          <span className={`${heroNumberClass} ${scoreToneClass(score)}`}>
+            {score.toFixed(0)}
+          </span>
+          <span className={unitClass}>/100</span>
+          <span
+            className={`ml-2 inline-flex items-center justify-center rounded-lg px-3 py-1 text-2xl font-bold leading-none ${
               GRADE_COLORS[grade] ?? "text-slate-700 bg-slate-100"
             }`}
             data-testid="system-blast-radius-grade"
           >
             {grade}
-          </div>
-        </div>
+          </span>
 
-        {/* Trend block — renders only when at least 2 history points
-            exist. On a fresh sync / new system the spark is hidden
-            silently rather than showing a flat noise line. */}
-        {sparkSeries.length >= 2 && (
-          <div className="mt-4 flex items-center gap-3">
-            <TrendSpark series={sparkSeries} />
-            {deltaText !== null && delta !== null && (
-              <span
-                className={`text-sm font-mono tabular-nums ${
-                  delta > 0
-                    ? "text-emerald-600"
-                    : delta < 0
-                      ? "text-rose-600"
-                      : "text-slate-500"
-                }`}
-              >
-                {deltaText}
+          {/* Trend + delta tucked inline to the right of the grade so
+              the row stays informationally dense. Renders only when at
+              least 2 history points exist. */}
+          {sparkSeries.length >= 2 && (
+            <span className="ml-4 inline-flex items-center gap-2">
+              <TrendSpark series={sparkSeries} />
+              {deltaText !== null && delta !== null && (
+                <span
+                  className={`text-sm font-mono tabular-nums ${
+                    delta > 0
+                      ? "text-emerald-600"
+                      : delta < 0
+                        ? "text-rose-600"
+                        : "text-slate-500"
+                  }`}
+                >
+                  {deltaText}
+                </span>
+              )}
+              <span className={descriptorClass}>
+                · last {trendDays} snapshot{trendDays === 1 ? "" : "s"}
               </span>
-            )}
-            <span className={descriptorClass}>
-              · last {trendDays} snapshot{trendDays === 1 ? "" : "s"}
             </span>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Inline attribution — weak planes when present. Hidden cleanly
             when every plane is healthy (≥70). Mirrors the global hero's
             "weak planes:" line so operators recognize the pattern. */}
         {weakPlanes.length > 0 ? (
-          <div className={`${descriptorClass} mt-4`}>
+          <div className={`${descriptorClass} mt-3`}>
             <p>
               Weak planes:{" "}
               <span className="font-medium text-rose-700">
