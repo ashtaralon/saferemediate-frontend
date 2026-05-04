@@ -719,6 +719,42 @@ export function IAMPermissionAnalysisModal({
 
         // Close modal
         handleClose()
+      } else if (
+        // Soft-gate: pipeline returned a decision that requires approval but
+        // is NOT a hard BLOCK. The backend signals this with
+        // decision="approval_required" and action_required="approval".
+        // (See iam_gap_analysis.py: serialize_decision returns
+        //  "approval_required" for REQUIRE_APPROVAL / MANUAL_REVIEW /
+        //  CANARY_FIRST DecisionOutcomes — none of which are blocked=true.)
+        // Surface the override prompt inline rather than throwing —
+        // otherwise IAM remediation is unreachable, since the FULL_AUTO
+        // threshold is structurally unreachable for IAMRoles with deps.
+        !force && (result.decision === 'approval_required' || result.action_required === 'approval')
+      ) {
+        const reason = result.block_reason || result.message || 'Pipeline requires approval before applying.'
+        const proceed = typeof window !== 'undefined'
+          ? window.confirm(
+              `This change requires approval to proceed.\n\n` +
+              `Reason: ${reason}\n\n` +
+              `Click OK to override and apply with a rollback snapshot. ` +
+              `Cancel to abort and investigate first.`
+            )
+          : false
+        if (proceed) {
+          // Retry the same handler with force=true. handleApplyFix(true)
+          // will run its own confirm() dialog as well; that's a second
+          // chance for the operator to back out, deliberately preserved.
+          setApplying(false)
+          await handleApplyFix(true)
+          return
+        } else {
+          // User declined override — surface a soft-toast, not an error.
+          toast({
+            title: "ⓘ Approval required",
+            description: `Pipeline returned ${result.decision || 'approval_required'}. Investigate before proceeding.`,
+            variant: "default",
+          })
+        }
       } else {
         // If not success, show appropriate error
         const errorMsg = result.error || result.message || 'Unknown error'
