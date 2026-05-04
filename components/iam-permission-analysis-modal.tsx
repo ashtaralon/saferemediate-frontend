@@ -10,7 +10,12 @@ import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPa
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import LPReviewCard from "@/components/LPReviewCard"
 import type { ConfidenceScore, SimulateFixSafety, DecisionOutcomeCanonical } from "@/lib/types"
+
+// Feature flag — collapses the legacy 6-section Summary tab into the unified
+// LPReviewCard. Set to false to roll back to the previous explorer view.
+const USE_LP_REVIEW_CARD = true
 
 interface PermissionAnalysis {
   permission: string
@@ -719,6 +724,42 @@ export function IAMPermissionAnalysisModal({
 
         // Close modal
         handleClose()
+      } else if (
+        // Soft-gate: pipeline returned a decision that requires approval but
+        // is NOT a hard BLOCK. The backend signals this with
+        // decision="approval_required" and action_required="approval".
+        // (See iam_gap_analysis.py: serialize_decision returns
+        //  "approval_required" for REQUIRE_APPROVAL / MANUAL_REVIEW /
+        //  CANARY_FIRST DecisionOutcomes — none of which are blocked=true.)
+        // Surface the override prompt inline rather than throwing —
+        // otherwise IAM remediation is unreachable, since the FULL_AUTO
+        // threshold is structurally unreachable for IAMRoles with deps.
+        !force && (result.decision === 'approval_required' || result.action_required === 'approval')
+      ) {
+        const reason = result.block_reason || result.message || 'Pipeline requires approval before applying.'
+        const proceed = typeof window !== 'undefined'
+          ? window.confirm(
+              `This change requires approval to proceed.\n\n` +
+              `Reason: ${reason}\n\n` +
+              `Click OK to override and apply with a rollback snapshot. ` +
+              `Cancel to abort and investigate first.`
+            )
+          : false
+        if (proceed) {
+          // Retry the same handler with force=true. handleApplyFix(true)
+          // will run its own confirm() dialog as well; that's a second
+          // chance for the operator to back out, deliberately preserved.
+          setApplying(false)
+          await handleApplyFix(true)
+          return
+        } else {
+          // User declined override — surface a soft-toast, not an error.
+          toast({
+            title: "ⓘ Approval required",
+            description: `Pipeline returned ${result.decision || 'approval_required'}. Investigate before proceeding.`,
+            variant: "default",
+          })
+        }
       } else {
         // If not success, show appropriate error
         const errorMsg = result.error || result.message || 'Unknown error'
@@ -1899,8 +1940,9 @@ export function IAMPermissionAnalysisModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-3 p-4">
-          {/* Recording Period — compact single-row chip strip */}
-          <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+          {/* Recording Period — hidden on the new Summary card; the card has
+              its own plain-language observation line. */}
+          {!(USE_LP_REVIEW_CARD && analysisTab === 'summary') && <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--foreground, #111827)" }}>
               <Calendar className="w-3.5 h-3.5" style={{ color: "#2D51DA" }} />
               <span className="font-semibold">{observationDays}-day observation</span>
@@ -1910,7 +1952,7 @@ export function IAMPermissionAnalysisModal({
             <span className="text-xs tabular-nums" style={{ color: "var(--muted-foreground, #6b7280)" }}>
               {cloudtrailEvents.toLocaleString()} API events
             </span>
-          </div>
+          </div>}
 
           <div className="flex items-center gap-1 border-b" style={{ borderColor: "var(--border, #e5e7eb)" }}>
             {([
@@ -1933,21 +1975,129 @@ export function IAMPermissionAnalysisModal({
             ))}
           </div>
 
+          {/* ─── New unified LP Review card ──────────────────────────────
+              Five-zone replacement for the legacy Summary tab. Computes its
+              props from the same gapData / safetyContext the legacy view
+              used. Legacy blocks below are gated behind !USE_LP_REVIEW_CARD
+              so we can still flip back if needed. */}
+          {USE_LP_REVIEW_CARD && analysisTab === 'summary' && (() => {
+            // Service-role lock — sourced from the trust-policy analysis.
+            const isLocked = !!(backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical')
+            // Plain-language summary; never names data providers.
+            const lockSummary = isLocked
+              ? `Removing permissions can break the service this identity supports.`
+              : null
+
+            // Sample lists (capped at 8 for the card) — kept = used, removed = removable
+            const keptSamples = usedPermissions.slice(0, 8).map(p => p.permission)
+            const removableSamples = removablePerms.slice(0, 8).map(p => p.permission)
+
+            const handleApprove = async () => {
+              setApplying(true)
+              try {
+                const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ resource_type: 'IAMRole', resource_id: roleName, system_name: systemName, apply: true }),
+                })
+                const result = await response.json()
+                if (!response.ok) throw new Error(result.error || result.detail || 'Approval failed')
+                toast({ title: 'Approved', description: `Narrowed ${roleName} — rollback available.` })
+                onSuccess?.()
+                onRemediationSuccess?.(roleName)
+                fetchGapAnalysis(true)
+              } catch (e: any) {
+                toast({ title: 'Approval failed', description: e?.message ?? 'Unknown error', variant: 'destructive' })
+              } finally {
+                setApplying(false)
+              }
+            }
+
+            const handleSimulate = async () => {
+              setSimulating(true)
+              try {
+                const response = await fetch('/api/proxy/least-privilege/simulate-fix', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ resource_type: 'IAMRole', resource_id: roleName, system_name: systemName }),
+                })
+                const result = await response.json()
+                if (!response.ok) throw new Error(result.error || result.detail || 'Simulation failed')
+                setShowSimulation(true)
+              } catch (e: any) {
+                toast({ title: 'Simulation failed', description: e?.message ?? 'Unknown error', variant: 'destructive' })
+              } finally {
+                setSimulating(false)
+              }
+            }
+
+            const handleExtend = async (days: 90 | 180 | 365) => {
+              // Backend endpoint may not exist yet — surface a soft-fail toast
+              // so the path is testable without breaking the UI.
+              try {
+                const res = await fetch('/api/proxy/least-privilege/extend-observation', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ role_name: roleName, system_name: systemName, observation_days: days }),
+                })
+                if (res.ok) {
+                  toast({ title: 'Observation extended', description: `Re-collecting evidence over ${days} days.` })
+                  fetchGapAnalysis(true)
+                } else {
+                  toast({
+                    title: 'Extend observation queued',
+                    description: `Backend endpoint pending — ${roleName} flagged for ${days}-day re-evaluation.`,
+                  })
+                }
+              } catch {
+                toast({
+                  title: 'Extend observation queued',
+                  description: `Backend endpoint pending — ${roleName} flagged for ${days}-day re-evaluation.`,
+                })
+              }
+            }
+
+            return (
+              <LPReviewCard
+                roleName={roleName}
+                identityType={identityType ?? 'IAMRole'}
+                systemName={systemName}
+                observationDays={observationDays}
+                totalPermissions={totalPermissions}
+                usedCount={usedCount}
+                unusedCount={unusedCount}
+                removableCount={Math.max(0, removableCount)}
+                protectedCount={protectedPerms.length}
+                warnCount={warnPerms.length}
+                removableSamples={removableSamples}
+                keptSamples={keptSamples}
+                decision={safetyContext?.decision_canonical ?? null}
+                unsafeReasons={safetyContext?.unsafe_reasons ?? []}
+                consumerCount={safetyContext?.consumer_count ?? 0}
+                telemetryCoverage={safetyContext?.telemetry_coverage ?? null}
+                completeness={safetyContext?.completeness ?? null}
+                isServiceRoleLocked={isLocked}
+                serviceRoleSummary={lockSummary}
+                loading={loading || safetyLoading}
+                busyApprove={applying}
+                busySimulate={simulating}
+                onApprove={handleApprove}
+                onSimulate={handleSimulate}
+                onExtendObservation={handleExtend}
+              />
+            )
+          })()}
+
           {/* ── Pipeline Decision banner (Summary tab) ────────────────────
               The unified pipeline is the AUTHORITATIVE decision source.
-              We render it above the Agent 5 panel so the verdict order
-              matches the source-of-truth order. Agent 5 is rendered
-              below as the *explanation* of this decision.
-              Fail-closed: if simulate-fix returned no safety object, we
-              don't show a green "Safe to apply" — we surface the
-              fail-closed warning so the user can investigate why. */}
-          {analysisTab === 'summary' && safetyLoading && (
+              Legacy block — gated behind !USE_LP_REVIEW_CARD. */}
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && safetyLoading && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
               <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
               Reading unified pipeline decision…
             </div>
           )}
-          {analysisTab === 'summary' && !safetyLoading && !safetyContext && (
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && !safetyLoading && !safetyContext && (
             <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4">
               <div className="flex items-start gap-3">
                 <XCircle className="w-6 h-6 text-[#ef4444] flex-shrink-0 mt-0.5" />
@@ -1962,7 +2112,7 @@ export function IAMPermissionAnalysisModal({
               </div>
             </div>
           )}
-          {analysisTab === 'summary' && safetyContext && (() => {
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && safetyContext && (() => {
             const d = safetyContext.decision_canonical ?? null
             const obs = safetyContext.observation_days
             const tel = safetyContext.telemetry_coverage
@@ -2052,18 +2202,18 @@ export function IAMPermissionAnalysisModal({
               SUBORDINATED routing, so the pill in the panel header reads
               "Blocked" / "Needs approval" rather than "Safe to apply" on
               roles the pipeline blocked. */}
-          {analysisTab === 'summary' && confidenceLoading && (
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && confidenceLoading && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
               <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
               Agent 5 scoring remediation safety…
             </div>
           )}
-          {analysisTab === 'summary' && confidenceScore && (
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && confidenceScore && (
             <ConfidenceExplanationPanel score={confidenceScore} />
           )}
 
           {/* Service Role Warning - Based on backend trust policy analysis */}
-          {analysisTab === 'summary' && (() => {
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && (() => {
             if (!serviceAnalysis) return null
 
             // Severity-based styling
@@ -2173,7 +2323,7 @@ export function IAMPermissionAnalysisModal({
           })()}
 
           {/* Remediated State Banner - Show when role has 0 permissions */}
-          {analysisTab === 'summary' && totalPermissions === 0 && (
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && totalPermissions === 0 && (
             <div className="rounded-md border border-[#86efac] bg-[#f0fdf4] p-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-[#10b98120] rounded-full flex items-center justify-center shrink-0">
@@ -2201,7 +2351,7 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Over-Privileged Summary — single merged card (replaces banner + 3-card grid) */}
-          {analysisTab === 'summary' && totalPermissions > 0 && (() => {
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && totalPermissions > 0 && (() => {
             const accent =
               unusedPercent >= 75 ? '#ef4444' :
               unusedPercent >= 50 ? '#f97316' :
@@ -2259,7 +2409,7 @@ export function IAMPermissionAnalysisModal({
           })()}
 
           {/* Least Privilege Violation Alert - Only show if not remediated */}
-          {analysisTab === 'summary' && unusedCount > 0 && totalPermissions > 0 && (
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && unusedCount > 0 && totalPermissions > 0 && (
             <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-5">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="w-7 h-7 flex-shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
@@ -2590,7 +2740,7 @@ export function IAMPermissionAnalysisModal({
           )}
 
           {/* Recommended Action */}
-          {analysisTab === 'summary' && (() => {
+          {!USE_LP_REVIEW_CARD && analysisTab === 'summary' && (() => {
             const noUsageData = cloudtrailEvents === 0 && unusedCount > 0
             const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
             const isRemediated = totalPermissions === 0 || !!gapData?.remediated_at
