@@ -2622,7 +2622,18 @@ export default function TrafficFlowMap({ systemName }: { systemName: string }) {
       const srcId = edge.source || edge.from;
       const tgtId = edge.target || edge.to;
 
-      if (edgeType === 'HAS_SECURITY_GROUP' || edgeType === 'USES_SECURITY_GROUP') {
+      // SECURED_BY is the canonical edge type written by
+      // collectors/security_group_collector.py and is the only one
+      // actually present in production Neo4j (36 SECURED_BY vs 0
+      // USES_SECURITY_GROUP at the time of writing). HAS_SECURITY_GROUP
+      // and USES_SECURITY_GROUP are kept as legacy aliases so older
+      // graph data still renders, but new code aligning with the
+      // collector should target SECURED_BY.
+      if (
+        edgeType === 'SECURED_BY' ||
+        edgeType === 'HAS_SECURITY_GROUP' ||
+        edgeType === 'USES_SECURITY_GROUP'
+      ) {
         const canonicalSrc = extractInstanceId(srcId);
         computeToSG.set(canonicalSrc, tgtId);
         const sgNode = nodeMap.get(tgtId);
