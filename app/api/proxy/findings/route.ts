@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error";
 
 // Allow longer execution time on Vercel (60 seconds for Pro tier)
 export const maxDuration = 60;
@@ -72,29 +73,13 @@ export async function GET(request: Request) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn(`[Findings Proxy] Backend returned ${response.status}`);
-
-      // Return stale cache if available
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        console.log(`[Findings Proxy] Returning stale cache due to backend error`);
-        return NextResponse.json({
-          ...cached.data,
-          fromCache: true,
-          stale: true
-        }, {
-          headers: { 'X-Cache': 'STALE' }
-        });
-      }
-
-      return NextResponse.json({
-        success: false,
-        findings: [],
-        total: 0,
-        count: 0,
-        source: "backend",
-        error: `Backend returned ${response.status} status`
-      });
+      const errorText = await response.text().catch(() => "")
+      console.warn(`[Findings Proxy] Backend returned ${response.status}: ${errorText.slice(0, 200)}`);
+      return backendError({
+        status: response.status,
+        message: `Findings backend returned ${response.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await response.json();
@@ -137,33 +122,9 @@ export async function GET(request: Request) {
         'Cache-Control': 'public, s-maxage=180, stale-while-revalidate=360',
       }
     });
-  } catch (error: any) {
-    // Handle timeout or network errors - return stale cache if available
-    console.error(`[Findings Proxy] Error:`, error.name, error.message);
-
-    // Return stale cache if available
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      console.log(`[Findings Proxy] Returning stale cache due to error`);
-      return NextResponse.json({
-        ...cached.data,
-        fromCache: true,
-        stale: true
-      }, {
-        headers: { 'X-Cache': 'STALE' }
-      });
-    }
-
-    return NextResponse.json({
-      success: false,
-      findings: [],
-      total: 0,
-      count: 0,
-      source: "backend",
-      error: error.message,
-      warning: error.name === 'AbortError'
-        ? 'Backend request timed out after 55 seconds'
-        : `Backend connection failed: ${error.message}`
-    });
+  } catch (error: unknown) {
+    const e = error as Error
+    console.error(`[Findings Proxy] Error:`, e?.name, e?.message);
+    return fromCaughtError(error)
   }
 }

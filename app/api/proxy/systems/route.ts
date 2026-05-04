@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120 // 2 minutes for Render cold starts + Neo4j query
@@ -67,44 +68,13 @@ export async function GET() {
     const response = await fetchWithRetry()
 
     if (!response.ok) {
-      const responseText = await response.text()
+      const responseText = await response.text().catch(() => "")
       console.error("[API Proxy] Backend error:", response.status, responseText.substring(0, 200))
-
-      // Return cached data if available, even if stale
-      if (cached) {
-        console.log(`[API Proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            'X-Cache': 'STALE',
-            'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-            'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-          }
-        })
-      }
-
-      if (response.status === 404) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Systems endpoint not found",
-            hint: "Make sure your backend has the /api/systems endpoint implemented.",
-            offline: false,
-            systems: [],
-            total: 0,
-          },
-          { status: 200 }
-        )
-      }
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Backend returned ${response.status}`,
-          systems: [],
-          total: 0,
-        },
-        { status: 200 }
-      )
+      return backendError({
+        status: response.status,
+        message: `Systems backend returned ${response.status}`,
+        detail: responseText.slice(0, 500),
+      })
     }
 
     const responseText = await response.text()
@@ -113,16 +83,11 @@ export async function GET() {
       data = JSON.parse(responseText)
     } catch (parseError) {
       console.error("[API Proxy] Failed to parse JSON:", responseText.substring(0, 200))
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid response from backend",
-          hint: "Backend returned non-JSON response",
-          systems: [],
-          total: 0,
-        },
-        { status: 200 }
-      )
+      return backendError({
+        status: 502,
+        message: "Systems backend returned non-JSON response",
+        detail: responseText.slice(0, 500),
+      })
     }
 
     const systems = data.systems || []
@@ -154,31 +119,9 @@ export async function GET() {
         'X-Cache': 'MISS',
       }
     })
-  } catch (error: any) {
-    console.error("[API Proxy] Fetch failed:", error.name, error.message)
-
-    // Return cached data if available
-    if (cached) {
-      console.log(`[API Proxy] Returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          'X-Cache': 'STALE',
-          'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        }
-      })
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to connect to backend",
-        hint: "Make sure your backend is running at " + BACKEND_URL,
-        offline: true,
-        systems: [],
-        total: 0,
-      },
-      { status: 200 }
-    )
+  } catch (error: unknown) {
+    const e = error as Error
+    console.error("[API Proxy] Fetch failed:", e?.name, e?.message)
+    return fromCaughtError(error)
   }
 }
