@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
@@ -6,7 +7,11 @@ export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-// In-memory cache: 5 minutes TTL for resources (changes rarely)
+// In-memory cache: 5 minutes TTL for resources (changes rarely). Only
+// stores SUCCESSFUL responses. Backend-error and stale-cache-on-error
+// fallbacks were removed because they hid the 5-minute Render outage
+// on 2026-05-04 — the Inventory tab rendered an empty resource list
+// instead of an honest error state.
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
@@ -53,38 +58,11 @@ export async function GET(req: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error")
       console.error(`[Resources All Proxy] Backend error ${response.status}: ${errorText}`)
-      
-      // Return cached data if available, even if stale
-      if (cached) {
-        console.log(`[Resources All Proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            'X-Cache': 'STALE',
-            'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-            'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-          },
-        })
-      }
-      
-      // Return empty structure instead of error to prevent UI crashes
-      return NextResponse.json(
-        { 
-          s3_buckets: [],
-          dynamodb_tables: [],
-          ec2_instances: [],
-          lambda_functions: [],
-          rds_instances: [],
-          resources: {},
-          summary: {}
-        },
-        { 
-          status: 200,
-          headers: {
-            'X-Cache': 'MISS',
-            'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-          },
-        }
-      )
+      return backendError({
+        status: response.status,
+        message: `Resources backend returned ${response.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
     
     const data = await response.json()
@@ -109,37 +87,6 @@ export async function GET(req: NextRequest) {
     
   } catch (error: any) {
     console.error('[Resources All Proxy] Error:', error.message)
-    
-    // Check for stale cache
-    if (cached) {
-      console.log(`[Resources All Proxy] Returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          'X-Cache': 'STALE',
-          'X-Cache-Age': String(Math.round((Date.now() - cached.timestamp) / 1000)),
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        },
-      })
-    }
-    
-    // Always return 200 with empty data to prevent UI errors
-    return NextResponse.json(
-      { 
-        s3_buckets: [],
-        dynamodb_tables: [],
-        ec2_instances: [],
-        lambda_functions: [],
-        rds_instances: [],
-        resources: {},
-        summary: {}
-      },
-      { 
-        status: 200,
-        headers: {
-          'X-Cache': 'MISS',
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        },
-      }
-    )
+    return fromCaughtError(error)
   }
 }

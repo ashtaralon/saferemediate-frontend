@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
-export const runtime = 'nodejs'
+export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
 export const maxDuration = 60
-  
+
 const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
 
-// In-memory cache with 5-minute TTL
+// In-memory cache with 5-minute TTL — only stores SUCCESSFUL responses.
+// Backend errors no longer return 200-with-empty (which masked the
+// 5-minute outage on 2026-05-04 by making every dashboard render the
+// "system is clean" green-checkmark even though the backend was down).
+// Stale-cache-on-error is also removed for the same reason.
 const cache = new Map<string, { data: any; timestamp: number }>()
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000
 
 function getCacheKey(systemName: string | null): string {
-  return `issues-summary:${systemName || 'all'}`
+  return `issues-summary:${systemName || "all"}`
 }
 
 export async function GET(req: NextRequest) {
@@ -22,115 +27,66 @@ export async function GET(req: NextRequest) {
   const systemName = url.searchParams.get("systemName")
   const cacheKey = getCacheKey(systemName)
   const now = Date.now()
-  
-  // Check cache
+
   const cached = cache.get(cacheKey)
   if (cached && (now - cached.timestamp) < CACHE_TTL) {
     const cacheAge = Math.round((now - cached.timestamp) / 1000)
-    console.log(`[proxy] Issues summary cache HIT (age: ${cacheAge}s)`)
     return NextResponse.json(cached.data, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        'X-Cache': 'HIT',
-        'X-Cache-Age': String(cacheAge),
-      }
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        "X-Cache": "HIT",
+        "X-Cache-Age": String(cacheAge),
+      },
     })
   }
-  
-  console.log(`[proxy] Issues summary cache MISS - fetching from backend`)
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 55000)
 
   try {
     const backendUrl = systemName
       ? `${BACKEND_URL}/api/issues/summary?systemName=${encodeURIComponent(systemName)}`
       : `${BACKEND_URL}/api/issues/summary`
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 55000) // 55 seconds
-    
     const res = await fetch(backendUrl, {
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
       signal: controller.signal,
     })
-    
     clearTimeout(timeoutId)
 
     if (!res.ok) {
-      console.error(`[proxy] Issues summary error: ${res.status} ${res.statusText}`)
-      
-      // Return cached data if available
-      if (cached) {
-        console.log(`[proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            'X-Cache': 'STALE',
-            'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-            'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-          }
-        })
-      }
-      
-      // Return 200 with fallback data to prevent client crash
-      return NextResponse.json({
-        error: "Backend error",
-        backendStatus: res.status,
-        total: 0,
-        by_severity: { critical: 0, high: 0, medium: 0, low: 0 },
-        by_source: { least_privilege: 0, gap_analysis: 0, findings: 0 },
-        issues: [],
-        cached: false,
-        fallback: true,
+      const detail = await res.text().catch(() => "")
+      console.error(`[issues-summary proxy] backend ${res.status}: ${detail.slice(0, 200)}`)
+      return backendError({
+        status: res.status,
+        message: `Issues-summary backend returned ${res.status}`,
+        detail: detail.slice(0, 500),
       })
     }
 
     const data = await res.json()
-    console.log(`[proxy] Issues summary fetched - total: ${data.total}`)
-    
-    // Store in cache
     cache.set(cacheKey, { data, timestamp: now })
-    
-    // Clean old cache entries
+
     if (cache.size > 100) {
-      const entriesToDelete: string[] = []
+      const cutoff = now - CACHE_TTL * 2
       for (const [key, value] of cache.entries()) {
-        if (now - value.timestamp > CACHE_TTL * 2) {
-          entriesToDelete.push(key)
-        }
+        if (value.timestamp < cutoff) cache.delete(key)
       }
-      entriesToDelete.forEach(key => cache.delete(key))
     }
-    
+
     return NextResponse.json(data, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        'X-Cache': 'MISS',
-      }
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        "X-Cache": "MISS",
+      },
     })
-  } catch (error: any) {
-    console.error("[proxy] Issues summary fetch error:", error)
-    
-    // Return cached data if available
-    if (cached) {
-      console.log(`[proxy] Returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          'X-Cache': 'STALE',
-          'X-Cache-Age': String(Math.round((now - cached.timestamp) / 1000)),
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        }
-      })
-    }
-    
-    // Return 200 with fallback data to prevent client crash
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : "Unknown error",
-      total: 0,
-      by_severity: { critical: 0, high: 0, medium: 0, low: 0 },
-      by_source: { least_privilege: 0, gap_analysis: 0, findings: 0 },
-      issues: [],
-      cached: false,
-      fallback: true,
-    })
+  } catch (error: unknown) {
+    clearTimeout(timeoutId)
+    console.error(
+      "[issues-summary proxy] fetch error:",
+      error instanceof Error ? error.message : error,
+    )
+    return fromCaughtError(error)
   }
 }

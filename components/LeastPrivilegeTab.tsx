@@ -542,12 +542,23 @@ export default function LeastPrivilegeTab({ systemName }: { systemName?: string 
       }
       setError(null)
       
-      // Use AWS-based endpoint directly - this returns actual LP analysis data
-      // The Neo4j endpoint returns graph nodes without LP analysis, causing "0 used / 0 unused" display
+      // Use AWS-based endpoint directly - this returns actual LP analysis data.
+      // The Neo4j endpoint returns graph nodes without LP analysis, causing
+      // "0 used / 0 unused" display. cache: 'no-store' is mandatory: the
+      // proxy returns 502/504 on backend failure (post-2026-05-04 hardening),
+      // and we don't want browser/disk cache to serve a previously-cached
+      // empty response over a fresh error response.
       const refreshParam = forceRefresh ? '&force_refresh=true' : ''
       const systemParam = systemName ? `systemName=${systemName}&` : ''
-      const response = await fetch(`/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`)
-      if (!response.ok) throw new Error(`Failed: ${response.status}`)
+      const response = await fetch(
+        `/api/proxy/least-privilege/issues?${systemParam}observationDays=365${refreshParam}`,
+        { cache: 'no-store' },
+      )
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}))
+        const detail = body.detail || body.error || `HTTP ${response.status}`
+        throw new Error(`Backend ${response.status}: ${detail}`)
+      }
       const result = await response.json()
       
       // Log what we received for debugging
