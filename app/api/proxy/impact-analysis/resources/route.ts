@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL = "https://saferemediate-backend-f.onrender.com"
 
@@ -10,42 +11,38 @@ export async function GET(req: NextRequest) {
   if (!systemName) {
     return NextResponse.json({ error: "system_name query parameter is required" }, { status: 400 })
   }
-  
+
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 28000)
-  
+
   try {
-    const res = await fetch(`${BACKEND_URL}/api/impact-analysis/resources?system_name=${systemName}`, {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-      cache: "no-store"
-    })
-    
+    const res = await fetch(
+      `${BACKEND_URL}/api/impact-analysis/resources?system_name=${encodeURIComponent(systemName)}`,
+      {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+        cache: "no-store",
+      },
+    )
     clearTimeout(timeoutId)
-    
+
     if (!res.ok) {
-      // Return empty fallback on backend error
-      return NextResponse.json({ 
-        resources: [], 
-        count: 0, 
-        error: true,
-        message: `Backend returned ${res.status}`
-      }, { status: 200 })
+      const detail = await res.text().catch(() => "")
+      return backendError({
+        status: res.status,
+        message: `impact-analysis backend returned ${res.status}`,
+        detail: detail.slice(0, 500),
+      })
     }
-    
+
     const data = await res.json()
     return NextResponse.json(data)
-  } catch (error: any) {
+  } catch (error: unknown) {
     clearTimeout(timeoutId)
-    console.error("Impact analysis resources error:", error.message)
-    
-    // Return empty fallback on timeout or error
-    return NextResponse.json({ 
-      resources: [], 
-      count: 0, 
-      timeout: error.name === 'AbortError',
-      error: true,
-      message: error.name === 'AbortError' ? 'Request timed out' : error.message
-    }, { status: 200 })
+    console.error(
+      "[impact-analysis proxy] error:",
+      error instanceof Error ? error.message : error,
+    )
+    return fromCaughtError(error)
   }
 }

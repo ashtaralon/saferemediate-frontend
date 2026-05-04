@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
@@ -106,37 +107,11 @@ export async function GET(
         `[ResourceView Proxy] Backend error: ${response.status}`,
         errorText
       )
-      
-      // Return cached data if available, even if stale
-      if (cached) {
-        console.log(`[ResourceView Proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            "X-Cache": "STALE",
-            "X-Cache-Age": String(Math.round((now - cached.timestamp) / 1000)),
-            "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-          },
-        })
-      }
-      
-      // Return 200 with empty connections instead of propagating error
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Backend returned ${response.status}`,
-          detail: errorText,
-          connections: { inbound: [], outbound: [] },
-          inbound_count: 0,
-          outbound_count: 0,
-        },
-        { 
-          status: 200,
-          headers: {
-            "X-Cache": "MISS",
-            "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-          },
-        }
-      )
+      return backendError({
+        status: response.status,
+        message: `connections backend returned ${response.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await response.json()
@@ -159,41 +134,8 @@ export async function GET(
         "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[ResourceView Proxy] Error:", error)
-    
-    // Check for stale cache
-    const { resourceId } = await params
-    const cacheKey = `connections:${resourceId}`
-    const cached = cache.get(cacheKey)
-    if (cached) {
-      console.log(`[ResourceView Proxy] Returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          "X-Cache": "STALE",
-          "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-        },
-      })
-    }
-    
-    // Always return 200 with empty connections to prevent UI crashes
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to fetch resource connections",
-        timeout: error.name === "AbortError",
-        connections: { inbound: [], outbound: [] },
-        inbound_count: 0,
-        outbound_count: 0,
-      },
-      { 
-        status: 200,
-        headers: {
-          "X-Cache": "MISS",
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-        },
-      }
-    )
+    return fromCaughtError(error)
   }
 }

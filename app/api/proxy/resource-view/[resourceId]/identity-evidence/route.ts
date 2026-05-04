@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { backendError, fromCaughtError } from "@/lib/server/proxy-error"
 
 const BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
@@ -96,44 +97,11 @@ export async function GET(
         `[Identity Evidence Proxy] Backend error: ${response.status}`,
         errorText
       )
-
-      // Return cached data if available, even if stale
-      if (cached) {
-        console.log(`[Identity Evidence Proxy] Returning stale cache due to backend error`)
-        return NextResponse.json(cached.data, {
-          headers: {
-            "X-Cache": "STALE",
-            "X-Cache-Age": String(Math.round((now - cached.timestamp) / 1000)),
-            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-          },
-        })
-      }
-
-      // Return 200 with empty data instead of propagating error
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Backend returned ${response.status}`,
-          detail: errorText,
-          connections: [],
-          iam_access_events: [],
-          summary: {
-            total_connections: 0,
-            healthy: 0,
-            anomaly: 0,
-            critical: 0,
-            iam_events: 0,
-            has_root_access: false
-          },
-        },
-        {
-          status: 200,
-          headers: {
-            "X-Cache": "MISS",
-            "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-          },
-        }
-      )
+      return backendError({
+        status: response.status,
+        message: `identity-evidence backend returned ${response.status}`,
+        detail: errorText.slice(0, 500),
+      })
     }
 
     const data = await response.json()
@@ -156,51 +124,8 @@ export async function GET(
         "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[Identity Evidence Proxy] Error:", error)
-
-    // Check for stale cache
-    const { resourceId } = await params
-    const searchParams = request.nextUrl.searchParams
-    const days = searchParams.get("days") || "7"
-    const cacheKey = `identity-evidence:${resourceId}:${days}`
-    const cached = cache.get(cacheKey)
-
-    if (cached) {
-      console.log(`[Identity Evidence Proxy] Returning stale cache due to error`)
-      return NextResponse.json(cached.data, {
-        headers: {
-          "X-Cache": "STALE",
-          "X-Cache-Age": String(Math.round((Date.now() - cached.timestamp) / 1000)),
-          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-        },
-      })
-    }
-
-    // Always return 200 with empty data to prevent UI crashes
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to fetch identity evidence",
-        timeout: error.name === "AbortError",
-        connections: [],
-        iam_access_events: [],
-        summary: {
-          total_connections: 0,
-          healthy: 0,
-          anomaly: 0,
-          critical: 0,
-          iam_events: 0,
-          has_root_access: false
-        },
-      },
-      {
-        status: 200,
-        headers: {
-          "X-Cache": "MISS",
-          "Cache-Control": "public, s-maxage=120, stale-while-revalidate=240",
-        },
-      }
-    )
+    return fromCaughtError(error)
   }
 }
