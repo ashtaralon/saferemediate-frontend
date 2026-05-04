@@ -348,7 +348,13 @@ interface TagResults {
 }
 
 interface AutoTagStatus {
-  status: "running" | "stopped" | "error"
+  // `wired === false` means the backend genuinely doesn't have the
+  // /api/auto-tag/status endpoint, so all counters are zero by
+  // construction (not because nothing happened). The header strip
+  // suppresses auto-tag indicators in this state — see render at the
+  // header `* {autoTagStatus.totalCycles > 0 ? ...}` site below.
+  wired: boolean
+  status: "running" | "stopped" | "error" | "not_wired"
   totalCycles: number
   actualTrafficCaptured: number
   lastSync: string
@@ -460,6 +466,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
   const [gapError, setGapError] = useState<string | null>(null)
   const [loadingAutoTag, setLoadingAutoTag] = useState(true)
   const [autoTagStatus, setAutoTagStatus] = useState<AutoTagStatus>({
+    wired: false,
     status: "stopped",
     totalCycles: 0,
     actualTrafficCaptured: 0,
@@ -705,13 +712,17 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
 
   const fetchAutoTagStatus = async () => {
     try {
-      const response = await fetch(`/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`)
+      const response = await fetch(
+        `/api/proxy/auto-tag-status?systemName=${encodeURIComponent(systemName)}`,
+        { cache: 'no-store' },
+      )
       const data = await response.json()
 
       if (!response.ok || data.error) {
         console.log("[v0] Auto-tag status backend error")
         setAutoTagStatus({
-          status: "stopped",
+          wired: false,
+          status: "error",
           totalCycles: 0,
           actualTrafficCaptured: 0,
           lastSync: "Error",
@@ -719,12 +730,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         return
       }
 
-      const statusValue: "running" | "stopped" | "error" = 
-        (data.status === "running" || data.status === "stopped" || data.status === "error")
-          ? data.status
-          : "stopped"
-      
+      // The proxy returns `wired: false` when the backend endpoint
+      // doesn't exist (currently /api/auto-tag/status returns 404).
+      // Render that as the explicit "not_wired" state instead of
+      // pretending the auto-tagger is "stopped" with fake zeros.
+      const wired = data.wired !== false
+      const statusValue: AutoTagStatus["status"] =
+        !wired
+          ? "not_wired"
+          : (data.status === "running" || data.status === "stopped" || data.status === "error")
+            ? data.status
+            : "stopped"
+
       setAutoTagStatus({
+        wired,
         status: statusValue,
         totalCycles: data.total_cycles || data.totalCycles || 0,
         actualTrafficCaptured: data.actual_traffic || data.actualTraffic || 0,
@@ -733,7 +752,8 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     } catch (error) {
       console.error("[v0] Error fetching auto-tag status:", error)
       setAutoTagStatus({
-        status: "stopped",
+        wired: false,
+        status: "error",
         totalCycles: 0,
         actualTrafficCaptured: 0,
         lastSync: "Error",
