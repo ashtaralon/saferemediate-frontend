@@ -4,6 +4,12 @@ import { NextResponse } from "next/server"
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
 export const revalidate = 0
+// 30s max — must be > AbortSignal.timeout below so the function doesn't
+// get killed mid-fetch. Per feedback_vercel_abort_cascade.md: "per-route
+// maxDuration + per-fetch timeout < N" prevents the 500 cascade where
+// Vercel kills the function before fetch finishes and the AbortController
+// raises in-flight, surfacing as 500 to the caller.
+export const maxDuration = 30
 
 const RAW_BACKEND_URL =
   "https://saferemediate-backend-f.onrender.com"
@@ -34,6 +40,12 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({ resource_type, resource_id, system_name }),
+      // 25s — leaves 5s headroom under Vercel maxDuration (30s) so the
+      // proxy can still serialize the response after fetch completes.
+      // Backend simulate-fix p95 is ~2s in healthy state; 25s tolerates
+      // Render cold-worker + Neo4j Aura first-query latency without
+      // surfacing as a 500 from the function-timeout cascade.
+      signal: AbortSignal.timeout(25000),
     })
 
     if (!res.ok) {
@@ -47,13 +59,24 @@ export async function POST(request: Request) {
     const data = await res.json()
     return NextResponse.json(data, { status: 200 })
   } catch (err: any) {
-    console.error("[proxy] least-privilege simulate-fix error:", err)
+    // Distinguish AbortError (timeout) from other failures so the
+    // toast surfaces a useful retry hint instead of a generic 500.
+    const isTimeout =
+      err?.name === "TimeoutError" ||
+      err?.name === "AbortError" ||
+      String(err?.message || "").includes("timeout")
+    console.error(
+      "[proxy] least-privilege simulate-fix error:",
+      isTimeout ? "timeout" : err,
+    )
     return NextResponse.json(
       {
         success: false,
-        error: err?.message ?? "simulate-fix failed",
+        error: isTimeout
+          ? "simulate-fix timed out (backend > 25s). Retry; Render worker may be warming."
+          : err?.message ?? "simulate-fix failed",
       },
-      { status: 500 },
+      { status: isTimeout ? 504 : 500 },
     )
   }
 }
