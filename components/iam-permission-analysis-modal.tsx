@@ -1377,13 +1377,10 @@ export function IAMPermissionAnalysisModal({
                     const isProtected = group.protected || group.action === 'protected'
                     const isReserved = group.action === 'reserved'
                     const isWarn = group.warn || group.action === 'warn_before_removing'
-                    // Layer 1: gate on backend auto_remediable when present.
-                    // Falls back to the legacy lock semantics on older responses.
                     const blockedByBackend = group.auto_remediable === false
-                    const isLocked = isProtected || isReserved || blockedByBackend
-                    // Distinguish "blocked but not protected/reserved" so we can
-                    // render the inline reason without overloading the existing
-                    // PROTECTED/RESERVED badges.
+                    // Only PROTECTED/RESERVED hard-lock the UI. Telemetry-gap blocks become
+                    // a soft warning — see Cyntro_Decision_Contract_v1.md §1 / v5 §6.
+                    const isLocked = isProtected || isReserved
                     const isInferredOrTelemetryBlocked =
                       blockedByBackend && !isProtected && !isReserved
                     const colorMap: Record<string, { text: string; border: string; bg: string }> = {
