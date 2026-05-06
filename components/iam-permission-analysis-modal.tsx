@@ -606,46 +606,53 @@ export function IAMPermissionAnalysisModal({
       if (!ok) return
     }
 
+    // Per-permission override: if user selected rows from telemetry-gap groups
+    // (auto_remediable=false but not protected/SSM), promote to force=true after
+    // explicit acknowledgement instead of silently dropping them. The previous
+    // silent-filter caused a count mismatch — user selected 18, only 12 applied,
+    // 6 dropped without UI signal. Protected (SSM) permissions are still UI-locked
+    // upstream and never reach this Set.
+    const autoRemediable = getAutoRemediablePermissions()
+    const allSelected = Array.from(selectedPermissionsToRemove)
+    const nonAutoSelected = allSelected.filter(p => !autoRemediable.has(p))
+    let effectiveForce = force
+    if (nonAutoSelected.length > 0 && !force) {
+      const ok = typeof window !== 'undefined'
+        ? window.confirm(
+            `${nonAutoSelected.length} of ${allSelected.length} selected permissions are in `
+            + `telemetry-gap groups (Cyntro could not verify they are unused). `
+            + `Apply anyway with override acknowledgement?\n\n`
+            + `These will be removed under force_override; a rollback snapshot will still `
+            + `be created if "Create rollback checkpoint" is enabled.`
+          )
+        : true
+      if (!ok) return
+      effectiveForce = true
+    }
+
     setApplying(true)
     try {
-      // Defensive: only submit perms that backend marked auto-remediable.
-      // The UI already disables non-auto-remediable rows, but a DevTools state
-      // edit could slip a protected/inferred perm into the Set — drop those
-      // before the request leaves the browser.
-      const autoRemediable = getAutoRemediablePermissions()
-      const permissionsToRemove = Array.from(selectedPermissionsToRemove)
-        .filter(p => autoRemediable.has(p))
-      const droppedCount = selectedPermissionsToRemove.size - permissionsToRemove.length
-      if (droppedCount > 0) {
-        console.warn(`[IAM-Modal] Dropped ${droppedCount} non-auto-remediable perm(s) from submit`)
-      }
+      const permissionsToRemove = allSelected
 
       console.log('[IAM-Modal] Starting DIRECT MODIFY remediation for:', roleName)
       console.log('[IAM-Modal] Permissions to remove:', permissionsToRemove.length)
       console.log('[IAM-Modal] Create snapshot:', createSnapshot)
       console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
       console.log('[IAM-Modal] Detach ALL managed policies:', detachAllManagedPolicies)
-      console.log('[IAM-Modal] Force override block:', force)
+      console.log('[IAM-Modal] Force override block:', effectiveForce, '(raw:', force, ', non-auto in selection:', nonAutoSelected.length, ')')
 
-      // Call the real remediation API (not dry run)
-      // This will DIRECTLY MODIFY the IAM role in AWS:
-      // 1. Create snapshot before changes (if createSnapshot=true)
-      // 2. Modify inline policies to remove unused permissions
-      // 3. Detach managed policies (if detachManagedPolicies=true)
-      // 4. Detach ALL managed policies regardless of overlap (if detachAllManagedPolicies=true)
-      // 5. Force-override the safety gate BLOCK (if force=true)
       const response = await fetch('/api/proxy/cyntro/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role_name: roleName,
           identity_type: identityType?.toLowerCase().includes('user') ? 'user' : 'role',
-          dry_run: false,  // Actually apply the changes
+          dry_run: false,
           create_snapshot: createSnapshot,
-          detach_managed_policies: detachManagedPolicies,  // CRITICAL for managed policies
-          detach_all_managed_policies: detachAllManagedPolicies,  // Detach ALL regardless of permission overlap
-          permissions_to_remove: permissionsToRemove,  // Only remove selected permissions
-          force,  // Override safety gate BLOCK when user explicitly proceeds
+          detach_managed_policies: detachManagedPolicies,
+          detach_all_managed_policies: detachAllManagedPolicies,
+          permissions_to_remove: permissionsToRemove,
+          force: effectiveForce,
         })
       })
 
@@ -1829,12 +1836,14 @@ export function IAMPermissionAnalysisModal({
                 const blocked = shouldBlockRemediation()
                 const lowConfidence = safetyScore < 50
                 const pipelineBlocked = verdictBucket === 'blocked'
-                // Footer count: only auto-remediable selections. Non-auto rows
-                // are disabled in the UI but a stale Set entry from a prior
-                // render shouldn't inflate the displayed count.
+                // Honest counts: report what the user actually selected. Non-auto
+                // selections are now passed under force_override (see handleApplyFix)
+                // instead of being silently dropped at submit.
                 const autoRemediableSet = getAutoRemediablePermissions()
+                const selectedTotalCount = selectedPermissionsToRemove.size
                 const selectedAutoRemediableCount = Array.from(selectedPermissionsToRemove)
                   .filter(p => autoRemediableSet.has(p)).length
+                const selectedOverrideCount = selectedTotalCount - selectedAutoRemediableCount
 
                 if (blocked) {
                   return (
@@ -1914,8 +1923,10 @@ export function IAMPermissionAnalysisModal({
                           <Loader2 className="w-4 h-4 animate-spin" />
                           Applying...
                         </>
-                      ) : selectedAutoRemediableCount > 0 ? (
-                        `APPLY FIX (${selectedAutoRemediableCount} permissions)`
+                      ) : selectedTotalCount > 0 ? (
+                        selectedOverrideCount > 0
+                          ? `APPLY FIX (${selectedTotalCount} — ${selectedOverrideCount} via override)`
+                          : `APPLY FIX (${selectedTotalCount} permissions)`
                       ) : detachManagedPolicies ? (
                         `APPLY FIX (detach managed policies)`
                       ) : (
