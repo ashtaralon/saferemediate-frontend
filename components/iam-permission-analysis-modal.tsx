@@ -112,6 +112,19 @@ interface GapAnalysisData {
       dynamodb_data_events: boolean
     }
   }
+  // Patent-A3 safety vector from unified scorer. Optional — older deploys
+  // omit it; UI renders three-state (live / loading / not-wired).
+  safety_vector?: {
+    value: number              // overall 0-1
+    source_coverage: number    // 0-1, planes-active / applicable
+    signal_strength: number    // 0-1
+    temporal_consistency: number
+    source_agreement: number
+    cross_validation: number
+    planes_active: string[]
+    signal_count: number
+    observation_days: number
+  } | null
   dependency_context?: DependencyContext
   remediated_at?: string | null
   service_role_analysis?: any
@@ -413,6 +426,7 @@ export function IAMPermissionAnalysisModal({
         high_risk_unused: rawData.high_risk_unused || [],
         confidence: rawData.confidence?.level || rawData.confidence || 'HIGH',
         confidence_groups: rawData.confidence_groups || null,
+        safety_vector: rawData.safety_vector || null,
         dependency_context: rawData.dependency_context,
         remediated_at: rawData.remediated_at || null,
         service_role_analysis: rawData.service_role_analysis || null
@@ -1314,59 +1328,78 @@ export function IAMPermissionAnalysisModal({
                 )}
               </div>
 
-              {/* Confidence summary bar */}
+              {/* Breakdown — tile grid + safety vector pills */}
               {gapData?.confidence_groups && (
-                <div className="mb-3 p-3 rounded-lg flex items-center gap-4 text-xs" style={{ background: "var(--background, #f8f9fa)" }}>
-                  <span style={{ color: "var(--muted-foreground, #6b7280)" }}>Breakdown:</span>
-                  {gapData.confidence_groups.summary.safe_to_remove > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
-                      <strong className="text-[#22c55e]">{gapData.confidence_groups.summary.safe_to_remove}</strong>
-                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>safe to remove</span>
-                    </span>
-                  )}
-                  {gapData.confidence_groups.summary.verify_first > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-[#f97316]" />
-                      <strong className="text-[#f97316]">{gapData.confidence_groups.summary.verify_first}</strong>
-                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>verify first</span>
-                    </span>
-                  )}
-                  {gapData.confidence_groups.summary.investigate_first > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
-                      <strong className="text-[#ef4444]">{gapData.confidence_groups.summary.investigate_first}</strong>
-                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>investigate first</span>
-                    </span>
-                  )}
-                  {(gapData.confidence_groups.summary.reserved ?? 0) > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-[#3b82f6]" />
-                      <strong className="text-[#3b82f6]">{gapData.confidence_groups.summary.reserved}</strong>
-                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>reserved</span>
-                    </span>
-                  )}
-                  {(gapData.confidence_groups.summary.warn_before_removing ?? 0) > 0 && (
-                    <span className="flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3 text-[#eab308]" />
-                      <strong className="text-[#eab308]">{gapData.confidence_groups.summary.warn_before_removing}</strong>
-                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>caution</span>
-                    </span>
-                  )}
-                  {(gapData.confidence_groups.summary.protected ?? 0) > 0 && (
-                    <span className="flex items-center gap-1">
-                      <Lock className="w-3 h-3 text-[#6b7280]" />
-                      <strong className="text-[#6b7280]">{gapData.confidence_groups.summary.protected}</strong>
-                      <span style={{ color: "var(--muted-foreground, #6b7280)" }}>protected</span>
-                    </span>
-                  )}
-                  {gapData.confidence_groups.account_signals && (
-                    <span className="ml-auto" style={{ color: "var(--muted-foreground, #9ca3af)" }}>
-                      Data events:
-                      S3 {gapData.confidence_groups.account_signals.s3_data_events ? '✓' : '✗'}
-                      {' '}Lambda {gapData.confidence_groups.account_signals.lambda_data_events ? '✓' : '✗'}
-                      {' '}DDB {gapData.confidence_groups.account_signals.dynamodb_data_events ? '✓' : '✗'}
-                    </span>
+                <div className="mb-4 p-5 rounded-xl" style={{ background: "var(--background, #f8f9fa)" }}>
+                  <div className="text-xs uppercase tracking-wider font-semibold mb-3" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+                    Breakdown
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {gapData.confidence_groups.summary.safe_to_remove > 0 && (
+                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#bbf7d0' }}>
+                        <span className="text-3xl font-bold text-[#22c55e] leading-none">{gapData.confidence_groups.summary.safe_to_remove}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Safe to remove</span>
+                      </div>
+                    )}
+                    {gapData.confidence_groups.summary.verify_first > 0 && (
+                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#fed7aa' }}>
+                        <span className="text-3xl font-bold text-[#f97316] leading-none">{gapData.confidence_groups.summary.verify_first}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Verify first</span>
+                      </div>
+                    )}
+                    {gapData.confidence_groups.summary.investigate_first > 0 && (
+                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#fecaca' }}>
+                        <span className="text-3xl font-bold text-[#ef4444] leading-none">{gapData.confidence_groups.summary.investigate_first}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Investigate first</span>
+                      </div>
+                    )}
+                    {(gapData.confidence_groups.summary.reserved ?? 0) > 0 && (
+                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#bfdbfe' }}>
+                        <span className="text-3xl font-bold text-[#3b82f6] leading-none">{gapData.confidence_groups.summary.reserved}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Reserved</span>
+                      </div>
+                    )}
+                    {(gapData.confidence_groups.summary.warn_before_removing ?? 0) > 0 && (
+                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#fde68a' }}>
+                        <span className="text-3xl font-bold text-[#eab308] leading-none">{gapData.confidence_groups.summary.warn_before_removing}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Caution</span>
+                      </div>
+                    )}
+                    {(gapData.confidence_groups.summary.protected ?? 0) > 0 && (
+                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#d1d5db' }}>
+                        <span className="text-3xl font-bold text-[#6b7280] leading-none">{gapData.confidence_groups.summary.protected}</span>
+                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Protected</span>
+                      </div>
+                    )}
+                  </div>
+                  {/* Safety vector — patent-A3 dimensions from unified scorer */}
+                  {gapData.safety_vector && (
+                    <div className="mt-4 pt-4 border-t flex flex-wrap gap-x-6 gap-y-2 text-xs" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-bold text-sm" style={{ color: gapData.safety_vector.source_coverage >= 0.75 ? '#16a34a' : gapData.safety_vector.source_coverage >= 0.5 ? '#d97706' : '#dc2626' }}>
+                          {Math.round(gapData.safety_vector.source_coverage * 100)}%
+                        </span>
+                        <span className="uppercase tracking-wide text-slate-500 text-[10px]">Coverage</span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-bold text-sm" style={{ color: gapData.safety_vector.signal_strength >= 0.75 ? '#16a34a' : gapData.safety_vector.signal_strength >= 0.5 ? '#d97706' : '#dc2626' }}>
+                          {Math.round(gapData.safety_vector.signal_strength * 100)}%
+                        </span>
+                        <span className="uppercase tracking-wide text-slate-500 text-[10px]">Signal strength</span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-bold text-sm text-slate-700">{gapData.safety_vector.signal_count}</span>
+                        <span className="uppercase tracking-wide text-slate-500 text-[10px]">CloudTrail events</span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-bold text-sm text-slate-700">{gapData.safety_vector.observation_days}d</span>
+                        <span className="uppercase tracking-wide text-slate-500 text-[10px]">Observation</span>
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-bold text-sm text-slate-700">{gapData.safety_vector.planes_active.join(' · ') || '—'}</span>
+                        <span className="uppercase tracking-wide text-slate-500 text-[10px]">Planes active</span>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -1402,7 +1435,10 @@ export function IAMPermissionAnalysisModal({
                             ) : isWarn ? (
                               <AlertTriangle className="w-4 h-4" style={{ color: colors.text }} />
                             ) : (
-                              <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
+                              <span className="flex flex-col items-start leading-tight">
+                                <span className="text-[9px] uppercase tracking-wider text-slate-500">Coverage</span>
+                                <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
+                              </span>
                             )}
                             <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>{group.label}</span>
                             {isProtected ? (
