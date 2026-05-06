@@ -443,6 +443,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     resource_count: number
   }>>([])
 
+  // Per-system posture score (live = no .error + numeric overall_score).
+  const [postureScore, setPostureScore] = useState<{
+    overall_score: number
+    grade: string
+    dimensions?: Record<string, { score: number; weight: number }>
+    error?: string
+  } | null>(null)
+
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
   const [unusedActionsList, setUnusedActionsList] = useState<string[]>([])
   const [expandedPermission, setExpandedPermission] = useState<string | null>(null) // Expanded permission state
@@ -921,8 +929,19 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }
   }
 
+  const fetchPostureScore = async () => {
+    try {
+      const res = await fetch(`/api/proxy/posture-score/${encodeURIComponent(systemName)}`)
+      if (!res.ok) { setPostureScore(null); return }
+      const data = await res.json()
+      setPostureScore(data)
+    } catch {
+      setPostureScore(null)
+    }
+  }
+
   const fetchAllData = async () => {
-    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory()])
+    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory(), fetchPostureScore()])
   }
 
   useEffect(() => {
@@ -1396,6 +1415,20 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       {severityCounts.critical} CRITICAL
                     </span>
                   )}
+                  {postureScore && !postureScore.error && typeof postureScore.overall_score === 'number' && (() => {
+                    const score = postureScore.overall_score
+                    const accent = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626'
+                    return (
+                      <div className="flex items-baseline gap-2 ml-2">
+                        <span className="text-3xl font-bold leading-none" style={{ color: accent }}>
+                          {Math.round(score)}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                          Posture · {postureScore.grade}
+                        </span>
+                      </div>
+                    )
+                  })()}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
                   {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"} • {systemMeta.environment || "Environment pending"}{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}{autoTagStatus.totalCycles > 0 ? ` • ${autoTagStatus.totalCycles} auto-tag cycles` : ""}
