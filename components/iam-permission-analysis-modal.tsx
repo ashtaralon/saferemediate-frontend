@@ -3183,23 +3183,25 @@ export function IAMPermissionAnalysisModal({
                 }
 
                 const decision = result.safety?.decision
-                const decisionLabel = decision === 'auto_eligible' ? 'Auto-eligible' : decision === 'blocked' ? 'Blocked' : 'Approval required'
-                const removed = result.simulation?.removed_permissions ?? 0
-                const kept = result.simulation?.kept_permissions ?? 0
-                const total = kept + removed
+                // Match the modal's verdict labels exactly so the toast
+                // and the verdict block tell the same story. Customer
+                // was reading "Blocked" in the toast and "Safety hold"
+                // in the modal and asking which is it.
+                const decisionLabel =
+                  decision === 'auto_eligible' ? 'Auto-eligible' :
+                  decision === 'blocked'       ? 'Safety hold' :
+                  'Approval required'
                 const rollback = result.safety?.rollback_available ? 'available' : 'unavailable'
+                // Use the SAME counts the verdict block above shows
+                // (gapData-derived). The simulate-fix response carries
+                // its own removed/kept tallies but they're computed
+                // against a different filter and produce a different
+                // number for the same role -- which makes the customer
+                // ask "wait, is it 18 or 25?". Pin the toast to the
+                // modal's authoritative counts so they always match.
                 toast({
-                  // Always use default (neutral) toast on completion --
-                  // even when decision='blocked'. The modal's verdict
-                  // block above already shows the amber safety-hold
-                  // message; firing a red destructive toast at the
-                  // same time made customers think the simulation had
-                  // ERRORED, not that it had cleanly returned a hold
-                  // verdict. The only true destructive cases left are
-                  // the catch() block below (network/parse failure)
-                  // and the "Simulation Failed" toast.
-                  title: `Simulation Complete · ${decisionLabel}`,
-                  description: `Would remove ${removed} of ${total} permissions (${result.problem?.gap_percent ?? 0}% gap). Rollback: ${rollback}.`,
+                  title: `Simulation complete · ${decisionLabel}`,
+                  description: `Would remove ${unusedCount} of ${totalPermissions} permissions (${unusedPercent}% unused). Rollback: ${rollback}.`,
                   variant: 'default',
                 })
 
