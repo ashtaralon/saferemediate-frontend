@@ -101,6 +101,12 @@ interface GapAnalysisData {
             rationale_required?: boolean
             rollback_required?: boolean
           }
+          escalation_target?: {
+            target_type?: string  // resolved_owner | customer_default_team | customer_security_queue | unknown_no_default_configured
+            display_name?: string | null
+            source?: string
+            confidence?: number
+          }
         }
       } | null
       permission_count: number
@@ -1608,6 +1614,24 @@ export function IAMPermissionAnalysisModal({
                                       {ackList.map(a => a.replace(/_/g, ' ')).join(', ')}
                                     </div>
                                   )}
+                                  {/* Escalation target — spec §8 explicit-absence sentinel */}
+                                  {oc.escalation_target && (() => {
+                                    const et = oc.escalation_target!
+                                    const isUnknown = et.target_type === 'unknown_no_default_configured'
+                                    return (
+                                      <div className="text-[10px] text-[#78350f]">
+                                        <span className="uppercase tracking-wider font-semibold">Escalate to: </span>
+                                        {isUnknown ? (
+                                          <span className="italic">no default escalation team configured — set one in onboarding to enable AUTO_APPLY mode</span>
+                                        ) : (
+                                          <>
+                                            {et.display_name || et.target_type?.replace(/_/g, ' ')}
+                                            {et.source && et.source !== 'unknown' ? <span className="opacity-75"> (via {et.source.replace(/_/g, ' ')})</span> : null}
+                                          </>
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
                                 </div>
                               </div>
                             </div>
