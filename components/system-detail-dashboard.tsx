@@ -448,7 +448,14 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     overall_score: number
     grade: string
     dimensions?: Record<string, { score: number; weight: number }>
+    timestamp?: string
     error?: string
+  } | null>(null)
+  // Posture-score 30d trend — used for the header delta arrow.
+  const [postureTrend, setPostureTrend] = useState<{
+    current: number
+    previous: number | null
+    delta: number | null
   } | null>(null)
 
   const [showHighFindingsModal, setShowHighFindingsModal] = useState(false)
@@ -940,8 +947,27 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
     }
   }
 
+  const fetchPostureTrend = async () => {
+    try {
+      const res = await fetch(`/api/proxy/posture-score/trend?days=30&systemName=${encodeURIComponent(systemName)}`)
+      if (!res.ok) { setPostureTrend(null); return }
+      const data = await res.json()
+      if (typeof data?.current === 'number') {
+        setPostureTrend({
+          current: data.current,
+          previous: typeof data.previous === 'number' ? data.previous : null,
+          delta: typeof data.delta === 'number' ? data.delta : null,
+        })
+      } else {
+        setPostureTrend(null)
+      }
+    } catch {
+      setPostureTrend(null)
+    }
+  }
+
   const fetchAllData = async () => {
-    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory(), fetchPostureScore()])
+    await Promise.all([fetchIssuesSummary(), fetchGapAnalysis(), fetchAutoTagStatus(), fetchCVESummary(), fetchBrssHistory(), fetchPostureScore(), fetchPostureTrend()])
   }
 
   useEffect(() => {
@@ -1393,6 +1419,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
               </button>
               <div>
                 <div className="flex items-center gap-3">
+                  {/* IDENTITY zone — what this system IS (stable, not state). */}
                   <h1 className="text-2xl font-bold text-[var(--foreground,#111827)]">{systemName}</h1>
                   {systemMeta.environment && (
                     <span className="px-2 py-1 bg-[#22c55e20] text-[#22c55e] text-xs font-medium rounded">
@@ -1409,29 +1436,51 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
                       {systemMeta.criticality}
                     </span>
                   )}
-                  {severityCounts.critical > 0 && ( // Conditionally render critical alert
+                  {/* Visual divider — separates STABLE identity (left) from LIVE posture (right). */}
+                  {(severityCounts.critical > 0 || (postureScore && !postureScore.error)) && (
+                    <div className="h-6 w-px bg-slate-300 mx-1" aria-hidden />
+                  )}
+                  {/* LIVE posture zone — current state, refreshes with data. */}
+                  {severityCounts.critical > 0 && (
                     <span className="px-2 py-1 bg-[#ef444420] text-[#ef4444] text-xs font-medium rounded flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
-                      {severityCounts.critical} CRITICAL
+                      {severityCounts.critical} CRITICAL FINDING{severityCounts.critical === 1 ? '' : 'S'}
                     </span>
                   )}
                   {postureScore && !postureScore.error && typeof postureScore.overall_score === 'number' && (() => {
                     const score = postureScore.overall_score
                     const accent = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626'
+                    const delta = postureTrend?.delta
+                    let deltaEl: React.ReactNode = null
+                    if (typeof delta === 'number' && delta !== 0) {
+                      const up = delta > 0
+                      const sign = up ? '+' : ''
+                      // For posture, UP is good (higher score = better)
+                      const deltaColor = up ? '#16a34a' : '#dc2626'
+                      deltaEl = (
+                        <span className="text-[11px] font-semibold ml-1" style={{ color: deltaColor }} title="Change vs 30 days ago">
+                          {up ? '↑' : '↓'} {sign}{delta}
+                        </span>
+                      )
+                    }
                     return (
-                      <div className="flex items-baseline gap-2 ml-2">
+                      <div className="flex items-baseline gap-2 ml-1">
                         <span className="text-3xl font-bold leading-none" style={{ color: accent }}>
                           {Math.round(score)}
                         </span>
                         <span className="text-[10px] uppercase tracking-wider text-slate-500">
                           Posture · {postureScore.grade}
                         </span>
+                        {deltaEl}
                       </div>
                     )
                   })()}
                 </div>
                 <p className="text-sm text-[var(--muted-foreground,#6b7280)] mt-1">
-                  {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"} • {systemMeta.environment || "Environment pending"}{lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}{autoTagStatus.totalCycles > 0 ? ` • ${autoTagStatus.totalCycles} auto-tag cycles` : ""}
+                  {systemMeta.region ? `AWS ${systemMeta.region}` : "AWS region pending"}
+                  {lastSyncedAt ? ` • Last sync: ${new Date(lastSyncedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                  {postureScore?.timestamp ? ` • Posture computed: ${new Date(postureScore.timestamp).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                  {autoTagStatus.totalCycles > 0 ? ` • ${autoTagStatus.totalCycles} auto-tag cycles` : ""}
                 </p>
               </div>
             </div>
