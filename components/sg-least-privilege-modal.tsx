@@ -91,6 +91,37 @@ interface RuleAnalysis {
     cidr_confidence?: string;
     review_reason?: string;
   };
+  // Sprint 1 CP2 — Decision Contract operator_context. Present when the
+  // backend invoked build_*_decision for this rule (e.g. SG-to-SG zero-
+  // traffic → sg_reference_attribution_gap). Frontend renders structured
+  // runbook in place of the bare recommendation.reason.
+  decision_contract?: {
+    decision_id?: string;
+    reason_code?: string;
+    outcome?: string;
+    operator_context?: {
+      summary?: string;
+      rendered_explanation?: string;
+      blocked_change?: { resource_id?: string; current_state?: string; proposed_change?: string };
+      why?: { explanation?: string; confidence?: number };
+      what_to_check?: Array<{ check?: string; command_or_link?: string; expected_result?: string }>;
+      suggested_safer_actions?:
+        | Array<{ action?: string; explanation?: string; expected_risk_reduction?: string }>
+        | { no_safer_action_known?: boolean; explanation?: string };
+      override_requirements?: {
+        allowed?: boolean;
+        required_acknowledgements?: string[];
+        rationale_required?: boolean;
+        rollback_required?: boolean;
+      };
+      escalation_target?: {
+        target_type?: string;
+        display_name?: string | null;
+        source?: string;
+        confidence?: number;
+      };
+    };
+  } | null;
 }
 
 interface AttachedResource {
@@ -882,14 +913,95 @@ ${analysis.recommendations.delete.map(r => `  # REMOVE: ${r.protocol}/${r.port_r
                     </div>
                     <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                       {deleteRules.map(rule => (
-                        <RuleDisplay
-                          key={rule.rule_id}
-                          rule={rule}
-                          checkbox
-                          checked={selectedRulesToRemediate.has(rule.rule_id)}
-                          onChange={() => toggleRuleSelection(rule.rule_id)}
-                          showStatus={false}
-                        />
+                        <div key={rule.rule_id}>
+                          <RuleDisplay
+                            rule={rule}
+                            checkbox
+                            checked={selectedRulesToRemediate.has(rule.rule_id)}
+                            onChange={() => toggleRuleSelection(rule.rule_id)}
+                            showStatus={false}
+                          />
+                          {/* Sprint 1 CP2 — Decision Contract operator runbook */}
+                          {rule.decision_contract?.operator_context && (() => {
+                            const oc = rule.decision_contract!.operator_context!
+                            const checks = oc.what_to_check || []
+                            const saferRaw = oc.suggested_safer_actions
+                            const saferList = Array.isArray(saferRaw) ? saferRaw : []
+                            const saferAbsent = !Array.isArray(saferRaw) && saferRaw && (saferRaw as any).no_safer_action_known
+                            const ackList = oc.override_requirements?.required_acknowledgements || []
+                            const reasonCode = rule.decision_contract!.reason_code
+                            const et = oc.escalation_target
+                            return (
+                              <div className="ml-8 mt-1 mb-2 px-3 py-2 text-xs rounded-lg border" style={{ borderColor: '#fcd34d', background: '#fffbeb', color: '#78350f' }}>
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#92400e]" />
+                                  <div className="flex-1 space-y-2">
+                                    <div>
+                                      {reasonCode && (
+                                        <span className="inline-block text-[9px] uppercase tracking-wider font-bold mr-2 px-1.5 py-0.5 rounded bg-[#92400e20] text-[#92400e]">
+                                          {reasonCode.replace(/_/g, ' ')}
+                                        </span>
+                                      )}
+                                      <span className="font-semibold text-[#92400e]">{oc.summary}</span>
+                                    </div>
+                                    {checks.length > 0 && (
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">What to check</div>
+                                        <ul className="list-disc ml-4 space-y-1">
+                                          {checks.map((c, ci) => (
+                                            <li key={ci}>
+                                              {c.check}
+                                              {c.command_or_link && <> · <a href={c.command_or_link} target="_blank" rel="noopener noreferrer" className="underline text-[#92400e]">link ↗</a></>}
+                                              {c.expected_result && <span className="opacity-75"> — expect: {c.expected_result}</span>}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {saferList.length > 0 && (
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">Safer alternatives</div>
+                                        <ul className="list-disc ml-4 space-y-1">
+                                          {saferList.map((a, ai) => (
+                                            <li key={ai}>
+                                              <span className="font-semibold">{a.action}</span>
+                                              {a.explanation && <span className="opacity-90"> — {a.explanation}</span>}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {saferAbsent && (
+                                      <div className="italic">No safer action known — operator must acknowledge override.</div>
+                                    )}
+                                    {ackList.length > 0 && (
+                                      <div className="text-[10px]">
+                                        <span className="uppercase tracking-wider font-semibold">Override requires: </span>
+                                        {ackList.map(a => a.replace(/_/g, ' ')).join(', ')}
+                                      </div>
+                                    )}
+                                    {et && (() => {
+                                      const isUnknown = et.target_type === 'unknown_no_default_configured'
+                                      return (
+                                        <div className="text-[10px]">
+                                          <span className="uppercase tracking-wider font-semibold">Escalate to: </span>
+                                          {isUnknown ? (
+                                            <span className="italic">no default escalation team configured — set one in onboarding to enable AUTO_APPLY mode</span>
+                                          ) : (
+                                            <>
+                                              {et.display_name || et.target_type?.replace(/_/g, ' ')}
+                                              {et.source && et.source !== 'unknown' ? <span className="opacity-75"> (via {et.source.replace(/_/g, ' ')})</span> : null}
+                                            </>
+                                          )}
+                                        </div>
+                                      )
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })()}
+                        </div>
                       ))}
                     </div>
                   </div>
