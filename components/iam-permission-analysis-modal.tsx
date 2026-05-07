@@ -1044,15 +1044,16 @@ export function IAMPermissionAnalysisModal({
   const aiReviewerCopy = ((): string | null => {
     const agree = confidenceScore?.pipeline_agreement
     if (!agree) return null
-    const pipelineLabel = agree.pipeline_decision_canonical || 'decision'
     if (agree.reviewer_verdict === 'agrees') {
-      return `AI reviewer agrees: ${pipelineLabel}`
+      return `Cyntro's AI reviewer agrees with the pipeline.`
     }
-    // Subordinated: surface the first cap reason if present.
+    // Subordinated: the deterministic pipeline math wins. Phrase
+    // this as a feature, not jargon ("subordinated to" reads like
+    // an internal error label).
     const firstReason = agree.caps_applied?.[0]?.reason
     return firstReason
-      ? `AI reviewer subordinated — ${firstReason}`
-      : `AI reviewer subordinated to pipeline ${pipelineLabel}`
+      ? `The pipeline math takes precedence over the AI reviewer here -- ${firstReason}.`
+      : `The pipeline math takes precedence over the AI reviewer here for safety.`
   })()
 
   // Loading state
@@ -1176,52 +1177,77 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 )
               } else if (verdictBucket === 'blocked') {
-                // Pipeline blocked this remediation. We render "INVESTIGATION
-                // REQUIRED" (not "BLOCKED") because the user's next action is
-                // to investigate, not to click-past a refusal.
+                // Pipeline routed this to "review required". This is NOT a
+                // system error -- the safety contract worked. Visual
+                // treatment: amber safety-hold (not error red), so users
+                // don't mistake a deliberate safety decision for a bug.
+                // Service-role "DO NOT APPLY" stays red because that's
+                // truly destructive; this branch is one tier softer.
                 //
                 // Reason precedence:
-                //   1. Pipeline safety.unsafe_reasons[0]   (why pipeline blocked)
-                //   2. Agent 5 gates_failed[0].detail      (why reviewer blocked)
+                //   1. Pipeline safety.unsafe_reasons[0]   (why pipeline held)
+                //   2. Agent 5 gates_failed[0].detail      (why reviewer held)
                 //   3. Generic copy
                 const pipelineReason = safetyContext?.unsafe_reasons?.[0]
                 const agent5Reason = confidenceScore?.gates_failed?.[0]?.detail
                 const primaryReason = pipelineReason
                   ?? agent5Reason
-                  ?? 'Pipeline blocked — see evidence below.'
+                  ?? "Telemetry coverage is incomplete; we'd like a closer look before changing this role."
+                const coveragePct = typeof safetyContext?.telemetry_coverage === 'number'
+                  ? Math.round(safetyContext.telemetry_coverage * 100)
+                  : null
                 return (
-                  <div className="p-6 bg-white border-2 border-red-400 rounded-2xl">
+                  <div className="p-6 bg-white border-2 border-[#f59e0b80] rounded-2xl">
                     <div className="flex items-center justify-center gap-3">
-                      <XCircle className="w-10 h-10 text-[#ef4444]" />
-                      <span className="text-2xl font-bold text-[#ef4444]">INVESTIGATION REQUIRED</span>
+                      <Shield className="w-10 h-10 text-[#f59e0b]" />
+                      <span className="text-2xl font-bold text-[#b45309]">SAFETY HOLD — REVIEW REQUIRED</span>
                     </div>
-                    <p className="text-[#ef4444] mt-2 font-semibold text-center">
-                      {primaryReason}
+                    <p className="text-[#92400e] mt-2 font-semibold text-center">
+                      Cyntro paused this change. {primaryReason}
                     </p>
-                    {/* Pipeline evidence — the facts the user needs to decide
-                        whether to investigate or extend the observation window.
-                        Only rendered when we actually have pipeline safety. */}
                     {safetyContext && (
-                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
-                        <p className="text-sm font-bold text-[#991b1b] mb-2">Pipeline evidence:</p>
-                        <ul className="text-xs text-[#7f1d1d] space-y-1 list-disc list-inside">
+                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fffbeb", border: "1px solid #fde68a" }}>
+                        <p className="text-sm font-bold text-[#92400e] mb-2">Why we paused:</p>
+                        <ul className="text-xs text-[#78350f] space-y-1 list-disc list-inside">
                           {typeof safetyContext.observation_days === 'number' && (
-                            <li>Effective observation: <strong>{safetyContext.observation_days} days</strong> (pipeline requires ≥ 21 days of matching telemetry for approval tier)</li>
+                            <li>
+                              Effective observation: <strong>{safetyContext.observation_days} days</strong>
+                              {' '}
+                              {safetyContext.observation_days >= 21
+                                ? <span className="text-[#15803d]">✓ enough history</span>
+                                : <span className="text-[#b45309]">(needs ≥ 21)</span>}
+                            </li>
                           )}
-                          {typeof safetyContext.telemetry_coverage === 'number' && (
-                            <li>Telemetry coverage: <strong>{Math.round((safetyContext.telemetry_coverage || 0) * 100)}%</strong> ({safetyContext.completeness ?? 'unknown'})</li>
+                          {coveragePct !== null && (
+                            <li>
+                              Telemetry coverage: <strong>{coveragePct}%</strong>
+                              {' — '}
+                              {coveragePct < 75
+                                ? <span>enable VPC Flow Logs + AWS Config in this account to reach 100%</span>
+                                : <span className="text-[#15803d]">good</span>}
+                            </li>
                           )}
                           {typeof safetyContext.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
-                            <li>{safetyContext.consumer_count} active consumer{safetyContext.consumer_count === 1 ? '' : 's'} — other systems currently depend on this role</li>
+                            <li>
+                              <strong>{safetyContext.consumer_count}</strong> system{safetyContext.consumer_count === 1 ? '' : 's'} currently depend{safetyContext.consumer_count === 1 ? 's' : ''} on this role — narrowing could affect them
+                            </li>
                           )}
                           {(safetyContext.unsafe_reasons ?? []).slice(1).map((reason, i) => (
                             <li key={`rsn-${i}`}>{reason}</li>
                           ))}
                         </ul>
+                        <div className="mt-3 pt-3 border-t border-[#fde68a]">
+                          <p className="text-xs text-[#92400e] font-semibold mb-1">What to do next:</p>
+                          <ol className="text-xs text-[#78350f] space-y-1 list-decimal list-inside">
+                            <li><strong>Investigate first</strong> — open the consumer list and confirm none use the {selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} ` : ''}permissions you're removing.</li>
+                            <li><strong>Improve coverage</strong> — wire the missing telemetry planes; the same simulation will then route to APPROVAL instead of HOLD.</li>
+                            <li><strong>Acknowledge &amp; apply</strong> — only after you've done one of the above; the action is recorded in the audit log with your operator id.</li>
+                          </ol>
+                        </div>
                       </div>
                     )}
                     {aiReviewerCopy && (
-                      <p className="text-xs text-[#991b1b] mt-3 text-center italic">{aiReviewerCopy}</p>
+                      <p className="text-xs text-[#92400e] mt-3 text-center">{aiReviewerCopy}</p>
                     )}
                   </div>
                 )
@@ -2064,24 +2090,33 @@ export function IAMPermissionAnalysisModal({
                     </button>
                   )
                 } else if (pipelineBlocked) {
-                  // Pipeline decision is BLOCK / Investigation Required.
-                  // Offer two explicit choices: Stop (close) or Proceed Anyway (force override).
+                  // Pipeline routed this to "review required". Two
+                  // explicit choices:
+                  //   1. (recommended) close + investigate the consumers
+                  //      / wire the missing telemetry, then re-simulate.
+                  //   2. (override) acknowledge the message and apply
+                  //      anyway -- recorded in the audit log as a
+                  //      deliberate operator override (force=true).
+                  // Visual: amber/orange, NOT error red. Investigate-
+                  // first gets standard secondary treatment; acknowledge-
+                  // and-apply gets the amber primary so the user can
+                  // tell it's not a "panic" button.
                   return (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleClose}
                         disabled={applying}
-                        className="px-5 py-2.5 bg-white text-[#dc2626] border-2 border-[#dc2626] rounded-lg font-bold hover:bg-[#fef2f2] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        title="Stop and close — investigate before proceeding"
+                        className="px-5 py-2.5 bg-white text-[var(--foreground,#111827)] border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold hover:bg-[var(--muted,#f3f4f6)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        title="Close the modal and investigate before proceeding"
                       >
-                        <XCircle className="w-4 h-4" />
-                        STOP — Investigate First
+                        <Shield className="w-4 h-4" />
+                        Investigate first
                       </button>
                       <button
                         onClick={() => handleApplyFix(true)}
                         disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
-                        className="px-5 py-2.5 bg-[#dc2626] text-white rounded-lg font-bold hover:bg-[#b91c1c] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                        title={`Override pipeline BLOCK and apply anyway. ${safetyContext?.block_reason || ''}`}
+                        className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        title={`Acknowledge the safety hold and apply ${selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} permission removals` : 'the policy detach'}. The override is recorded in the audit log under your operator id. ${safetyContext?.block_reason || ''}`}
                       >
                         {applying ? (
                           <>
@@ -2090,8 +2125,8 @@ export function IAMPermissionAnalysisModal({
                           </>
                         ) : (
                           <>
-                            <AlertTriangle className="w-4 h-4" />
-                            PROCEED ANYWAY ({selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} perms` : 'detach policies'})
+                            <CheckSquare className="w-4 h-4" />
+                            Acknowledge &amp; Apply ({selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} perms` : 'detach policies'})
                           </>
                         )}
                       </button>
@@ -2265,19 +2300,28 @@ export function IAMPermissionAnalysisModal({
               : d === 'AUTO_EXECUTE' ? 'auto'
               : 'review'
 
+            // Visual hierarchy:
+            //   block   -> amber safety-hold (NOT error red; this is a
+            //              deliberate deferral, the product working as
+            //              designed). Red is reserved for truly
+            //              destructive verdicts (service-role DO NOT
+            //              APPLY).
+            //   review  -> orange (one tier softer than block)
+            //   approve -> warm amber (lighter)
+            //   auto    -> green
             const styles: Record<Tone, { border: string; bg: string; title: string; sub: string; chip: string; chipText: string }> = {
-              block:   { border: '#fca5a5', bg: '#fef2f2', title: '#991b1b', sub: '#7f1d1d', chip: '#dc2626', chipText: '#ffffff' },
+              block:   { border: '#fcd34d', bg: '#fffbeb', title: '#92400e', sub: '#78350f', chip: '#f59e0b', chipText: '#ffffff' },
               review:  { border: '#fdba74', bg: '#fff7ed', title: '#9a3412', sub: '#7c2d12', chip: '#ea580c', chipText: '#ffffff' },
               approve: { border: '#fcd34d', bg: '#fffbeb', title: '#92400e', sub: '#78350f', chip: '#d97706', chipText: '#ffffff' },
               auto:    { border: '#86efac', bg: '#f0fdf4', title: '#166534', sub: '#14532d', chip: '#16a34a', chipText: '#ffffff' },
             }
             const s = styles[tone]
             const headline =
-              tone === 'block'   ? 'INVESTIGATION REQUIRED'
-              : tone === 'review' ? 'MANUAL REVIEW'
-              : tone === 'approve' ? 'APPROVAL REQUIRED'
-              : 'PIPELINE APPROVED'
-            const Icon = tone === 'auto' ? CheckCircle : tone === 'block' ? XCircle : AlertTriangle
+              tone === 'block'   ? 'Safety hold — review required'
+              : tone === 'review' ? 'Manual review'
+              : tone === 'approve' ? 'Approval required'
+              : 'Pipeline approved'
+            const Icon = tone === 'auto' ? CheckCircle : tone === 'block' ? Shield : AlertTriangle
 
             return (
               <div className="rounded-lg border-2 p-4" style={{ borderColor: s.border, background: s.bg }}>
