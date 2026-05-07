@@ -3103,9 +3103,18 @@ export function IAMPermissionAnalysisModal({
                 const total = kept + removed
                 const rollback = result.safety?.rollback_available ? 'available' : 'unavailable'
                 toast({
+                  // Always use default (neutral) toast on completion --
+                  // even when decision='blocked'. The modal's verdict
+                  // block above already shows the amber safety-hold
+                  // message; firing a red destructive toast at the
+                  // same time made customers think the simulation had
+                  // ERRORED, not that it had cleanly returned a hold
+                  // verdict. The only true destructive cases left are
+                  // the catch() block below (network/parse failure)
+                  // and the "Simulation Failed" toast.
                   title: `Simulation Complete · ${decisionLabel}`,
                   description: `Would remove ${removed} of ${total} permissions (${result.problem?.gap_percent ?? 0}% gap). Rollback: ${rollback}.`,
-                  variant: decision === 'blocked' ? 'destructive' : 'default'
+                  variant: 'default',
                 })
 
                 setShowSimulation(true)
