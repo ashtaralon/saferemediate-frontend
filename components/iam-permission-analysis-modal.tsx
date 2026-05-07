@@ -675,6 +675,37 @@ export function IAMPermissionAnalysisModal({
       effectiveForce = true
     }
 
+    // Sprint 1 CP2 §7 — capture OverrideLineage when force=true. Aggregates
+    // required_acknowledgements from every selected group's decision_contract
+    // so the audit record names exactly which acknowledgements the operator
+    // confirmed. Rationale is captured via prompt — provisional UI; the full
+    // override-dialog component is the next iteration.
+    let overrideLineage: Record<string, any> | undefined
+    if (effectiveForce && typeof window !== 'undefined') {
+      const ackSet = new Set<string>()
+      const groups = gapData?.confidence_groups?.groups ?? []
+      const selectedSet = new Set(allSelected)
+      for (const g of groups) {
+        const overlap = (g.permissions || []).some(p => selectedSet.has(p.permission))
+        if (!overlap) continue
+        const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
+        for (const a of acks) ackSet.add(a)
+      }
+      const rationale = window.prompt(
+        `Override rationale (required for audit log):\n\n`
+        + `Acknowledgements you must confirm: ${Array.from(ackSet).join(', ') || 'none'}\n\n`
+        + `Why are you overriding? (Slack thread, ticket #, customer confirmation, etc.)`
+      )
+      if (rationale === null) return  // operator cancelled
+      overrideLineage = {
+        rationale: rationale.trim() || '(no rationale provided)',
+        acknowledged: Array.from(ackSet),
+        rollback_plan_acknowledged: createSnapshot,
+        overridden_by: 'anonymous',  // no auth wired yet; CP2 follow-up plugs identity
+        overridden_at: new Date().toISOString(),
+      }
+    }
+
     setApplying(true)
     try {
       const permissionsToRemove = allSelected
@@ -698,6 +729,7 @@ export function IAMPermissionAnalysisModal({
           detach_all_managed_policies: detachAllManagedPolicies,
           permissions_to_remove: permissionsToRemove,
           force: effectiveForce,
+          ...(overrideLineage ? { override_lineage: overrideLineage } : {}),
         })
       })
 
