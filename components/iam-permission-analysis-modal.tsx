@@ -3010,35 +3010,35 @@ export function IAMPermissionAnalysisModal({
                 </div>
               )
             } else if (verdictBucket === 'blocked') {
-              // Pipeline blocked for reasons OTHER than the no-usage branch
-              // above — e.g. partial telemetry, short observation window,
-              // active consumers. The older code fell through to "High
-              // confidence remediation" here; now we render the pipeline's
-              // reasons as the recommendation so the user knows what to do
-              // next (investigate, extend obs, add telemetry).
+              // Pipeline routed this to "review required" for reasons
+              // OTHER than the no-usage branch above -- partial
+              // telemetry, short observation window, active consumers.
+              // Visual: amber safety-hold (matches the top verdict
+              // block + Summary tab banner). Red is reserved for
+              // truly destructive verdicts (service-role DO NOT APPLY).
               const reasons = safetyContext?.unsafe_reasons ?? []
               return (
-                <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-5">
-                  <h3 className="font-bold text-[#ef4444]">Investigation Required</h3>
-                  <p className="text-[#ef4444] mt-1">
-                    {reasons[0] ?? 'Pipeline blocked this remediation. Review the evidence before proceeding.'}
+                <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-5">
+                  <h3 className="font-bold text-[#b45309]">Safety hold — review required</h3>
+                  <p className="text-[#92400e] mt-1">
+                    {reasons[0] ?? "Cyntro paused this change. Review the evidence above before proceeding."}
                   </p>
                   {reasons.length > 1 && (
-                    <ul className="mt-2 text-sm text-[#991b1b] list-disc list-inside space-y-1">
+                    <ul className="mt-2 text-sm text-[#78350f] list-disc list-inside space-y-1">
                       {reasons.slice(1).map((reason, i) => (
                         <li key={`rec-${i}`}>{reason}</li>
                       ))}
                     </ul>
                   )}
                   {typeof safetyContext?.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
-                    <p className="text-xs text-[#991b1b] mt-3">
+                    <p className="text-xs text-[#92400e] mt-3">
                       Note: {safetyContext.consumer_count} consumer{safetyContext.consumer_count === 1 ? '' : 's'}{' '}
                       currently depend on this role — verify impact before touching permissions.
                     </p>
                   )}
-                  <div className="flex items-center gap-2 mt-3 text-[#ef4444]">
-                    <XCircle className="w-5 h-5" />
-                    <span className="font-medium">Pipeline decision: BLOCK — auto-remediation disabled</span>
+                  <div className="flex items-center gap-2 mt-3 text-[#b45309]">
+                    <Shield className="w-5 h-5" />
+                    <span className="font-medium">Pipeline decision: review required — auto-remediation paused</span>
                   </div>
                 </div>
               )
