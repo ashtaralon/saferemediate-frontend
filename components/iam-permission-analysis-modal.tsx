@@ -78,6 +78,31 @@ interface GapAnalysisData {
         endpoint: string
         estimated_cost_usd_per_month?: number
       } | null
+      // Sprint 1 Checkpoint 1 — Decision Contract operator_context. Optional
+      // (only present when the group's block_reason_code mapped to a known
+      // template). When present, renders the structured runbook in place of
+      // the free-text block_reason_human banner.
+      decision_contract?: {
+        decision_id?: string
+        reason_code?: string
+        outcome?: string
+        operator_context?: {
+          summary?: string
+          rendered_explanation?: string
+          blocked_change?: { resource_id?: string; current_state?: string; proposed_change?: string }
+          why?: { explanation?: string; confidence?: number }
+          what_to_check?: Array<{ check?: string; command_or_link?: string; expected_result?: string }>
+          suggested_safer_actions?:
+            | Array<{ action?: string; explanation?: string; expected_risk_reduction?: string }>
+            | { no_safer_action_known?: boolean; explanation?: string }
+          override_requirements?: {
+            allowed?: boolean
+            required_acknowledgements?: string[]
+            rationale_required?: boolean
+            rollback_required?: boolean
+          }
+        }
+      } | null
       permission_count: number
       permissions: Array<{
         permission: string
@@ -1517,7 +1542,77 @@ export function IAMPermissionAnalysisModal({
                         <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: colors.border, background: colors.bg + '80' }}>
                           {group.explanation}
                         </div>
-                        {isInferredOrTelemetryBlocked && group.block_reason_human && (
+                        {/* Decision Contract operator_context (Sprint 1 CP1) — preferred when present */}
+                        {isInferredOrTelemetryBlocked && group.decision_contract?.operator_context ? (() => {
+                          const oc = group.decision_contract!.operator_context!
+                          const checks = oc.what_to_check || []
+                          const saferRaw = oc.suggested_safer_actions
+                          const saferList = Array.isArray(saferRaw) ? saferRaw : []
+                          const saferAbsent = !Array.isArray(saferRaw) && saferRaw && (saferRaw as any).no_safer_action_known
+                          const ackList = oc.override_requirements?.required_acknowledgements || []
+                          const reasonCode = group.decision_contract!.reason_code
+                          return (
+                            <div className="px-4 py-3 text-xs border-b" style={{ borderColor: colors.border, background: '#fffbeb', color: '#78350f' }}>
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#92400e]" />
+                                <div className="flex-1 space-y-2">
+                                  {/* Reason code badge + summary */}
+                                  <div>
+                                    {reasonCode && (
+                                      <span className="inline-block text-[9px] uppercase tracking-wider font-bold mr-2 px-1.5 py-0.5 rounded bg-[#92400e20] text-[#92400e]">
+                                        {reasonCode.replace(/_/g, ' ')}
+                                      </span>
+                                    )}
+                                    <span className="font-semibold text-[#92400e]">{oc.summary || group.block_reason_human}</span>
+                                  </div>
+                                  {/* What to check — actionable steps */}
+                                  {checks.length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">What to check</div>
+                                      <ul className="list-disc ml-4 space-y-1">
+                                        {checks.map((c, ci) => (
+                                          <li key={ci}>
+                                            {c.check}
+                                            {c.command_or_link && (
+                                              <> · <a href={c.command_or_link} target="_blank" rel="noopener noreferrer" className="underline text-[#92400e]">link ↗</a></>
+                                            )}
+                                            {c.expected_result && (
+                                              <span className="text-[#78350f] opacity-75"> — expect: {c.expected_result}</span>
+                                            )}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {/* Safer alternatives */}
+                                  {saferList.length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">Safer alternatives</div>
+                                      <ul className="list-disc ml-4 space-y-1">
+                                        {saferList.map((a, ai) => (
+                                          <li key={ai}>
+                                            <span className="font-semibold">{a.action}</span>
+                                            {a.explanation && <span className="opacity-90"> — {a.explanation}</span>}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {saferAbsent && (
+                                    <div className="text-[#78350f] italic">No safer action known — operator must acknowledge override.</div>
+                                  )}
+                                  {/* Override requirements */}
+                                  {ackList.length > 0 && (
+                                    <div className="text-[10px] text-[#78350f]">
+                                      <span className="uppercase tracking-wider font-semibold">Override requires: </span>
+                                      {ackList.map(a => a.replace(/_/g, ' ')).join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })() : isInferredOrTelemetryBlocked && group.block_reason_human ? (
                           <div className="px-4 py-2 text-xs border-b flex items-start gap-2" style={{ borderColor: colors.border, background: '#fffbeb', color: '#92400e' }}>
                             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                             <div>
@@ -1537,7 +1632,7 @@ export function IAMPermissionAnalysisModal({
                               )}
                             </div>
                           </div>
-                        )}
+                        ) : null}
                         <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                           {group.permissions.map((perm, i) => (
                             <div
