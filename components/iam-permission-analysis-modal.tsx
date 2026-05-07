@@ -692,16 +692,23 @@ export function IAMPermissionAnalysisModal({
         for (const a of acks) ackSet.add(a)
       }
       const rationale = window.prompt(
-        `Override rationale (required for audit log):\n\n`
+        `Override rationale (required for audit log — empty input will be rejected by the safety gate):\n\n`
         + `Acknowledgements you must confirm: ${Array.from(ackSet).join(', ') || 'none'}\n\n`
         + `Why are you overriding? (Slack thread, ticket #, customer confirmation, etc.)`
       )
       if (rationale === null) return  // operator cancelled
+      const trimmed = rationale.trim()
+      if (!trimmed) {
+        if (typeof window !== 'undefined') {
+          window.alert('Override cancelled: rationale is required for the audit trail (Decision Contract §7).')
+        }
+        return
+      }
       overrideLineage = {
-        rationale: rationale.trim() || '(no rationale provided)',
+        rationale: trimmed,
         acknowledged: Array.from(ackSet),
         rollback_plan_acknowledged: createSnapshot,
-        overridden_by: 'anonymous',  // no auth wired yet; CP2 follow-up plugs identity
+        overridden_by: 'anonymous',  // CP2 follow-up plugs real identity; validator accepts 'anonymous' string for now
         overridden_at: new Date().toISOString(),
       }
     }
