@@ -124,6 +124,20 @@ interface GapAnalysisData {
     planes_active: string[]
     signal_count: number
     observation_days: number
+    // Patent-A4 dimensions (added 2026-05-07).
+    health?: {
+      value: number
+      simulation: number
+      posture: number
+      environment: number
+      historical_success: number
+    } | null
+    rollback?: {
+      value: number
+      snapshot_available: boolean
+      snapshot_capable: boolean
+      rollback_success_rate: number
+    } | null
   } | null
   dependency_context?: DependencyContext
   remediated_at?: string | null
@@ -1406,6 +1420,24 @@ export function IAMPermissionAnalysisModal({
                         <span className="font-bold text-sm text-slate-700">{gapData.safety_vector.planes_active.join(' · ') || '—'}</span>
                         <span className="uppercase tracking-wide text-slate-500 text-[10px]">Planes active</span>
                       </div>
+                      {gapData.safety_vector.health && (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-bold text-sm" style={{ color: gapData.safety_vector.health.historical_success >= 0.9 ? '#16a34a' : gapData.safety_vector.health.historical_success >= 0.7 ? '#d97706' : '#dc2626' }}>
+                            {Math.round(gapData.safety_vector.health.historical_success * 100)}%
+                          </span>
+                          <span className="uppercase tracking-wide text-slate-500 text-[10px]">Historical success</span>
+                        </div>
+                      )}
+                      {gapData.safety_vector.rollback && (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-bold text-sm" style={{ color: gapData.safety_vector.rollback.value >= 0.9 ? '#16a34a' : gapData.safety_vector.rollback.value >= 0.7 ? '#d97706' : '#dc2626' }}>
+                            {Math.round(gapData.safety_vector.rollback.value * 100)}%
+                          </span>
+                          <span className="uppercase tracking-wide text-slate-500 text-[10px]">
+                            Rollback ready{gapData.safety_vector.rollback.snapshot_capable ? '' : ' (no snap)'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1527,6 +1559,23 @@ export function IAMPermissionAnalysisModal({
                                 className="w-4 h-4 rounded border-[var(--border,#d1d5db)] disabled:opacity-40"
                               />
                               <span className="font-mono text-xs text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
+                              {/* Per-permission confidence score with 70/40 threshold colors. */}
+                              {!isLocked && typeof perm.confidence_score === 'number' && (
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
+                                    perm.confidence_score >= 70 ? 'bg-[#22c55e20] text-[#16a34a]' :
+                                    perm.confidence_score >= 40 ? 'bg-[#f9731620] text-[#d97706]' :
+                                    'bg-[#ef444420] text-[#dc2626]'
+                                  }`}
+                                  title={
+                                    perm.confidence_score >= 70 ? 'Safe to remove (≥70 — auto-eligible)' :
+                                    perm.confidence_score >= 40 ? 'Verify first (40-69 — needs override)' :
+                                    'Investigate first (<40 — high risk)'
+                                  }
+                                >
+                                  {perm.confidence_score}%
+                                </span>
+                              )}
                               {isLocked ? (
                                 <span className="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0" style={{ background: colors.bg, color: colors.text }}>
                                   {isReserved ? 'RESERVED' : 'LOCKED'}
