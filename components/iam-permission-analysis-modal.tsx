@@ -2596,16 +2596,23 @@ export function IAMPermissionAnalysisModal({
             )
           })()}
 
-          {/* Least Privilege Violation Alert - Only show if not remediated */}
+          {/* Least Privilege Finding - informational, not an error.
+              Renders whenever unusedCount > 0 on the summary tab. The
+              over-privileged-role IS a real finding, but it isn't a
+              system error -- amber/finding-tone (not error red) so the
+              modal stops looking like five different things failed
+              when the customer is actually just seeing one finding plus
+              one safety hold. The risk badge stays semantic (CRITICAL
+              = red badge inside the amber card; HIGH = orange; etc.). */}
           {analysisTab === 'summary' && unusedCount > 0 && totalPermissions > 0 && (
-            <div className="rounded-lg border border-[#fecaca] bg-[#fff1f2] p-5">
+            <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-5">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="w-7 h-7 flex-shrink-0 mt-0.5" style={{ color: "#ef4444" }} />
+                <AlertTriangle className="w-7 h-7 flex-shrink-0 mt-0.5" style={{ color: "#d97706" }} />
                 <div>
-                  <h3 className="text-xl font-bold" style={{ color: "#ef4444" }}>Least Privilege Violation Detected</h3>
-                  <p className="mt-2 " style={{ color: "var(--foreground, #111827)" }}>
+                  <h3 className="text-xl font-bold" style={{ color: "#b45309" }}>Least-privilege finding</h3>
+                  <p className="mt-2" style={{ color: "var(--foreground, #111827)" }}>
                     This identity has <strong>{unusedPercent}% more permissions</strong> than required based on {observationDays} days of actual usage.
-                    <strong> {unusedCount} permissions</strong> have never been used and should be removed.
+                    <strong> {unusedCount} permissions</strong> have never been used and could be removed.
                   </p>
                   <div className="flex items-center gap-3 mt-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
