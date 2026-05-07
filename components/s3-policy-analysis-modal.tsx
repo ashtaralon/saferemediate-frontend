@@ -1096,14 +1096,27 @@ function AnalysisTab({
         </div>
       </div>
 
-      {/* Security Issue Alert */}
+      {/* Security finding alert.
+          - hasPublicAccess: KEEP red. Public S3 bucket is a real
+            critical security issue, not an LP finding -- red is the
+            correct severity signal.
+          - No public access, just unused policies: amber finding-tone
+            (matches the IAM modal). */}
       {(unusedCount > 0 || hasPublicAccess) ? (
-        <div className="mx-6 p-5 bg-[#ef444410] border-2 border-[#ef444440] rounded-xl">
+        <div className={`mx-6 p-5 rounded-xl border-2 ${
+          hasPublicAccess
+            ? 'bg-[#ef444410] border-[#ef444440]'
+            : 'bg-[#fffbeb] border-[#fde68a]'
+        }`}>
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-7 h-7 text-[#ef4444] flex-shrink-0 mt-0.5" />
+            <AlertTriangle className={`w-7 h-7 flex-shrink-0 mt-0.5 ${
+              hasPublicAccess ? 'text-[#ef4444]' : 'text-[#d97706]'
+            }`} />
             <div>
-              <h3 className="text-xl font-bold text-[#ef4444]">
-                {hasPublicAccess ? 'Security Issue Detected' : 'Least Privilege Violation Detected'}
+              <h3 className={`text-xl font-bold ${
+                hasPublicAccess ? 'text-[#ef4444]' : 'text-[#b45309]'
+              }`}>
+                {hasPublicAccess ? 'Public-access security issue' : 'Least-privilege finding'}
               </h3>
               <p className="mt-2 text-[var(--foreground,#374151)]">
                 {hasPublicAccess && <>This bucket has <strong>public access enabled</strong>. </>}

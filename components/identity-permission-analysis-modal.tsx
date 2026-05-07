@@ -740,22 +740,29 @@ export function IdentityPermissionAnalysisModal({
           </div>
         )}
 
-        {/* Least privilege violation */}
-        <div className="rounded-xl p-6 mb-6 border-2" style={{ background: "#ef444415", borderColor: "#ef4444" }}>
+        {/* Least-privilege finding -- informational, not an error.
+            Was rendering full red (border + bg + heading + risk pill);
+            customers reading the screen could not tell the finding
+            apart from a system error. Reframed to amber finding-tone
+            so the modal stops looking like multiple things failed. */}
+        <div className="rounded-xl p-6 mb-6 border-2" style={{ background: "#fffbeb", borderColor: "#fde68a" }}>
           <div className="flex items-start gap-4">
-            <AlertTriangle className="w-8 h-8 flex-shrink-0" style={{ color: "#ef4444" }} />
+            <AlertTriangle className="w-8 h-8 flex-shrink-0" style={{ color: "#d97706" }} />
             <div>
-              <h3 className="text-xl font-bold mb-2" style={{ color: "#ef4444" }}>
-                Least Privilege Violation Detected
+              <h3 className="text-xl font-bold mb-2" style={{ color: "#b45309" }}>
+                Least-privilege finding
               </h3>
-              <p className="text-sm mb-3" style={{ color: "var(--muted-foreground, #6b7280)" }}>
+              <p className="text-sm mb-3" style={{ color: "var(--foreground, #111827)" }}>
                 This identity has <strong>{gapPercent}% more permissions</strong> than required based on {recordingDays} days of actual usage.
-                {unusedCount} permissions have never been used and should be removed.
+                {unusedCount} permissions have never been used and could be removed.
               </p>
               <div className="flex items-center gap-3 text-sm">
                 <span
                   className="px-3 py-1 rounded-full font-medium"
-                  style={{ background: "#ef444420", color: "#ef4444" }}
+                  style={{
+                    background: gapPercent >= 70 ? "#ef444420" : gapPercent >= 50 ? "#f9731620" : "#eab30820",
+                    color:      gapPercent >= 70 ? "#ef4444"   : gapPercent >= 50 ? "#f97316"   : "#a16207",
+                  }}
                 >
                   {gapPercent >= 70 ? "Critical" : gapPercent >= 50 ? "High" : "Medium"} Risk
                 </span>
