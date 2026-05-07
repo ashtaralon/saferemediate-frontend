@@ -274,7 +274,14 @@ export function IAMPermissionAnalysisModal({
   // AUTHORITATIVE decision source — Agent 5 (confidenceScore) is merely
   // an explainer subordinate to it. See Layer 1/2 in backend.
   const [safetyContext, setSafetyContext] = useState<SimulateFixSafety | null>(null)
-  const [safetyLoading, setSafetyLoading] = useState(false)
+  // Default to `true` so the FIRST render shows the loading skeleton,
+  // not the "Cyntro could not verify safety" red fallback below
+  // (which only fires correctly once the fetch has actually completed
+  // without producing a safety context). The useEffect that drives
+  // fetchSafetyContext fires AFTER the first render -- without this
+  // default, users see a brief red flash before the loading state
+  // kicks in. Bug surfaced 2026-05-07 ("its appear and than gone").
+  const [safetyLoading, setSafetyLoading] = useState(true)
 
   // Fetch gap analysis + pipeline safety context when modal opens. The
   // confidence call is CHAINED off the safety context so we can pass it
