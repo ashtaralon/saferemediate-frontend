@@ -271,11 +271,16 @@ export function IAMPermissionAnalysisModal({
   // + window.prompt flow with a clean dialog that captures the rationale
   // + rollback acknowledgement. On submit -> handleApplyFix(true, lineage)
   // bypasses the native dialogs and proceeds straight to the API call.
+  // The modal stays OPEN through the API call and shows result inline
+  // (spinner -> ✓ success or ✗ error) so the operator sees explicit
+  // feedback even if the toast component is hidden/missed.
   const [overrideModal, setOverrideModal] = useState<{
     open: boolean
     rationale: string
     ackRollback: boolean
-  }>({ open: false, rationale: '', ackRollback: true })
+    phase: 'form' | 'applying' | 'success' | 'error'
+    message: string
+  }>({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
   const [provenance, setProvenance] = useState<Provenance | null>(null)
@@ -652,8 +657,9 @@ export function IAMPermissionAnalysisModal({
   const handleApplyFix = async (
     force: boolean = false,
     prebuiltLineage?: Record<string, any>,
-  ) => {
-    if (!gapData) return
+    skipAutoClose: boolean = false,
+  ): Promise<string | undefined> => {
+    if (!gapData) return undefined
 
     // If this is an override (force=true) AND the caller didn't already
     // build a lineage payload, open the in-app confirmation modal and
@@ -663,7 +669,7 @@ export function IAMPermissionAnalysisModal({
     // window.confirm + window.prompt flow that looked like a system
     // error and silently cancelled on empty input.
     if (force && !prebuiltLineage) {
-      setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot })
+      setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })
       return
     }
 
@@ -678,7 +684,7 @@ export function IAMPermissionAnalysisModal({
     if (nonAutoSelected.length > 0 && !force) {
       // Open the override modal instead of running window.confirm.
       // When operator confirms, handleApplyFix re-runs with force=true.
-      setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot })
+      setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })
       return
     }
 
@@ -821,8 +827,13 @@ export function IAMPermissionAnalysisModal({
         // Refresh parent data
         onSuccess?.()
 
-        // Close modal
-        handleClose()
+        // Close modal -- unless caller (e.g. the in-app override modal)
+        // wants to show its own inline success state first. The override
+        // modal calls handleApplyFix(true, lineage, /*skipAutoClose=*/ true)
+        // and then transitions to phase='success'; the user clicks "Done"
+        // on that surface to dismiss everything.
+        if (!skipAutoClose) handleClose()
+        return desc
       } else if (
         // Soft-gate: pipeline returned a decision that requires approval but
         // is NOT a hard BLOCK. The backend signals this with
@@ -882,9 +893,17 @@ export function IAMPermissionAnalysisModal({
       } catch (refetchErr) {
         console.warn('[IAM-Modal] Post-failure gap-analysis refetch failed:', refetchErr)
       }
+      // When called from the in-app override modal (skipAutoClose=true),
+      // re-throw so the modal's catch can transition to phase='error'
+      // and render the failure inline. The destructive toast above is
+      // a fallback in case the override modal isn't visible.
+      if (skipAutoClose) {
+        throw err
+      }
     } finally {
       setApplying(false)
     }
+    return undefined
   }
 
   if (!isOpen) return null
@@ -2120,7 +2139,7 @@ export function IAMPermissionAnalysisModal({
                         // that the React profiler showed as ~50-150ms
                         // perceived delay. Direct setState fires the
                         // re-render in the same task tick.
-                        onClick={() => setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot })}
+                        onClick={() => setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })}
                         disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
                         className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         title={`Acknowledge the safety hold and apply ${selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} permission removals` : 'the policy detach'}. The override is recorded in the audit log under your operator id. ${safetyContext?.block_reason || ''}`}
@@ -2206,86 +2225,146 @@ export function IAMPermissionAnalysisModal({
         aria-hidden={!overrideModal.open}
       >
         <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
-            <div className="flex items-center gap-3 mb-3">
-              <Shield className="w-7 h-7 text-[#f59e0b]" />
-              <h3 className="text-lg font-bold text-[#b45309]">Override the safety hold?</h3>
-            </div>
-            <p className="text-sm text-[var(--foreground,#111827)] mb-4">
-              Cyntro paused this change because telemetry coverage is incomplete and {safetyContext?.consumer_count ?? 'multiple'} system{(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed -- the change runs immediately, with a rollback snapshot if you have it enabled. The override is recorded in the audit log.
-            </p>
-            <label className="block text-xs font-semibold text-[#92400e] mb-1">
-              Why are you overriding? (Slack thread, ticket #, customer confirmation -- recorded in the audit trail)
-            </label>
-            <textarea
-              value={overrideModal.rationale}
-              onChange={(e) => setOverrideModal({ ...overrideModal, rationale: e.target.value })}
-              placeholder="e.g. Confirmed with @platform-team in #incidents that the 6 consumers don't use these permissions; ticket SECOPS-1842"
-              rows={3}
-              className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
-              autoFocus
-            />
-            <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overrideModal.ackRollback}
-                onChange={(e) => setOverrideModal({ ...overrideModal, ackRollback: e.target.checked })}
-                className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
-              />
-              <span className="text-[var(--foreground,#374151)]">
-                I understand a rollback snapshot will{createSnapshot ? ' ' : ' NOT '}be created and I am responsible for verifying the change does not break dependent systems.
-              </span>
-            </label>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setOverrideModal({ open: false, rationale: '', ackRollback: true })}
-                disabled={applying}
-                className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)] disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  const trimmed = overrideModal.rationale.trim()
-                  if (!trimmed) return
-                  // Aggregate required acknowledgements from the
-                  // selected groups (audit record names exactly which
-                  // gates the operator implicitly confirmed).
-                  const ackSet = new Set<string>()
-                  const groups = gapData?.confidence_groups?.groups ?? []
-                  const selectedSet = new Set(Array.from(selectedPermissionsToRemove))
-                  for (const g of groups) {
-                    const overlap = (g.permissions || []).some((p: any) => selectedSet.has(p.permission))
-                    if (!overlap) continue
-                    const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
-                    for (const a of acks) ackSet.add(a)
-                  }
-                  const lineage = {
-                    rationale: trimmed,
-                    acknowledged: Array.from(ackSet),
-                    rollback_plan_acknowledged: overrideModal.ackRollback,
-                    overridden_by: 'operator',
-                    overridden_at: new Date().toISOString(),
-                  }
-                  setOverrideModal({ open: false, rationale: '', ackRollback: true })
-                  await handleApplyFix(true, lineage)
-                }}
-                disabled={applying || !overrideModal.rationale.trim()}
-                className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                title={!overrideModal.rationale.trim() ? "Rationale required for the audit log" : "Apply the change with override"}
-              >
-                {applying ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Applying...
-                  </>
-                ) : (
-                  <>
+            {overrideModal.phase === 'success' ? (
+              <div className="text-center py-2">
+                <CheckCircle className="w-12 h-12 mx-auto text-[#22c55e]" />
+                <h3 className="mt-3 text-lg font-bold text-[#15803d]">Remediation applied</h3>
+                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line">{overrideModal.message}</p>
+                <button
+                  onClick={() => {
+                    setOverrideModal({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })
+                    handleClose()
+                  }}
+                  className="mt-4 px-5 py-2 bg-[#22c55e] text-white rounded-lg font-bold hover:bg-[#16a34a]"
+                >
+                  Done
+                </button>
+              </div>
+            ) : overrideModal.phase === 'error' ? (
+              <div className="text-center py-2">
+                <XCircle className="w-12 h-12 mx-auto text-[#ef4444]" />
+                <h3 className="mt-3 text-lg font-bold text-[#991b1b]">Remediation failed</h3>
+                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line break-words">{overrideModal.message}</p>
+                <div className="mt-4 flex justify-center gap-2">
+                  <button
+                    onClick={() => setOverrideModal({ ...overrideModal, phase: 'form', message: '' })}
+                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    onClick={() => setOverrideModal({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })}
+                    className="px-4 py-2 bg-[var(--foreground,#374151)] text-white rounded-lg font-semibold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : overrideModal.phase === 'applying' ? (
+              <div className="text-center py-6">
+                <Loader2 className="w-12 h-12 mx-auto text-[#f59e0b] animate-spin" />
+                <h3 className="mt-3 text-lg font-bold text-[#b45309]">Applying remediation…</h3>
+                <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">Snapshot, IAM mutate, and verify. Usually completes in a few seconds.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-3">
+                  <Shield className="w-7 h-7 text-[#f59e0b]" />
+                  <h3 className="text-lg font-bold text-[#b45309]">Override the safety hold?</h3>
+                </div>
+                <p className="text-sm text-[var(--foreground,#111827)] mb-4">
+                  Cyntro paused this change because telemetry coverage is incomplete and {safetyContext?.consumer_count ?? 'multiple'} system{(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed -- the change runs immediately, with a rollback snapshot if you have it enabled. The override is recorded in the audit log.
+                </p>
+                <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                  Why are you overriding? (Slack thread, ticket #, customer confirmation -- recorded in the audit trail)
+                </label>
+                <textarea
+                  value={overrideModal.rationale}
+                  onChange={(e) => setOverrideModal({ ...overrideModal, rationale: e.target.value })}
+                  placeholder="e.g. Confirmed with @platform-team in #incidents that the 6 consumers don't use these permissions; ticket SECOPS-1842"
+                  rows={3}
+                  className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
+                  autoFocus
+                />
+                <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overrideModal.ackRollback}
+                    onChange={(e) => setOverrideModal({ ...overrideModal, ackRollback: e.target.checked })}
+                    className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
+                  />
+                  <span className="text-[var(--foreground,#374151)]">
+                    I understand a rollback snapshot will{createSnapshot ? ' ' : ' NOT '}be created and I am responsible for verifying the change does not break dependent systems.
+                  </span>
+                </label>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setOverrideModal({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })}
+                    disabled={applying}
+                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)] disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const trimmed = overrideModal.rationale.trim()
+                      if (!trimmed) return
+                      // Aggregate required acknowledgements from the
+                      // selected groups (audit record names exactly which
+                      // gates the operator implicitly confirmed).
+                      const ackSet = new Set<string>()
+                      const groups = gapData?.confidence_groups?.groups ?? []
+                      const selectedSet = new Set(Array.from(selectedPermissionsToRemove))
+                      for (const g of groups) {
+                        const overlap = (g.permissions || []).some((p: any) => selectedSet.has(p.permission))
+                        if (!overlap) continue
+                        const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
+                        for (const a of acks) ackSet.add(a)
+                      }
+                      const lineage = {
+                        rationale: trimmed,
+                        acknowledged: Array.from(ackSet),
+                        rollback_plan_acknowledged: overrideModal.ackRollback,
+                        overridden_by: 'operator',
+                        overridden_at: new Date().toISOString(),
+                      }
+                      // Stay open and switch to the applying phase. The
+                      // success / error phase is set by handleApplyFix
+                      // via setOverrideModal at the end of the API
+                      // call. skipAutoClose=true keeps the parent modal
+                      // open so the override modal can render its own
+                      // success state; the operator clicks "Done" on
+                      // that surface to dismiss everything.
+                      setOverrideModal({ ...overrideModal, phase: 'applying', message: '' })
+                      try {
+                        const desc = await handleApplyFix(true, lineage, true)
+                        setOverrideModal({
+                          open: true,
+                          rationale: lineage.rationale,
+                          ackRollback: overrideModal.ackRollback,
+                          phase: 'success',
+                          message: desc || 'The remediation completed successfully.',
+                        })
+                      } catch (err: any) {
+                        setOverrideModal({
+                          open: true,
+                          rationale: lineage.rationale,
+                          ackRollback: overrideModal.ackRollback,
+                          phase: 'error',
+                          message: (err?.message || 'The remediation request failed. Check console for details.').slice(0, 500),
+                        })
+                      }
+                    }}
+                    disabled={applying || !overrideModal.rationale.trim()}
+                    className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    title={!overrideModal.rationale.trim() ? "Rationale required for the audit log" : "Apply the change with override"}
+                  >
                     <CheckSquare className="w-4 h-4" />
                     Apply Anyway
-                  </>
-                )}
-              </button>
-            </div>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
