@@ -321,21 +321,21 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
           (computeId && (e.source === computeId || e.target === computeId))
       )
       const bytes = relevantEdges.reduce((s, e) => s + (e.traffic_bytes ?? 0), 0)
-      const connections = relevantEdges.reduce((s, e) => s + (e.hit_count ?? 1), 0)
+      const connections = relevantEdges.reduce((s, e) => s + (e.hit_count ?? 0), 0)
 
       totalBytes += bytes
       totalConnections += connections
 
       flows.push({
-        sourceId: entry.id,        // → data-compute-id (Entry column)
-        targetId: jewel.id,        // → data-resource-id (Crown Jewel column)
-        sgId: computeId,           // → data-sg-id (Compute column)
-        naclId: identityId,        // → data-nacl-id (Identity column)
-        roleId: pivotId,           // → data-role-id (Pivot column)
+        sourceId: entry.id,
+        targetId: jewel.id,
+        sgId: computeId,
+        naclId: identityId,
+        roleId: pivotId,
         ports: [],
         protocol: "TCP",
-        bytes: bytes || 1024,
-        connections: connections || 1,
+        bytes,
+        connections,
         isActive: true,
       })
     }
@@ -354,8 +354,8 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
           roleId: pivots[0]?.id,
           ports: [],
           protocol: "TCP",
-          bytes: 1024,
-          connections: 1,
+          bytes: 0,
+          connections: 0,
           isActive: true,
         })
       }
@@ -394,9 +394,6 @@ function buildArchitectureFromPath(path: IdentityAttackPath): LateralArchitectur
     connectedSources: identities.map((i) => i.id),
     connectedTargets: jewels.map((j) => j.id),
   }))
-
-  if (totalBytes === 0 && flows.length > 0) totalBytes = flows.length * 1024
-  if (totalConnections === 0 && flows.length > 0) totalConnections = flows.length
 
   return {
     // SystemArchitecture fields (repurposed for ConnectionLinesSVG)
@@ -505,7 +502,7 @@ function ComputeNodeCard({
           {node.shortName || node.name}
         </span>
       </div>
-      {flowInfo && (
+      {flowInfo && (flowInfo.bytes > 0 || flowInfo.connections > 0) && (
         <div className="text-[10px] text-slate-400 mb-1.5">
           {formatBytes(flowInfo.bytes)} · {flowInfo.connections} conn
         </div>
@@ -755,10 +752,20 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                   <div className="text-[10px] text-slate-500">Traffic</div>
                 </div>
               )}
-              <div className="text-center px-3 border-l border-slate-700">
-                <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
-                <div className="text-[10px] text-slate-500">Connections</div>
-              </div>
+              {architecture.totalConnections > 0 ? (
+                <div className="text-center px-3 border-l border-slate-700">
+                  <div className="text-blue-400 font-bold">{architecture.totalConnections}</div>
+                  <div className="text-[10px] text-slate-500">Connections</div>
+                </div>
+              ) : (
+                <div
+                  className="text-center px-3 border-l border-slate-700"
+                  title="Path inferred from configuration. No CloudTrail / VPC Flow Log signals on these edges in the observation window."
+                >
+                  <div className="text-slate-500 font-bold">—</div>
+                  <div className="text-[10px] text-slate-500">no observed signals</div>
+                </div>
+              )}
               {architecture.totalGaps > 0 && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/20 rounded-lg border-l border-slate-700">
                   <AlertTriangle className="w-4 h-4 text-amber-400" />
