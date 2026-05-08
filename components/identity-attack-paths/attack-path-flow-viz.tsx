@@ -775,6 +775,58 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                   </div>
                 </div>
               )}
+              {/* Phase 1: Damage Capability tile — concrete impact at end of path */}
+              {path?.damage_capability?.state === "live" && (path.damage_capability.total_allowed_actions ?? 0) > 0 && (
+                <div
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border-l border-slate-700 ${
+                    path.damage_capability.destructive_capable
+                      ? "bg-red-500/20 ring-1 ring-red-500/30"
+                      : "bg-slate-700/30"
+                  }`}
+                  title={
+                    `Role: ${path.damage_capability.role_name}\n` +
+                    `Allowed actions: ${path.damage_capability.total_allowed_actions}\n` +
+                    `${path.damage_capability.summary ?? ""}\n` +
+                    (path.damage_capability.reachable_services
+                      ? "\nReachable: " + Object.entries(path.damage_capability.reachable_services).slice(0, 6).map(([k, v]) => `${v} ${k}`).join(", ")
+                      : "")
+                  }
+                >
+                  <Crown className={`w-4 h-4 ${path.damage_capability.destructive_capable ? "text-red-400" : "text-slate-400"}`} />
+                  <div>
+                    <div className={`font-bold text-sm ${path.damage_capability.destructive_capable ? "text-red-300" : "text-slate-300"}`}>
+                      {(path.damage_capability.verbs?.read ?? 0) > 0 && `R${path.damage_capability.verbs?.read ?? 0}`}
+                      {(path.damage_capability.verbs?.write ?? 0) > 0 && ` W${path.damage_capability.verbs?.write ?? 0}`}
+                      {(path.damage_capability.verbs?.delete ?? 0) > 0 && ` D${path.damage_capability.verbs?.delete ?? 0}`}
+                      {(path.damage_capability.verbs?.admin ?? 0) > 0 && ` A${path.damage_capability.verbs?.admin ?? 0}`}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {path.damage_capability.destructive_capable ? "Damage capability" : "Read-only impact"}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Phase 0: path_kind_tag badge — identity / network / hybrid */}
+              {path?.path_kind_tag && path.path_kind_tag !== "configured" && (
+                <div
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wide border-l border-slate-700 ${
+                    path.path_kind_tag === "hybrid"
+                      ? "text-purple-300 bg-purple-500/10"
+                      : path.path_kind_tag === "network"
+                      ? "text-cyan-300 bg-cyan-500/10"
+                      : "text-blue-300 bg-blue-500/10"
+                  }`}
+                  title={
+                    path.path_kind_tag === "hybrid"
+                      ? "Hybrid path: combines identity (CloudTrail) and network (VPC Flow Logs) telemetry"
+                      : path.path_kind_tag === "network"
+                      ? "Network-only path: built from VPC Flow Logs / SG / NACL evidence — no identity events on this path"
+                      : "Identity path: principal / role / API call evidence"
+                  }
+                >
+                  {path.path_kind_tag}
+                </div>
+              )}
             </div>
           </div>
 

@@ -139,6 +139,18 @@ export interface RiskReductionAction {
   // no score projection, badge explains why.
   not_remediable?: boolean
   not_remediable_reason?: string | null
+  // Phase 2: which remediation plane this action belongs to. Drives the
+  // 3-column "fix this path" panel.
+  plane?: "iam" | "network" | "data" | "other"
+}
+
+// Phase 2: per-plane remediation rollup. Backend at risk_reduction.by_plane.
+// Each plane bucket carries its own action list + simulated joint delta.
+export interface PlaneRemediationBucket {
+  actions: RiskReductionAction[]
+  action_count: number
+  achievable_score: number
+  delta: number
 }
 
 export interface RiskReduction {
@@ -147,6 +159,27 @@ export interface RiskReduction {
   top_actions: RiskReductionAction[]
   total_reduction?: number
   weights?: Partial<Record<SeverityFactor, number>>
+  by_plane?: {
+    iam: PlaneRemediationBucket
+    network: PlaneRemediationBucket
+    data: PlaneRemediationBucket
+  }
+}
+
+// Phase 1: damage capability — what an attacker reaching the end of the
+// path can actually DO (read N tables, delete K objects, etc.). Three-state
+// per feedback_no_mock_numbers_in_ui — never fabricated numbers.
+export interface DamageCapability {
+  state: "live" | "not_applicable" | "not_wired" | "error"
+  reason?: string
+  role_name?: string
+  role_arn?: string
+  total_allowed_actions?: number
+  verbs?: { read: number; write: number; delete: number; admin: number }
+  reachable_services?: Record<string, number>  // friendly noun -> action count
+  observed_resources_accessed?: number
+  destructive_capable?: boolean
+  summary?: string
 }
 
 // BRS v1.1 — per-jewel Blast Radius Score (attached to each path)
@@ -223,6 +256,11 @@ export interface IdentityAttackPath {
   lanes?: LaneDefinition[]
   risk_reduction?: RiskReduction | null
   target_blast_radius?: TargetBlastRadius | null
+  // Phase 0: classifies path as identity / network / hybrid / configured.
+  // Replaces the old hard filter that dropped non-identity paths.
+  path_kind_tag?: "identity" | "network" | "hybrid" | "configured"
+  // Phase 1: per-path damage capability — concrete impact at end of path.
+  damage_capability?: DamageCapability | null
 }
 
 export interface CrownJewelSummary {

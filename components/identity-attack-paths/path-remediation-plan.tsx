@@ -645,6 +645,58 @@ export function PathRemediationPlan({
             )}
           </div>
 
+          {/* Phase 2: 3-column "fix this path at IAM | Network | Data" rollup.
+              Renders only when backend supplies risk_reduction.by_plane.
+              Each column shows action count + simulated achievable score if
+              you applied ONLY that plane's fixes. CISO can see at a glance
+              "fixing IAM only gets us from 44 → 30; fixing Network only gets
+              us from 44 → 38; fixing all three gets us to 25." */}
+          {rr?.by_plane && (
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {(["iam", "network", "data"] as const).map((plane) => {
+                const bucket = rr.by_plane?.[plane]
+                if (!bucket) return null
+                const colors = {
+                  iam:     { ring: "ring-purple-500/30", text: "text-purple-300", bg: "bg-purple-500/10", label: "IAM" },
+                  network: { ring: "ring-cyan-500/30",   text: "text-cyan-300",   bg: "bg-cyan-500/10",   label: "Network" },
+                  data:    { ring: "ring-emerald-500/30",text: "text-emerald-300",bg: "bg-emerald-500/10",label: "Data" },
+                }[plane]
+                const hasAny = bucket.action_count > 0
+                return (
+                  <div
+                    key={plane}
+                    className={`px-3 py-2 rounded-md ring-1 ${colors.ring} ${colors.bg}`}
+                    title={
+                      hasAny
+                        ? `Apply only ${colors.label} fixes: ${currentScore} → ${bucket.achievable_score} (${bucket.delta >= 0 ? "+" : ""}${bucket.delta})`
+                        : `No ${colors.label}-plane remediation found on this path`
+                    }
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${colors.text}`}>{colors.label}</span>
+                      {hasAny ? (
+                        <span className="text-[10px] text-slate-400 tabular-nums">{bucket.action_count} action{bucket.action_count === 1 ? "" : "s"}</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-600">no actions</span>
+                      )}
+                    </div>
+                    {hasAny ? (
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-base font-bold text-white tabular-nums">{bucket.achievable_score}</span>
+                        <span className="text-[10px] text-slate-400">if {colors.label} only</span>
+                        <span className={`ml-auto text-[11px] font-semibold tabular-nums ${bucket.delta < 0 ? "text-emerald-300" : "text-slate-500"}`}>
+                          {bucket.delta < 0 ? bucket.delta : "—"}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-500">—</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           <div className="space-y-1">
             {visibleRows.map(({ node, action }) => {
               const isActive = activeNodeId === node.id
