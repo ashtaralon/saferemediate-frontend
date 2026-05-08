@@ -2189,15 +2189,24 @@ export function IAMPermissionAnalysisModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
 
-      {/* In-app override confirmation modal. Rendered on top of the
-          main modal at z-[60] so it's clearly the active surface.
-          Replaces the native window.confirm + window.prompt that was
-          (a) ugly and (b) silently cancelling on empty input. The
-          rationale + ackRollback inputs feed the OverrideLineage
-          payload the backend's CP2 §7 contract requires. */}
-      {overrideModal.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+      {/* In-app override confirmation modal. ALWAYS mounted (with
+          pointer-events disabled when closed) so opening is just a
+          CSS opacity toggle -- no React tree mount on click. Earlier
+          implementation conditionally rendered the subtree, which
+          made the open-on-click feel laggy: the user watched a
+          delay between clicking Acknowledge & Apply (bottom right)
+          and the modal appearing (center) while React mounted the
+          tree. Now it's instant. The transition fades in over
+          150ms so the appearance doesn't jolt the eye. */}
+      <div
+        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 transition-opacity duration-150 ${
+          overrideModal.open
+            ? 'opacity-100'
+            : 'opacity-0 pointer-events-none'
+        }`}
+        aria-hidden={!overrideModal.open}
+      >
+        <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-3">
               <Shield className="w-7 h-7 text-[#f59e0b]" />
               <h3 className="text-lg font-bold text-[#b45309]">Override the safety hold?</h3>
@@ -2280,7 +2289,6 @@ export function IAMPermissionAnalysisModal({
             </div>
           </div>
         </div>
-      )}
 
       <div className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
