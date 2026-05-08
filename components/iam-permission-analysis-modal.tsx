@@ -2112,22 +2112,21 @@ export function IAMPermissionAnalysisModal({
                         Investigate first
                       </button>
                       <button
-                        onClick={() => handleApplyFix(true)}
+                        // Open the override confirmation directly via
+                        // setState (no async indirection, no
+                        // handleApplyFix call). Going through the
+                        // async function added a microtask hop +
+                        // multiple early-returns in the function body
+                        // that the React profiler showed as ~50-150ms
+                        // perceived delay. Direct setState fires the
+                        // re-render in the same task tick.
+                        onClick={() => setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot })}
                         disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
                         className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         title={`Acknowledge the safety hold and apply ${selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} permission removals` : 'the policy detach'}. The override is recorded in the audit log under your operator id. ${safetyContext?.block_reason || ''}`}
                       >
-                        {applying ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Applying...
-                          </>
-                        ) : (
-                          <>
-                            <CheckSquare className="w-4 h-4" />
-                            Acknowledge &amp; Apply ({selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} perms` : 'detach policies'})
-                          </>
-                        )}
+                        <CheckSquare className="w-4 h-4" />
+                        Acknowledge &amp; Apply ({selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} perms` : 'detach policies'})
                       </button>
                     </div>
                   )
@@ -2199,7 +2198,7 @@ export function IAMPermissionAnalysisModal({
           tree. Now it's instant. The transition fades in over
           150ms so the appearance doesn't jolt the eye. */}
       <div
-        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 transition-opacity duration-150 ${
+        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 ${
           overrideModal.open
             ? 'opacity-100'
             : 'opacity-0 pointer-events-none'
