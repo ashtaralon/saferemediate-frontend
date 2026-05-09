@@ -13,7 +13,9 @@ export async function GET(
   const { systemName } = await params
   const { searchParams } = new URL(req.url)
   const maxJewels = searchParams.get("max_jewels") || "12"
-  const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "3"
+  // Default bumped 3 → 8 to match backend default; surfaces more paths
+  // per crown jewel (was 12 jewels × 3 paths = 36 max; now up to 96).
+  const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "8"
   const envelope = searchParams.get("envelope") === "true" ? "true" : ""
 
   try {
