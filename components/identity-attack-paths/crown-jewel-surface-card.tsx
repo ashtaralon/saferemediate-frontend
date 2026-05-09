@@ -39,6 +39,12 @@ interface JewelSurfaceData {
     public_ips: string[]
     private_ips: string[]
     principals: string[]
+    aws_ips?: Array<{
+      ip: string
+      service: string  // e.g. "S3", "EC2", "CLOUDFRONT"
+      region: string   // e.g. "us-east-1", "GLOBAL"
+      network_border_group?: string
+    }>
   }
   error?: string
 }
@@ -101,7 +107,8 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
   const dmg = data.aggregated_damage
   const verbs = dmg.max_verbs ?? { read: 0, write: 0, delete: 0, admin: 0 }
   const top = (data.cross_path_remediation ?? []).slice(0, 5)
-  const entry = data.entry_summary ?? { total: 0, public_ips: [], private_ips: [], principals: [] }
+  const entry = data.entry_summary ?? { total: 0, public_ips: [], private_ips: [], principals: [], aws_ips: [] }
+  const awsIps = entry.aws_ips ?? []
   const dist = data.score_distribution ?? { critical: 0, high: 0, medium: 0, low: 0 }
   const totalPaths = data.total_paths || 0
 
@@ -185,8 +192,42 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
               count={entry.public_ips.length}
               items={entry.public_ips}
               cls="text-rose-300"
-              tooltip="Public internet IPs observed in VPC Flow Logs reaching this jewel's attack path"
+              tooltip="Public internet IPs not in AWS-published ranges — likely external attacker / customer / unknown source"
             />
+            {/* AWS IPs — populated when classify_endpoint matches a public IP
+                against AWS-published ranges. Shows service + region per IP
+                so the CISO sees "AWS S3 us-east-1" instead of an opaque IP. */}
+            {awsIps.length > 0 && (
+              <div
+                className="flex items-start gap-1.5 text-[10px]"
+                title={
+                  "Public IPs that match AWS-published prefix ranges. Service + region identify which AWS service owns the IP.\n\n" +
+                  awsIps.slice(0, 8).map((a) => `${a.ip}  ${a.service}/${a.region}`).join("\n") +
+                  (awsIps.length > 8 ? `\n…+${awsIps.length - 8} more` : "")
+                }
+              >
+                <Globe className="w-3 h-3 text-orange-300 shrink-0 mt-0.5" />
+                <span className="text-slate-400 w-16 shrink-0">AWS IPs</span>
+                <span className="font-bold tabular-nums text-orange-300 shrink-0">{awsIps.length}</span>
+                <div className="flex flex-wrap gap-0.5 flex-1 min-w-0">
+                  {awsIps.slice(0, 4).map((a) => (
+                    <span
+                      key={a.ip}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-200 text-[9px] font-semibold border border-orange-500/30"
+                      title={`${a.ip} → AWS ${a.service} in ${a.region}`}
+                    >
+                      {a.service}
+                      {a.region && a.region !== "GLOBAL" && (
+                        <span className="text-orange-300/70">·{a.region}</span>
+                      )}
+                    </span>
+                  ))}
+                  {awsIps.length > 4 && (
+                    <span className="text-[9px] text-slate-500">+{awsIps.length - 4}</span>
+                  )}
+                </div>
+              </div>
+            )}
             <EntryRow
               icon={<Network className="w-3 h-3 text-cyan-400" />}
               label="Private IPs"
