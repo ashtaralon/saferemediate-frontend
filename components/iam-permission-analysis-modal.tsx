@@ -2246,35 +2246,28 @@ export function IAMPermissionAnalysisModal({
   }
 
   // Main Permission Usage Analysis View
+  // Render the override modal as a TOP-LEVEL SIBLING of the IAM modal
+  // (not portaled, not nested as a child of the IAM modal's z-50 container).
+  // Top-level sibling render with a higher z-index works in every React
+  // version, every browser, every Next.js/Tailwind config — no portal,
+  // no SSR mismatch, no purge-class concerns. After the portal approach
+  // failed to render in production despite the click handler firing
+  // correctly, falling back to the simplest possible rendering path.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
-
-      {/* In-app override confirmation modal. PORTALED to document.body so
-          it lives in its own stacking context — escapes the parent IAM
-          modal's z-50 container, eliminating any chance that a sibling
-          element (toast, tooltip, another portal) renders on top of it.
-          Previously rendered in-tree as a child of the parent z-50
-          container; multiple operators reported "Acknowledge & Apply
-          does nothing" because the override modal opened correctly but
-          was visually obscured / consumed clicks weirdly. Portal at
-          document.body fixes both at once.
-
-          Conditionally rendered (only when isOpen) instead of always-
-          mounted-with-opacity. The portal wrap is essentially free; the
-          opacity-toggle pattern was an SSR/hydration optimization that
-          doesn't apply once we're portaling client-side anyway. Guard
-          for `typeof document` so the portal call is a no-op during
-          SSR. */}
-      {(() => {
-        if (!portalReady || !overrideModal.open) return null
-        if (typeof window !== 'undefined') {
-          console.log('[IAM-Modal] PORTAL RENDER firing — overrideModal.open=true, portalReady=true, phase=' + overrideModal.phase)
-        }
-        return createPortal(
+    <>
+    {overrideModal.open && (
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-        style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        style={{
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          zIndex: 99999,
+          // Inline visibility/opacity in case any global CSS sets these
+          // on .fixed children. Belt-and-suspenders: make the modal
+          // impossible to hide accidentally.
+          visibility: 'visible',
+          opacity: 1,
+          pointerEvents: 'auto',
+        }}
         aria-modal="true"
         role="dialog"
         data-testid="override-modal"
@@ -2421,10 +2414,14 @@ export function IAMPermissionAnalysisModal({
               </>
             )}
           </div>
-        </div>,
-        document.body
-        )
-      })()}
+      </div>
+    )}
+
+    {/* Original IAM modal — kept inside its z-50 wrapper so close-on-
+        backdrop-click still works. The override modal above renders on
+        top via inline z-index 99999. */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
 
       <div className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
@@ -3377,5 +3374,6 @@ export function IAMPermissionAnalysisModal({
         </div>
       </div>
     </div>
+    </>
   )
 }
