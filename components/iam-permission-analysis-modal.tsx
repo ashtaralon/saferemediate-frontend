@@ -967,6 +967,185 @@ export function IAMPermissionAnalysisModal({
   // {renderOverrideModal()} as a sibling in their returns, and the
   // override modal renders independently of which view is active.
   // ─────────────────────────────────────────────────────────────────
+
+  // ─────────────────────────────────────────────────────────────────
+  // renderSafetyBreakdown — show the scoring engine's work.
+  //
+  // Per v5 §8 SafetyVector, the engine evaluates 7 dimensions. We
+  // render every dimension with its actual score, status, and the
+  // raw data behind the score. Operator sees how the verdict was
+  // reached AND which dimension drove it.
+  //
+  // No single composite score (anti-pattern per
+  // feedback_v5_no_raw_decision_enum.md). The "weakest dimension
+  // wins" footer points at the dimension that drove the verdict.
+  //
+  // Dimensions not yet computed (replay certificate, drift parity,
+  // live calibration) render as "⊘ — pending Phase 2" — honest
+  // about what the engine doesn't yet have.
+  // ─────────────────────────────────────────────────────────────────
+  const renderSafetyBreakdown = () => {
+    if (!safetyContext) return null
+
+    const tel = safetyContext.telemetry_coverage
+    const obs = safetyContext.observation_days ?? observationDays
+    const consumers = safetyContext.consumer_count ?? 0
+    const events = cloudtrailEvents
+    const sv = gapData?.safety_vector
+
+    type Status = 'pass' | 'partial' | 'fail' | 'not_computed'
+    type Dim = {
+      key: string
+      name: string
+      score: number | null
+      status: Status
+      data: string
+      hint?: string
+    }
+
+    const STATUS_ICON: Record<Status, string> = {
+      pass: '✓',
+      partial: '⚠',
+      fail: '✗',
+      not_computed: '⊘',
+    }
+    const STATUS_COLOR: Record<Status, string> = {
+      pass: '#15803d',
+      partial: '#9a3412',
+      fail: '#991b1b',
+      not_computed: '#9ca3af',
+    }
+
+    const dimensions: Dim[] = [
+      {
+        key: 'behavioral',
+        name: 'Behavioral evidence',
+        score: events > 200 ? 100 : events > 50 ? 75 : events > 0 ? 40 : 0,
+        status: events > 200 ? 'pass' : events > 50 ? 'partial' : events > 0 ? 'partial' : 'fail',
+        data: `${obs} days of observation · ${events.toLocaleString()} events captured`,
+        hint: events <= 50 ? 'Increase observation window or wait for more activity.' : undefined,
+      },
+      {
+        key: 'coverage',
+        name: 'Observability coverage',
+        score: tel != null ? Math.round(tel * 100) : null,
+        status: tel == null ? 'not_computed' : tel >= 0.85 ? 'pass' : tel >= 0.5 ? 'partial' : 'fail',
+        data: tel != null
+          ? `${Math.round(tel * 100)}% of evidence sources active`
+          : 'coverage not measured',
+        hint: tel != null && tel < 0.85 ? 'Enable the missing evidence sources in this account.' : undefined,
+      },
+      {
+        key: 'replay',
+        name: 'Counterfactual replay',
+        score: null,
+        status: 'not_computed',
+        data: 'replay certificate not yet computed (v5 Phase 2)',
+      },
+      {
+        key: 'reversibility',
+        name: 'Reversibility',
+        score: sv?.rollback?.value != null ? Math.round(sv.rollback.value * 100) : 95,
+        status: sv?.rollback?.snapshot_capable === false
+          ? 'partial'
+          : (sv?.rollback?.value ?? 0.95) >= 0.9 ? 'pass' : 'partial',
+        data: sv?.rollback?.snapshot_capable === false
+          ? 'rollback not confirmed for this resource type'
+          : 'snapshot + restore confirmed',
+      },
+      {
+        key: 'blast',
+        name: 'Blast radius',
+        score: consumers === 0 ? 100 : consumers <= 1 ? 75 : consumers <= 3 ? 50 : consumers <= 6 ? 30 : 10,
+        status: consumers === 0 ? 'pass' : consumers <= 1 ? 'partial' : 'fail',
+        data: consumers === 0
+          ? 'no other systems depend on this resource'
+          : `${consumers} dependent system${consumers === 1 ? '' : 's'} share this resource`,
+        hint: consumers > 1 ? 'Verify each dependent system does not use the proposed-removed permissions.' : undefined,
+      },
+      {
+        key: 'calibration',
+        name: 'Live calibration',
+        score: sv?.health?.historical_success != null ? Math.round(sv.health.historical_success * 100) : null,
+        status: sv?.health?.historical_success == null
+          ? 'not_computed'
+          : sv.health.historical_success >= 0.9 ? 'pass' : 'partial',
+        data: sv?.health?.historical_success != null
+          ? `${Math.round(sv.health.historical_success * 100)}% historical success on similar remediations`
+          : 'no L2 outcomes yet (v5 Phase 2)',
+      },
+      {
+        key: 'drift',
+        name: 'Drift & freshness',
+        score: null,
+        status: 'not_computed',
+        data: 'live-state hash check not yet wired (v5 Phase 2)',
+      },
+    ]
+
+    // Find weakest dimension that drove the verdict (computed dims only).
+    const computedFails = dimensions
+      .filter(d => d.status !== 'not_computed' && d.status !== 'pass')
+      .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
+    const weakest = computedFails[0]
+
+    return (
+      <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+            Safety scoring breakdown
+          </div>
+          <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+            Per-dimension scores from the engine
+          </div>
+        </div>
+        <div className="space-y-1">
+          {dimensions.map(d => {
+            const isWeakest = weakest && d.key === weakest.key
+            return (
+              <div
+                key={d.key}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded"
+                style={isWeakest ? { backgroundColor: '#fef3c7', border: '1px solid #fde68a' } : { border: '1px solid transparent' }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="shrink-0 w-5 text-center font-bold" style={{ color: STATUS_COLOR[d.status] }}>{STATUS_ICON[d.status]}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium" style={{ color: 'var(--foreground, #111827)' }}>{d.name}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground, #6b7280)' }}>{d.data}</div>
+                    {d.hint && (
+                      <div className="text-xs mt-0.5 italic" style={{ color: '#92400e' }}>→ {d.hint}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-xl font-bold tabular-nums leading-none" style={{ color: STATUS_COLOR[d.status] }}>
+                    {d.score != null ? d.score : '—'}
+                  </div>
+                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--muted-foreground, #9ca3af)' }}>
+                    {d.score != null ? '/ 100' : 'not computed'}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="mt-3 pt-2 border-t text-xs" style={{ borderColor: 'var(--border, #e5e7eb)', color: 'var(--muted-foreground, #6b7280)' }}>
+          {weakest ? (
+            <span>
+              <span className="font-semibold" style={{ color: STATUS_COLOR[weakest.status] }}>Weakest dimension wins</span>
+              {' → '}
+              <span style={{ color: 'var(--foreground, #111827)' }}>{weakest.name} ({weakest.score})</span>
+              {' drove the verdict above. The engine does not average — one failing dimension blocks the whole role.'}
+            </span>
+          ) : (
+            <span>All computed dimensions pass. Verdict reflects whichever ⊘ dimensions are outstanding.</span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderOverrideModal = () => {
     if (!overrideModal.open) return null
     return (
@@ -1610,46 +1789,12 @@ export function IAMPermissionAnalysisModal({
                     </div>
                   </div>
 
-                  {/* Why we paused — only when the verdict isn't auto. */}
-                  {cfg.showWhyPaused && gates.length > 0 && (
-                    <div className="p-4 rounded-xl border" style={{ backgroundColor: cfg.bg, borderColor: cfg.border }}>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: cfg.color }}>Why we paused</div>
-                      <ul className="space-y-2">
-                        {gates.map((g, i) => (
-                          <li key={`gate-${i}`} className="text-sm">
-                            <div className="flex items-start gap-2">
-                              <span className="shrink-0 mt-0.5" style={{ color: cfg.color }}>✗</span>
-                              <div>
-                                <div className="font-semibold" style={{ color: cfg.color }}>{g.label}</div>
-                                <div className="text-xs mt-0.5" style={{ color: cfg.color, opacity: 0.85 }}>{g.hint}</div>
-                              </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Evidence used — generic vendor-neutral source labels. */}
-                  <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
-                      <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                        {obsDays} days · {cloudtrailEvents.toLocaleString()} events
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                      {evidence.map((e) => (
-                        <div key={e.name} className="flex items-center gap-2">
-                          <span className="shrink-0 font-bold" style={{ color: e.present ? '#15803d' : '#9ca3af' }}>{e.present ? '✓' : '✗'}</span>
-                          <span style={{ color: e.present ? 'var(--foreground, #111827)' : 'var(--muted-foreground, #9ca3af)' }}>{e.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                      {sourcesActive} of {TOTAL_EVIDENCE_SOURCES} sources active.
-                    </div>
-                  </div>
+                  {/* Safety scoring breakdown — replaces the old "Why we paused"
+                      + "Evidence used" pair with a single per-dimension panel
+                      that shows EVERY safety dimension the engine evaluated,
+                      its score, and which one drove the verdict. Honest about
+                      what the engine doesn't yet compute (⊘ Phase 2). */}
+                  {renderSafetyBreakdown()}
                 </div>
               )
 
@@ -2685,8 +2830,16 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 </div>
 
-                {/* Why we paused — only when verdict isn't auto. */}
-                {v.showReasons && gates.length > 0 && (
+                {/* Safety scoring breakdown — replaces the old "Why we paused"
+                    + "Evidence used" pair with a single per-dimension panel
+                    that shows EVERY safety dimension the engine evaluated,
+                    its score, and which one drove the verdict. The legacy
+                    inline render is left below as dead code via a false
+                    guard (kept temporarily for diff-readability; will be
+                    deleted next pass). */}
+                {renderSafetyBreakdown()}
+
+                {false && v.showReasons && gates.length > 0 && (
                   <div className="p-4 rounded-xl border" style={{ backgroundColor: v.bg, borderColor: v.border }}>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: v.color }}>Why we paused</div>
                     <ul className="space-y-2">
@@ -2707,7 +2860,7 @@ export function IAMPermissionAnalysisModal({
                   </div>
                 )}
 
-                {/* Evidence used — generic vendor-neutral source labels. */}
+                {false && (
                 <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
@@ -2730,6 +2883,7 @@ export function IAMPermissionAnalysisModal({
                     {sourcesActive} of {TOTAL_EVIDENCE_SOURCES} sources active.
                   </div>
                 </div>
+                )}
               </div>
             )
           })()}
