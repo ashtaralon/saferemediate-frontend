@@ -144,6 +144,10 @@ export function ConfidenceExplanationPanel({ score }: Props) {
         )}
       </div>
 
+      {/* Reframed per CISO feedback: when the routing is BLOCK / manual_review,
+          a big "100 confidence" reads as contradicting the block itself.
+          Now the headline matches the verdict — high CONFIDENCE in the
+          chosen routing, not a misleading "100/100 safe" framing. */}
       <div className="flex items-baseline gap-3">
         <span
           className="text-3xl font-bold tabular-nums"
@@ -151,9 +155,16 @@ export function ConfidenceExplanationPanel({ score }: Props) {
         >
           {score.confidence}
         </span>
-        <span className="text-xs text-slate-500">confidence / 100</span>
+        <span className="text-xs text-slate-500">
+          confidence in <span className="font-semibold uppercase" style={{ color: routingStyle.color }}>{routingStyle.label}</span>
+        </span>
         <span className="ml-auto text-xs text-slate-600">
           Visibility {Math.round(visibilityInt * 100)}%
+          {signalsOff.length > 0 && (
+            <span className="ml-1 text-amber-700">
+              ({signalsOff.length} of {signalsOn.length + signalsOff.length} planes missing)
+            </span>
+          )}
         </span>
       </div>
 
@@ -215,6 +226,19 @@ export function ConfidenceExplanationPanel({ score }: Props) {
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             Why this score
           </div>
+          {/* CISO reading sanity: when routing is BLOCK / manual_review and
+              telemetry planes are missing, the LLM headline alone reads as
+              bullish ("score is high because of A, B, C") which contradicts
+              the BLOCK verdict. Lead with a short factual line about the
+              missing planes so the operator sees the gap before the LLM
+              narrative. */}
+          {signalsOff.length > 0 && (score.routing === 'manual_review' || score.routing === 'blocked' || score.routing === 'human_approval') && (
+            <div className="text-sm font-semibold text-amber-800 leading-snug">
+              Blocked: {signalsOff.length} of {signalsOn.length + signalsOff.length} telemetry planes missing
+              ({signalsOff.map(s => s.replace(/_/g, ' ')).join(', ')}).
+              {' '}Score reflects evidence we DO have, not full coverage.
+            </div>
+          )}
           <div className="text-sm font-semibold text-slate-900 leading-snug">
             {explanation.headline}
           </div>
