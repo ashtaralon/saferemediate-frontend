@@ -890,21 +890,69 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                   <Globe className="w-4 h-4 text-red-400" />
                   Entry Points ({entries.length})
                 </div>
-                {entries.map((node) => (
-                  <div key={node.id} data-compute-id={node.id} className="relative">
-                    {node.type === "principal" && (
-                      <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-red-500 animate-pulse z-10" />
-                    )}
-                    <ServiceNodeBox
-                      node={node}
-                      position="left"
-                      flowInfo={entryFlowInfo.get(node.id)}
-                      isHighlighted={isNodeHighlighted(node.id)}
-                      onHover={setHoveredId}
-                      onClick={() => onNodeClick(node.id)}
-                    />
-                  </div>
-                ))}
+                {entries.map((node) => {
+                  // Look up the original PathNodeDetail to get ip_metadata
+                  // (org / country / asn) — backend attaches this for
+                  // NetworkEndpoint nodes via _enrich_network_endpoint_node.
+                  const original = path.nodes?.find((n) => n.id === node.id) as any
+                  const ipMeta = original?.ip_metadata as
+                    | { kind?: string; org?: string; isp?: string; asn?: string; country?: string; country_name?: string; city?: string; aws?: { service?: string; region?: string } }
+                    | undefined
+                  return (
+                    <div key={node.id} data-compute-id={node.id} className="relative">
+                      {node.type === "principal" && (
+                        <div className="absolute -left-1 -top-1 w-3 h-3 rounded-full bg-red-500 animate-pulse z-10" />
+                      )}
+                      <ServiceNodeBox
+                        node={node}
+                        position="left"
+                        flowInfo={entryFlowInfo.get(node.id)}
+                        isHighlighted={isNodeHighlighted(node.id)}
+                        onHover={setHoveredId}
+                        onClick={() => onNodeClick(node.id)}
+                      />
+                      {/* IP metadata badge — renders directly under the
+                          NetworkEndpoint card so the CISO sees the org name
+                          inline ("ASIERA TECHNOLOGY · IE") instead of just
+                          the bare IP. Per the CISO ask "I need to understand
+                          what services it is, what the name of the service". */}
+                      {ipMeta && (ipMeta.org || ipMeta.country || ipMeta.aws) && (
+                        <div
+                          className={`mt-1 px-2 py-1 rounded text-[10px] flex items-center gap-1.5 border ${
+                            ipMeta.aws
+                              ? "bg-orange-500/10 border-orange-500/30 text-orange-200"
+                              : "bg-slate-800/60 border-slate-700 text-slate-300"
+                          }`}
+                          title={[
+                            ipMeta.aws ? `AWS ${ipMeta.aws.service} in ${ipMeta.aws.region}` : "",
+                            ipMeta.org,
+                            ipMeta.country_name || ipMeta.country,
+                            ipMeta.city,
+                            ipMeta.asn,
+                          ].filter(Boolean).join(" · ")}
+                        >
+                          {ipMeta.aws ? (
+                            <>
+                              <Globe className="w-2.5 h-2.5 shrink-0" />
+                              <span className="font-semibold">AWS {ipMeta.aws.service}</span>
+                              {ipMeta.aws.region && ipMeta.aws.region !== "GLOBAL" && (
+                                <span className="opacity-70">· {ipMeta.aws.region}</span>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <Globe className="w-2.5 h-2.5 shrink-0 text-slate-400" />
+                              <span className="truncate flex-1 max-w-[140px]">{ipMeta.org || "external"}</span>
+                              {ipMeta.country && (
+                                <span className="text-slate-500 shrink-0">· {ipMeta.country}</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
                 {entries.length === 0 && (
                   <div className="text-xs text-slate-500 italic p-4 text-center">No entry points</div>
                 )}
