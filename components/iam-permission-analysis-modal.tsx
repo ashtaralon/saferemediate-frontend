@@ -984,6 +984,132 @@ export function IAMPermissionAnalysisModal({
   // live calibration) render as "⊘ — pending Phase 2" — honest
   // about what the engine doesn't yet have.
   // ─────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────
+  // renderConfidenceCard — v4.4 §11E confidence-score-driven verdict.
+  //
+  // Per Cyntro_Architecture_v4_4.md §11E (LOCKED safety model), every
+  // remediation has a numeric confidence score (0-100) that maps to
+  // one of 4 states. Score is computed by the unified scorer and
+  // returned via gapData.confidence_groups.overall_confidence.
+  //
+  //   AUTO              ≥ 0.85   →  Eligible for full auto-execute
+  //   STAGED_AUTO       0.65-0.85 → Canary + staged; full needs approval
+  //   SUGGEST           0.40-0.65 → Recommendation queued; no execution
+  //   INSUFFICIENT_DATA < 0.40   →  Not enough data to remediate safely
+  //
+  // No BLOCK / EVIDENCE_CONFLICT — operator explicitly excluded those
+  // states from the v4.4 model in this product. Hard guardrails do not
+  // override the score in this simplified UX.
+  //
+  // Per-resource-type thresholds (v4.4 table):
+  //   IAM role narrowing      AUTO 0.85, STAGED 0.65 (default — what we use)
+  //   IAM permission deletion AUTO 0.90, STAGED 0.75
+  //   SG narrowing            AUTO 0.90, STAGED 0.70
+  //   SG deletion             AUTO 0.92, STAGED 0.75
+  //   S3 control narrowing    AUTO 0.88, STAGED 0.70
+  //   S3 prefix narrowing     AUTO 0.85, STAGED 0.65
+  //
+  // This component currently always renders for IAM role narrowing;
+  // when SG / S3 modal variants land, parameterize the threshold table
+  // by resource type.
+  // ─────────────────────────────────────────────────────────────────
+  const renderConfidenceCard = () => {
+    if (!gapData) return null
+    // calculateSafetyScore returns 0-100 already, with same-source
+    // backend computation when overall_confidence is set; falls back
+    // to a local heuristic only when backend doesn't provide it.
+    const score = calculateSafetyScore()
+
+    // v4.4 default thresholds for IAM role narrowing.
+    const T_AUTO = 85
+    const T_STAGED = 65
+    const T_SUGGEST = 40
+
+    let stateName: string
+    let stateLabel: string
+    let stateBlurb: string
+    let stateColor: string
+    let stateBg: string
+    let stateBorder: string
+    let stateIcon: string
+    if (score >= T_AUTO) {
+      stateName = 'AUTO'
+      stateLabel = 'Ready for auto-execute'
+      stateBlurb = 'Eligible for the full pipeline: canary → staged → full rollout, no manual approval needed.'
+      stateColor = '#15803d'; stateBg = '#f0fdf4'; stateBorder = '#bbf7d0'; stateIcon = '✓'
+    } else if (score >= T_STAGED) {
+      stateName = 'STAGED_AUTO'
+      stateLabel = 'Canary + staged auto'
+      stateBlurb = 'Eligible for canary and staged rollout. Full rollout requires human approval.'
+      stateColor = '#1e40af'; stateBg = '#eff6ff'; stateBorder = '#bfdbfe'; stateIcon = '◐'
+    } else if (score >= T_SUGGEST) {
+      stateName = 'SUGGEST'
+      stateLabel = 'Suggested — needs approval'
+      stateBlurb = 'Recommendation queued for human approval. No execution without sign-off.'
+      stateColor = '#9a3412'; stateBg = '#fff7ed'; stateBorder = '#fed7aa'; stateIcon = '⚠'
+    } else {
+      stateName = 'INSUFFICIENT_DATA'
+      stateLabel = 'Not enough data to remediate safely'
+      stateBlurb = 'Resource visible but Cyntro lacks the evidence to act. Improve coverage or override.'
+      stateColor = '#991b1b'; stateBg = '#fef2f2'; stateBorder = '#fecaca'; stateIcon = '⊘'
+    }
+
+    // Distance to next band — tells operator what to fix to climb.
+    let distance: string | null = null
+    if (score < T_SUGGEST) distance = `${T_SUGGEST - score} below SUGGEST`
+    else if (score < T_STAGED) distance = `${T_STAGED - score} below STAGED_AUTO`
+    else if (score < T_AUTO) distance = `${T_AUTO - score} below AUTO`
+    else distance = 'cleared all thresholds'
+
+    return (
+      <div className="p-4 rounded-xl border-2" style={{ backgroundColor: stateBg, borderColor: stateBorder }}>
+        <div className="flex items-start justify-between gap-4">
+          {/* Score */}
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>Confidence</div>
+            <div className="flex items-baseline gap-2 mt-0.5">
+              <span className="text-5xl font-bold tabular-nums leading-none" style={{ color: stateColor }}>{Math.round(score)}</span>
+              <span className="text-base" style={{ color: stateColor, opacity: 0.7 }}>/ 100</span>
+            </div>
+            <div className="text-xs mt-2" style={{ color: stateColor, opacity: 0.85 }}>{distance}</div>
+          </div>
+          {/* State */}
+          <div className="text-right shrink-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>State</div>
+            <div className="flex items-center justify-end gap-2 mt-0.5">
+              <span className="text-2xl" style={{ color: stateColor }}>{stateIcon}</span>
+              <span className="text-lg font-bold tabular-nums" style={{ color: stateColor, fontFamily: 'ui-monospace, monospace' }}>{stateName}</span>
+            </div>
+            <div className="text-xs mt-1 font-semibold" style={{ color: stateColor }}>{stateLabel}</div>
+          </div>
+        </div>
+        {/* Threshold bar */}
+        <div className="mt-4 relative">
+          <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: '#e5e7eb' }}>
+            <div className="h-full transition-all" style={{ width: `${Math.max(2, Math.min(100, score))}%`, backgroundColor: stateColor }} />
+          </div>
+          {/* Threshold tick marks */}
+          {[T_SUGGEST, T_STAGED, T_AUTO].map(t => (
+            <div
+              key={t}
+              className="absolute top-0 h-2 w-0.5"
+              style={{ left: `calc(${t}% - 1px)`, backgroundColor: '#94a3b8' }}
+              title={`${t === T_SUGGEST ? 'SUGGEST' : t === T_STAGED ? 'STAGED_AUTO' : 'AUTO'} threshold`}
+            />
+          ))}
+          <div className="mt-1 relative text-[10px]" style={{ color: 'var(--muted-foreground, #6b7280)', height: '1rem' }}>
+            <span className="absolute" style={{ left: '0%' }}>0</span>
+            <span className="absolute" style={{ left: `${T_SUGGEST}%`, transform: 'translateX(-50%)' }}>{T_SUGGEST} <span className="opacity-60">SUGGEST</span></span>
+            <span className="absolute" style={{ left: `${T_STAGED}%`, transform: 'translateX(-50%)' }}>{T_STAGED} <span className="opacity-60">STAGED</span></span>
+            <span className="absolute" style={{ left: `${T_AUTO}%`, transform: 'translateX(-50%)' }}>{T_AUTO} <span className="opacity-60">AUTO</span></span>
+            <span className="absolute" style={{ right: '0%' }}>100</span>
+          </div>
+        </div>
+        <div className="mt-6 text-sm" style={{ color: stateColor }}>{stateBlurb}</div>
+      </div>
+    )
+  }
+
   const renderSafetyBreakdown = () => {
     if (!safetyContext) return null
 
@@ -1738,7 +1864,14 @@ export function IAMPermissionAnalysisModal({
 
               return (
                 <div className="space-y-3">
-                  {/* Verdict header — the "score" the operator looks at first. */}
+                  {/* v4.4 §11E confidence-score header — replaces the typed-
+                      posture verdict ("Paused — review required") with the
+                      numeric confidence + 4-state mapping (AUTO / STAGED_AUTO
+                      / SUGGEST / INSUFFICIENT_DATA). The cfg.label / cfg.bg
+                      typed-verdict styling is no longer applied; the
+                      confidence card has its own per-state styling. */}
+                  {renderConfidenceCard()}
+                  {false && (
                   <div
                     className="p-4 rounded-xl border-2"
                     style={{ backgroundColor: cfg.bg, borderColor: cfg.border }}
@@ -1751,6 +1884,7 @@ export function IAMPermissionAnalysisModal({
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {/* Proposed change. */}
                   <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
@@ -2819,7 +2953,12 @@ export function IAMPermissionAnalysisModal({
 
             return (
               <div className="space-y-3">
-                {/* Verdict header — operator's eye lands here first. */}
+                {/* v4.4 §11E confidence-score header — replaces typed-posture
+                    verdict with numeric score + 4-state mapping. The legacy
+                    typed-verdict block below is left as dead code via false
+                    guard for diff readability. */}
+                {renderConfidenceCard()}
+                {false && (
                 <div className="p-4 rounded-xl border-2" style={{ backgroundColor: v.bg, borderColor: v.border }}>
                   <div className="flex items-start gap-3">
                     <v.IconClass className="w-7 h-7 shrink-0 mt-0.5" style={{ color: v.color }} />
@@ -2829,6 +2968,7 @@ export function IAMPermissionAnalysisModal({
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* Safety scoring breakdown — replaces the old "Why we paused"
                     + "Evidence used" pair with a single per-dimension panel
