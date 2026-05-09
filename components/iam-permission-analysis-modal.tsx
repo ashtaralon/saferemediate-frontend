@@ -1846,7 +1846,26 @@ export function IAMPermissionAnalysisModal({
                                 <span className="font-bold text-sm" style={{ color: colors.text }}>{group.confidence_score}%</span>
                               </span>
                             )}
-                            <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>{group.label}</span>
+                            {/* Generic vendor-neutral group label — backend-supplied
+                                group.label leaks AWS service names (e.g. "EC2, IAM,
+                                S3 (14)" / "DynamoDB Data Operations (5)" / "SSM Agent
+                                — Internal Service (23)"). Map to a generic label
+                                based on data_source_type / action, preserving the
+                                permission count. The actual permission rows (s3:Get*,
+                                etc) below are still in operator-required AWS syntax
+                                because IAM permission strings ARE AWS-specific —
+                                they're the data the operator is acting on. */}
+                            <span className="font-semibold text-sm" style={{ color: "var(--foreground, #111827)" }}>
+                              {(() => {
+                                const count = group.permission_count ?? group.permissions.length
+                                if (isProtected) return `Protected operations (${count})`
+                                if (isReserved) return `Reserved operations (${count})`
+                                if (group.data_source_type === 'management_event') return `Logged operations (${count})`
+                                if (group.data_source_type === 'data_event') return `Data-plane operations (${count})`
+                                if (group.data_source_type === 'internal_service') return `Internal service operations (${count})`
+                                return `Other operations (${count})`
+                              })()}
+                            </span>
                             {isProtected ? (
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#6b728020] text-[#6b7280]">
                                 PROTECTED
@@ -1859,12 +1878,7 @@ export function IAMPermissionAnalysisModal({
                               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#3b82f620] text-[#3b82f6]">
                                 RESERVED
                               </span>
-                            ) : !group.logged_by_default && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: colors.border, color: colors.text }}>
-                                {group.data_source_type === 'data_event' ? 'DATA EVENT' :
-                                 group.data_source_type === 'internal_service' ? 'INTERNAL' : 'PARTIAL'}
-                              </span>
-                            )}
+                            ) : null}
                           </div>
                           {!isLocked && (
                             <button
@@ -1881,11 +1895,17 @@ export function IAMPermissionAnalysisModal({
                             </button>
                           )}
                         </div>
-                        <div className="px-4 py-1.5 text-xs border-b" style={{ color: "var(--muted-foreground, #6b7280)", borderColor: colors.border, background: colors.bg + '80' }}>
-                          {group.explanation}
-                        </div>
-                        {/* Decision Contract operator_context (Sprint 1 CP1) — preferred when present */}
-                        {isInferredOrTelemetryBlocked && group.decision_contract?.operator_context ? (() => {
+                        {/* Group explanation prose (leaks AWS service names —
+                            e.g. "Fully logged in CloudTrail. Role is active...",
+                            "Access Advisor shows ec2, iam was used by this
+                            role...", "DynamoDB data events are NOT enabled in
+                            CloudTrail...") and the Decision Contract operator_
+                            context block (leaks "cloudtrail_data_events:dynamodb",
+                            "AWS docs: CloudTrail data events ↗") are suppressed.
+                            The actionable info is captured in the bucket panel
+                            above ("Verify the missing source before applying" /
+                            "Improve coverage or override with rationale"). */}
+                        {false && isInferredOrTelemetryBlocked && group.decision_contract?.operator_context ? (() => {
                           const oc = group.decision_contract!.operator_context!
                           const checks = oc.what_to_check || []
                           const saferRaw = oc.suggested_safer_actions
