@@ -121,19 +121,24 @@ export function useCachedFetch<T = unknown>(
   const [loading, setLoading] = useState<boolean>(initial === null && !!url)
   const [error, setError] = useState<string | null>(null)
 
-  const abortRef = useRef<AbortController | null>(null)
+  // Why no AbortController on cleanup: 15+ dashboard cards each call this
+  // hook in parallel on initial mount. If any of them re-runs the effect
+  // (URL change, parent re-render with new dep) the previous in-flight
+  // fetch was being aborted, surfacing as a wall of red "(canceled)"
+  // rows in DevTools Network tab and confusing operators into thinking
+  // the proxies were broken. The epochRef counter below already discards
+  // stale results — letting the fetch complete naturally costs a small
+  // amount of wasted bandwidth but eliminates the visible noise.
+  // Operator's network tab is now clean.
   const epochRef = useRef<number>(0)
 
   const fetchFresh = useCallback(async () => {
     if (!url) return
-    if (abortRef.current) abortRef.current.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
     epochRef.current += 1
     const myEpoch = epochRef.current
 
     try {
-      const res = await fetch(url, { ...fetchInit, signal: controller.signal })
+      const res = await fetch(url, { ...fetchInit })
       if (myEpoch !== epochRef.current) return
       if (!res.ok) {
         // Only surface error when we have no cached fallback to show
@@ -169,7 +174,6 @@ export function useCachedFetch<T = unknown>(
       writeCache(cacheKey, json)
     } catch (err) {
       if (myEpoch !== epochRef.current) return
-      if (err instanceof Error && err.name === "AbortError") return
       if (data === null) {
         // Same fallback as the !res.ok path — try last-resort cache
         // first before erroring. Keeps the operator's screen populated
@@ -193,9 +197,9 @@ export function useCachedFetch<T = unknown>(
   useEffect(() => {
     if (!url) return
     fetchFresh()
-    return () => {
-      abortRef.current?.abort()
-    }
+    // No cleanup: see comment above on the AbortController removal.
+    // Stale results are discarded by the epochRef check inside
+    // fetchFresh — there is nothing to clean up here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
