@@ -187,6 +187,32 @@ export interface ReachableNeighborsByRole {
   neighbors: ReachableNeighbor[]
 }
 
+// 1-hop infrastructure context per node. Each bucket lists related neighbors
+// (VPC, Subnet, SecurityGroup, IAM role, KMS, ALB, etc.) discovered via
+// canonical edge types. Used to render related-service chips inline in the
+// lateral movement diagram per CISO ask "show all services in each path".
+export interface InfraNeighbor {
+  id: string
+  name: string
+  type: string
+  edge_type: string  // canonical edge name that linked us (e.g. SECURED_BY)
+}
+export interface InfraContext {
+  vpcs?: InfraNeighbor[]
+  subnets?: InfraNeighbor[]
+  security_groups?: InfraNeighbor[]
+  nacls?: InfraNeighbor[]
+  iam_roles?: InfraNeighbor[]
+  iam_policies?: InfraNeighbor[]
+  instance_profiles?: InfraNeighbor[]
+  kms_keys?: InfraNeighbor[]
+  bucket_policies?: InfraNeighbor[]
+  load_balancers?: InfraNeighbor[]
+  target_groups?: InfraNeighbor[]
+  log_groups?: InfraNeighbor[]
+  monitors?: InfraNeighbor[]
+}
+
 // Phase 1: damage capability — what an attacker reaching the end of the
 // path can actually DO (read N tables, delete K objects, etc.). Three-state
 // per feedback_no_mock_numbers_in_ui — never fabricated numbers.
@@ -250,6 +276,20 @@ export interface PathNodeDetail {
   encryption?: NodeEncryption | null
   traffic_summary?: NodeTrafficSummary | null
   recommendations?: string[]
+  // 1-hop infrastructure context (VPC, Subnet, SG, IAM role, KMS, etc.).
+  // Each bucket lists 0..N related neighbors discovered via canonical edges.
+  infra_context?: InfraContext
+  // NetworkEndpoint enrichment (org, country, asn, AWS service hint).
+  ip_metadata?: {
+    kind?: "internal" | "aws" | "external" | "unknown"
+    org?: string
+    isp?: string
+    asn?: string
+    country?: string
+    country_name?: string
+    city?: string
+    aws?: { service?: string; region?: string; network_border_group?: string } | null
+  }
 }
 
 export interface PathEdgeDetail {

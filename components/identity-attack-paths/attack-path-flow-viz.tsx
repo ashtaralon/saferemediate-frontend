@@ -950,6 +950,9 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           )}
                         </div>
                       )}
+                      {original?.infra_context && (
+                        <InfraContextChips ctx={original.infra_context} />
+                      )}
                     </div>
                   )
                 })}
@@ -968,8 +971,9 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                   {computes.map((cp) => {
                     const sn: ServiceNode = { id: cp.id, name: cp.name, shortName: cp.shortName, type: cp.type as NodeType }
                     const nodeBadges = badgeMap.get(cp.id) ?? []
+                    const original = path.nodes?.find((n) => n.id === cp.id) as any
                     return (
-                      <div key={cp.id} data-sg-id={cp.id}>
+                      <div key={cp.id} data-sg-id={cp.id} className="flex flex-col gap-1.5">
                         <ComputeNodeCard
                           node={sn}
                           badges={nodeBadges}
@@ -979,6 +983,9 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           onBadgeClick={(badgeId) => onNodeClick(badgeId)}
                           flowInfo={computeFlowInfo.get(cp.id)}
                         />
+                        {original?.infra_context && (
+                          <InfraContextChips ctx={original.infra_context} />
+                        )}
                       </div>
                     )
                   })}
@@ -1000,6 +1007,7 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                     const roleNeighbors = path.reachable_neighbors?.find(
                       (rn) => rn.role_id === role.id
                     )
+                    const original = path.nodes?.find((n) => n.id === role.id) as any
                     return (
                       <div key={role.id} data-nacl-id={role.id} className="flex flex-col gap-1.5">
                         <IAMRoleNode
@@ -1008,6 +1016,9 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                           onHover={setHoveredId}
                           onClick={() => onNodeClick(role.id)}
                         />
+                        {original?.infra_context && (
+                          <InfraContextChips ctx={original.infra_context} />
+                        )}
                         {roleNeighbors && roleNeighbors.neighbors.length > 0 && (
                           <ReachableInlineChips role={role} neighbors={roleNeighbors} />
                         )}
@@ -1046,19 +1057,27 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                   <Crown className="w-4 h-4 text-amber-400" />
                   Crown Jewels ({jewels.length})
                 </div>
-                {jewels.map((node) => (
-                  <div key={node.id} data-resource-id={node.id} className="relative">
-                    <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-red-500/50 animate-pulse" />
-                    <ServiceNodeBox
-                      node={node}
-                      position="right"
-                      flowInfo={jewelFlowInfo.get(node.id)}
-                      isHighlighted={isNodeHighlighted(node.id)}
-                      onHover={setHoveredId}
-                      onClick={() => onNodeClick(node.id)}
-                    />
-                  </div>
-                ))}
+                {jewels.map((node) => {
+                  const original = path.nodes?.find((n) => n.id === node.id) as any
+                  return (
+                    <div key={node.id} data-resource-id={node.id} className="flex flex-col gap-1.5">
+                      <div className="relative">
+                        <div className="absolute inset-0 rounded-xl pointer-events-none ring-2 ring-red-500/50 animate-pulse" />
+                        <ServiceNodeBox
+                          node={node}
+                          position="right"
+                          flowInfo={jewelFlowInfo.get(node.id)}
+                          isHighlighted={isNodeHighlighted(node.id)}
+                          onHover={setHoveredId}
+                          onClick={() => onNodeClick(node.id)}
+                        />
+                      </div>
+                      {original?.infra_context && (
+                        <InfraContextChips ctx={original.infra_context} />
+                      )}
+                    </div>
+                  )
+                })}
                 {jewels.length === 0 && (
                   <div className="text-xs text-slate-500 italic p-4 text-center">No targets</div>
                 )}
@@ -1101,6 +1120,83 @@ function reachableTypeIcon(t: string) {
   if (lt.includes("kms")) return <Key className="w-3 h-3 text-amber-300" />
   if (lt.includes("secret")) return <Lock className="w-3 h-3 text-rose-400" />
   return <Server className="w-3 h-3 text-slate-400" />
+}
+
+// ── InfraContextChips ────────────────────────────────────────────────
+// Per CISO ask "I want to see all the services in each path" — for each
+// node on the path, render its 1-hop infrastructure neighbors (VPC,
+// Subnet, SG, NACL, IAM role, KMS, ALB, log groups, etc.) as compact
+// chips directly under the node card. Discovers neighbors from the
+// backend infra_context field that comes off PathNodeDetail.
+function InfraContextChips({ ctx }: { ctx: NonNullable<PathNodeDetail["infra_context"]> }) {
+  // Bucket order — operational priority: identity → network → data → infra
+  const groups: Array<{ key: keyof typeof ctx; label: string; color: string; icon: React.ReactNode }> = [
+    { key: "iam_roles",         label: "IAM",     color: "purple",  icon: <UserCheck className="w-2.5 h-2.5" /> },
+    { key: "iam_policies",      label: "Policy",  color: "purple",  icon: <Lock className="w-2.5 h-2.5" /> },
+    { key: "instance_profiles", label: "Profile", color: "purple",  icon: <Key className="w-2.5 h-2.5" /> },
+    { key: "security_groups",   label: "SG",      color: "orange",  icon: <Shield className="w-2.5 h-2.5" /> },
+    { key: "nacls",             label: "NACL",    color: "orange",  icon: <Shield className="w-2.5 h-2.5" /> },
+    { key: "vpcs",              label: "VPC",     color: "cyan",    icon: <Globe className="w-2.5 h-2.5" /> },
+    { key: "subnets",           label: "Subnet",  color: "cyan",    icon: <Globe className="w-2.5 h-2.5" /> },
+    { key: "load_balancers",    label: "LB",      color: "blue",    icon: <Server className="w-2.5 h-2.5" /> },
+    { key: "target_groups",     label: "TG",      color: "blue",    icon: <Server className="w-2.5 h-2.5" /> },
+    { key: "kms_keys",          label: "KMS",     color: "amber",   icon: <Key className="w-2.5 h-2.5" /> },
+    { key: "bucket_policies",   label: "Policy",  color: "emerald", icon: <Lock className="w-2.5 h-2.5" /> },
+    { key: "log_groups",        label: "Logs",    color: "slate",   icon: <Database className="w-2.5 h-2.5" /> },
+    { key: "monitors",          label: "Monitor", color: "slate",   icon: <AlertTriangle className="w-2.5 h-2.5" /> },
+  ]
+  const colorClasses: Record<string, string> = {
+    purple:  "bg-purple-500/10 border-purple-500/30 text-purple-200",
+    orange:  "bg-orange-500/10 border-orange-500/30 text-orange-200",
+    cyan:    "bg-cyan-500/10 border-cyan-500/30 text-cyan-200",
+    blue:    "bg-blue-500/10 border-blue-500/30 text-blue-200",
+    amber:   "bg-amber-500/10 border-amber-500/30 text-amber-200",
+    emerald: "bg-emerald-500/10 border-emerald-500/30 text-emerald-200",
+    slate:   "bg-slate-700/40 border-slate-600 text-slate-300",
+  }
+
+  const allChips: { label: string; name: string; color: string; icon: React.ReactNode; tooltip: string }[] = []
+  for (const g of groups) {
+    const items = (ctx[g.key] as Array<{ id: string; name: string; type: string; edge_type: string }> | undefined) ?? []
+    for (const item of items) {
+      allChips.push({
+        label: g.label,
+        name: item.name,
+        color: g.color,
+        icon: g.icon,
+        tooltip: `${item.type} · ${item.name}\nlinked via ${item.edge_type}`,
+      })
+    }
+  }
+  if (allChips.length === 0) return null
+
+  const TOP_N = 6
+  const visible = allChips.slice(0, TOP_N)
+  const remaining = allChips.length - visible.length
+  return (
+    <div className="rounded border border-slate-700/50 bg-slate-900/40 p-1 max-w-[210px]">
+      <div className="text-[8px] uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between">
+        <span>related</span>
+        <span className="text-slate-400 font-bold tabular-nums">{allChips.length}</span>
+      </div>
+      <div className="flex flex-wrap gap-0.5">
+        {visible.map((c, i) => (
+          <span
+            key={i}
+            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] border ${colorClasses[c.color]}`}
+            title={c.tooltip}
+          >
+            {c.icon}
+            <span className="font-semibold">{c.label}</span>
+            <span className="opacity-80 max-w-[80px] truncate">{c.name}</span>
+          </span>
+        ))}
+        {remaining > 0 && (
+          <span className="text-[9px] text-slate-500 px-1 py-0.5">+{remaining}</span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── ReachableInlineChips ────────────────────────────────────────────
