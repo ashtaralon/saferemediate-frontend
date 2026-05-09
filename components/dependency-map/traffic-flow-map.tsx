@@ -2528,7 +2528,9 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     const bucket = bucketForType(pn.type);
     const sname = shortName(pn.name);
     if (bucket === 'compute') {
-      computeServices.push({ id: pn.id, name: pn.name, shortName: sname, type: 'compute', instanceId: pn.id.substring(0, 12) });
+      const ct = (pn.type || '').toLowerCase();
+      const subtype: NodeType = ct.includes('lambda') ? 'lambda' : 'compute';
+      computeServices.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype, instanceId: pn.id.substring(0, 12) });
     } else if (bucket === 'resource') {
       const t = (pn.type || '').toLowerCase();
       const subtype: NodeType = t.includes('s3') || t.includes('bucket') ? 'storage' : t.includes('dynamo') ? 'dynamodb' : t.includes('rds') || t.includes('aurora') || t.includes('database') ? 'database' : 'storage';
@@ -2630,7 +2632,17 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 }
 
 export default function TrafficFlowMap({ systemName, pathFilter }: { systemName: string; pathFilter?: TrafficFlowMapPathFilter }) {
-  const [architecture, setArchitecture] = useState<SystemArchitecture | null>(null);
+  // rawArchitecture holds the unfiltered architecture from the most
+  // recent fetch. We derive the displayed `architecture` from it (with
+  // pathFilter applied if set) via useMemo, so switching attack paths
+  // re-renders instantly without refetching and stale fetches can't
+  // race-overwrite the right filter.
+  const [rawArchitecture, setRawArchitecture] = useState<SystemArchitecture | null>(null);
+  const architecture = useMemo(() => {
+    if (!rawArchitecture) return null;
+    return pathFilter ? applyPathFilter(rawArchitecture, pathFilter) : rawArchitecture;
+  }, [rawArchitecture, pathFilter]);
+  const setArchitecture = setRawArchitecture;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [animate, setAnimate] = useState(true);
@@ -3367,7 +3379,7 @@ export default function TrafficFlowMap({ systemName, pathFilter }: { systemName:
 
   const loadData = useCallback(async (isManualRefresh = false) => {
     // Only show loading spinner on initial load
-    if (!architecture) {
+    if (!rawArchitecture) {
       setLoading(true);
     }
     setRefreshStatus('fetching');
@@ -3456,17 +3468,11 @@ export default function TrafficFlowMap({ systemName, pathFilter }: { systemName:
         }
 
         setLastChanges(changes);
-        // When the Attack-Paths Flow tab passes a pathFilter, reduce the
-        // full system architecture to only the nodes/flows that belong
-        // to THIS path. Each crown jewel now renders its own real data
-        // flow instead of the whole system map.
-        const finalArch = pathFilter ? applyPathFilter(arch, pathFilter) : arch;
-        if (pathFilter) {
-          console.log(
-            `[TrafficFlowMap] pathFilter active — reduced ${arch.computeServices.length + arch.resources.length + arch.securityGroups.length + arch.iamRoles.length + arch.nacls.length} → ${finalArch.computeServices.length + finalArch.resources.length + finalArch.securityGroups.length + finalArch.iamRoles.length + finalArch.nacls.length} nodes, ${arch.flows.length} → ${finalArch.flows.length} flows`,
-          );
-        }
-        setArchitecture(finalArch);
+        // setRawArchitecture stores the unfiltered fetch result; the
+        // displayed `architecture` is derived from it via useMemo so
+        // pathFilter changes never trigger a refetch and stale fetches
+        // can't race-overwrite the wrong filter.
+        setArchitecture(arch);
         setLastUpdated(new Date());
         setRefreshStatus('success');
 
@@ -3484,12 +3490,12 @@ export default function TrafficFlowMap({ systemName, pathFilter }: { systemName:
     } finally {
       setLoading(false);
     }
-  }, [buildArchitecture, fetchSGRules, architecture, systemName, pathFilter]);
+  }, [buildArchitecture, fetchSGRules, rawArchitecture, systemName]);
 
-  // Initial load + refetch when systemName changes. Also re-runs when
-  // pathFilter changes so the Attack-Paths Flow tab can switch between
-  // crown jewels and re-render with each path's own filtered architecture.
-  useEffect(() => { loadData(); }, [systemName, pathFilter]);
+  // Initial load + refetch when systemName changes. pathFilter changes
+  // do NOT trigger a refetch — the filter is applied via useMemo on the
+  // already-fetched rawArchitecture above.
+  useEffect(() => { loadData(); }, [systemName]);
 
   // Auto-refresh with configurable interval
   useEffect(() => {
