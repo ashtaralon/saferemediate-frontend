@@ -1,9 +1,10 @@
 "use client"
 
-import React, { useState, useRef, useMemo, useCallback } from "react"
+import React, { useState, useRef, useMemo, useCallback, useEffect } from "react"
 import {
   Server, Shield, Lock, Key, Database, Zap, Globe,
   AlertTriangle, Crown, Target, UserCheck, ArrowRight,
+  Maximize2, Minimize2, X,
 } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
 import type { IdentityAttackPath, PathNodeDetail, PathEdgeDetail, RiskReduction } from "./types"
@@ -608,6 +609,18 @@ function RiskReductionBar({ riskReduction }: { riskReduction: RiskReduction }) {
 export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selectedNodeId }: AttackPathFlowVizProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // Fullscreen toggle (matches the system-map graph-view-v2 pattern)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  // Esc closes fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [isFullscreen])
 
   const path = paths?.[selectedPathIndex] ?? null
 
@@ -695,8 +708,13 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
   const hasIdentities = identities.length > 0
   const hasPivots = pivots.length > 0
 
+  // Fullscreen escapes the parent layout — fixed-position overlay covers viewport
+  const containerClass = isFullscreen
+    ? "fixed inset-0 z-50 flex flex-col overflow-auto"
+    : "flex-1 flex flex-col overflow-auto"
+
   return (
-    <div className="flex-1 flex flex-col overflow-auto" style={{ background: "rgba(2, 6, 23, 0.95)" }}>
+    <div className={containerClass} style={{ background: "rgba(2, 6, 23, 0.95)" }}>
       {/* ── Path header bar ── */}
       <div
         className="sticky top-0 z-20 flex items-center justify-between px-4 py-2 border-b"
@@ -726,6 +744,26 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
             <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
             <span className="text-[10px] text-slate-500">Internet Exposed</span>
           </div>
+          {/* Fullscreen toggle — same pattern as the system map graph-view-v2.
+              Pops the attack graph into a fixed-position overlay covering the
+              entire viewport so the user can see the full diagram without the
+              sidebar / jewel-list / score-hero stealing space. Esc to close. */}
+          <button
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="ml-1 p-1.5 bg-slate-700 rounded hover:bg-slate-600 transition-colors"
+            title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen attack graph"}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-white" /> : <Maximize2 className="w-3.5 h-3.5 text-white" />}
+          </button>
+          {isFullscreen && (
+            <button
+              onClick={() => setIsFullscreen(false)}
+              className="p-1.5 bg-red-600 rounded hover:bg-red-700 transition-colors"
+              title="Close fullscreen (Esc)"
+            >
+              <X className="w-3.5 h-3.5 text-white" />
+            </button>
+          )}
         </div>
       </div>
 

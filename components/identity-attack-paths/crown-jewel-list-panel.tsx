@@ -1,6 +1,7 @@
 "use client"
 
-import { Shield, Globe } from "lucide-react"
+import { useState } from "react"
+import { Shield, Globe, ChevronLeft, ChevronRight } from "lucide-react"
 import { SeverityBadge } from "./severity-badge"
 import type { CrownJewelSummary } from "./types"
 
@@ -22,21 +23,55 @@ function getJewelTypeLabel(type: string | null | undefined): string {
 }
 
 export function CrownJewelListPanel({ jewels, selectedJewelId, onSelect }: CrownJewelListPanelProps) {
+  // Collapsible per user feedback ("the page is cut off, 50% of the screen is menu").
+  // Operators select a jewel once then drill into paths; the list doesn't need
+  // to stay 280px wide while they read the surface card / attack graph.
+  const [collapsed, setCollapsed] = useState(false)
+
+  if (collapsed) {
+    return (
+      <div
+        className="w-9 min-w-[36px] border-r flex flex-col items-center pt-3"
+        style={{ background: "rgba(15, 23, 42, 0.95)", borderColor: "rgba(148, 163, 184, 0.15)" }}
+      >
+        <button
+          onClick={() => setCollapsed(false)}
+          className="p-1.5 rounded hover:bg-slate-700/60 transition-colors"
+          title="Expand crown jewel list"
+        >
+          <ChevronRight className="w-4 h-4 text-slate-300" />
+        </button>
+        <div className="mt-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500" style={{ writingMode: "vertical-rl" }}>
+          {jewels?.length ?? 0} jewels
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="w-[280px] min-w-[280px] border-r overflow-y-auto"
       style={{ background: "rgba(15, 23, 42, 0.95)", borderColor: "rgba(148, 163, 184, 0.15)" }}
     >
       <div
-        className="px-4 py-3 border-b"
+        className="px-4 py-3 border-b flex items-center justify-between"
         style={{ borderColor: "rgba(148, 163, 184, 0.15)" }}
       >
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Crown Jewels
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Crown Jewels
+          </div>
+          <div className="text-xs text-slate-200 mt-0.5">
+            <span className="font-semibold tabular-nums">{jewels?.length ?? 0}</span> critical assets
+          </div>
         </div>
-        <div className="text-xs text-slate-200 mt-0.5">
-          <span className="font-semibold tabular-nums">{jewels?.length ?? 0}</span> critical assets
-        </div>
+        <button
+          onClick={() => setCollapsed(true)}
+          className="p-1 rounded hover:bg-slate-700/60 transition-colors"
+          title="Collapse to give the attack graph more room"
+        >
+          <ChevronLeft className="w-4 h-4 text-slate-400" />
+        </button>
       </div>
 
       <div className="p-2 space-y-1">
