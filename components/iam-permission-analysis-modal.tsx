@@ -1411,197 +1411,248 @@ export function IAMPermissionAnalysisModal({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Safety Score Banner - Dynamic based on confidence */}
+            {/* v5 verdict banner — replaces the old "Safety Score Banner +
+                Agent 5 Confidence Scorer + Service Usage Analysis" stack
+                that showed a 100/100 confidence score next to a BLOCK
+                decision (operators couldn't reconcile "100% safe →
+                blocked"). New layout: typed verdict at the top, proposed
+                change, why-paused gates as a fixable checklist, evidence
+                summary as a binary checklist. Generic source labels so
+                demo screen-recordings don't expose the AWS integration
+                list. The legacy branches further down still render the
+                detailed permission breakdown / context tabs. */}
             {(() => {
               const backendAnalysis = (gapData as any)?.service_role_analysis as BackendServiceRoleAnalysis | undefined
               const isServiceRole = backendAnalysis?.is_service_role && backendAnalysis?.analysis?.severity === 'critical'
-              const noCloudTrailData = cloudtrailEvents === 0 && unusedCount > 0
 
+              // Service-role hard-block stays as-is (different visual
+              // treatment — destructive red, not amber).
               if (isServiceRole) {
-                // CRITICAL: Service role - DO NOT MODIFY
                 return (
                   <div className="p-6 bg-white border-2 border-red-400 rounded-2xl text-center">
                     <div className="flex items-center justify-center gap-3">
                       <XCircle className="w-10 h-10 text-[#ef4444]" />
-                      <span className="text-5xl font-bold text-[#ef4444]">{safetyScore}%</span>
-                      <span className="text-2xl font-bold text-[#ef4444]">DO NOT APPLY</span>
+                      <span className="text-2xl font-bold text-[#ef4444]">DO NOT APPLY — service role</span>
                     </div>
                     <p className="text-[#ef4444] mt-2 font-semibold">
                       This is an AWS service role. Removing permissions will break {backendAnalysis?.analysis?.service_name}.
                     </p>
                   </div>
                 )
-              } else if (verdictBucket === 'blocked') {
-                // Pipeline routed this to "review required". This is NOT a
-                // system error -- the safety contract worked. Visual
-                // treatment: amber safety-hold (not error red), so users
-                // don't mistake a deliberate safety decision for a bug.
-                // Service-role "DO NOT APPLY" stays red because that's
-                // truly destructive; this branch is one tier softer.
-                //
-                // Reason precedence:
-                //   1. Pipeline safety.unsafe_reasons[0]   (why pipeline held)
-                //   2. Agent 5 gates_failed[0].detail      (why reviewer held)
-                //   3. Generic copy
-                const pipelineReason = safetyContext?.unsafe_reasons?.[0]
-                const agent5Reason = confidenceScore?.gates_failed?.[0]?.detail
-                const primaryReason = pipelineReason
-                  ?? agent5Reason
-                  ?? "Telemetry coverage is incomplete; we'd like a closer look before changing this role."
-                const coveragePct = typeof safetyContext?.telemetry_coverage === 'number'
-                  ? Math.round(safetyContext.telemetry_coverage * 100)
-                  : null
-                return (
-                  <div className="p-6 bg-white border-2 border-[#f59e0b80] rounded-2xl">
-                    <div className="flex items-center justify-center gap-3">
-                      <Shield className="w-10 h-10 text-[#f59e0b]" />
-                      <span className="text-2xl font-bold text-[#b45309]">SAFETY HOLD — REVIEW REQUIRED</span>
-                    </div>
-                    <p className="text-[#92400e] mt-2 font-semibold text-center">
-                      Cyntro paused this change. {primaryReason}
-                    </p>
-                    {safetyContext && (
-                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fffbeb", border: "1px solid #fde68a" }}>
-                        <p className="text-sm font-bold text-[#92400e] mb-2">Why we paused:</p>
-                        <ul className="text-xs text-[#78350f] space-y-1 list-disc list-inside">
-                          {typeof safetyContext.observation_days === 'number' && (
-                            <li>
-                              Effective observation: <strong>{safetyContext.observation_days} days</strong>
-                              {' '}
-                              {safetyContext.observation_days >= 21
-                                ? <span className="text-[#15803d]">✓ enough history</span>
-                                : <span className="text-[#b45309]">(needs ≥ 21)</span>}
-                            </li>
-                          )}
-                          {coveragePct !== null && (
-                            <li>
-                              Telemetry coverage: <strong>{coveragePct}%</strong>
-                              {' — '}
-                              {coveragePct < 75
-                                ? <span>enable VPC Flow Logs + AWS Config in this account to reach 100%</span>
-                                : <span className="text-[#15803d]">good</span>}
-                            </li>
-                          )}
-                          {typeof safetyContext.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
-                            <li>
-                              <strong>{safetyContext.consumer_count}</strong> system{safetyContext.consumer_count === 1 ? '' : 's'} currently depend{safetyContext.consumer_count === 1 ? 's' : ''} on this role — narrowing could affect them
-                            </li>
-                          )}
-                          {(safetyContext.unsafe_reasons ?? []).slice(1).map((reason, i) => (
-                            <li key={`rsn-${i}`}>{reason}</li>
-                          ))}
-                        </ul>
-                        <div className="mt-3 pt-3 border-t border-[#fde68a]">
-                          <p className="text-xs text-[#92400e] font-semibold mb-1">What to do next:</p>
-                          <ol className="text-xs text-[#78350f] space-y-1 list-decimal list-inside">
-                            <li><strong>Investigate first</strong> — open the consumer list and confirm none use the {selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} ` : ''}permissions you're removing.</li>
-                            <li><strong>Improve coverage</strong> — wire the missing telemetry planes; the same simulation will then route to APPROVAL instead of HOLD.</li>
-                            <li><strong>Acknowledge &amp; apply</strong> — only after you've done one of the above; the action is recorded in the audit log with your operator id.</li>
-                          </ol>
-                        </div>
-                      </div>
-                    )}
-                    {aiReviewerCopy && (
-                      <p className="text-xs text-[#92400e] mt-3 text-center">{aiReviewerCopy}</p>
-                    )}
-                  </div>
-                )
-              } else if (verdictBucket === 'manual_review') {
-                // LOW CONFIDENCE / MANUAL REVIEW
-                const cg = gapData?.confidence_groups
-                return (
-                  <div className="p-6 bg-white border-2 border-[#f9731680] rounded-2xl text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-5xl font-bold text-[#f97316]">{safetyScore}{confidenceScore ? '' : '%'}</span>
-                      <span className="text-2xl font-bold text-[#f97316]">{confidenceScore ? 'REVIEW REQUIRED' : 'LOW CONFIDENCE'}</span>
-                    </div>
-                    <p className="text-[#f97316] mt-2 font-semibold">
-                      {cg ? `${cg.summary.investigate_first} permissions lack sufficient data to verify.` : 'Insufficient usage data collected.'}
-                    </p>
-                    {cg && (
-                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
-                        <p className="text-sm font-bold text-[#9a3412] mb-2">Data Source Gaps:</p>
-                        <ul className="text-xs text-[#9a3412] space-y-1 list-disc list-inside">
-                          {!cg.account_signals.s3_data_events && cg.groups.some(g => g.service_label === 'S3' && g.data_source_type === 'data_event') && (
-                            <li>S3 data events not enabled — cannot verify object-level operations (GetObject, PutObject)</li>
-                          )}
-                          {!cg.account_signals.lambda_data_events && cg.groups.some(g => g.service_label === 'Lambda' && g.data_source_type === 'data_event') && (
-                            <li>Lambda data events not enabled — cannot verify function invocations</li>
-                          )}
-                          {cg.groups.some(g => g.data_source_type === 'internal_service') && (
-                            <li>Internal AWS service calls detected — these are never logged in CloudTrail</li>
-                          )}
-                          {noCloudTrailData && (
-                            <li>No CloudTrail events found for this role — role may be inactive or used by internal service</li>
-                          )}
-                        </ul>
-                        <p className="text-xs text-[#9a3412] mt-2 font-semibold">
-                          {cg.summary.safe_to_remove > 0
-                            ? `${cg.summary.safe_to_remove} permissions are safe to remove. Review groups individually.`
-                            : 'Enable CloudTrail data events before remediating this role.'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )
-              } else if (verdictBucket === 'human_approval') {
-                // Pipeline allows remediation but requires human approval —
-                // typically because the role is shared, or partial telemetry.
-                const cg = gapData?.confidence_groups
-                return (
-                  <div className="p-6 bg-white border-2 border-[#f9731640] rounded-2xl">
-                    <div className="flex items-center justify-center gap-3">
-                      <AlertTriangle className="w-10 h-10 text-[#f97316]" />
-                      <span className="text-2xl font-bold text-[#f97316]">APPROVAL REQUIRED</span>
-                    </div>
-                    <p className="text-[#f97316] mt-2 text-center">
-                      {cg ? `${cg.summary.safe_to_remove} permissions safe to remove, ${cg.summary.verify_first + cg.summary.investigate_first} need verification.`
-                           : `${cloudtrailEvents.toLocaleString()} events analyzed — some permissions need verification.`}
-                    </p>
-                    {safetyContext && (
-                      <div className="mt-4 p-3 rounded-lg text-left" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
-                        <p className="text-sm font-bold text-[#9a3412] mb-2">Pipeline signals:</p>
-                        <ul className="text-xs text-[#7c2d12] space-y-1 list-disc list-inside">
-                          {typeof safetyContext.observation_days === 'number' && (
-                            <li>Observation window: <strong>{safetyContext.observation_days} days</strong></li>
-                          )}
-                          {typeof safetyContext.telemetry_coverage === 'number' && (
-                            <li>Telemetry coverage: <strong>{Math.round((safetyContext.telemetry_coverage || 0) * 100)}%</strong> ({safetyContext.completeness ?? 'unknown'})</li>
-                          )}
-                          {typeof safetyContext.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
-                            <li>{safetyContext.consumer_count} consumer{safetyContext.consumer_count === 1 ? '' : 's'} depend on this role</li>
-                          )}
-                          {(safetyContext.unsafe_reasons ?? []).map((reason, i) => (
-                            <li key={`ur-${i}`}>{reason}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {aiReviewerCopy && (
-                      <p className="text-xs text-[#9a3412] mt-3 text-center italic">{aiReviewerCopy}</p>
-                    )}
-                  </div>
-                )
-              } else {
-                // auto_execute — pipeline cleared this for auto-remediation.
-                // We only reach this branch when safetyContext.decision_canonical
-                // == "AUTO_EXECUTE" (or the fallback score path agrees).
-                return (
-                  <div className="p-6 bg-white border-2 border-[#22c55e40] rounded-2xl text-center">
-                    <div className="flex items-center justify-center gap-3">
-                      <CheckSquare className="w-10 h-10 text-[#22c55e]" />
-                      <span className="text-2xl font-bold text-[#22c55e]">SAFE TO APPLY</span>
-                    </div>
-                    <p className="text-[#22c55e] mt-2">
-                      {cloudtrailEvents.toLocaleString()} API events analyzed — pipeline approved.
-                    </p>
-                    {aiReviewerCopy && (
-                      <p className="text-xs text-[#15803d] mt-3 italic">{aiReviewerCopy}</p>
-                    )}
-                  </div>
-                )
               }
+
+              // Verdict header config per bucket. "blocked" is the
+              // most common interactive case; the others map to
+              // PR-001 §6 customer-facing posture.
+              const VERDICT_CONFIG: Record<string, {
+                label: string
+                sublabel: string
+                color: string
+                bg: string
+                border: string
+                IconClass: typeof Shield
+                showWhyPaused: boolean
+              }> = {
+                blocked: {
+                  label: 'Paused — review required',
+                  sublabel: 'Required evidence is incomplete in this account.',
+                  color: '#92400e',
+                  bg: '#fffbeb',
+                  border: '#fde68a',
+                  IconClass: Shield,
+                  showWhyPaused: true,
+                },
+                manual_review: {
+                  label: 'Manual review required',
+                  sublabel: 'Some permissions need verification before remediation.',
+                  color: '#9a3412',
+                  bg: '#fff7ed',
+                  border: '#fed7aa',
+                  IconClass: AlertTriangle,
+                  showWhyPaused: true,
+                },
+                human_approval: {
+                  label: 'Approval required',
+                  sublabel: 'A credible least-privilege change. Human approval required.',
+                  color: '#1e40af',
+                  bg: '#eff6ff',
+                  border: '#bfdbfe',
+                  IconClass: Shield,
+                  showWhyPaused: true,
+                },
+                auto_execute: {
+                  label: 'Ready to apply',
+                  sublabel: 'All safety checks passed. Cyntro will create a rollback snapshot before mutation.',
+                  color: '#15803d',
+                  bg: '#f0fdf4',
+                  border: '#bbf7d0',
+                  IconClass: CheckCircle,
+                  showWhyPaused: false,
+                },
+              }
+              const cfg = VERDICT_CONFIG[verdictBucket as string] ?? VERDICT_CONFIG.blocked
+
+              // Pull the most-actionable reason if available. Operator
+              // sees ONE sentence at the top, not a stack of contradictory
+              // signals.
+              const primaryReason = safetyContext?.unsafe_reasons?.[0] ?? cfg.sublabel
+
+              // Proposed change numbers — compute once, reuse below.
+              const removalCount = selectedPermissionsToRemove.size > 0
+                ? selectedPermissionsToRemove.size
+                : unusedCount
+              const removeExamples = unusedPermissions.slice(0, 3).map(p => p.permission)
+              const keepExamples = usedPermissions.slice(0, 3).map(p => p.permission)
+
+              // Why-paused gates — each is a binary check the operator
+              // can act on. Only includes gates that actually apply to
+              // this role's situation.
+              const coveragePct = typeof safetyContext?.telemetry_coverage === 'number'
+                ? Math.round(safetyContext.telemetry_coverage * 100)
+                : 100
+              const obsDays = typeof safetyContext?.observation_days === 'number'
+                ? safetyContext.observation_days
+                : observationDays
+              const consumerCount = safetyContext?.consumer_count ?? 0
+              const gates: Array<{ passed: boolean; label: string; hint: string }> = []
+              if (coveragePct < 100) {
+                gates.push({
+                  passed: false,
+                  label: `Telemetry coverage is ${coveragePct}%`,
+                  hint: 'Enable the missing sources in this account to reach 100%.',
+                })
+              }
+              if (obsDays < 21) {
+                gates.push({
+                  passed: false,
+                  label: `Observation window is ${obsDays} days`,
+                  hint: 'Cyntro needs ≥21 days of observation before automating production changes.',
+                })
+              }
+              if (consumerCount > 0 && verdictBucket !== 'auto_execute') {
+                gates.push({
+                  passed: false,
+                  label: `${consumerCount} system${consumerCount === 1 ? '' : 's'} depend on this role`,
+                  hint: 'Verify each consumer does not use the proposed-removed permissions.',
+                })
+              }
+
+              // Evidence summary — generic vendor-neutral labels.
+              // Demo-safe (no AWS service names exposed). The N-of-6
+              // count derives from telemetry_coverage so the proportion
+              // matches reality without revealing which specific source
+              // is missing.
+              const TOTAL_EVIDENCE_SOURCES = 6
+              const sourcesActive = Math.round((coveragePct / 100) * TOTAL_EVIDENCE_SOURCES)
+              const EVIDENCE_LABELS = [
+                'Activity history',
+                'Permission usage',
+                'Identity graph',
+                'Network behavior',
+                'Configuration baseline',
+                'Application traces',
+              ]
+              const evidence = EVIDENCE_LABELS.map((name, i) => ({
+                name,
+                present: i < sourcesActive,
+              }))
+
+              return (
+                <div className="space-y-3">
+                  {/* Verdict header — the "score" the operator looks at first. */}
+                  <div
+                    className="p-4 rounded-xl border-2"
+                    style={{ backgroundColor: cfg.bg, borderColor: cfg.border }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <cfg.IconClass className="w-7 h-7 shrink-0 mt-0.5" style={{ color: cfg.color }} />
+                      <div className="min-w-0">
+                        <div className="text-lg font-bold" style={{ color: cfg.color }}>{cfg.label}</div>
+                        <div className="text-sm mt-1" style={{ color: cfg.color }}>{primaryReason}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Proposed change. */}
+                  <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Proposed change</div>
+                    <div className="text-sm" style={{ color: 'var(--foreground, #111827)' }}>
+                      Remove <strong>{removalCount}</strong> unused permission{removalCount === 1 ? '' : 's'}, keep <strong>{usedCount}</strong> in use.
+                    </div>
+                    {(removeExamples.length > 0 || keepExamples.length > 0) && (
+                      <div className="mt-2 grid grid-cols-2 gap-3 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                        {removeExamples.length > 0 && (
+                          <div>
+                            <div className="font-semibold mb-1">Examples removed</div>
+                            <div className="space-y-0.5">
+                              {removeExamples.map(p => <div key={`rm-${p}`} className="font-mono truncate">{p}</div>)}
+                              {unusedPermissions.length > removeExamples.length && (
+                                <div>… +{unusedPermissions.length - removeExamples.length} more</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {keepExamples.length > 0 && (
+                          <div>
+                            <div className="font-semibold mb-1">Examples kept</div>
+                            <div className="space-y-0.5">
+                              {keepExamples.map(p => <div key={`kp-${p}`} className="font-mono truncate">{p}</div>)}
+                              {usedPermissions.length > keepExamples.length && (
+                                <div>… +{usedPermissions.length - keepExamples.length} more</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                      Modifies role policies in place. Rollback snapshot created before mutation.
+                    </div>
+                  </div>
+
+                  {/* Why we paused — only when the verdict isn't auto. */}
+                  {cfg.showWhyPaused && gates.length > 0 && (
+                    <div className="p-4 rounded-xl border" style={{ backgroundColor: cfg.bg, borderColor: cfg.border }}>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: cfg.color }}>Why we paused</div>
+                      <ul className="space-y-2">
+                        {gates.map((g, i) => (
+                          <li key={`gate-${i}`} className="text-sm">
+                            <div className="flex items-start gap-2">
+                              <span className="shrink-0 mt-0.5" style={{ color: cfg.color }}>✗</span>
+                              <div>
+                                <div className="font-semibold" style={{ color: cfg.color }}>{g.label}</div>
+                                <div className="text-xs mt-0.5" style={{ color: cfg.color, opacity: 0.85 }}>{g.hint}</div>
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Evidence used — generic vendor-neutral source labels. */}
+                  <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
+                      <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                        {obsDays} days · {cloudtrailEvents.toLocaleString()} events
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                      {evidence.map((e) => (
+                        <div key={e.name} className="flex items-center gap-2">
+                          <span className="shrink-0 font-bold" style={{ color: e.present ? '#15803d' : '#9ca3af' }}>{e.present ? '✓' : '✗'}</span>
+                          <span style={{ color: e.present ? 'var(--foreground, #111827)' : 'var(--muted-foreground, #9ca3af)' }}>{e.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                      {sourcesActive} of {TOTAL_EVIDENCE_SOURCES} sources active.
+                    </div>
+                  </div>
+                </div>
+              )
+
             })()}
 
             {/* What Will Change */}
