@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, Workflow } from "lucide-react"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
+import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
@@ -574,6 +575,14 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Phase 3: Crown Jewel Attack Surface — aggregated card that
+              shows worst-case damage, entry breakdown, and highest-leverage
+              fixes (sorted by paths-broken). Sits above the per-path hero so
+              the CISO sees the whole picture before drilling into one path. */}
+          {selectedJewelId && (
+            <CrownJewelSurfaceCard systemName={systemName} jewelId={selectedJewelId} />
+          )}
+
           {/* Hero banner — big, immediately-readable score + severity + risk + remediation */}
           {currentPath && (
             <PathScoreHero
