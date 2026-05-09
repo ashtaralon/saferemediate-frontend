@@ -5,12 +5,12 @@ import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, Ch
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
-// Reuse the existing System Map / Topology graph (graph-view-v2.tsx) for the
-// interactive "Flow" mode — same component the operator already knows from
-// the Systems tab, so they get click-to-explore, hover, focus mode, search,
-// fullscreen, AND the full topology context (every node in the system, not
-// just the BFS path). Per CISO ask "use what you already have".
-import GraphViewV2 from "@/components/dependency-map/graph-view-v2"
+// Reuse the actual System Map (traffic-flow-map.tsx) — the Traffic Flow Map
+// rendered behind the "System Map" tab in Topology. Same component, same
+// data, same Stack Components sidebar / IAM / SG / NACL / API-Calls /
+// Resources grouping the operator already knows. Per CISO ask "use the
+// system map under the Topology tab".
+import TrafficFlowMap from "@/components/dependency-map/traffic-flow-map"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
 import { PathRemediationPlan } from "./path-remediation-plan"
@@ -631,7 +631,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                           ? "bg-emerald-500/20 text-emerald-200"
                           : "text-slate-400 hover:text-slate-200"
                       }`}
-                      title="Interactive system topology — click any node for details, hover for neighbors, search, fullscreen. Same component as the System Map."
+                      title="The actual System Map (TrafficFlowMap) — same animated Traffic Flow Map the operator sees behind the 'System Map' tab in Topology, with Stack Components sidebar."
                     >
                       Flow
                     </button>
@@ -660,16 +660,13 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
 
               {showFlowViz && (
                 graphMode === "clean" ? (
-                  // Reuse the System Map / Topology graph here — same X6
-                  // canvas the operator already knows: click any node for
-                  // details, hover to highlight neighbors, focus mode,
-                  // search, fullscreen, AND the full system topology so
-                  // every related service is reachable, not just the path.
+                  // Reuse the actual System Map (TrafficFlowMap) here — same
+                  // Traffic Flow Map the operator sees behind the "System
+                  // Map" tab in Topology, with the Stack Components sidebar
+                  // (Compute / SG / NACLs / IAM / API Calls / Resources)
+                  // and animated traffic flows.
                   <div style={{ height: 720 }}>
-                    <GraphViewV2
-                      systemName={systemName}
-                      onNodeClick={(n) => handleNodeClick(n.id)}
-                    />
+                    <TrafficFlowMap systemName={systemName} />
                   </div>
                 ) : (
                   <AttackPathFlowViz
