@@ -1681,52 +1681,134 @@ export function IAMPermissionAnalysisModal({
                 )}
               </div>
 
-              {/* Breakdown — tile grid + safety vector pills */}
-              {gapData?.confidence_groups && (
-                <div className="mb-4 p-5 rounded-xl" style={{ background: "var(--background, #f8f9fa)" }}>
-                  <div className="text-xs uppercase tracking-wider font-semibold mb-3" style={{ color: "var(--muted-foreground, #6b7280)" }}>
-                    Breakdown
+              {/* Per-permission decisions — bucket summary by confidence
+                  band. Replaces the static action-grouped tile grid with a
+                  CONFIDENCE-BAND grouping the operator can act on directly:
+                  each bucket has count + recommended action + one-click
+                  "Select these N" button that adds the permissions in that
+                  band to selectedPermissionsToRemove. Maps to v5 §5
+                  CandidateSplitter — atomic candidates with per-candidate
+                  confidence, exposed as actionable subsets rather than
+                  aggregated to a misleading single role-level number. */}
+              {gapData?.confidence_groups?.groups && (() => {
+                type Perm = { permission: string; confidence_score: number }
+                const removablePerms: Perm[] = []
+                for (const g of gapData.confidence_groups.groups) {
+                  if (g.protected || g.action === 'protected' || g.action === 'reserved') continue
+                  for (const p of (g.permissions || [])) {
+                    if (p.protected || p.reserved) continue
+                    removablePerms.push({ permission: p.permission, confidence_score: p.confidence_score })
+                  }
+                }
+                const protectedCount = (gapData.confidence_groups.summary.protected ?? 0) + (gapData.confidence_groups.summary.reserved ?? 0)
+
+                const high = removablePerms.filter(p => p.confidence_score >= 90)
+                const med  = removablePerms.filter(p => p.confidence_score >= 60 && p.confidence_score < 90)
+                const low  = removablePerms.filter(p => p.confidence_score < 60)
+
+                const selectBand = (perms: Perm[]) => {
+                  setSelectedPermissionsToRemove(prev => {
+                    const next = new Set(prev)
+                    for (const p of perms) next.add(p.permission)
+                    return next
+                  })
+                }
+                const allSelected = (perms: Perm[]) => perms.length > 0 && perms.every(p => selectedPermissionsToRemove.has(p.permission))
+
+                const buckets: Array<{
+                  key: string
+                  count: number
+                  band: string
+                  label: string
+                  hint: string
+                  color: string
+                  bg: string
+                  border: string
+                  perms: Perm[]
+                  actionable: boolean
+                }> = []
+                if (high.length > 0) buckets.push({
+                  key: 'high', count: high.length, band: '90-100',
+                  label: 'High confidence — safe to remove',
+                  hint: 'Logged activity confirms zero usage; remediation gates pass.',
+                  color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0',
+                  perms: high, actionable: true,
+                })
+                if (med.length > 0) buckets.push({
+                  key: 'med', count: med.length, band: '60-89',
+                  label: 'Medium confidence — review evidence',
+                  hint: 'Removable but with telemetry gaps. Verify the missing source before applying.',
+                  color: '#9a3412', bg: '#fff7ed', border: '#fed7aa',
+                  perms: med, actionable: true,
+                })
+                if (low.length > 0) buckets.push({
+                  key: 'low', count: low.length, band: '<60',
+                  label: 'Low confidence — investigation required',
+                  hint: 'Insufficient evidence to remediate safely. Improve coverage or override with rationale.',
+                  color: '#991b1b', bg: '#fef2f2', border: '#fecaca',
+                  perms: low, actionable: true,
+                })
+                if (protectedCount > 0) buckets.push({
+                  key: 'protected', count: protectedCount, band: '—',
+                  label: 'Protected — never touched',
+                  hint: 'Internal-service or break-glass permissions Cyntro will not modify.',
+                  color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb',
+                  perms: [], actionable: false,
+                })
+
+                if (buckets.length === 0) return null
+
+                return (
+                  <div className="mb-4 p-5 rounded-xl bg-white border" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Per-permission decisions</div>
+                      <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                        Bucketed by per-permission confidence band
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {buckets.map(b => {
+                        const selected = b.actionable && allSelected(b.perms)
+                        return (
+                          <div
+                            key={b.key}
+                            className="flex items-center justify-between p-3 rounded-lg border"
+                            style={{ backgroundColor: b.bg, borderColor: b.border }}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="text-2xl font-bold tabular-nums shrink-0" style={{ color: b.color, minWidth: '2.5rem', textAlign: 'right' }}>{b.count}</div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-sm" style={{ color: b.color }}>
+                                  {b.label}
+                                  <span className="ml-2 text-[11px] font-normal" style={{ color: b.color, opacity: 0.7 }}>
+                                    confidence {b.band}
+                                  </span>
+                                </div>
+                                <div className="text-xs mt-0.5" style={{ color: b.color, opacity: 0.85 }}>{b.hint}</div>
+                              </div>
+                            </div>
+                            {b.actionable && (
+                              <button
+                                onClick={() => selectBand(b.perms)}
+                                disabled={applying || selected}
+                                className="ml-3 shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{
+                                  borderColor: b.color,
+                                  color: selected ? '#ffffff' : b.color,
+                                  backgroundColor: selected ? b.color : 'transparent',
+                                }}
+                                title={selected ? `All ${b.count} already selected` : `Add these ${b.count} to the selection`}
+                              >
+                                {selected ? `✓ ${b.count} selected` : `Select these ${b.count}`}
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                    {gapData.confidence_groups.summary.safe_to_remove > 0 && (
-                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#bbf7d0' }}>
-                        <span className="text-3xl font-bold text-[#22c55e] leading-none">{gapData.confidence_groups.summary.safe_to_remove}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Safe to remove</span>
-                      </div>
-                    )}
-                    {gapData.confidence_groups.summary.verify_first > 0 && (
-                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#fed7aa' }}>
-                        <span className="text-3xl font-bold text-[#f97316] leading-none">{gapData.confidence_groups.summary.verify_first}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Verify first</span>
-                      </div>
-                    )}
-                    {gapData.confidence_groups.summary.investigate_first > 0 && (
-                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#fecaca' }}>
-                        <span className="text-3xl font-bold text-[#ef4444] leading-none">{gapData.confidence_groups.summary.investigate_first}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Investigate first</span>
-                      </div>
-                    )}
-                    {(gapData.confidence_groups.summary.reserved ?? 0) > 0 && (
-                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#bfdbfe' }}>
-                        <span className="text-3xl font-bold text-[#3b82f6] leading-none">{gapData.confidence_groups.summary.reserved}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Reserved</span>
-                      </div>
-                    )}
-                    {(gapData.confidence_groups.summary.warn_before_removing ?? 0) > 0 && (
-                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#fde68a' }}>
-                        <span className="text-3xl font-bold text-[#eab308] leading-none">{gapData.confidence_groups.summary.warn_before_removing}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Caution</span>
-                      </div>
-                    )}
-                    {(gapData.confidence_groups.summary.protected ?? 0) > 0 && (
-                      <div className="flex flex-col p-3 rounded-lg bg-white border" style={{ borderColor: '#d1d5db' }}>
-                        <span className="text-3xl font-bold text-[#6b7280] leading-none">{gapData.confidence_groups.summary.protected}</span>
-                        <span className="text-[11px] uppercase tracking-wide text-slate-500 mt-2">Protected</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+                )
+              })()}
 
               {unusedPermissions.length > 0 && gapData?.confidence_groups?.groups ? (
                 <div className="space-y-4 max-h-[400px] overflow-y-auto">
