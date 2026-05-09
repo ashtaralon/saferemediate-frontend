@@ -2255,6 +2255,34 @@ export function IAMPermissionAnalysisModal({
   // correctly, falling back to the simplest possible rendering path.
   return (
     <>
+    {/* DIAGNOSTIC: visible-anywhere debug ribbon. When the override modal
+        state flips to open, this fixed-position banner across the top of
+        the viewport flashes regardless of any CSS / portal / z-index
+        issue. If this ribbon appears but the modal below doesn't, the
+        bug is inside the modal subtree (a child element CSS, missing
+        Tailwind class, etc). If the ribbon also doesn't appear, the
+        React render itself is failing — much narrower hypothesis. */}
+    {overrideModal.open && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          padding: '12px 24px',
+          backgroundColor: '#dc2626',
+          color: '#ffffff',
+          fontWeight: 700,
+          fontSize: '14px',
+          textAlign: 'center',
+          zIndex: 999999,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        }}
+        data-testid="override-modal-diagnostic-ribbon"
+      >
+        ⚠ OVERRIDE MODAL STATE = OPEN (phase: {overrideModal.phase}). If you see this ribbon but no modal below, the modal subtree render is failing — screenshot DevTools and send to claude.
+      </div>
+    )}
     {overrideModal.open && (
       <div
         className="fixed inset-0 flex items-center justify-center p-4"
