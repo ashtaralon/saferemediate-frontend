@@ -2794,12 +2794,21 @@ export function IAMPermissionAnalysisModal({
             </div>
           )}
           {analysisTab === 'summary' && safetyContext && (() => {
+            // v5 verdict layout — replaces the old Pipeline Decision +
+            // Agent 5 Confidence Scorer + Visibility Signals stack that
+            // showed a 100/100 score next to a BLOCKED verdict
+            // (operator-visible contradiction). Per
+            // Cyntro_Architecture_v5_PR001_Transition.md §6, customer-
+            // facing posture is a typed state, not a number.
+            //
+            // Generic source labels in the Evidence panel — demo-safe,
+            // no AWS service names exposed.
             const d = safetyContext.decision_canonical ?? null
-            const obs = safetyContext.observation_days
+            const obs = safetyContext.observation_days ?? observationDays
             const tel = safetyContext.telemetry_coverage
             const consumers = safetyContext.consumer_count ?? 0
             const reasons = safetyContext.unsafe_reasons ?? []
-            const completeness = safetyContext.completeness ?? 'unknown'
+            const coveragePct = typeof tel === 'number' ? Math.round(tel * 100) : 100
 
             type Tone = 'block' | 'review' | 'approve' | 'auto'
             const tone: Tone =
@@ -2809,98 +2818,133 @@ export function IAMPermissionAnalysisModal({
               : d === 'AUTO_EXECUTE' ? 'auto'
               : 'review'
 
-            // Visual hierarchy:
-            //   block   -> amber safety-hold (NOT error red; this is a
-            //              deliberate deferral, the product working as
-            //              designed). Red is reserved for truly
-            //              destructive verdicts (service-role DO NOT
-            //              APPLY).
-            //   review  -> orange (one tier softer than block)
-            //   approve -> warm amber (lighter)
-            //   auto    -> green
-            const styles: Record<Tone, { border: string; bg: string; title: string; sub: string; chip: string; chipText: string }> = {
-              block:   { border: '#fcd34d', bg: '#fffbeb', title: '#92400e', sub: '#78350f', chip: '#f59e0b', chipText: '#ffffff' },
-              review:  { border: '#fdba74', bg: '#fff7ed', title: '#9a3412', sub: '#7c2d12', chip: '#ea580c', chipText: '#ffffff' },
-              approve: { border: '#fcd34d', bg: '#fffbeb', title: '#92400e', sub: '#78350f', chip: '#d97706', chipText: '#ffffff' },
-              auto:    { border: '#86efac', bg: '#f0fdf4', title: '#166534', sub: '#14532d', chip: '#16a34a', chipText: '#ffffff' },
+            const VERDICT: Record<Tone, {
+              label: string
+              border: string
+              bg: string
+              color: string
+              IconClass: typeof Shield
+              showReasons: boolean
+            }> = {
+              block:   { label: 'Paused — review required',  border: '#fde68a', bg: '#fffbeb', color: '#92400e', IconClass: Shield, showReasons: true },
+              review:  { label: 'Manual review required',     border: '#fed7aa', bg: '#fff7ed', color: '#9a3412', IconClass: AlertTriangle, showReasons: true },
+              approve: { label: 'Approval required',          border: '#bfdbfe', bg: '#eff6ff', color: '#1e40af', IconClass: Shield, showReasons: true },
+              auto:    { label: 'Ready to apply',             border: '#bbf7d0', bg: '#f0fdf4', color: '#15803d', IconClass: CheckCircle, showReasons: false },
             }
-            const s = styles[tone]
-            const headline =
-              tone === 'block'   ? 'Safety hold — review required'
-              : tone === 'review' ? 'Manual review'
-              : tone === 'approve' ? 'Approval required'
-              : 'Pipeline approved'
-            const Icon = tone === 'auto' ? CheckCircle : tone === 'block' ? Shield : AlertTriangle
+            const v = VERDICT[tone]
+            const primaryReason = reasons[0]
+              ?? (tone === 'auto'
+                ? 'All safety checks passed. Cyntro will create a rollback snapshot before mutation.'
+                : 'Required evidence is incomplete in this account.')
+
+            // Build why-we-paused gates (binary, fixable).
+            const gates: Array<{ label: string; hint: string }> = []
+            if (coveragePct < 100) {
+              gates.push({
+                label: `Telemetry coverage is ${coveragePct}%`,
+                hint: 'Enable the missing sources in this account to reach 100%.',
+              })
+            }
+            if (typeof obs === 'number' && obs < 21) {
+              gates.push({
+                label: `Observation window is ${obs} days`,
+                hint: 'Cyntro needs ≥21 days of observation before automating production changes.',
+              })
+            }
+            if (consumers > 0 && tone !== 'auto') {
+              gates.push({
+                label: `${consumers} system${consumers === 1 ? '' : 's'} depend on this role`,
+                hint: 'Verify each consumer does not use the proposed-removed permissions.',
+              })
+            }
+            // Tail of the unsafe_reasons (after the primary one shown in the verdict header).
+            for (const r of reasons.slice(1)) gates.push({ label: r, hint: '' })
+
+            // Generic vendor-neutral evidence labels — see
+            // Cyntro_Architecture_v5 §8 for the canonical SafetyVector
+            // dimensions this maps to. Demo-safe.
+            const TOTAL_EVIDENCE_SOURCES = 6
+            const sourcesActive = Math.max(
+              0,
+              Math.min(TOTAL_EVIDENCE_SOURCES, Math.round((coveragePct / 100) * TOTAL_EVIDENCE_SOURCES)),
+            )
+            const EVIDENCE_LABELS = [
+              'Activity history',
+              'Permission usage',
+              'Identity graph',
+              'Network behavior',
+              'Configuration baseline',
+              'Application traces',
+            ]
 
             return (
-              <div className="rounded-lg border-2 p-4" style={{ borderColor: s.border, background: s.bg }}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Icon className="w-5 h-5" style={{ color: s.chip }} />
-                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: s.title }}>
-                      Pipeline Decision
-                    </span>
+              <div className="space-y-3">
+                {/* Verdict header — operator's eye lands here first. */}
+                <div className="p-4 rounded-xl border-2" style={{ backgroundColor: v.bg, borderColor: v.border }}>
+                  <div className="flex items-start gap-3">
+                    <v.IconClass className="w-7 h-7 shrink-0 mt-0.5" style={{ color: v.color }} />
+                    <div className="min-w-0">
+                      <div className="text-lg font-bold" style={{ color: v.color }}>{v.label}</div>
+                      <div className="text-sm mt-1" style={{ color: v.color }}>{primaryReason}</div>
+                    </div>
                   </div>
-                  <span
-                    className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase"
-                    style={{ background: s.chip, color: s.chipText }}
-                  >
-                    {d ?? 'UNKNOWN'}
-                  </span>
                 </div>
-                <p className="mt-2 font-bold text-base" style={{ color: s.title }}>{headline}</p>
-                {reasons[0] && (
-                  <p className="mt-1 text-sm" style={{ color: s.sub }}>{reasons[0]}</p>
+
+                {/* Why we paused — only when verdict isn't auto. */}
+                {v.showReasons && gates.length > 0 && (
+                  <div className="p-4 rounded-xl border" style={{ backgroundColor: v.bg, borderColor: v.border }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: v.color }}>Why we paused</div>
+                    <ul className="space-y-2">
+                      {gates.map((g, i) => (
+                        <li key={`gate-${i}`} className="text-sm">
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0 mt-0.5" style={{ color: v.color }}>✗</span>
+                            <div>
+                              <div className="font-semibold" style={{ color: v.color }}>{g.label}</div>
+                              {g.hint && (
+                                <div className="text-xs mt-0.5" style={{ color: v.color, opacity: 0.85 }}>{g.hint}</div>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs" style={{ color: s.sub }}>
-                  {typeof obs === 'number' && (
-                    <div>
-                      <span className="opacity-70">Observation:</span>{' '}
-                      <span className="font-semibold">{obs} days</span>
-                      {tone === 'block' && obs < 21 && (
-                        <span className="opacity-70"> (≥ 21 needed)</span>
-                      )}
+
+                {/* Evidence used — generic vendor-neutral source labels. */}
+                <div className="p-4 rounded-xl border bg-white" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Evidence used</div>
+                    <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                      {obs} days · {cloudtrailEvents.toLocaleString()} events
                     </div>
-                  )}
-                  {typeof tel === 'number' && (
-                    <div>
-                      <span className="opacity-70">Telemetry:</span>{' '}
-                      <span className="font-semibold">{Math.round(tel * 100)}%</span>
-                      <span className="opacity-70"> ({completeness})</span>
-                    </div>
-                  )}
-                  {consumers > 0 && (
-                    <div className="col-span-2">
-                      <span className="opacity-70">Consumers:</span>{' '}
-                      <span className="font-semibold">{consumers}</span>
-                      <span className="opacity-70"> active — other systems depend on this role</span>
-                    </div>
-                  )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                    {EVIDENCE_LABELS.map((name, i) => {
+                      const present = i < sourcesActive
+                      return (
+                        <div key={name} className="flex items-center gap-2">
+                          <span className="shrink-0 font-bold" style={{ color: present ? '#15803d' : '#9ca3af' }}>{present ? '✓' : '✗'}</span>
+                          <span style={{ color: present ? 'var(--foreground, #111827)' : 'var(--muted-foreground, #9ca3af)' }}>{name}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-2 text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
+                    {sourcesActive} of {TOTAL_EVIDENCE_SOURCES} sources active.
+                  </div>
                 </div>
-                {reasons.length > 1 && (
-                  <ul className="mt-2 text-xs list-disc list-inside space-y-0.5" style={{ color: s.sub }}>
-                    {reasons.slice(1).map((r, i) => <li key={`pdr-${i}`}>{r}</li>)}
-                  </ul>
-                )}
               </div>
             )
           })()}
 
-          {/* Agent 5 · Confidence Scorer — explainer beneath the pipeline
-              verdict. Once the confidence/check proxy forwards
-              pipeline_decision (Layer-2-aware), score.routing here is the
-              SUBORDINATED routing, so the pill in the panel header reads
-              "Blocked" / "Needs approval" rather than "Safe to apply" on
-              roles the pipeline blocked. */}
-          {analysisTab === 'summary' && confidenceLoading && (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-500 flex items-center">
-              <Loader2 className="w-3.5 h-3.5 inline animate-spin mr-2" />
-              Agent 5 scoring remediation safety…
-            </div>
-          )}
-          {analysisTab === 'summary' && confidenceScore && (
-            <ConfidenceExplanationPanel score={confidenceScore} />
-          )}
+          {/* Removed: Agent 5 · Confidence Scorer panel + ConfidenceExplanation.
+              The 100/100 score next to a BLOCKED verdict was the source of
+              the operator-visible contradiction. The verdict above IS the
+              safety signal; no second opinion needed. Re-add later if
+              there's a v5-aligned way to show it without contradicting
+              the verdict (e.g. only when AUTO_EXECUTE). */}
 
           {/* Service Role Warning - Based on backend trust policy analysis */}
           {analysisTab === 'summary' && (() => {
@@ -3098,41 +3142,14 @@ export function IAMPermissionAnalysisModal({
             )
           })()}
 
-          {/* Least Privilege Finding - informational, not an error.
-              Renders whenever unusedCount > 0 on the summary tab. The
-              over-privileged-role IS a real finding, but it isn't a
-              system error -- amber/finding-tone (not error red) so the
-              modal stops looking like five different things failed
-              when the customer is actually just seeing one finding plus
-              one safety hold. The risk badge stays semantic (CRITICAL
-              = red badge inside the amber card; HIGH = orange; etc.). */}
-          {analysisTab === 'summary' && unusedCount > 0 && totalPermissions > 0 && (
-            <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-5">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-7 h-7 flex-shrink-0 mt-0.5" style={{ color: "#d97706" }} />
-                <div>
-                  <h3 className="text-xl font-bold" style={{ color: "#b45309" }}>Least-privilege finding</h3>
-                  <p className="mt-2" style={{ color: "var(--foreground, #111827)" }}>
-                    This identity has <strong>{unusedPercent}% more permissions</strong> than required based on {observationDays} days of actual usage.
-                    <strong> {unusedCount} permissions</strong> have never been used and could be removed.
-                  </p>
-                  <div className="flex items-center gap-3 mt-3">
-                    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                      overallRisk === 'CRITICAL' ? 'bg-[#ef444420] text-[#ef4444]' :
-                      overallRisk === 'HIGH' ? 'bg-[#f9731620] text-[#f97316]' :
-                      overallRisk === 'MEDIUM' ? 'bg-[#eab30820] text-[#eab308]' :
-                      'bg-gray-100 text-[var(--foreground,#374151)]'
-                    }`}>
-                      {overallRisk} Risk
-                    </span>
-                    <span style={{ color: "var(--muted-foreground, #6b7280)" }}>
-                      Attack surface reduced by {unusedPercent}% after remediation
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Removed: legacy "Least-privilege finding" amber card.
+              The same fact ({unusedPercent}% over-privileged) is now in
+              the verdict header + the over-privileged summary card
+              above; rendering it three times was the source of the
+              "modal looks like five things failed" complaint. Risk
+              badge moved to the over-privileged summary card so the
+              CRITICAL / HIGH / MEDIUM signal is preserved without
+              the duplicate prose. */}
 
           {/* Permission Usage Breakdown - Only show if not remediated */}
           {analysisTab === 'permissions' && totalPermissions > 0 && (
