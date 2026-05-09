@@ -282,6 +282,15 @@ export function IAMPermissionAnalysisModal({
     phase: 'form' | 'applying' | 'success' | 'error'
     message: string
   }>({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })
+  // SSR-safe portal mount flag — false on server and on the very first
+  // client render (matches server output → no hydration mismatch), then
+  // flips true after mount so createPortal runs only client-side.
+  // Without this, conditionally rendering a portal based on a
+  // `typeof document !== 'undefined'` check during render produces a
+  // server-vs-client tree mismatch warning that can silently abort the
+  // override modal subtree mount in production.
+  const [portalReady, setPortalReady] = useState(false)
+  useEffect(() => { setPortalReady(true) }, [])
   const [confidenceScore, setConfidenceScore] = useState<ConfidenceScore | null>(null)
   const [confidenceLoading, setConfidenceLoading] = useState(false)
   const [provenance, setProvenance] = useState<Provenance | null>(null)
@@ -2257,11 +2266,18 @@ export function IAMPermissionAnalysisModal({
           doesn't apply once we're portaling client-side anyway. Guard
           for `typeof document` so the portal call is a no-op during
           SSR. */}
-      {typeof document !== 'undefined' && overrideModal.open && createPortal(
+      {(() => {
+        if (!portalReady || !overrideModal.open) return null
+        if (typeof window !== 'undefined') {
+          console.log('[IAM-Modal] PORTAL RENDER firing — overrideModal.open=true, portalReady=true, phase=' + overrideModal.phase)
+        }
+        return createPortal(
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+        className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
         aria-modal="true"
         role="dialog"
+        data-testid="override-modal"
       >
         <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
             {overrideModal.phase === 'success' ? (
@@ -2407,7 +2423,8 @@ export function IAMPermissionAnalysisModal({
           </div>
         </div>,
         document.body
-      )}
+        )
+      })()}
 
       <div className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
