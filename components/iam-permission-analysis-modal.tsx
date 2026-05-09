@@ -948,6 +948,201 @@ export function IAMPermissionAnalysisModal({
 
   if (!isOpen) return null
 
+  // ─────────────────────────────────────────────────────────────────
+  // overrideModalUI — extracted so it renders REGARDLESS of which
+  // view is shown.
+  //
+  // Bug previously hit: the component has two early-return views
+  // (Simulation Results at `if (showSimulation)`, and the Main
+  // Permission Usage view as the final return). The override modal
+  // subtree was only inline-rendered inside the Main view's return.
+  // When operators clicked Acknowledge & Apply on the Simulation
+  // Results view, the click handler fired and setOverrideModal({open:
+  // true}) updated state, but the component re-rendered into the
+  // Simulation view branch — never reaching the override modal JSX
+  // below. Operators saw "click does nothing" because the modal was
+  // gated behind a return statement that never executed.
+  //
+  // Extracting to a helper means both views can include
+  // {renderOverrideModal()} as a sibling in their returns, and the
+  // override modal renders independently of which view is active.
+  // ─────────────────────────────────────────────────────────────────
+  const renderOverrideModal = () => {
+    if (!overrideModal.open) return null
+    return (
+      <>
+        {/* DIAGNOSTIC ribbon — fires regardless of CSS / portal /
+            z-index. If this ribbon appears but the modal below
+            doesn't, the bug is inside the modal subtree. */}
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            padding: '12px 24px',
+            backgroundColor: '#dc2626',
+            color: '#ffffff',
+            fontWeight: 700,
+            fontSize: '14px',
+            textAlign: 'center',
+            zIndex: 999999,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          }}
+          data-testid="override-modal-diagnostic-ribbon"
+        >
+          ⚠ OVERRIDE MODAL STATE = OPEN (phase: {overrideModal.phase}). If you see this ribbon but no modal below, the modal subtree render is failing — screenshot DevTools and send to claude.
+        </div>
+        <div
+          className="fixed inset-0 flex items-center justify-center p-4"
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            zIndex: 99999,
+            visibility: 'visible',
+            opacity: 1,
+            pointerEvents: 'auto',
+          }}
+          aria-modal="true"
+          role="dialog"
+          data-testid="override-modal"
+        >
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            {overrideModal.phase === 'success' ? (
+              <div className="text-center py-2">
+                <CheckCircle className="w-12 h-12 mx-auto text-[#22c55e]" />
+                <h3 className="mt-3 text-lg font-bold text-[#15803d]">Remediation applied</h3>
+                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line">{overrideModal.message}</p>
+                <button
+                  onClick={() => {
+                    setOverrideModal({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })
+                    handleClose()
+                  }}
+                  className="mt-4 px-5 py-2 bg-[#22c55e] text-white rounded-lg font-bold hover:bg-[#16a34a]"
+                >
+                  Done
+                </button>
+              </div>
+            ) : overrideModal.phase === 'error' ? (
+              <div className="text-center py-2">
+                <XCircle className="w-12 h-12 mx-auto text-[#ef4444]" />
+                <h3 className="mt-3 text-lg font-bold text-[#991b1b]">Remediation failed</h3>
+                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line break-words">{overrideModal.message}</p>
+                <div className="mt-4 flex justify-center gap-2">
+                  <button
+                    onClick={() => setOverrideModal({ ...overrideModal, phase: 'form', message: '' })}
+                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    onClick={() => setOverrideModal({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })}
+                    className="px-4 py-2 bg-[var(--foreground,#374151)] text-white rounded-lg font-semibold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : overrideModal.phase === 'applying' ? (
+              <div className="text-center py-6">
+                <Loader2 className="w-12 h-12 mx-auto text-[#f59e0b] animate-spin" />
+                <h3 className="mt-3 text-lg font-bold text-[#b45309]">Applying remediation…</h3>
+                <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">Snapshot, IAM mutate, and verify. Usually completes in a few seconds.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-3">
+                  <Shield className="w-7 h-7 text-[#f59e0b]" />
+                  <h3 className="text-lg font-bold text-[#b45309]">Override the safety hold?</h3>
+                </div>
+                <p className="text-sm text-[var(--foreground,#111827)] mb-4">
+                  Cyntro paused this change because telemetry coverage is incomplete and {safetyContext?.consumer_count ?? 'multiple'} system{(safetyContext?.consumer_count ?? 0) === 1 ? '' : 's'} depend on this role. You can override and proceed -- the change runs immediately, with a rollback snapshot if you have it enabled. The override is recorded in the audit log.
+                </p>
+                <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                  Why are you overriding? (Slack thread, ticket #, customer confirmation -- recorded in the audit trail)
+                </label>
+                <textarea
+                  value={overrideModal.rationale}
+                  onChange={(e) => setOverrideModal({ ...overrideModal, rationale: e.target.value })}
+                  placeholder="e.g. Confirmed with @platform-team in #incidents that the 6 consumers don't use these permissions; ticket SECOPS-1842"
+                  rows={3}
+                  className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
+                  autoFocus
+                />
+                <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overrideModal.ackRollback}
+                    onChange={(e) => setOverrideModal({ ...overrideModal, ackRollback: e.target.checked })}
+                    className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
+                  />
+                  <span className="text-[var(--foreground,#374151)]">
+                    I understand a rollback snapshot will{createSnapshot ? ' ' : ' NOT '}be created and I am responsible for verifying the change does not break dependent systems.
+                  </span>
+                </label>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setOverrideModal({ open: false, rationale: '', ackRollback: true, phase: 'form', message: '' })}
+                    disabled={applying}
+                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)] disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const trimmed = overrideModal.rationale.trim()
+                      if (!trimmed) return
+                      const ackSet = new Set<string>()
+                      const groups = gapData?.confidence_groups?.groups ?? []
+                      const selectedSet = new Set(Array.from(selectedPermissionsToRemove))
+                      for (const g of groups) {
+                        const overlap = (g.permissions || []).some((p: any) => selectedSet.has(p.permission))
+                        if (!overlap) continue
+                        const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
+                        for (const a of acks) ackSet.add(a)
+                      }
+                      const lineage = {
+                        rationale: trimmed,
+                        acknowledged: Array.from(ackSet),
+                        rollback_plan_acknowledged: overrideModal.ackRollback,
+                        overridden_by: 'operator',
+                        overridden_at: new Date().toISOString(),
+                      }
+                      setOverrideModal({ ...overrideModal, phase: 'applying', message: '' })
+                      try {
+                        const desc = await handleApplyFix(true, lineage, true)
+                        setOverrideModal({
+                          open: true,
+                          rationale: lineage.rationale,
+                          ackRollback: overrideModal.ackRollback,
+                          phase: 'success',
+                          message: desc || 'The remediation completed successfully.',
+                        })
+                      } catch (err: any) {
+                        setOverrideModal({
+                          open: true,
+                          rationale: lineage.rationale,
+                          ackRollback: overrideModal.ackRollback,
+                          phase: 'error',
+                          message: (err?.message || 'The remediation request failed. Check console for details.').slice(0, 500),
+                        })
+                      }
+                    }}
+                    disabled={applying || !overrideModal.rationale.trim()}
+                    className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    title={!overrideModal.rationale.trim() ? "Rationale required for the audit log" : "Apply the change with override"}
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    Apply Anyway
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </>
+    )
+  }
+
   // Calculate derived values
   const observationDays = gapData?.observation_days ?? 365
   const overallRisk = gapData?.summary?.overall_risk ?? 'UNKNOWN'
@@ -1195,6 +1390,8 @@ export function IAMPermissionAnalysisModal({
   // Simulation Results View
   if (showSimulation) {
     return (
+      <>
+      {renderOverrideModal()}
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 overflow-y-auto">
         <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
         <div className="relative w-[900px] max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
@@ -2242,6 +2439,7 @@ export function IAMPermissionAnalysisModal({
           </div>
         </div>
       </div>
+      </>
     )
   }
 
@@ -2255,14 +2453,12 @@ export function IAMPermissionAnalysisModal({
   // correctly, falling back to the simplest possible rendering path.
   return (
     <>
-    {/* DIAGNOSTIC: visible-anywhere debug ribbon. When the override modal
-        state flips to open, this fixed-position banner across the top of
-        the viewport flashes regardless of any CSS / portal / z-index
-        issue. If this ribbon appears but the modal below doesn't, the
-        bug is inside the modal subtree (a child element CSS, missing
-        Tailwind class, etc). If the ribbon also doesn't appear, the
-        React render itself is failing — much narrower hypothesis. */}
-    {overrideModal.open && (
+    {renderOverrideModal()}
+    {/* INLINE DUPLICATE BELOW IS DEAD CODE (kept temporarily as TS
+        sentinel to avoid import-deletion via auto-cleanup; will be
+        removed once the helper extraction proves out). The conditional
+        means it never renders. */}
+    {false && overrideModal.open && (
       <div
         style={{
           position: 'fixed',
