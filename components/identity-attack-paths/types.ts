@@ -166,6 +166,27 @@ export interface RiskReduction {
   }
 }
 
+// "More services in the flow" — for each IAM role on the path, the list
+// of OTHER resources the role touches (sibling neighbors not already on
+// this path). Drives the "Reachable Services" expansion below the diagram.
+export interface ReachableNeighbor {
+  id: string
+  name: string
+  type: string
+  is_internet_exposed: boolean
+  edge_types: string[]
+  edge_count: number
+}
+
+export interface ReachableNeighborsByRole {
+  role_id: string
+  role_name?: string
+  neighbor_count: number
+  neighbors_returned: number
+  by_type: Record<string, number>
+  neighbors: ReachableNeighbor[]
+}
+
 // Phase 1: damage capability — what an attacker reaching the end of the
 // path can actually DO (read N tables, delete K objects, etc.). Three-state
 // per feedback_no_mock_numbers_in_ui — never fabricated numbers.
@@ -261,6 +282,9 @@ export interface IdentityAttackPath {
   path_kind_tag?: "identity" | "network" | "hybrid" | "configured"
   // Phase 1: per-path damage capability — concrete impact at end of path.
   damage_capability?: DamageCapability | null
+  // "All services in the flow" — sibling resources reachable from each
+  // IAM role on the path. Renders as the "Reachable Services" expansion.
+  reachable_neighbors?: ReachableNeighborsByRole[]
 }
 
 export interface CrownJewelSummary {

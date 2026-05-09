@@ -1008,6 +1008,11 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
         </div>
       </div>
 
+      {/* ── Reachable Services — "more services in the flow" ── */}
+      {path.reachable_neighbors && path.reachable_neighbors.length > 0 && (
+        <ReachableServicesSection neighbors={path.reachable_neighbors} />
+      )}
+
       {/* ── Risk Reduction Footer ── */}
       {path.risk_reduction && (
         <div
@@ -1017,6 +1022,106 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
           <RiskReductionBar riskReduction={path.risk_reduction} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Reachable Services section ──────────────────────────────────────
+// Per the CISO ask: "I want to see all the services in the flow." For each
+// IAM role on the path, list the OTHER resources the role touches that
+// aren't on the BFS path. Collapsed by default, click to expand per role.
+function ReachableServicesSection({ neighbors }: { neighbors: NonNullable<IdentityAttackPath["reachable_neighbors"]> }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
+  const typeIcon = (t: string) => {
+    const lt = (t || "").toLowerCase()
+    if (lt.includes("s3")) return <Database className="w-3 h-3 text-emerald-400" />
+    if (lt.includes("dynamo")) return <Database className="w-3 h-3 text-cyan-400" />
+    if (lt.includes("lambda")) return <Zap className="w-3 h-3 text-amber-400" />
+    if (lt.includes("ec2")) return <Server className="w-3 h-3 text-blue-400" />
+    if (lt.includes("rds") || lt.includes("aurora") || lt.includes("redshift")) return <Database className="w-3 h-3 text-violet-400" />
+    if (lt.includes("kms")) return <Key className="w-3 h-3 text-amber-300" />
+    if (lt.includes("secret")) return <Lock className="w-3 h-3 text-rose-400" />
+    return <Server className="w-3 h-3 text-slate-400" />
+  }
+
+  return (
+    <div
+      className="px-4 py-2 border-t"
+      style={{ background: "rgba(15, 23, 42, 0.85)", borderColor: "rgba(148, 163, 184, 0.12)" }}
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <Crown className="w-3 h-3 text-amber-400" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-200">
+          More services in this flow
+        </span>
+        <span className="text-[10px] text-slate-500">
+          · {neighbors.length} role{neighbors.length === 1 ? "" : "s"} reach {neighbors.reduce((s, r) => s + r.neighbor_count, 0)} other service{neighbors.reduce((s, r) => s + r.neighbor_count, 0) === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="space-y-1.5">
+        {neighbors.map((roleN) => {
+          const isOpen = !!expanded[roleN.role_id]
+          const truncated = roleN.neighbor_count > roleN.neighbors_returned
+          return (
+            <div
+              key={roleN.role_id}
+              className="rounded border border-slate-700/60 bg-slate-900/40"
+            >
+              <button
+                onClick={() => setExpanded((s) => ({ ...s, [roleN.role_id]: !isOpen }))}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-slate-800/60 transition-colors rounded-t"
+              >
+                <UserCheck className="w-3 h-3 text-purple-300" />
+                <span className="text-[11px] font-semibold text-slate-200 truncate">
+                  {roleN.role_name ?? roleN.role_id}
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  {Object.entries(roleN.by_type).slice(0, 4).map(([t, c]) => (
+                    <span key={t} className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
+                      {typeIcon(t)}
+                      <span className="font-bold tabular-nums">{c}</span>
+                      <span className="opacity-70">{t}</span>
+                    </span>
+                  ))}
+                  {Object.keys(roleN.by_type).length > 4 && (
+                    <span className="text-[9px] text-slate-500">+{Object.keys(roleN.by_type).length - 4} types</span>
+                  )}
+                  <span className="text-[9px] text-slate-500">
+                    {isOpen ? "▾" : "▸"}
+                  </span>
+                </div>
+              </button>
+              {isOpen && (
+                <div className="px-2 pb-2 pt-0">
+                  <div className="grid grid-cols-2 gap-1">
+                    {roleN.neighbors.map((n) => (
+                      <div
+                        key={n.id}
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded text-[10px] ${
+                          n.is_internet_exposed ? "bg-rose-500/10 ring-1 ring-rose-500/30" : "bg-slate-800/50"
+                        }`}
+                        title={`${n.type} · ${n.edge_count} edge${n.edge_count === 1 ? "" : "s"} · ${n.edge_types.join(", ")}`}
+                      >
+                        {typeIcon(n.type)}
+                        <span className="text-slate-300 truncate flex-1">{n.name}</span>
+                        <span className="text-slate-500 tabular-nums shrink-0">{n.edge_count}×</span>
+                        {n.is_internet_exposed && <Globe className="w-2.5 h-2.5 text-rose-400" />}
+                      </div>
+                    ))}
+                  </div>
+                  {truncated && (
+                    <div className="mt-1.5 text-[9px] text-slate-500 italic">
+                      Showing {roleN.neighbors_returned} of {roleN.neighbor_count} reachable resources (top by edge count)
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
