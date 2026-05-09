@@ -2544,34 +2544,75 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     seenIds.add(pn.id);
   });
 
-  // Flows: keep arch flows that connect path nodes, then merge in synthetic
-  // flows from path edges so the operator sees the *path's* real edges
-  // (with traffic_bytes / hit_count) even when the System Map doesn't have
-  // a flow for that pair.
-  const archFlows: TrafficFlow[] = arch.flows.filter((f) =>
-    inPath(f.sourceId) &&
-    inPath(f.targetId) &&
-    (!f.sgId || inPath(f.sgId)) &&
-    (!f.naclId || inPath(f.naclId)) &&
-    (!f.roleId || inPath(f.roleId)),
-  );
+  // Flows: the System Map renders flows as compute → resource gated by
+  // SG/NACL/IAM checkpoints. Path edges from IdentityAttackPath don't
+  // match that shape directly (they include role→S3, EC2→SG attachments,
+  // etc.). Translate: for each compute/resource pair in the path,
+  // synthesize ONE flow whose bytes are the sum of all path-edge bytes
+  // touching the resource, gated by the SG/role/NACL nodes that are in
+  // the path. This makes the System Map's animated lines render the
+  // path's actual data flow.
+  const computeIds = computeServices.map((c) => c.id);
+  const resourceIds = resources.map((r) => r.id);
+  const sgIdInPath = securityGroups[0]?.id;
+  const naclIdInPath = nacls[0]?.id;
+  const roleIdInPath = iamRoles[0]?.id;
   const flowKey = (s: string, t: string) => `${s}->${t}`;
   const flowMap = new Map<string, TrafficFlow>();
-  archFlows.forEach((f) => flowMap.set(flowKey(f.sourceId, f.targetId), f));
+
+  // Aggregate path-edge bytes per resource — any edge ending at the
+  // resource (or starting at the role and ending at the resource) counts.
+  const bytesByResource = new Map<string, { bytes: number; hits: number; observed: boolean; ports: Set<string>; protocols: Set<string> }>();
   (filter.pathEdges ?? []).forEach((e) => {
-    if (!seenIds.has(e.source) || !seenIds.has(e.target)) return;
-    const key = flowKey(e.source, e.target);
-    if (flowMap.has(key)) return;
-    flowMap.set(key, {
-      sourceId: e.source,
-      targetId: e.target,
-      ports: e.port ? [String(e.port)] : [],
-      protocol: e.protocol || (e.is_observed ? 'TCP' : 'CONFIGURED'),
-      bytes: e.bytes ?? 0,
-      connections: e.hits ?? 0,
-      isActive: !!e.is_observed,
+    if (!resourceIds.includes(e.target)) return;
+    const cur = bytesByResource.get(e.target) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+    cur.bytes += e.bytes ?? 0;
+    cur.hits += e.hits ?? 0;
+    if (e.is_observed) cur.observed = true;
+    if (e.port) cur.ports.add(String(e.port));
+    if (e.protocol) cur.protocols.add(e.protocol);
+    bytesByResource.set(e.target, cur);
+  });
+
+  computeIds.forEach((cid) => {
+    resourceIds.forEach((rid) => {
+      const agg = bytesByResource.get(rid) ?? { bytes: 0, hits: 0, observed: false, ports: new Set<string>(), protocols: new Set<string>() };
+      const bytes = agg.bytes;
+      // Use 1 connection minimum when there's traffic so the animated
+      // line renders. The path data sets hit_count to 0 even when bytes
+      // are present (CloudTrail-derived).
+      const connections = agg.hits > 0 ? agg.hits : (bytes > 0 ? 1 : 0);
+      flowMap.set(flowKey(cid, rid), {
+        sourceId: cid,
+        targetId: rid,
+        sgId: sgIdInPath,
+        naclId: naclIdInPath,
+        roleId: roleIdInPath,
+        ports: [...agg.ports],
+        protocol: [...agg.protocols][0] || (agg.observed ? 'TCP' : 'CONFIGURED'),
+        bytes,
+        connections,
+        isActive: agg.observed && bytes > 0,
+      });
     });
   });
+
+  // Also keep any arch flows that match the path (different-shaped
+  // checkpoint info we'd otherwise lose).
+  arch.flows.forEach((f) => {
+    if (!inPath(f.sourceId) || !inPath(f.targetId)) return;
+    if (f.sgId && !inPath(f.sgId)) return;
+    if (f.naclId && !inPath(f.naclId)) return;
+    if (f.roleId && !inPath(f.roleId)) return;
+    const key = flowKey(f.sourceId, f.targetId);
+    const existing = flowMap.get(key);
+    // Prefer the synthesized flow when it has bytes; otherwise fall back
+    // to the arch flow.
+    if (!existing || (existing.bytes === 0 && f.bytes > 0)) {
+      flowMap.set(key, f);
+    }
+  });
+
   const flows: TrafficFlow[] = [...flowMap.values()];
 
   return {
