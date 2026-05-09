@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { createPortal } from "react-dom"
 import {
   X, Calendar, CheckCircle, AlertTriangle, Shield, ShieldCheck, Sparkles, Check,
   CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
@@ -2169,7 +2170,10 @@ export function IAMPermissionAnalysisModal({
                         // that the React profiler showed as ~50-150ms
                         // perceived delay. Direct setState fires the
                         // re-render in the same task tick.
-                        onClick={() => setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })}
+                        onClick={() => {
+                          console.log('[IAM-Modal] Acknowledge & Apply clicked — opening override modal. selected=' + selectedPermissionsToRemove.size + ' detach=' + detachManagedPolicies + ' applying=' + applying)
+                          setOverrideModal({ open: true, rationale: '', ackRollback: createSnapshot, phase: 'form', message: '' })
+                        }}
                         disabled={applying || (selectedPermissionsToRemove.size === 0 && !detachManagedPolicies)}
                         className="px-5 py-2.5 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         title={`Acknowledge the safety hold and apply ${selectedPermissionsToRemove.size > 0 ? `${selectedPermissionsToRemove.size} permission removals` : 'the policy detach'}. The override is recorded in the audit log under your operator id. ${safetyContext?.block_reason || ''}`}
@@ -2237,22 +2241,27 @@ export function IAMPermissionAnalysisModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
 
-      {/* In-app override confirmation modal. ALWAYS mounted (with
-          pointer-events disabled when closed) so opening is just a
-          CSS opacity toggle -- no React tree mount on click. Earlier
-          implementation conditionally rendered the subtree, which
-          made the open-on-click feel laggy: the user watched a
-          delay between clicking Acknowledge & Apply (bottom right)
-          and the modal appearing (center) while React mounted the
-          tree. Now it's instant. The transition fades in over
-          150ms so the appearance doesn't jolt the eye. */}
+      {/* In-app override confirmation modal. PORTALED to document.body so
+          it lives in its own stacking context — escapes the parent IAM
+          modal's z-50 container, eliminating any chance that a sibling
+          element (toast, tooltip, another portal) renders on top of it.
+          Previously rendered in-tree as a child of the parent z-50
+          container; multiple operators reported "Acknowledge & Apply
+          does nothing" because the override modal opened correctly but
+          was visually obscured / consumed clicks weirdly. Portal at
+          document.body fixes both at once.
+
+          Conditionally rendered (only when isOpen) instead of always-
+          mounted-with-opacity. The portal wrap is essentially free; the
+          opacity-toggle pattern was an SSR/hydration optimization that
+          doesn't apply once we're portaling client-side anyway. Guard
+          for `typeof document` so the portal call is a no-op during
+          SSR. */}
+      {typeof document !== 'undefined' && overrideModal.open && createPortal(
       <div
-        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 ${
-          overrideModal.open
-            ? 'opacity-100'
-            : 'opacity-0 pointer-events-none'
-        }`}
-        aria-hidden={!overrideModal.open}
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+        aria-modal="true"
+        role="dialog"
       >
         <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
             {overrideModal.phase === 'success' ? (
@@ -2396,7 +2405,9 @@ export function IAMPermissionAnalysisModal({
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
 
       <div className="relative w-[720px] max-h-[88vh] rounded-lg shadow-[0_10px_40px_rgba(15,23,42,0.12)] overflow-hidden flex flex-col my-4" style={{ background: "var(--card, #ffffff)" }}>
         {/* Header */}
