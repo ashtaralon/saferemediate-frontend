@@ -944,16 +944,28 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
                     <UserCheck className="w-4 h-4 text-pink-400" />
                     Identity ({identities.length})
                   </div>
-                  {identities.map((role) => (
-                    <div key={role.id} data-nacl-id={role.id}>
-                      <IAMRoleNode
-                        role={role}
-                        isHighlighted={isNodeHighlighted(role.id)}
-                        onHover={setHoveredId}
-                        onClick={() => onNodeClick(role.id)}
-                      />
-                    </div>
-                  ))}
+                  {identities.map((role) => {
+                    // Match this role's reachable_neighbors so we can render
+                    // "also touches X tables, Y lambdas..." chips inline under
+                    // the role card. Visualizes "more services in the flow"
+                    // without the operator having to scroll down.
+                    const roleNeighbors = path.reachable_neighbors?.find(
+                      (rn) => rn.role_id === role.id
+                    )
+                    return (
+                      <div key={role.id} data-nacl-id={role.id} className="flex flex-col gap-1.5">
+                        <IAMRoleNode
+                          role={role}
+                          isHighlighted={isNodeHighlighted(role.id)}
+                          onHover={setHoveredId}
+                          onClick={() => onNodeClick(role.id)}
+                        />
+                        {roleNeighbors && roleNeighbors.neighbors.length > 0 && (
+                          <ReachableInlineChips role={role} neighbors={roleNeighbors} />
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -1030,20 +1042,70 @@ export function AttackPathFlowViz({ paths, selectedPathIndex, onNodeClick, selec
 // Per the CISO ask: "I want to see all the services in the flow." For each
 // IAM role on the path, list the OTHER resources the role touches that
 // aren't on the BFS path. Collapsed by default, click to expand per role.
+// Shared icon mapper — used by both ReachableInlineChips and ReachableServicesSection
+function reachableTypeIcon(t: string) {
+  const lt = (t || "").toLowerCase()
+  if (lt.includes("s3")) return <Database className="w-3 h-3 text-emerald-400" />
+  if (lt.includes("dynamo")) return <Database className="w-3 h-3 text-cyan-400" />
+  if (lt.includes("lambda")) return <Zap className="w-3 h-3 text-amber-400" />
+  if (lt.includes("ec2")) return <Server className="w-3 h-3 text-blue-400" />
+  if (lt.includes("rds") || lt.includes("aurora") || lt.includes("redshift")) return <Database className="w-3 h-3 text-violet-400" />
+  if (lt.includes("kms")) return <Key className="w-3 h-3 text-amber-300" />
+  if (lt.includes("secret")) return <Lock className="w-3 h-3 text-rose-400" />
+  return <Server className="w-3 h-3 text-slate-400" />
+}
+
+// ── ReachableInlineChips ────────────────────────────────────────────
+// Renders DIRECTLY UNDER each IAM role node in the Identity lane so the
+// "more services in this flow" view is visible without scrolling. Per
+// the CISO ask "why do I see only 3-4 services in every attack path?" —
+// this surfaces the role's reachable_neighbors right inside the diagram.
+function ReachableInlineChips({
+  role,
+  neighbors,
+}: {
+  role: SecurityCheckpoint
+  neighbors: NonNullable<IdentityAttackPath["reachable_neighbors"]>[number]
+}) {
+  const TOP_N = 8
+  const visible = neighbors.neighbors.slice(0, TOP_N)
+  const remaining = neighbors.neighbors.length - visible.length
+  return (
+    <div
+      className="rounded-md border border-slate-700/50 bg-slate-900/40 p-1.5 max-w-[210px]"
+      title={`${role.name} also reaches ${neighbors.neighbor_count} other resource${neighbors.neighbor_count === 1 ? "" : "s"} via observed CloudTrail / API calls`}
+    >
+      <div className="text-[8px] uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between">
+        <span>+ also reaches</span>
+        <span className="text-amber-400 font-bold tabular-nums">{neighbors.neighbor_count}</span>
+      </div>
+      <div className="flex flex-wrap gap-0.5">
+        {visible.map((n) => (
+          <span
+            key={n.id}
+            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] border ${
+              n.is_internet_exposed
+                ? "bg-rose-500/15 border-rose-500/30 text-rose-200"
+                : "bg-slate-800/60 border-slate-700 text-slate-300"
+            }`}
+            title={`${n.type} · ${n.name} · ${n.edge_count}× edges (${n.edge_types.join(", ")})${n.is_internet_exposed ? "\n⚠ Internet-exposed" : ""}`}
+          >
+            {reachableTypeIcon(n.type)}
+            <span className="max-w-[80px] truncate">{n.name}</span>
+            <span className="text-slate-500 tabular-nums">{n.edge_count}×</span>
+          </span>
+        ))}
+        {remaining > 0 && (
+          <span className="text-[9px] text-slate-500 px-1 py-0.5">+{remaining}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ReachableServicesSection({ neighbors }: { neighbors: NonNullable<IdentityAttackPath["reachable_neighbors"]> }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-
-  const typeIcon = (t: string) => {
-    const lt = (t || "").toLowerCase()
-    if (lt.includes("s3")) return <Database className="w-3 h-3 text-emerald-400" />
-    if (lt.includes("dynamo")) return <Database className="w-3 h-3 text-cyan-400" />
-    if (lt.includes("lambda")) return <Zap className="w-3 h-3 text-amber-400" />
-    if (lt.includes("ec2")) return <Server className="w-3 h-3 text-blue-400" />
-    if (lt.includes("rds") || lt.includes("aurora") || lt.includes("redshift")) return <Database className="w-3 h-3 text-violet-400" />
-    if (lt.includes("kms")) return <Key className="w-3 h-3 text-amber-300" />
-    if (lt.includes("secret")) return <Lock className="w-3 h-3 text-rose-400" />
-    return <Server className="w-3 h-3 text-slate-400" />
-  }
+  const typeIcon = reachableTypeIcon
 
   return (
     <div

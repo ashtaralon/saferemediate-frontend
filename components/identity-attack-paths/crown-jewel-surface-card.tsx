@@ -45,6 +45,17 @@ interface JewelSurfaceData {
       region: string   // e.g. "us-east-1", "GLOBAL"
       network_border_group?: string
     }>
+    // Enriched non-AWS public IPs — org/country/asn from ip_metadata.enrich_ip.
+    // Empty fields when remote lookup unavailable.
+    public_ips_enriched?: Array<{
+      ip: string
+      org?: string         // "Bezeq International", "Microsoft Azure", ...
+      isp?: string
+      asn?: string         // "AS21247 Bezeq International"
+      country?: string     // "IL"
+      country_name?: string  // "Israel"
+      city?: string
+    }>
   }
   error?: string
 }
@@ -107,8 +118,9 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
   const dmg = data.aggregated_damage
   const verbs = dmg.max_verbs ?? { read: 0, write: 0, delete: 0, admin: 0 }
   const top = (data.cross_path_remediation ?? []).slice(0, 5)
-  const entry = data.entry_summary ?? { total: 0, public_ips: [], private_ips: [], principals: [], aws_ips: [] }
+  const entry = data.entry_summary ?? { total: 0, public_ips: [], private_ips: [], principals: [], aws_ips: [], public_ips_enriched: [] }
   const awsIps = entry.aws_ips ?? []
+  const publicEnriched = entry.public_ips_enriched ?? []
   const dist = data.score_distribution ?? { critical: 0, high: 0, medium: 0, low: 0 }
   const totalPaths = data.total_paths || 0
 
@@ -186,14 +198,50 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
             </span>
           </div>
           <div className="space-y-1.5">
-            <EntryRow
-              icon={<Globe className="w-3 h-3 text-rose-400" />}
-              label="Public IPs"
-              count={entry.public_ips.length}
-              items={entry.public_ips}
-              cls="text-rose-300"
-              tooltip="Public internet IPs not in AWS-published ranges — likely external attacker / customer / unknown source"
-            />
+            {/* Public IPs — when public_ips_enriched is present, render the
+                enriched view with org / country instead of the bare IP list.
+                CISO sees "188.125.64.7 · Bezeq International · IL" instead of
+                an opaque IP. Falls back to the simple count row when enrichment
+                isn't available. */}
+            {publicEnriched.length > 0 ? (
+              <div
+                className="flex items-start gap-1.5 text-[10px]"
+                title={"External public IPs (not in AWS-published ranges) with org / country from ip-api.com.\nBlank fields = remote lookup unavailable for that IP."}
+              >
+                <Globe className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                <span className="text-slate-400 w-16 shrink-0">Public IPs</span>
+                <span className="font-bold tabular-nums text-rose-300 shrink-0">{publicEnriched.length}</span>
+                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                  {publicEnriched.slice(0, 5).map((p) => {
+                    const label = [p.org, p.country].filter(Boolean).join(" · ")
+                    return (
+                      <div
+                        key={p.ip}
+                        className="flex items-center gap-1.5 truncate"
+                        title={[p.ip, p.org, p.country_name, p.city, p.asn].filter(Boolean).join(" · ")}
+                      >
+                        <span className="text-slate-300 tabular-nums">{p.ip}</span>
+                        {label && (
+                          <span className="text-slate-500 truncate">· {label}</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {publicEnriched.length > 5 && (
+                    <span className="text-slate-500">+{publicEnriched.length - 5} more</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <EntryRow
+                icon={<Globe className="w-3 h-3 text-rose-400" />}
+                label="Public IPs"
+                count={entry.public_ips.length}
+                items={entry.public_ips}
+                cls="text-rose-300"
+                tooltip="Public internet IPs not in AWS-published ranges — likely external attacker / customer / unknown source"
+              />
+            )}
             {/* AWS IPs — populated when classify_endpoint matches a public IP
                 against AWS-published ranges. Shows service + region per IP
                 so the CISO sees "AWS S3 us-east-1" instead of an opaque IP. */}
