@@ -5,7 +5,12 @@ import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, Ch
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
-import { CleanAttackFlow } from "./clean-attack-flow"
+// Reuse the existing System Map / Topology graph (graph-view-v2.tsx) for the
+// interactive "Flow" mode — same component the operator already knows from
+// the Systems tab, so they get click-to-explore, hover, focus mode, search,
+// fullscreen, AND the full topology context (every node in the system, not
+// just the BFS path). Per CISO ask "use what you already have".
+import GraphViewV2 from "@/components/dependency-map/graph-view-v2"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
 import { PathRemediationPlan } from "./path-remediation-plan"
@@ -626,7 +631,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                           ? "bg-emerald-500/20 text-emerald-200"
                           : "text-slate-400 hover:text-slate-200"
                       }`}
-                      title="Beautiful directed graph with all related services and arrowed flow direction"
+                      title="Interactive system topology — click any node for details, hover for neighbors, search, fullscreen. Same component as the System Map."
                     >
                       Flow
                     </button>
@@ -655,12 +660,17 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
 
               {showFlowViz && (
                 graphMode === "clean" ? (
-                  <CleanAttackFlow
-                    path={currentPath}
-                    onNodeClick={handleNodeClick}
-                    selectedNodeId={selectedNodeId}
-                    height={620}
-                  />
+                  // Reuse the System Map / Topology graph here — same X6
+                  // canvas the operator already knows: click any node for
+                  // details, hover to highlight neighbors, focus mode,
+                  // search, fullscreen, AND the full system topology so
+                  // every related service is reachable, not just the path.
+                  <div style={{ height: 720 }}>
+                    <GraphViewV2
+                      systemName={systemName}
+                      onNodeClick={(n) => handleNodeClick(n.id)}
+                    />
+                  </div>
                 ) : (
                   <AttackPathFlowViz
                     paths={jewelPaths}
