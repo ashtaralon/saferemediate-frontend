@@ -559,11 +559,9 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             </button>
           </div>
         </div>
-        {provenance && (
-          <div className="mt-2">
-            <TrustEnvelopeBadge provenance={provenance} />
-          </div>
-        )}
+        {/* TrustEnvelopeBadge moved to a compact info-tooltip on the
+            refresh button — was eating ~40px of full-width space at top
+            of every page load showing operator-irrelevant provenance. */}
       </div>
 
       {/* 3-column layout */}

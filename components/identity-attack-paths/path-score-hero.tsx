@@ -175,7 +175,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
 
   return (
     <div
-      className="relative px-5 py-4 border-b overflow-hidden"
+      className="relative px-5 py-2 border-b overflow-hidden"
       style={{
         background: "#0b1220",
         borderColor: theme.panelBorder,
@@ -236,14 +236,14 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
             <span className="text-[11px] font-semibold tracking-wide" style={{ color: theme.chipText }}>{theme.label}</span>
           </div>
 
-          <div className="flex items-baseline gap-1.5">
+          <div className="flex items-baseline gap-1">
             <span
-              className="text-6xl font-semibold tabular-nums leading-none tracking-tight"
+              className="text-3xl font-semibold tabular-nums leading-none tracking-tight"
               style={{ color: theme.accent }}
             >
               {sev.overall_score}
             </span>
-            <span className="text-base text-slate-400 font-medium">/ 100</span>
+            <span className="text-[11px] text-slate-400 font-medium">/100</span>
           </div>
 
           {brs && (

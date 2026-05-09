@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Crown, Globe, Network, UserCircle, Skull, ShieldAlert, Wrench, Zap, Database } from "lucide-react"
+import { Crown, Globe, Network, UserCircle, Skull, ShieldAlert, Wrench, Zap, Database, ChevronDown, ChevronRight } from "lucide-react"
 
 interface JewelSurfaceData {
   system_name: string
@@ -69,6 +69,11 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
   const [data, setData] = useState<JewelSurfaceData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Collapsible per CISO feedback: "the orange part takes 50% of the screen,
+  // fix that". Collapsed renders only a 1-line summary; expanded shows the
+  // full 3-column WORST-CASE / ENTRY / FIXES layout. Default collapsed so
+  // the diagram below gets the screen real estate it needs.
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     if (!systemName || !jewelId) {
@@ -133,28 +138,48 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
 
   return (
     <div
-      className="px-4 py-3 border-b"
+      className={`px-4 border-b ${expanded ? "py-3" : "py-1.5"}`}
       style={{
         background: "linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.7) 100%)",
         borderColor: "rgba(148, 163, 184, 0.15)",
       }}
     >
-      <div className="flex items-center gap-2 mb-3">
+      {/* Header — clickable to toggle expanded. Even when collapsed it shows
+          the headline numbers (paths, total actions, destructive flag,
+          top fix) so the CISO sees the whole picture in one row. */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 text-left hover:bg-white/5 rounded transition-colors -mx-1 px-1 py-0.5"
+      >
+        {expanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
         <Crown className="w-3.5 h-3.5 text-amber-400" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-100">
           Crown Jewel Attack Surface
         </span>
         <span className="text-[10px] text-slate-500">
-          · aggregated across {totalPaths} path{totalPaths === 1 ? "" : "s"}
+          · {totalPaths} path{totalPaths === 1 ? "" : "s"}
         </span>
+        {!expanded && (
+          <>
+            <span className="text-[10px] text-amber-300 font-bold tabular-nums">
+              · {verbs.read + verbs.write + verbs.delete + verbs.admin} actions
+            </span>
+            {top[0] && (
+              <span className="text-[10px] text-emerald-300 truncate max-w-[260px]">
+                · top fix: {top[0].action ?? top[0].action_type} (breaks {top[0].breaks_path_count}/{totalPaths})
+              </span>
+            )}
+          </>
+        )}
         {dmg.destructive_capable && (
           <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-red-300 bg-red-500/15 border border-red-500/40">
             <Skull className="w-3 h-3" /> destructive reachable
           </span>
         )}
-      </div>
+      </button>
 
-      <div className="grid grid-cols-12 gap-3">
+      {!expanded ? null : <div className="grid grid-cols-12 gap-3 mt-3">
         {/* Aggregated damage capability */}
         <div className="col-span-4 p-3 rounded-md border border-slate-700/60 bg-slate-900/40">
           <div className="flex items-center gap-1.5 mb-1.5">
@@ -330,21 +355,23 @@ export function CrownJewelSurfaceCard({ systemName, jewelId }: Props) {
             </ul>
           )}
         </div>
-      </div>
+      </div>}
 
-      {/* Score distribution strip — small histogram */}
-      <div className="mt-2 flex items-center gap-2 text-[10px]">
-        <span className="text-slate-500 uppercase tracking-wider">Severity mix:</span>
-        {dist.critical > 0 && <span className="text-red-300 font-semibold">{dist.critical} critical</span>}
-        {dist.high > 0 && <span className="text-orange-300 font-semibold">{dist.high} high</span>}
-        {dist.medium > 0 && <span className="text-amber-300 font-semibold">{dist.medium} medium</span>}
-        {dist.low > 0 && <span className="text-emerald-300 font-semibold">{dist.low} low</span>}
-        {dmg.summary && (
-          <span className="ml-auto text-slate-400 italic truncate max-w-[480px]" title={dmg.summary}>
-            {dmg.summary}
-          </span>
-        )}
-      </div>
+      {/* Score distribution strip — only when expanded */}
+      {expanded && (
+        <div className="mt-2 flex items-center gap-2 text-[10px]">
+          <span className="text-slate-500 uppercase tracking-wider">Severity mix:</span>
+          {dist.critical > 0 && <span className="text-red-300 font-semibold">{dist.critical} critical</span>}
+          {dist.high > 0 && <span className="text-orange-300 font-semibold">{dist.high} high</span>}
+          {dist.medium > 0 && <span className="text-amber-300 font-semibold">{dist.medium} medium</span>}
+          {dist.low > 0 && <span className="text-emerald-300 font-semibold">{dist.low} low</span>}
+          {dmg.summary && (
+            <span className="ml-auto text-slate-400 italic truncate max-w-[480px]" title={dmg.summary}>
+              {dmg.summary}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
