@@ -1727,24 +1727,31 @@ export function IAMPermissionAnalysisModal({
                   perms: Perm[]
                   actionable: boolean
                 }> = []
+                // Per feedback_safety_language.md: never claim "safe" when
+                // the engine can't guarantee it. Per-permission high
+                // confidence proves the USAGE gate passed for that
+                // permission only — it does NOT clear role-level gates
+                // (telemetry coverage, blast radius, drift). The verdict
+                // header above is authoritative for the whole role; these
+                // buckets describe per-permission usage evidence only.
                 if (high.length > 0) buckets.push({
                   key: 'high', count: high.length, band: '90-100',
-                  label: 'High confidence — safe to remove',
-                  hint: 'Logged activity confirms zero usage; remediation gates pass.',
+                  label: 'High confidence per permission — usage gates pass',
+                  hint: 'Logged activity confirms zero usage in the observation window. Role-level gates may still require override — see the verdict above.',
                   color: '#15803d', bg: '#f0fdf4', border: '#bbf7d0',
                   perms: high, actionable: true,
                 })
                 if (med.length > 0) buckets.push({
                   key: 'med', count: med.length, band: '60-89',
-                  label: 'Medium confidence — review evidence',
-                  hint: 'Removable but with telemetry gaps. Verify the missing source before applying.',
+                  label: 'Medium confidence per permission — partial telemetry',
+                  hint: 'Some evidence sources are missing for these permissions. Improve coverage or accept the gap via override.',
                   color: '#9a3412', bg: '#fff7ed', border: '#fed7aa',
                   perms: med, actionable: true,
                 })
                 if (low.length > 0) buckets.push({
                   key: 'low', count: low.length, band: '<60',
-                  label: 'Low confidence — investigation required',
-                  hint: 'Insufficient evidence to remediate safely. Improve coverage or override with rationale.',
+                  label: 'Low confidence per permission — investigation required',
+                  hint: 'Insufficient evidence on these permissions. Improve coverage or accept the gap via override.',
                   color: '#991b1b', bg: '#fef2f2', border: '#fecaca',
                   perms: low, actionable: true,
                 })
@@ -1761,9 +1768,9 @@ export function IAMPermissionAnalysisModal({
                 return (
                   <div className="mb-4 p-5 rounded-xl bg-white border" style={{ borderColor: 'var(--border, #e5e7eb)' }}>
                     <div className="flex items-center justify-between mb-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Per-permission decisions</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--muted-foreground, #6b7280)' }}>Per-permission usage evidence</div>
                       <div className="text-xs" style={{ color: 'var(--muted-foreground, #6b7280)' }}>
-                        Bucketed by per-permission confidence band
+                        Per-permission usage signal only — role-level verdict above is authoritative
                       </div>
                     </div>
                     <div className="space-y-2">
@@ -1895,124 +1902,6 @@ export function IAMPermissionAnalysisModal({
                             </button>
                           )}
                         </div>
-                        {/* Group explanation prose (leaks AWS service names —
-                            e.g. "Fully logged in CloudTrail. Role is active...",
-                            "Access Advisor shows ec2, iam was used by this
-                            role...", "DynamoDB data events are NOT enabled in
-                            CloudTrail...") and the Decision Contract operator_
-                            context block (leaks "cloudtrail_data_events:dynamodb",
-                            "AWS docs: CloudTrail data events ↗") are suppressed.
-                            The actionable info is captured in the bucket panel
-                            above ("Verify the missing source before applying" /
-                            "Improve coverage or override with rationale"). */}
-                        {false && isInferredOrTelemetryBlocked && group.decision_contract?.operator_context ? (() => {
-                          const oc = group.decision_contract!.operator_context!
-                          const checks = oc.what_to_check || []
-                          const saferRaw = oc.suggested_safer_actions
-                          const saferList = Array.isArray(saferRaw) ? saferRaw : []
-                          const saferAbsent = !Array.isArray(saferRaw) && saferRaw && (saferRaw as any).no_safer_action_known
-                          const ackList = oc.override_requirements?.required_acknowledgements || []
-                          const reasonCode = group.decision_contract!.reason_code
-                          return (
-                            <div className="px-4 py-3 text-xs border-b" style={{ borderColor: colors.border, background: '#fffbeb', color: '#78350f' }}>
-                              <div className="flex items-start gap-2">
-                                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[#92400e]" />
-                                <div className="flex-1 space-y-2">
-                                  {/* Reason code badge + summary */}
-                                  <div>
-                                    {reasonCode && (
-                                      <span className="inline-block text-[9px] uppercase tracking-wider font-bold mr-2 px-1.5 py-0.5 rounded bg-[#92400e20] text-[#92400e]">
-                                        {reasonCode.replace(/_/g, ' ')}
-                                      </span>
-                                    )}
-                                    <span className="font-semibold text-[#92400e]">{oc.summary || group.block_reason_human}</span>
-                                  </div>
-                                  {/* What to check — actionable steps */}
-                                  {checks.length > 0 && (
-                                    <div>
-                                      <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">What to check</div>
-                                      <ul className="list-disc ml-4 space-y-1">
-                                        {checks.map((c, ci) => (
-                                          <li key={ci}>
-                                            {c.check}
-                                            {c.command_or_link && (
-                                              <> · <a href={c.command_or_link} target="_blank" rel="noopener noreferrer" className="underline text-[#92400e]">link ↗</a></>
-                                            )}
-                                            {c.expected_result && (
-                                              <span className="text-[#78350f] opacity-75"> — expect: {c.expected_result}</span>
-                                            )}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                  {/* Safer alternatives */}
-                                  {saferList.length > 0 && (
-                                    <div>
-                                      <div className="text-[10px] uppercase tracking-wider font-semibold mb-1 text-[#78350f]">Safer alternatives</div>
-                                      <ul className="list-disc ml-4 space-y-1">
-                                        {saferList.map((a, ai) => (
-                                          <li key={ai}>
-                                            <span className="font-semibold">{a.action}</span>
-                                            {a.explanation && <span className="opacity-90"> — {a.explanation}</span>}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                  {saferAbsent && (
-                                    <div className="text-[#78350f] italic">No safer action known — operator must acknowledge override.</div>
-                                  )}
-                                  {/* Override requirements */}
-                                  {ackList.length > 0 && (
-                                    <div className="text-[10px] text-[#78350f]">
-                                      <span className="uppercase tracking-wider font-semibold">Override requires: </span>
-                                      {ackList.map(a => a.replace(/_/g, ' ')).join(', ')}
-                                    </div>
-                                  )}
-                                  {/* Escalation target — spec §8 explicit-absence sentinel */}
-                                  {oc.escalation_target && (() => {
-                                    const et = oc.escalation_target!
-                                    const isUnknown = et.target_type === 'unknown_no_default_configured'
-                                    return (
-                                      <div className="text-[10px] text-[#78350f]">
-                                        <span className="uppercase tracking-wider font-semibold">Escalate to: </span>
-                                        {isUnknown ? (
-                                          <span className="italic">no default escalation team configured — set one in onboarding to enable AUTO_APPLY mode</span>
-                                        ) : (
-                                          <>
-                                            {et.display_name || et.target_type?.replace(/_/g, ' ')}
-                                            {et.source && et.source !== 'unknown' ? <span className="opacity-75"> (via {et.source.replace(/_/g, ' ')})</span> : null}
-                                          </>
-                                        )}
-                                      </div>
-                                    )
-                                  })()}
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })() : isInferredOrTelemetryBlocked && group.block_reason_human ? (
-                          <div className="px-4 py-2 text-xs border-b flex items-start gap-2" style={{ borderColor: colors.border, background: '#fffbeb', color: '#92400e' }}>
-                            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                            <div>
-                              <p>{group.block_reason_human}</p>
-                              {group.block_reason_code === 'needs_telemetry' && group.telemetry_enablement_action && (
-                                <p className="mt-1 text-[11px]" style={{ color: '#78350f' }}>
-                                  <a
-                                    href="https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="underline"
-                                  >
-                                    AWS docs: CloudTrail data events ↗
-                                  </a>
-                                  <span> · AWS CloudTrail data events pricing applies — varies by workload.</span>
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ) : null}
                         <div className="p-2 space-y-1" style={{ background: "var(--card, #ffffff)" }}>
                           {group.permissions.map((perm, i) => (
                             <div
