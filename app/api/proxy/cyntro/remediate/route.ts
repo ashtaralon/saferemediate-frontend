@@ -36,23 +36,6 @@ export async function POST(req: NextRequest) {
     console.log(`[CYNTRO-REMEDIATE] Starting remediation for: ${role_name}`)
     console.log(`[CYNTRO-REMEDIATE] Options: dry_run=${dry_run}, create_snapshot=${create_snapshot}, detach_managed_policies=${detach_managed_policies}, detach_all=${detach_all_managed_policies}`)
 
-    // First get gap analysis for permission info
-    const gapPrefix = identity_type === 'user' ? '/api/iam-users' : '/api/iam-roles'
-    const gapRes = await fetch(`${BACKEND_URL}${gapPrefix}/${encodeURIComponent(role_name)}/gap-analysis?days=90`, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-    })
-
-    if (!gapRes.ok) {
-      return NextResponse.json({ error: "Failed to get role analysis" }, { status: 500 })
-    }
-
-    const gapData = await gapRes.json()
-    const usedPermissions = gapData.used_permissions || []
-    const unusedPermissions = gapData.unused_permissions || []
-
     const explicitPermissions = Array.isArray(permissions_to_remove)
       ? Array.from(new Set(
           permissions_to_remove
@@ -71,8 +54,24 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Dry runs may still preview the backend's current unused set, but live execution must be explicit.
-    const permsToRemove = explicitPermissions ?? unusedPermissions
+    // Live execution: trust the operator's explicit list and skip the
+    // gap-analysis pre-fetch entirely. Pre-fetching here was strict overhead
+    // (a second hit on a slow Render endpoint) that intermittently 5xx'd
+    // under page-load burst and surfaced as "Failed to get role analysis"
+    // even though the actual remediate call would have succeeded. The
+    // before/after totals returned to the UI now come from the real
+    // backend remediation response (or fall back to the explicit count).
+    //
+    // Dry runs without an explicit list still need a permission preview;
+    // surface that as a clear error instead of silently re-introducing the
+    // pre-fetch, since dry-run-without-list isn't a path the modal hits.
+    if (!explicitPermissions || explicitPermissions.length === 0) {
+      return NextResponse.json(
+        { error: "permissions_to_remove is required (dry run preview without an explicit list is not supported)" },
+        { status: 400 }
+      )
+    }
+    const permsToRemove = explicitPermissions
 
     console.log(`[CYNTRO-REMEDIATE] Permissions to remove: ${permsToRemove.length}`)
 
@@ -125,14 +124,21 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Transform response for UI
-    const beforeTotal = gapData.summary?.total_permissions || gapData.allowed_count || (usedPermissions.length + unusedPermissions.length)
+    // Transform response for UI. Totals come from the backend's remediation
+    // response (which knows the role's actual before/after action counts).
+    // No upfront gap-analysis pre-fetch — see the comment above the
+    // explicitPermissions guard for why that was removed.
     const removedPermissions = typeof remediateData.permissions_removed === 'number'
       ? remediateData.permissions_removed
       : (remediateData.total_permissions_removed || permsToRemove.length)
+    const beforeTotal = typeof remediateData.before_total === 'number'
+      ? remediateData.before_total
+      : (remediateData.summary?.before_total ?? remediateData.allowed_count ?? 0)
     const afterTotal = typeof remediateData.after_total === 'number'
       ? remediateData.after_total
-      : Math.max(0, beforeTotal - removedPermissions)
+      : (typeof beforeTotal === 'number' && beforeTotal > 0
+          ? Math.max(0, beforeTotal - removedPermissions)
+          : 0)
 
     const response = {
       dry_run,
