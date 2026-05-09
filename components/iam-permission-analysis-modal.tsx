@@ -2946,60 +2946,50 @@ export function IAMPermissionAnalysisModal({
               there's a v5-aligned way to show it without contradicting
               the verdict (e.g. only when AUTO_EXECUTE). */}
 
-          {/* Service Role Warning - Based on backend trust policy analysis */}
+          {/* Service Role Warning - Only show for CRITICAL severity
+              (destructive hard-block — DO NOT MODIFY). Medium/high
+              severity warnings are suppressed because the top verdict
+              header already covers "this needs review" and the
+              backend prose leaks AWS service names ("EC2", "Lambda",
+              "ec2.amazonaws.com") that violate the demo-safe vocabulary
+              rule (see feedback_demo_safe_source_labels.md).
+
+              Critical-severity service-role warnings are kept because
+              they ARE a different kind of warning — destructive hard-
+              block, not a noisy duplicate — and the trust-principal
+              line is still suppressed below for demo safety. */}
           {analysisTab === 'summary' && (() => {
             if (!serviceAnalysis) return null
-
-            // Severity-based styling
-            const styles = {
-              critical: {
-                border: 'border-red-500',
-                bg: 'bg-[#ef444410]',
-                icon: 'text-[#ef4444]',
-                title: 'text-red-900',
-                text: 'text-[#ef4444]',
-                badge: 'bg-red-600 text-white',
-                badgeText: 'DO NOT MODIFY'
-              },
-              high: {
-                border: 'border-orange-500',
-                bg: 'bg-[#f9731610]',
-                icon: 'text-orange-600',
-                title: 'text-orange-900',
-                text: 'text-[#f97316]',
-                badge: 'bg-[#f9731610]0 text-white',
-                badgeText: 'VERIFY FIRST'
-              },
-              medium: {
-                border: 'border-amber-500',
-                bg: 'bg-[#f9731610]',
-                icon: 'text-[#f97316]',
-                title: 'text-amber-900',
-                text: 'text-[#f97316]',
-                badge: 'bg-[#f9731610]0 text-white',
-                badgeText: 'INVESTIGATION NEEDED'
-              }
-            }
-
             const severity = serviceAnalysis.severity || 'medium'
-            const style = styles[severity] || styles.medium
+            // Skip non-critical severity entirely — top verdict covers it
+            if (severity !== 'critical') return null
+
+            // Critical-only styling (red, DO NOT MODIFY).
+            const style = {
+              border: 'border-red-500',
+              bg: 'bg-[#ef444410]',
+              icon: 'text-[#ef4444]',
+              title: 'text-red-900',
+              text: 'text-[#ef4444]',
+              badge: 'bg-red-600 text-white',
+              badgeText: 'DO NOT MODIFY',
+            }
 
             return (
               <div className={`rounded-md border ${style.border} ${style.bg} p-3`}>
                 <div className="flex items-start gap-2.5">
                   <AlertTriangle className={`w-4 h-4 ${style.icon} flex-shrink-0 mt-0.5`} />
                   <div className="flex-1 min-w-0">
-                    {/* Title with badge and service principal */}
+                    {/* Title with badge — service principal line removed
+                        for demo safety (would leak AWS service principals
+                        like ec2.amazonaws.com). The DO NOT MODIFY badge
+                        + the title still tell the operator what they need
+                        to know without naming the underlying service. */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <h4 className={`font-semibold ${style.title} text-sm`}>
                           {serviceAnalysis.title}
                         </h4>
-                        {backendAnalysis?.service_principals && backendAnalysis.service_principals.length > 0 && (
-                          <p className="text-[11px] text-[var(--muted-foreground,#6b7280)] mt-0.5 font-mono truncate">
-                            Trust: {backendAnalysis.service_principals.join(', ')}
-                          </p>
-                        )}
                       </div>
                       <span className={`px-2 py-0.5 ${style.badge} text-[10px] rounded font-semibold whitespace-nowrap`}>
                         {style.badgeText}
@@ -3536,38 +3526,14 @@ export function IAMPermissionAnalysisModal({
                 </div>
               )
             } else if (verdictBucket === 'blocked') {
-              // Pipeline routed this to "review required" for reasons
-              // OTHER than the no-usage branch above -- partial
-              // telemetry, short observation window, active consumers.
-              // Visual: amber safety-hold (matches the top verdict
-              // block + Summary tab banner). Red is reserved for
-              // truly destructive verdicts (service-role DO NOT APPLY).
-              const reasons = safetyContext?.unsafe_reasons ?? []
-              return (
-                <div className="rounded-lg border border-[#fde68a] bg-[#fffbeb] p-5">
-                  <h3 className="font-bold text-[#b45309]">Safety hold — review required</h3>
-                  <p className="text-[#92400e] mt-1">
-                    {reasons[0] ?? "Cyntro paused this change. Review the evidence above before proceeding."}
-                  </p>
-                  {reasons.length > 1 && (
-                    <ul className="mt-2 text-sm text-[#78350f] list-disc list-inside space-y-1">
-                      {reasons.slice(1).map((reason, i) => (
-                        <li key={`rec-${i}`}>{reason}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {typeof safetyContext?.consumer_count === 'number' && safetyContext.consumer_count > 0 && (
-                    <p className="text-xs text-[#92400e] mt-3">
-                      Note: {safetyContext.consumer_count} consumer{safetyContext.consumer_count === 1 ? '' : 's'}{' '}
-                      currently depend on this role — verify impact before touching permissions.
-                    </p>
-                  )}
-                  <div className="flex items-center gap-2 mt-3 text-[#b45309]">
-                    <Shield className="w-5 h-5" />
-                    <span className="font-medium">Pipeline decision: review required — auto-remediation paused</span>
-                  </div>
-                </div>
-              )
+              // Suppressed: the top-of-Summary verdict header already
+              // shows "Paused — review required" with the same
+              // unsafe_reasons + consumer count + "Pipeline decision"
+              // sentence. Rendering this card AGAIN at the bottom of
+              // the tab made the modal look like five different
+              // things failed when really one safety hold was being
+              // shown twice. The verdict above is authoritative.
+              return null
             } else {
               return (
                 <div className="rounded-lg border border-[var(--border,#e5e7eb)] bg-white p-5">
