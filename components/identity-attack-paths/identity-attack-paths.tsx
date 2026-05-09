@@ -5,6 +5,7 @@ import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, Ch
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
+import { CleanAttackFlow } from "./clean-attack-flow"
 import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
 import { PathRemediationPlan } from "./path-remediation-plan"
@@ -61,6 +62,9 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [listMode, setListMode] = useState<"at-risk" | "safe">("at-risk")
 
   const [showFlowViz, setShowFlowViz] = useState(true)
+  // "clean" = new reactflow DAG (default, the polished CISO view).
+  // "lanes" = legacy 5-column lane view (kept for back-compat).
+  const [graphMode, setGraphMode] = useState<"clean" | "lanes">("clean")
 
   // Remediation state
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>("idle")
@@ -612,23 +616,59 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     {(currentPath?.nodes ? new Set(currentPath.nodes.map((n) => n.lane ?? n.tier ?? "other")).size : 0)} lanes
                   </span>
                 </div>
-                <button
-                  onClick={() => setShowFlowViz((v) => !v)}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
-                  title={showFlowViz ? "Hide the geometric attack-flow graph" : "Show the geometric attack-flow graph"}
-                >
-                  {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                  {showFlowViz ? "Hide graph" : "Show graph"}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {/* View toggle: clean DAG (default) vs legacy 5-lane columns */}
+                  <div className="inline-flex items-center bg-slate-800/60 rounded p-0.5 border border-slate-700">
+                    <button
+                      onClick={() => setGraphMode("clean")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                        graphMode === "clean"
+                          ? "bg-emerald-500/20 text-emerald-200"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                      title="Beautiful directed graph with all related services and arrowed flow direction"
+                    >
+                      Flow
+                    </button>
+                    <button
+                      onClick={() => setGraphMode("lanes")}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${
+                        graphMode === "lanes"
+                          ? "bg-emerald-500/20 text-emerald-200"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                      title="Legacy 5-column lane layout: Entry · Compute · Identity · Pivot · Crown Jewel"
+                    >
+                      Lanes
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setShowFlowViz((v) => !v)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                    title={showFlowViz ? "Hide the attack graph" : "Show the attack graph"}
+                  >
+                    {showFlowViz ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    {showFlowViz ? "Hide graph" : "Show graph"}
+                  </button>
+                </div>
               </div>
 
               {showFlowViz && (
-                <AttackPathFlowViz
-                  paths={jewelPaths}
-                  selectedPathIndex={selectedPathIndex}
-                  onNodeClick={handleNodeClick}
-                  selectedNodeId={selectedNodeId}
-                />
+                graphMode === "clean" ? (
+                  <CleanAttackFlow
+                    path={currentPath}
+                    onNodeClick={handleNodeClick}
+                    selectedNodeId={selectedNodeId}
+                    height={620}
+                  />
+                ) : (
+                  <AttackPathFlowViz
+                    paths={jewelPaths}
+                    selectedPathIndex={selectedPathIndex}
+                    onNodeClick={handleNodeClick}
+                    selectedNodeId={selectedNodeId}
+                  />
+                )
               )}
 
               {/* Remediation plan — full width, below the graph */}
