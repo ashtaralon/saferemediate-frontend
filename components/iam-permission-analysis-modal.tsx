@@ -719,6 +719,16 @@ export function IAMPermissionAnalysisModal({
     }
 
     setApplying(true)
+    // Hard timeout: without this, a hung proxy/backend means the override
+    // modal stays in phase='applying' forever and the operator perceives
+    // "click does nothing." The Vercel function maxDuration on the
+    // remediate proxy is 300s, but the modal must surface a failure
+    // long before that — 90s is generous (live IAM remediation usually
+    // completes in 2-5s) and bounded enough to be actionable.
+    const REMEDIATE_TIMEOUT_MS = 90_000
+    const abortCtrl = new AbortController()
+    const timeoutHandle = setTimeout(() => abortCtrl.abort(), REMEDIATE_TIMEOUT_MS)
+    const reqStartedAt = Date.now()
     try {
       const permissionsToRemove = allSelected
 
@@ -728,10 +738,12 @@ export function IAMPermissionAnalysisModal({
       console.log('[IAM-Modal] Detach managed policies:', detachManagedPolicies)
       console.log('[IAM-Modal] Detach ALL managed policies:', detachAllManagedPolicies)
       console.log('[IAM-Modal] Force override block:', effectiveForce, '(raw:', force, ', non-auto in selection:', nonAutoSelected.length, ')')
+      console.log('[IAM-Modal] POST /api/proxy/cyntro/remediate (timeout=' + REMEDIATE_TIMEOUT_MS + 'ms)')
 
       const response = await fetch('/api/proxy/cyntro/remediate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortCtrl.signal,
         body: JSON.stringify({
           role_name: roleName,
           identity_type: identityType?.toLowerCase().includes('user') ? 'user' : 'role',
@@ -744,6 +756,8 @@ export function IAMPermissionAnalysisModal({
           ...(overrideLineage ? { override_lineage: overrideLineage } : {}),
         })
       })
+      clearTimeout(timeoutHandle)
+      console.log('[IAM-Modal] Response received in', Date.now() - reqStartedAt, 'ms — status:', response.status)
 
       const result = await response.json()
       console.log('[IAM-Modal] Remediation response:', result)
@@ -876,12 +890,28 @@ export function IAMPermissionAnalysisModal({
         throw new Error(`Remediation failed: ${errorMsg}`)
       }
     } catch (err: any) {
-      console.error('[IAM-Modal] Apply fix error:', err)
+      clearTimeout(timeoutHandle)
+      const elapsedMs = Date.now() - reqStartedAt
+      // AbortError from our REMEDIATE_TIMEOUT_MS: surface as a clear
+      // timeout message instead of the cryptic "AbortError" the browser
+      // emits. The backend may still be processing — operator should
+      // investigate via audit log before retrying to avoid a duplicate
+      // mutation.
+      const isTimeout = err?.name === 'AbortError' || err?.code === 20
+      const friendlyMsg = isTimeout
+        ? `Remediation request timed out after ${Math.round(elapsedMs / 1000)}s. The backend may still be processing — check the audit log before retrying.`
+        : (err?.message || 'Failed to apply remediation')
+      console.error('[IAM-Modal] Apply fix error after', elapsedMs, 'ms:', err?.name, err?.message)
       toast({
-        title: "❌ Remediation Failed",
-        description: err.message || 'Failed to apply remediation',
+        title: isTimeout ? "⏱ Remediation Timed Out" : "❌ Remediation Failed",
+        description: friendlyMsg,
         variant: "destructive"
       })
+      // Replace the original err.message with our friendly version so the
+      // override modal's catch shows a useful sentence instead of "AbortError".
+      if (isTimeout) {
+        err = new Error(friendlyMsg)
+      }
       // After a failed apply (canary rollback, safety-gate block, etc.), the
       // role's gap-analysis state may have shifted: a perm we just tried to
       // remove might have been re-classified by the backend, or a service's
