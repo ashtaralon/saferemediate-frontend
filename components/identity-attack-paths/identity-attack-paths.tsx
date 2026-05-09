@@ -417,6 +417,41 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     }
   }, [activeRemediationNodeId])
 
+  const currentPathPreReturn = jewelPaths?.[selectedPathIndex] ?? null
+
+  // Stable filter object for TrafficFlowMap — without this the inline
+  // pathFilter prop changes identity on every render and TrafficFlowMap's
+  // loadData useEffect refetches in a tight loop. Must be declared BEFORE
+  // any conditional early-return below or the hook order changes between
+  // renders.
+  const trafficFlowPathFilter = useMemo(() => {
+    if (!currentPathPreReturn) return undefined
+    return {
+      nodeIds: currentPathPreReturn.nodes.map((n) => n.id),
+      pathNodes: currentPathPreReturn.nodes.map((n) => ({
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        tier: n.tier,
+        lane: n.lane,
+      })),
+      pathEdges: (currentPathPreReturn.edges ?? []).map((e) => ({
+        source: e.source,
+        target: e.target,
+        type: e.type,
+        label: e.label,
+        port: e.port,
+        protocol: e.protocol,
+        bytes: e.traffic_bytes,
+        hits: e.hit_count,
+        is_observed: e.is_observed,
+      })),
+      jewelName:
+        currentPathPreReturn.nodes.find((n) => n.tier === "crown_jewel")?.name ?? undefined,
+      pathLabel: `path #${selectedPathIndex + 1} of ${jewelPaths.length}`,
+    }
+  }, [currentPathPreReturn, selectedPathIndex, jewelPaths.length])
+
   // Loading state
   if (isLoading) {
     return (
@@ -461,7 +496,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     )
   }
 
-  const currentPath = jewelPaths?.[selectedPathIndex] ?? null
+  const currentPath = currentPathPreReturn
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -660,13 +695,16 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
 
               {showFlowViz && (
                 graphMode === "clean" ? (
-                  // Reuse the actual System Map (TrafficFlowMap) here — same
-                  // Traffic Flow Map the operator sees behind the "System
-                  // Map" tab in Topology, with the Stack Components sidebar
-                  // (Compute / SG / NACLs / IAM / API Calls / Resources)
-                  // and animated traffic flows.
+                  // Reuse the actual System Map (TrafficFlowMap), but
+                  // pass it the CURRENT path's nodes as a filter so each
+                  // crown jewel renders its own real data flow — not the
+                  // whole system map. Switching the selected path
+                  // re-renders with that path's filtered architecture.
                   <div style={{ height: 720 }}>
-                    <TrafficFlowMap systemName={systemName} />
+                    <TrafficFlowMap
+                      systemName={systemName}
+                      pathFilter={trafficFlowPathFilter}
+                    />
                   </div>
                 ) : (
                   <AttackPathFlowViz

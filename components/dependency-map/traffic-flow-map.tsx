@@ -2463,7 +2463,132 @@ function RefreshStatusBadge({
 // ============================================
 // MAIN COMPONENT
 // ============================================
-export default function TrafficFlowMap({ systemName }: { systemName: string }) {
+// Optional filter passed from the Attack-Paths Flow tab. When set, the
+// architecture is reduced to ONLY the nodes in this attack path + the
+// flows connecting them, so each path renders its own real data flow to
+// the specific crown jewel instead of the whole system map.
+//
+// pathNodes/pathEdges are taken from the IdentityAttackPath payload so
+// nodes that don't survive the System Map's "has observed traffic" filter
+// (which is system-scoped) still appear when they're in the attack path,
+// and edges carry the path's real traffic_bytes / hit_count.
+export interface TrafficFlowMapPathFilter {
+  nodeIds: string[];
+  pathNodes?: Array<{ id: string; name: string; type: string; tier?: string; lane?: string }>;
+  pathEdges?: Array<{
+    source: string;
+    target: string;
+    type?: string;
+    label?: string;
+    port?: number | null;
+    protocol?: string | null;
+    bytes?: number;
+    hits?: number;
+    is_observed?: boolean;
+  }>;
+  jewelName?: string;
+  pathLabel?: string;
+}
+
+function bucketForType(rawType: string): 'compute' | 'resource' | 'security_group' | 'nacl' | 'iam_role' | 'principal' | 'network' | 'unknown' {
+  const t = (rawType || '').toLowerCase();
+  if (t.includes('ec2') || t === 'ec2instance' || t.includes('lambda') || t.includes('fargate') || t.includes('ecs')) return 'compute';
+  if (t.includes('s3') || t.includes('bucket') || t.includes('dynamo') || t.includes('rds') || t.includes('aurora') || t.includes('database')) return 'resource';
+  if (t.includes('securitygroup')) return 'security_group';
+  if (t.includes('nacl') || t.includes('networkacl')) return 'nacl';
+  if (t.includes('iamrole') || t === 'role') return 'iam_role';
+  if (t.includes('principal')) return 'principal';
+  if (t.includes('vpc') || t.includes('subnet') || t.includes('routetable') || t.includes('igw') || t.includes('gateway')) return 'network';
+  return 'unknown';
+}
+
+function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFilter): SystemArchitecture {
+  const ids = new Set(filter.nodeIds);
+  const inPath = (id: string | undefined | null) => !!id && ids.has(id);
+
+  // Start with arch buckets filtered to path
+  const computeServices: ServiceNode[] = arch.computeServices.filter((c) => inPath(c.id));
+  const resources: ServiceNode[] = arch.resources.filter((r) => inPath(r.id));
+  const securityGroups: SecurityCheckpoint[] = arch.securityGroups.filter((sg) => inPath(sg.id));
+  const nacls: SecurityCheckpoint[] = arch.nacls.filter((n) => inPath(n.id));
+  const iamRoles: SecurityCheckpoint[] = arch.iamRoles.filter((r) => inPath(r.id));
+
+  // Seed any path node that didn't survive the System Map's traffic-only
+  // bucketing (e.g. an EC2 with no flow logs but reachable via the attack
+  // path) by classifying from its raw type.
+  const seenIds = new Set<string>([
+    ...computeServices.map((c) => c.id),
+    ...resources.map((r) => r.id),
+    ...securityGroups.map((sg) => sg.id),
+    ...nacls.map((n) => n.id),
+    ...iamRoles.map((r) => r.id),
+  ]);
+  (filter.pathNodes ?? []).forEach((pn) => {
+    if (seenIds.has(pn.id)) return;
+    const bucket = bucketForType(pn.type);
+    const sname = shortName(pn.name);
+    if (bucket === 'compute') {
+      computeServices.push({ id: pn.id, name: pn.name, shortName: sname, type: 'compute', instanceId: pn.id.substring(0, 12) });
+    } else if (bucket === 'resource') {
+      const t = (pn.type || '').toLowerCase();
+      const subtype: NodeType = t.includes('s3') || t.includes('bucket') ? 'storage' : t.includes('dynamo') ? 'dynamodb' : t.includes('rds') || t.includes('aurora') || t.includes('database') ? 'database' : 'storage';
+      resources.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype });
+    } else if (bucket === 'security_group') {
+      securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+    } else if (bucket === 'nacl') {
+      nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+    } else if (bucket === 'iam_role') {
+      iamRoles.push({ id: pn.id, type: 'iam_role', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+    }
+    // 'principal' / 'network' / 'unknown' — skip (no System Map bucket)
+    seenIds.add(pn.id);
+  });
+
+  // Flows: keep arch flows that connect path nodes, then merge in synthetic
+  // flows from path edges so the operator sees the *path's* real edges
+  // (with traffic_bytes / hit_count) even when the System Map doesn't have
+  // a flow for that pair.
+  const archFlows: TrafficFlow[] = arch.flows.filter((f) =>
+    inPath(f.sourceId) &&
+    inPath(f.targetId) &&
+    (!f.sgId || inPath(f.sgId)) &&
+    (!f.naclId || inPath(f.naclId)) &&
+    (!f.roleId || inPath(f.roleId)),
+  );
+  const flowKey = (s: string, t: string) => `${s}->${t}`;
+  const flowMap = new Map<string, TrafficFlow>();
+  archFlows.forEach((f) => flowMap.set(flowKey(f.sourceId, f.targetId), f));
+  (filter.pathEdges ?? []).forEach((e) => {
+    if (!seenIds.has(e.source) || !seenIds.has(e.target)) return;
+    const key = flowKey(e.source, e.target);
+    if (flowMap.has(key)) return;
+    flowMap.set(key, {
+      sourceId: e.source,
+      targetId: e.target,
+      ports: e.port ? [String(e.port)] : [],
+      protocol: e.protocol || (e.is_observed ? 'TCP' : 'CONFIGURED'),
+      bytes: e.bytes ?? 0,
+      connections: e.hits ?? 0,
+      isActive: !!e.is_observed,
+    });
+  });
+  const flows: TrafficFlow[] = [...flowMap.values()];
+
+  return {
+    computeServices,
+    resources,
+    securityGroups,
+    nacls,
+    iamRoles,
+    flows,
+    totalBytes: flows.reduce((s, f) => s + (f.bytes || 0), 0),
+    totalConnections: flows.reduce((s, f) => s + (f.connections || 0), 0),
+    totalGaps: securityGroups.reduce((s, sg) => s + sg.gapCount, 0) + iamRoles.reduce((s, r) => s + r.gapCount, 0),
+    vpcGroups: arch.vpcGroups,
+  };
+}
+
+export default function TrafficFlowMap({ systemName, pathFilter }: { systemName: string; pathFilter?: TrafficFlowMapPathFilter }) {
   const [architecture, setArchitecture] = useState<SystemArchitecture | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -3290,7 +3415,17 @@ export default function TrafficFlowMap({ systemName }: { systemName: string }) {
         }
 
         setLastChanges(changes);
-        setArchitecture(arch);
+        // When the Attack-Paths Flow tab passes a pathFilter, reduce the
+        // full system architecture to only the nodes/flows that belong
+        // to THIS path. Each crown jewel now renders its own real data
+        // flow instead of the whole system map.
+        const finalArch = pathFilter ? applyPathFilter(arch, pathFilter) : arch;
+        if (pathFilter) {
+          console.log(
+            `[TrafficFlowMap] pathFilter active — reduced ${arch.computeServices.length + arch.resources.length + arch.securityGroups.length + arch.iamRoles.length + arch.nacls.length} → ${finalArch.computeServices.length + finalArch.resources.length + finalArch.securityGroups.length + finalArch.iamRoles.length + finalArch.nacls.length} nodes, ${arch.flows.length} → ${finalArch.flows.length} flows`,
+          );
+        }
+        setArchitecture(finalArch);
         setLastUpdated(new Date());
         setRefreshStatus('success');
 
@@ -3308,10 +3443,12 @@ export default function TrafficFlowMap({ systemName }: { systemName: string }) {
     } finally {
       setLoading(false);
     }
-  }, [buildArchitecture, fetchSGRules, architecture, systemName]);
+  }, [buildArchitecture, fetchSGRules, architecture, systemName, pathFilter]);
 
-  // Initial load + refetch when systemName changes
-  useEffect(() => { loadData(); }, [systemName]);
+  // Initial load + refetch when systemName changes. Also re-runs when
+  // pathFilter changes so the Attack-Paths Flow tab can switch between
+  // crown jewels and re-render with each path's own filtered architecture.
+  useEffect(() => { loadData(); }, [systemName, pathFilter]);
 
   // Auto-refresh with configurable interval
   useEffect(() => {
@@ -3452,7 +3589,19 @@ export default function TrafficFlowMap({ systemName }: { systemName: string }) {
           >
             <Layers className="w-4 h-4" />
           </button>
-          <h2 className="text-white font-bold text-lg">Traffic Flow Map</h2>
+          <h2 className="text-white font-bold text-lg">
+            {pathFilter ? 'Path Flow Map' : 'Traffic Flow Map'}
+          </h2>
+          {pathFilter && (pathFilter.jewelName || pathFilter.pathLabel) && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30">
+              <Target className="w-3.5 h-3.5 text-rose-300" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-200">
+                {pathFilter.pathLabel
+                  ? `Path → ${pathFilter.jewelName ?? pathFilter.pathLabel}`
+                  : `Path to ${pathFilter.jewelName}`}
+              </span>
+            </div>
+          )}
 
           {/* Live indicator */}
           <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/10 rounded-full">
