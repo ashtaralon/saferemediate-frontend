@@ -66,6 +66,13 @@ interface RuleAnalysis {
   recommendation: RuleRecommendation
 }
 
+interface OrphanInfo {
+  orphan_status: string | null
+  is_orphan: boolean
+  attachment_count: number | null
+  attached_eni_count: number
+}
+
 interface SGGapResponse {
   sg_id: string
   sg_name?: string
@@ -75,6 +82,7 @@ interface SGGapResponse {
   used_rules?: number
   unused_rules?: number
   rules_analysis: RuleAnalysis[]
+  orphan_info?: OrphanInfo
   error?: boolean
   message?: string
 }
@@ -897,6 +905,35 @@ export function SGRemediationCard({
           </div>
         </div>
       </div>
+
+      {/* Orphan-SG warning — fires when no resources depend on this SG.
+          Rule-level remediation is moot for an orphan; the operator
+          should consider deleting the SG entirely. The old modal
+          surfaced this as "Orphan Security Group: CRITICAL" — we
+          surface it here as a card-level banner so it's the first
+          thing the operator sees, above the confidence card. */}
+      {data.orphan_info?.is_orphan && (
+        <div className="mx-4 mt-3 p-3 rounded-lg border-2 border-[#dc262640] bg-[#fef2f2]">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">⚠</span>
+            <div className="flex-1">
+              <div className="text-sm font-bold text-[#991b1b]">
+                Orphan Security Group · CRITICAL
+              </div>
+              <div className="text-xs text-[#7f1d1d] mt-1">
+                No resources are attached to this Security Group
+                {data.orphan_info.attached_eni_count === 0
+                  ? " (0 ENIs)"
+                  : null}
+                . Removing individual rules has no effect on real
+                traffic — the SG itself is a candidate for deletion.
+                Coordinate with the platform owner before deleting,
+                in case it's reserved for a planned rollout.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confidence card (mirror IAM renderConfidenceCard) */}
       <div className="p-4">
