@@ -2523,10 +2523,52 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     ...nacls.map((n) => n.id),
     ...iamRoles.map((r) => r.id),
   ]);
+  // Build a name → arch-compute index so we can resolve a CloudTrailPrincipal
+  // whose `name` is an instance ID (e.g. "i-0ee29afa0048943e0") back to the
+  // actual EC2 compute node. The IdentityAttackPaths BFS prefers the
+  // observed CloudTrail-session edge over the configured USES_ROLE edge,
+  // so the principal session shows up in the path instead of the EC2 it
+  // belongs to. Resolve here so the operator sees the EC2.
+  const archComputeByInstanceId = new Map<string, ServiceNode>();
+  arch.computeServices.forEach((c) => {
+    const m = c.id.match(/i-[a-f0-9]+/i);
+    if (m) archComputeByInstanceId.set(m[0], c);
+  });
+  const isInstanceIdName = (name: string | undefined): string | null => {
+    if (!name) return null;
+    const m = name.match(/^(i-[a-f0-9]+)$/i);
+    return m ? m[1] : null;
+  };
+
   (filter.pathNodes ?? []).forEach((pn) => {
     if (seenIds.has(pn.id)) return;
     const bucket = bucketForType(pn.type);
     const sname = shortName(pn.name);
+
+    // CloudTrailPrincipal session named like an instance ID → resolve to
+    // the EC2 instance with that ID (System Map first, then synthesize).
+    if (bucket === 'principal') {
+      const instId = isInstanceIdName(pn.name);
+      if (instId) {
+        const archMatch = archComputeByInstanceId.get(instId);
+        if (archMatch && !seenIds.has(archMatch.id)) {
+          computeServices.push(archMatch);
+          seenIds.add(archMatch.id);
+        } else if (!archMatch) {
+          computeServices.push({
+            id: instId,
+            name: instId,
+            shortName: shortName(instId),
+            type: 'compute',
+            instanceId: instId,
+          });
+          seenIds.add(instId);
+        }
+      }
+      seenIds.add(pn.id);
+      return;
+    }
+
     if (bucket === 'compute') {
       const ct = (pn.type || '').toLowerCase();
       const subtype: NodeType = ct.includes('lambda') ? 'lambda' : 'compute';
@@ -2542,7 +2584,7 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
     } else if (bucket === 'iam_role') {
       iamRoles.push({ id: pn.id, type: 'iam_role', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
     }
-    // 'principal' / 'network' / 'unknown' — skip (no System Map bucket)
+    // 'network' / 'unknown' — skip (no System Map bucket)
     seenIds.add(pn.id);
   });
 
