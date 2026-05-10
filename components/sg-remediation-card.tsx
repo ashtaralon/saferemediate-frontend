@@ -48,9 +48,19 @@ interface RuleTraffic {
 interface RuleRecommendation {
   action: string // "review" | "delete" | "tighten" | "keep" (lower-case from backend)
   reason: string
-  confidence: number // 0-100
+  confidence: number // 0-100 — legacy field, equals evidence_confidence
   suggested_cidrs?: string[]
   observed_sources?: string[]
+  // v4.4 §11E server-emitted fields (backend commit ad0eb27).
+  // Frontend prefers these when present; falls back to client-side
+  // derivation for backwards-compat during rollout. Backend is the
+  // canonical source — these are what the audit log captures.
+  evidence_confidence?: number
+  calibration_factor?: number
+  calibration_reasons?: string[]
+  execution_confidence?: number
+  action_class?: "safe_to_remove" | "verify_first" | "investigate_first" | "protected"
+  action_ceiling?: number
 }
 
 interface RuleAnalysis {
@@ -435,10 +445,15 @@ export function SGRemediationCard({
   const ruleViews = useMemo<RuleView[]>(() => {
     if (!data?.rules_analysis) return []
     return data.rules_analysis.map((r) => {
-      const action = classifyRule(r, observationDays)
-      const evidence = r.recommendation?.confidence ?? 0
-      const ceiling = actionCeiling(action)
-      const execution = Math.min(evidence, ceiling)
+      // Prefer backend-emitted v4.4 §11E fields when present.
+      // Falls back to client-side classification when the backend
+      // hasn't been redeployed yet (the contract is additive).
+      const rec = r.recommendation || ({} as RuleRecommendation)
+      const backendAction = rec.action_class
+      const action: RuleAction = backendAction ?? classifyRule(r, observationDays)
+      const evidence = rec.evidence_confidence ?? rec.confidence ?? 0
+      const ceiling = rec.action_ceiling ?? actionCeiling(action)
+      const execution = rec.execution_confidence ?? Math.min(evidence, ceiling)
       return {
         ...r,
         _action: action,
