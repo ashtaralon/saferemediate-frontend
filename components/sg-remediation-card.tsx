@@ -77,7 +77,42 @@ interface SGGapResponse {
 interface SGRemediationCardProps {
   sgId: string
   onSimulate?: (sgId: string, ruleId: string, action: string) => void
-  onApply?: (sgId: string, ruleIds: string[]) => void
+  /**
+   * Notification fired AFTER a successful apply completes. The card
+   * owns the HTTP call (including the override-modal flow on BLOCK),
+   * so the parent's only job here is to refresh dependent state.
+   */
+  onApplied?: (sgId: string, summary: { removed: number; snapshot_id: string | null }) => void
+}
+
+// ── Override modal state machine ──────────────────────────────────
+//
+// Mirrors the IAM modal pattern. Apply path:
+//   1. User clicks Apply → first attempt without force/lineage.
+//   2. Backend returns success=true → "success" phase, notify parent.
+//   3. Backend returns blocked / decision=BLOCK / 4xx with safety_warnings
+//      → open form phase with the BLOCK reasons listed inline.
+//   4. Operator types rationale + checks rollback ack → "applying" phase.
+//   5. Card re-submits with force=true + override_lineage.
+//   6. Final response → "success" or "error" phase.
+type OverridePhase = "closed" | "form" | "applying" | "success" | "error"
+
+interface OverrideState {
+  phase: OverridePhase
+  rationale: string
+  ackRollback: boolean
+  blockReasons: string[]      // why this remediation was paused (shown in modal)
+  resultMessage: string       // success/error narrative
+  selectedRuleIds: string[]   // captured at click time so the form survives selection changes
+}
+
+const INITIAL_OVERRIDE: OverrideState = {
+  phase: "closed",
+  rationale: "",
+  ackRollback: true,
+  blockReasons: [],
+  resultMessage: "",
+  selectedRuleIds: [],
 }
 
 // ── Action partition + action ceilings ────────────────────────────
@@ -323,12 +358,13 @@ function routingFromScore(score: number, operation: Operation): RoutingState {
 export function SGRemediationCard({
   sgId,
   onSimulate,
-  onApply,
+  onApplied,
 }: SGRemediationCardProps) {
   const [data, setData] = useState<SGGapResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [overrideState, setOverrideState] = useState<OverrideState>(INITIAL_OVERRIDE)
 
   useEffect(() => {
     let cancelled = false
@@ -542,6 +578,223 @@ export function SGRemediationCard({
       ctrl.abort()
     }
   }, [selected, ruleViews, sgId])
+
+  // ── Apply lifecycle ────────────────────────────────────────────
+  //
+  // Locked principle (do not weaken):
+  //   Score-based and preflight gates surface WARNINGS to operators,
+  //   never hard-block them. The override path is always available via
+  //   the override modal — provided the operator records a rationale
+  //   + acknowledges rollback. Same safety, but never a dead-end.
+  //
+  // Two-pass apply:
+  //   1. First call: force=false, no lineage. If the backend accepts,
+  //      we're done — show success.
+  //   2. If the backend blocks (HTTP 200 with success=false +
+  //      decision=BLOCK / blocked=true, OR HTTP 4xx with
+  //      override_lineage_required, OR safety_warnings + force-needed
+  //      message), open the override modal with the reasons. Operator
+  //      writes rationale + acks rollback → second call with
+  //      force=true + override_lineage. The backend (commit pending)
+  //      then validates the lineage and proceeds with full snapshot +
+  //      rollback safety.
+  //
+  // The card OWNS the HTTP call. Parent receives a notification via
+  // onApplied(sgId, summary) for refresh purposes only.
+  const buildRulePayload = (ruleIds: string[]) => {
+    const sel = ruleViews.filter((r) => ruleIds.includes(r.rule_id))
+    return sel.map((r) => {
+      const m = /^(\d+)(?:-(\d+))?$/.exec(r.port_range || "")
+      const fromPort = m ? parseInt(m[1], 10) : null
+      const toPort = m ? (m[2] ? parseInt(m[2], 10) : fromPort) : null
+      const dir =
+        r.direction === "inbound" || r.direction === "ingress"
+          ? "inbound"
+          : "outbound"
+      return {
+        protocol: (r.protocol || "tcp").toLowerCase(),
+        port: fromPort ?? undefined,
+        port_range: toPort && fromPort !== toPort ? r.port_range : undefined,
+        source: r.source,
+        direction: dir,
+      }
+    })
+  }
+
+  const extractBlockReasons = (resp: any): string[] => {
+    const reasons: string[] = []
+    if (resp?.block_reason) reasons.push(String(resp.block_reason))
+    if (resp?.message && !reasons.includes(resp.message))
+      reasons.push(String(resp.message))
+    if (Array.isArray(resp?.safety_warnings)) {
+      for (const w of resp.safety_warnings) reasons.push(String(w))
+    }
+    if (Array.isArray(resp?.potential_impact)) {
+      for (const i of resp.potential_impact) {
+        reasons.push(
+          typeof i === "string"
+            ? i
+            : i?.reason || i?.message || JSON.stringify(i),
+        )
+      }
+    }
+    // Score-based BLOCK details if present
+    const sb = resp?.score_breakdown
+    if (sb && typeof sb.score === "number") {
+      reasons.push(
+        `Confidence score ${(sb.score * 100).toFixed(0)}/100 (${sb.confidence_level || "LOW"})`,
+      )
+      if (sb.formula) reasons.push(`Formula: ${sb.formula}`)
+    }
+    return reasons.filter(Boolean)
+  }
+
+  const isBlockedResponse = (resp: any): boolean => {
+    if (!resp) return false
+    if (resp.success === false) return true
+    if (resp.blocked === true) return true
+    if (resp.decision === "blocked" || resp.decision_canonical === "BLOCK")
+      return true
+    if (resp.error && /override_lineage_required/i.test(JSON.stringify(resp)))
+      return true
+    return false
+  }
+
+  const callRemediate = async (
+    ruleIds: string[],
+    force: boolean,
+    overrideLineage?: Record<string, any>,
+  ) => {
+    const rules_to_remove = buildRulePayload(ruleIds)
+    const body: Record<string, any> = {
+      rules_to_remove,
+      create_snapshot: true,
+      force,
+    }
+    if (overrideLineage) body.override_lineage = overrideLineage
+    const res = await fetch(`/api/proxy/security-groups/${sgId}/remediate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    let json: any = {}
+    try {
+      json = await res.json()
+    } catch {
+      json = { error: `HTTP ${res.status}` }
+    }
+    return { ok: res.ok, status: res.status, body: json }
+  }
+
+  const handleApply = async () => {
+    if (selected.size === 0) return
+    const selectedRuleIds = Array.from(selected)
+
+    // First attempt — no force, no lineage. Backend's score-based
+    // gate may block; if so we open the override modal.
+    const first = await callRemediate(selectedRuleIds, false)
+    if (first.ok && first.body?.success === true && !isBlockedResponse(first.body)) {
+      // Clean success path.
+      onApplied?.(sgId, {
+        removed: (first.body.rules_removed || []).length,
+        snapshot_id: first.body.snapshot_id || null,
+      })
+      // Refresh data so the rule disappears from the card.
+      setSelected(new Set())
+      // Trigger a refetch of gap-analysis
+      setTimeout(() => {
+        fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
+          cache: "no-store",
+        })
+          .then((r) => r.json())
+          .then((d: SGGapResponse) => {
+            if (!d?.error) setData(d)
+          })
+          .catch(() => {})
+      }, 1500)
+      return
+    }
+
+    // Blocked path — open override modal with the reasons surfaced.
+    const reasons = extractBlockReasons(first.body)
+    if (reasons.length === 0) {
+      reasons.push(
+        "Backend declined to auto-apply but didn't return a structured reason. " +
+          `HTTP ${first.status}. Override anyway?`,
+      )
+    }
+    setOverrideState({
+      phase: "form",
+      rationale: "",
+      ackRollback: true,
+      blockReasons: reasons,
+      resultMessage: "",
+      selectedRuleIds,
+    })
+  }
+
+  const submitOverride = async () => {
+    const trimmed = overrideState.rationale.trim()
+    if (!trimmed) return
+    setOverrideState((s) => ({ ...s, phase: "applying" }))
+
+    const lineage = {
+      rationale: trimmed,
+      acknowledged: ["score_based_block", "operator_override"],
+      rollback_plan_acknowledged: overrideState.ackRollback,
+      overridden_by: "operator",
+      overridden_at: new Date().toISOString(),
+    }
+
+    try {
+      const r = await callRemediate(overrideState.selectedRuleIds, true, lineage)
+      if (r.ok && r.body?.success !== false) {
+        const removed = (r.body.rules_removed || []).length
+        const snap = r.body.snapshot_id || null
+        setOverrideState((s) => ({
+          ...s,
+          phase: "success",
+          resultMessage: `Removed ${removed} rule${removed === 1 ? "" : "s"} from ${sgId}.\nSnapshot: ${snap || "(not captured)"}`,
+        }))
+        onApplied?.(sgId, { removed, snapshot_id: snap })
+        // Background refresh of the card data
+        setTimeout(() => {
+          fetch(`/api/proxy/security-groups/${sgId}/rule-analysis`, {
+            cache: "no-store",
+          })
+            .then((rr) => rr.json())
+            .then((d: SGGapResponse) => {
+              if (!d?.error) {
+                setData(d)
+                setSelected(new Set())
+              }
+            })
+            .catch(() => {})
+        }, 1500)
+      } else {
+        const msg =
+          (r.body?.error && typeof r.body.error === "object"
+            ? JSON.stringify(r.body.error)
+            : r.body?.error) ||
+          r.body?.detail ||
+          r.body?.message ||
+          `HTTP ${r.status}`
+        setOverrideState((s) => ({
+          ...s,
+          phase: "error",
+          resultMessage: String(msg).slice(0, 600),
+        }))
+      }
+    } catch (e: any) {
+      setOverrideState((s) => ({
+        ...s,
+        phase: "error",
+        resultMessage: e?.message || "Network error",
+      }))
+    }
+  }
+
+  const closeOverride = () => setOverrideState(INITIAL_OVERRIDE)
 
   const toggleRule = (ruleId: string) => {
     setSelected((prev) => {
@@ -1046,22 +1299,186 @@ export function SGRemediationCard({
             disabled={
               selected.size === 0 ||
               preflight.kind === "checking" ||
-              preflight.kind === "blocked"
+              overrideState.phase === "applying"
             }
-            onClick={() => onApply?.(data.sg_id, Array.from(selected))}
+            onClick={handleApply}
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8b5cf6] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c3aed] transition-colors"
             title={
               preflight.kind === "blocked"
-                ? "Preflight blocked — see reasons above"
+                ? "Preflight raised warnings — click Apply to review and override with acknowledgment"
                 : preflight.kind === "checking"
                   ? "Preflight in progress…"
-                  : ""
+                  : "Apply the selected rule removals (override modal opens if backend blocks)"
             }
           >
-            Apply selected
+            {overrideState.phase === "applying" ? "Applying…" : "Apply selected"}
           </button>
         </div>
       </div>
+
+      {/* Override modal — opens when the first apply attempt is blocked
+          by score-based or pipeline gates. Same UX shape as IAM's
+          renderOverrideModal: form / applying / success / error phases.
+          Operator types rationale + acks rollback → re-submit with
+          force=true + override_lineage. The backend (sg_gap_analysis
+          .py) enforces Decision Contract §7 — force=true without a
+          valid override_lineage is rejected. */}
+      {overrideState.phase !== "closed" && (
+        <div
+          className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            {overrideState.phase === "form" && (
+              <>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">⚠</span>
+                  <h3 className="text-lg font-bold text-[#b45309]">
+                    Override required
+                  </h3>
+                </div>
+                <p className="text-sm text-[var(--foreground,#111827)] mb-3">
+                  Cyntro paused this remediation. You can override and proceed
+                  — the change runs immediately with a rollback snapshot. The
+                  override is recorded in the audit log.
+                </p>
+                <div className="mb-3 p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                  <div className="font-semibold mb-1">Reasons:</div>
+                  <ul className="list-disc ml-4 space-y-0.5">
+                    {overrideState.blockReasons.slice(0, 6).map((r, i) => (
+                      <li key={i} className="break-words">
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                  Why are you overriding? (Slack thread, ticket #, customer
+                  confirmation — recorded in the audit trail)
+                </label>
+                <textarea
+                  value={overrideState.rationale}
+                  onChange={(e) =>
+                    setOverrideState((s) => ({
+                      ...s,
+                      rationale: e.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Confirmed with @platform-team in #incidents that port 9999 was a leftover from a deprecated service; ticket NET-1842"
+                  rows={3}
+                  className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
+                  autoFocus
+                />
+                <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overrideState.ackRollback}
+                    onChange={(e) =>
+                      setOverrideState((s) => ({
+                        ...s,
+                        ackRollback: e.target.checked,
+                      }))
+                    }
+                    className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
+                  />
+                  <span className="text-[var(--foreground,#374151)]">
+                    I understand a rollback snapshot will be created and I am
+                    responsible for verifying the change does not break
+                    dependent systems.
+                  </span>
+                </label>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={closeOverride}
+                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitOverride}
+                    disabled={
+                      !overrideState.rationale.trim() ||
+                      !overrideState.ackRollback
+                    }
+                    className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={
+                      !overrideState.rationale.trim()
+                        ? "Rationale required for the audit log"
+                        : !overrideState.ackRollback
+                          ? "Acknowledge the rollback responsibility to proceed"
+                          : "Apply the change with override"
+                    }
+                  >
+                    Apply Anyway
+                  </button>
+                </div>
+              </>
+            )}
+            {overrideState.phase === "applying" && (
+              <div className="text-center py-6">
+                <div className="text-3xl mb-3">⏳</div>
+                <h3 className="text-lg font-bold text-[#b45309]">
+                  Applying remediation…
+                </h3>
+                <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
+                  Snapshot, AWS mutate, and verify. Usually completes in a few
+                  seconds.
+                </p>
+              </div>
+            )}
+            {overrideState.phase === "success" && (
+              <div className="text-center py-2">
+                <div className="text-3xl mb-3 text-emerald-500">✓</div>
+                <h3 className="text-lg font-bold text-[#15803d]">
+                  Remediation applied
+                </h3>
+                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line break-words">
+                  {overrideState.resultMessage}
+                </p>
+                <button
+                  onClick={closeOverride}
+                  className="mt-4 px-5 py-2 bg-[#22c55e] text-white rounded-lg font-bold hover:bg-[#16a34a]"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+            {overrideState.phase === "error" && (
+              <div className="text-center py-2">
+                <div className="text-3xl mb-3 text-rose-500">✕</div>
+                <h3 className="text-lg font-bold text-[#991b1b]">
+                  Remediation failed
+                </h3>
+                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line break-words">
+                  {overrideState.resultMessage}
+                </p>
+                <div className="mt-4 flex justify-center gap-2">
+                  <button
+                    onClick={() =>
+                      setOverrideState((s) => ({
+                        ...s,
+                        phase: "form",
+                        resultMessage: "",
+                      }))
+                    }
+                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    onClick={closeOverride}
+                    className="px-4 py-2 bg-[var(--foreground,#374151)] text-white rounded-lg font-semibold"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1254,15 +1254,13 @@ export const LeastPrivilegeTab: React.FC<LeastPrivilegeTabProps> = ({
                       key={sgId}
                       sgId={sgId}
                       onSimulate={(sgId, ruleId, action) => handleSimulate(sgId, ruleId, action)}
-                      onApply={(sgId, ruleIds) => {
-                        // Bulk apply — route each selected rule through
-                        // the existing handleRemediate so the snapshot +
-                        // rollback flow is preserved. The new card
-                        // doesn't reimplement remediation execution; it
-                        // just changes how operators SELECT what to apply.
-                        for (const ruleId of ruleIds) {
-                          handleRemediate(sgId, ruleId, 'DELETE');
-                        }
+                      onApplied={(sgId, summary) => {
+                        // The card now owns the full apply lifecycle —
+                        // including the override modal on BLOCK and the
+                        // force=true + override_lineage retry path.
+                        // Parent's job is just to surface the outcome
+                        // (toast / refresh sidebar counts / etc).
+                        console.log(`[LP-tab] SG ${sgId} apply complete: removed=${summary.removed} snapshot=${summary.snapshot_id}`);
                       }}
                     />
                   ) : (
