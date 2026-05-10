@@ -1,9 +1,10 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
-import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, Workflow } from "lucide-react"
+import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow } from "lucide-react"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
+import { PathListPanel } from "./path-list-panel"
 import { AttackPathFlowViz } from "./attack-path-flow-viz"
 // Reuse the actual System Map (traffic-flow-map.tsx) — the Traffic Flow Map
 // rendered behind the "System Map" tab in Topology. Same component, same
@@ -65,6 +66,9 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedPathIndex, setSelectedPathIndex] = useState(0)
   const [listMode, setListMode] = useState<"at-risk" | "safe">("at-risk")
+  // 'list' shows the per-path triage list (default landing); 'detail'
+  // drills into a single path's Flow Map + remediation plan.
+  const [pathView, setPathView] = useState<"list" | "detail">("list")
 
   const [showFlowViz, setShowFlowViz] = useState(true)
   // "clean" = new reactflow DAG (default, the polished CISO view).
@@ -398,6 +402,9 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     setSelectedJewelId(id)
     setSelectedPathIndex(0)
     setSelectedNodeId(null)
+    // Always land in the per-jewel path list. Operator clicks a card to
+    // drill into a specific path's Flow Map + remediation.
+    setPathView("list")
     setRemediationStatus("idle")
     setRemediationPreview(null)
     setRemediationResult(null)
@@ -432,6 +439,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // remediation plan and the Lanes view below.
   const trafficFlowPathFilter = useMemo(() => {
     if (!jewelPaths || jewelPaths.length === 0) return undefined
+    // In detail mode, scope to the single selected path. In list mode the
+    // map isn't rendered, but we still build a union filter so the
+    // hook ordering and TrafficFlowMap memoization stay stable.
+    const sourcePaths =
+      pathView === "detail" && currentPathPreReturn ? [currentPathPreReturn] : jewelPaths
     const idSet = new Set<string>()
     const nodes: Array<{ id: string; name: string; type: string; tier?: string; lane?: string }> = []
     const edges: Array<{
@@ -448,7 +460,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     const edgeSet = new Set<string>()
     const crownJewelIds = new Set<string>()
     let jewelName: string | undefined = undefined
-    jewelPaths.forEach((p) => {
+    sourcePaths.forEach((p) => {
       ;(p.nodes ?? []).forEach((n) => {
         if (n.tier === "crown_jewel") crownJewelIds.add(n.id)
         if (idSet.has(n.id)) return
@@ -473,15 +485,18 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         })
       })
     })
+    const isDetail = pathView === "detail" && currentPathPreReturn
     return {
       nodeIds: [...idSet],
       pathNodes: nodes,
       pathEdges: edges,
       crownJewelIds: [...crownJewelIds],
       jewelName,
-      pathLabel: `${jewelPaths.length} ${jewelPaths.length === 1 ? "path" : "paths"} to ${jewelName ?? "this jewel"}`,
+      pathLabel: isDetail
+        ? `path #${selectedPathIndex + 1} of ${jewelPaths.length} → ${jewelName ?? "this jewel"}`
+        : `${jewelPaths.length} ${jewelPaths.length === 1 ? "path" : "paths"} to ${jewelName ?? "this jewel"}`,
     }
-  }, [jewelPaths])
+  }, [jewelPaths, pathView, currentPathPreReturn, selectedPathIndex])
 
   // Loading state
   if (isLoading) {
@@ -656,8 +671,40 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             <CrownJewelSurfaceCard systemName={systemName} jewelId={selectedJewelId} />
           )}
 
-          {/* Hero banner — big, immediately-readable score + severity + risk + remediation */}
-          {currentPath && (
+          {/* PATH LIST — default landing per jewel. Operator picks one
+              path's risk/damage to drill into. Skip in detail mode. */}
+          {pathView === "list" && jewelPaths.length > 0 && (
+            <PathListPanel
+              paths={jewelPaths}
+              jewelName={currentPath?.nodes?.find((n) => n.tier === "crown_jewel")?.name}
+              onSelectPath={(idx) => {
+                setSelectedPathIndex(idx)
+                setPathView("detail")
+                setSelectedNodeId(null)
+                setRemediationStatus("idle")
+                setRemediationPreview(null)
+                setRemediationResult(null)
+                setActiveRemediationNodeId(null)
+              }}
+            />
+          )}
+
+          {/* Detail-mode header: Back to list + per-path hero score */}
+          {pathView === "detail" && currentPath && (
+            <div className="px-4 pt-3">
+              <button
+                type="button"
+                onClick={() => setPathView("list")}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-md border border-slate-700 hover:border-slate-500 transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Back to {jewelPaths.length} {jewelPaths.length === 1 ? "path" : "paths"}
+              </button>
+            </div>
+          )}
+
+          {/* Hero banner — only in detail mode (per-path score is meaningless in list view) */}
+          {pathView === "detail" && currentPath && (
             <PathScoreHero
               path={currentPath}
               pathIndex={selectedPathIndex}
@@ -667,7 +714,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             />
           )}
 
-          {jewelPaths.length > 0 && currentPath ? (
+          {pathView === "detail" && jewelPaths.length > 0 && currentPath ? (
             <div className="flex-1 overflow-auto">
               {/* Attack graph — full width, on top so it's visible without scrolling past the plan */}
               <div
