@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { ChevronRight, AlertTriangle, Lock, Eye, Edit, Trash2 } from "lucide-react"
+import { ChevronRight, AlertTriangle, Lock, Eye, Edit, Trash2, Crown, Shield, Network, Database } from "lucide-react"
 import type { IdentityAttackPath } from "./types"
 
 interface PathListPanelProps {
@@ -10,18 +10,59 @@ interface PathListPanelProps {
   jewelName?: string
 }
 
-function severityColor(score: number): { bg: string; text: string; border: string } {
-  if (score >= 75) return { bg: "bg-red-500/15", text: "text-red-300", border: "border-red-500/40" }
-  if (score >= 50) return { bg: "bg-orange-500/15", text: "text-orange-300", border: "border-orange-500/40" }
-  if (score >= 25) return { bg: "bg-amber-500/15", text: "text-amber-300", border: "border-amber-500/40" }
-  return { bg: "bg-emerald-500/15", text: "text-emerald-300", border: "border-emerald-500/40" }
-}
-
-function severityLabel(score: number): string {
-  if (score >= 75) return "CRITICAL"
-  if (score >= 50) return "HIGH"
-  if (score >= 25) return "MEDIUM"
-  return "LOW"
+// High-contrast severity palette — saturated borders, opaque score chip,
+// readable text on dark background.
+function severityStyle(score: number): {
+  scoreBg: string
+  scoreText: string
+  scoreBorder: string
+  cardBorder: string
+  cardBg: string
+  ribbon: string
+  label: string
+} {
+  if (score >= 75) {
+    return {
+      scoreBg: "bg-red-500",
+      scoreText: "text-white",
+      scoreBorder: "border-red-400",
+      cardBorder: "border-red-500/60",
+      cardBg: "bg-red-500/[0.06]",
+      ribbon: "bg-red-500",
+      label: "CRITICAL",
+    }
+  }
+  if (score >= 55) {
+    return {
+      scoreBg: "bg-orange-500",
+      scoreText: "text-white",
+      scoreBorder: "border-orange-400",
+      cardBorder: "border-orange-500/60",
+      cardBg: "bg-orange-500/[0.06]",
+      ribbon: "bg-orange-500",
+      label: "HIGH",
+    }
+  }
+  if (score >= 35) {
+    return {
+      scoreBg: "bg-amber-500",
+      scoreText: "text-slate-900",
+      scoreBorder: "border-amber-400",
+      cardBorder: "border-amber-500/60",
+      cardBg: "bg-amber-500/[0.05]",
+      ribbon: "bg-amber-500",
+      label: "MEDIUM",
+    }
+  }
+  return {
+    scoreBg: "bg-emerald-500",
+    scoreText: "text-slate-900",
+    scoreBorder: "border-emerald-400",
+    cardBorder: "border-emerald-500/50",
+    cardBg: "bg-emerald-500/[0.04]",
+    ribbon: "bg-emerald-500",
+    label: "LOW",
+  }
 }
 
 function pathSummary(path: IdentityAttackPath): { compute?: string; role?: string; jewel?: string } {
@@ -37,24 +78,90 @@ function pathSummary(path: IdentityAttackPath): { compute?: string; role?: strin
 }
 
 export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelProps) {
-  // Sort by severity desc — worst paths first so the operator sees the
-  // riskiest exposure at the top of the list.
   const sorted = [...paths]
     .map((p, originalIndex) => ({ p, originalIndex }))
     .sort((a, b) => (b.p.severity?.overall_score ?? 0) - (a.p.severity?.overall_score ?? 0))
 
+  const sevCounts = sorted.reduce(
+    (acc, { p }) => {
+      const s = p.severity?.overall_score ?? 0
+      if (s >= 75) acc.critical++
+      else if (s >= 55) acc.high++
+      else if (s >= 35) acc.medium++
+      else acc.low++
+      return acc
+    },
+    { critical: 0, high: 0, medium: 0, low: 0 },
+  )
+
   return (
-    <div className="flex flex-col gap-3 p-4 overflow-auto">
-      <div className="flex items-baseline justify-between mb-1">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
-          {paths.length} {paths.length === 1 ? "attack path" : "attack paths"} to {jewelName ?? "this jewel"}
-        </h3>
-        <span className="text-xs text-slate-500">sorted by severity · click to drill in</span>
+    <div className="flex flex-col gap-3 px-4 pb-6 pt-2 overflow-auto">
+      {/* Crown jewel context strip — sticky-ish header so the operator
+          never loses sight of WHICH jewel these paths target. */}
+      <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/40 bg-gradient-to-r from-amber-500/[0.08] to-transparent">
+        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-400 flex items-center justify-center shadow-md">
+          <Crown className="w-4.5 h-4.5 text-amber-900" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[10px] uppercase tracking-wider text-amber-200/70 font-semibold">
+            Crown jewel
+          </div>
+          <div className="text-base font-bold text-amber-100 truncate">
+            {jewelName ?? "Selected jewel"}
+          </div>
+        </div>
+        <div className="flex items-baseline gap-2 text-right">
+          <span className="text-2xl font-extrabold text-white tabular-nums">{paths.length}</span>
+          <span className="text-[11px] uppercase tracking-wider text-slate-400">
+            {paths.length === 1 ? "attack path" : "attack paths"}
+          </span>
+        </div>
       </div>
 
-      {sorted.map(({ p, originalIndex }) => {
+      {/* Severity histogram — quick read of how risky this jewel is overall */}
+      {(sevCounts.critical + sevCounts.high + sevCounts.medium + sevCounts.low > 0) && (
+        <div className="flex items-center gap-2 px-1">
+          {sevCounts.critical > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/15 border border-red-500/40">
+              <span className="w-2 h-2 rounded-full bg-red-500" />
+              <span className="text-[11px] font-semibold text-red-200">
+                {sevCounts.critical} CRITICAL
+              </span>
+            </span>
+          )}
+          {sevCounts.high > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-orange-500/15 border border-orange-500/40">
+              <span className="w-2 h-2 rounded-full bg-orange-500" />
+              <span className="text-[11px] font-semibold text-orange-200">
+                {sevCounts.high} HIGH
+              </span>
+            </span>
+          )}
+          {sevCounts.medium > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span className="text-[11px] font-semibold text-amber-200">
+                {sevCounts.medium} MEDIUM
+              </span>
+            </span>
+          )}
+          {sevCounts.low > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="text-[11px] font-semibold text-emerald-200">
+                {sevCounts.low} LOW
+              </span>
+            </span>
+          )}
+          <span className="ml-auto text-[11px] text-slate-500">
+            sorted by severity · click a card to drill in
+          </span>
+        </div>
+      )}
+
+      {sorted.map(({ p, originalIndex }, listIdx) => {
         const score = p.severity?.overall_score ?? 0
-        const c = severityColor(score)
+        const s = severityStyle(score)
         const summary = pathSummary(p)
         const damage = p.damage_capability
         const verbs = damage?.verbs
@@ -62,124 +169,160 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
         const destructive = damage?.destructive_capable
         const planes = p.risk_reduction?.by_plane
         const evidenceTag = p.evidence_type === "observed" ? "OBSERVED" : "CONFIGURED"
-        const sevText = (p.severity?.severity || severityLabel(score)).toUpperCase()
+        const sevText = (p.severity?.severity || s.label).toUpperCase()
+        const totalVerbs = (verbs?.read ?? 0) + (verbs?.write ?? 0) + (verbs?.delete ?? 0) + (verbs?.admin ?? 0)
 
         return (
           <button
             key={p.id}
             type="button"
             onClick={() => onSelectPath(originalIndex)}
-            className={`group flex flex-col gap-2 text-left p-3 rounded-lg border transition-all ${c.border} ${c.bg} hover:translate-y-[-1px] hover:shadow-lg hover:border-slate-300/40`}
+            className={`group relative flex flex-col gap-2.5 text-left rounded-xl border-2 ${s.cardBorder} ${s.cardBg} transition-all hover:border-white/30 hover:shadow-2xl hover:shadow-black/40 hover:translate-y-[-2px] overflow-hidden`}
+            style={{ background: `linear-gradient(135deg, rgba(15,23,42,0.65), rgba(15,23,42,0.85))` }}
           >
-            <div className="flex items-start gap-3">
+            {/* Severity ribbon — left edge color stripe */}
+            <span className={`absolute left-0 top-0 bottom-0 w-1 ${s.ribbon}`} />
+
+            <div className="flex items-stretch gap-3.5 pl-4 pr-4 pt-3.5 pb-3">
+              {/* Score chip — opaque, big, unambiguous */}
               <div
-                className={`flex-shrink-0 w-12 h-12 rounded-md flex items-center justify-center font-bold text-lg border ${c.text} ${c.bg} ${c.border}`}
+                className={`flex-shrink-0 w-16 h-16 rounded-lg ${s.scoreBg} ${s.scoreText} flex flex-col items-center justify-center shadow-md ring-2 ring-black/20`}
               >
-                {score}
+                <span className="text-2xl font-black tabular-nums leading-none">{score}</span>
+                <span className="text-[9px] font-bold uppercase tracking-wider opacity-80 mt-0.5">
+                  {sevText}
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                  <span className={`text-[10px] uppercase tracking-wider font-semibold ${c.text}`}>{sevText}</span>
+
+              {/* Top section: chain + meta */}
+              <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-white">
+                    Path #{listIdx + 1}
+                  </span>
                   <span className="text-[10px] text-slate-500">·</span>
-                  <span className="text-[10px] text-slate-400">Path #{originalIndex + 1}</span>
-                  <span className="text-[10px] text-slate-500">·</span>
-                  <span className="text-[10px] text-slate-400">{p.hop_count} hops</span>
+                  <span className="text-[11px] text-slate-300">{p.hop_count} hops</span>
                   <span className="text-[10px] text-slate-500">·</span>
                   <span
-                    className={`text-[10px] uppercase font-semibold ${p.evidence_type === "observed" ? "text-emerald-400" : "text-slate-500"}`}
+                    className={`text-[10px] uppercase font-bold tracking-wider ${
+                      p.evidence_type === "observed" ? "text-emerald-400" : "text-slate-500"
+                    }`}
                   >
                     {evidenceTag}
                   </span>
                   {destructive && (
-                    <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-[9px] uppercase font-semibold text-red-300">
+                    <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 border border-red-300/50 text-[9px] uppercase font-bold text-white shadow-sm">
                       <AlertTriangle className="w-2.5 h-2.5" />
                       Destructive
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-200 min-w-0">
-                  {summary.compute && <span className="font-medium truncate">{summary.compute}</span>}
-                  {summary.compute && summary.role && (
-                    <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />
-                  )}
-                  {summary.role && <span className="font-medium text-slate-300 truncate">{summary.role}</span>}
-                  {summary.role && summary.jewel && (
-                    <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />
-                  )}
-                  {summary.jewel && <span className="font-medium text-amber-300 truncate">{summary.jewel}</span>}
-                </div>
+
+                {/* Chain summary: bigger, bolder */}
+                {(summary.compute || summary.role || summary.jewel) ? (
+                  <div className="flex items-center gap-1.5 text-sm text-white min-w-0 font-medium">
+                    {summary.compute && (
+                      <span className="truncate inline-flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                        {summary.compute}
+                      </span>
+                    )}
+                    {summary.compute && summary.role && (
+                      <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    )}
+                    {summary.role && (
+                      <span className="truncate inline-flex items-center gap-1.5">
+                        <Network className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                        {summary.role}
+                      </span>
+                    )}
+                    {summary.role && summary.jewel && (
+                      <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    )}
+                    {summary.jewel && (
+                      <span className="truncate inline-flex items-center gap-1 text-amber-300 font-semibold">
+                        <Crown className="w-3.5 h-3.5 flex-shrink-0" />
+                        {summary.jewel}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500 italic">Configured access only · no compute on chain</div>
+                )}
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-slate-200 self-center flex-shrink-0" />
+
+              <ChevronRight className="w-6 h-6 text-slate-400 group-hover:text-white self-center flex-shrink-0 transition-colors" />
             </div>
 
-            {damage?.state === "live" && verbs && (verbs.read + verbs.write + verbs.delete + verbs.admin > 0) && (
-              <div className="flex items-center gap-1.5 flex-wrap pl-[60px]">
-                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Damage</span>
+            {/* Stats row — damage capability with sharp colors */}
+            {damage?.state === "live" && verbs && totalVerbs > 0 && (
+              <div className="flex items-center gap-2 flex-wrap pl-[88px] pr-4">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">DAMAGE</span>
                 {verbs.delete > 0 && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/30 text-[10px] text-red-300">
-                    <Trash2 className="w-2.5 h-2.5" /> delete: {verbs.delete}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-500/30 border border-red-500/60 text-[11px] text-red-100 font-semibold">
+                    <Trash2 className="w-3 h-3" /> delete: {verbs.delete}
                   </span>
                 )}
                 {verbs.write > 0 && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/15 border border-orange-500/30 text-[10px] text-orange-300">
-                    <Edit className="w-2.5 h-2.5" /> write: {verbs.write}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-500/30 border border-orange-500/60 text-[11px] text-orange-100 font-semibold">
+                    <Edit className="w-3 h-3" /> write: {verbs.write}
                   </span>
                 )}
                 {verbs.read > 0 && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[10px] text-blue-300">
-                    <Eye className="w-2.5 h-2.5" /> read: {verbs.read}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/30 border border-blue-500/60 text-[11px] text-blue-100 font-semibold">
+                    <Eye className="w-3 h-3" /> read: {verbs.read}
                   </span>
                 )}
                 {verbs.admin > 0 && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-[10px] text-purple-300">
-                    <Lock className="w-2.5 h-2.5" /> admin: {verbs.admin}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/40 border border-purple-400/70 text-[11px] text-purple-50 font-bold ring-1 ring-purple-400/30">
+                    <Lock className="w-3 h-3" /> admin: {verbs.admin}
                   </span>
                 )}
               </div>
             )}
 
             {Object.keys(services).length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap pl-[60px]">
-                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Could touch</span>
+              <div className="flex items-center gap-1.5 flex-wrap pl-[88px] pr-4">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">COULD TOUCH</span>
                 {Object.entries(services)
                   .slice(0, 5)
                   .map(([svc, count]) => (
                     <span
                       key={svc}
-                      className="px-1.5 py-0.5 rounded bg-slate-700/40 border border-slate-600/40 text-[10px] text-slate-300"
+                      className="px-2 py-0.5 rounded-md bg-slate-700/60 border border-slate-500/40 text-[11px] text-slate-200 font-medium"
                     >
-                      {svc}: {count}
+                      {svc}: <span className="font-bold text-white">{count}</span>
                     </span>
                   ))}
                 {Object.keys(services).length > 5 && (
-                  <span className="text-[10px] text-slate-500">+{Object.keys(services).length - 5} more</span>
+                  <span className="text-[11px] text-slate-400 font-semibold">
+                    +{Object.keys(services).length - 5} more
+                  </span>
                 )}
               </div>
             )}
 
             {planes &&
               planes.iam.action_count + planes.network.action_count + planes.data.action_count > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap pl-[60px]">
-                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-                    Remediate
-                  </span>
+                <div className="flex items-center gap-1.5 flex-wrap pl-[88px] pr-4 pb-3">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">REMEDIATE</span>
                   {planes.iam.action_count > 0 && (
-                    <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-[10px] text-purple-300">
-                      {planes.iam.action_count} IAM
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/25 border border-purple-500/50 text-[11px] text-purple-100 font-semibold">
+                      <Network className="w-3 h-3" /> {planes.iam.action_count} IAM
                     </span>
                   )}
                   {planes.network.action_count > 0 && (
-                    <span className="px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[10px] text-blue-300">
-                      {planes.network.action_count} network
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/25 border border-blue-500/50 text-[11px] text-blue-100 font-semibold">
+                      <Shield className="w-3 h-3" /> {planes.network.action_count} network
                     </span>
                   )}
                   {planes.data.action_count > 0 && (
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-[10px] text-emerald-300">
-                      {planes.data.action_count} data
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/25 border border-emerald-500/50 text-[11px] text-emerald-100 font-semibold">
+                      <Database className="w-3 h-3" /> {planes.data.action_count} data
                     </span>
                   )}
                   {typeof p.risk_reduction?.achievable_score === "number" && (
-                    <span className="ml-auto text-[10px] text-slate-400">
+                    <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-emerald-300 font-bold">
                       → {p.risk_reduction.achievable_score} after fix
                     </span>
                   )}
