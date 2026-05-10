@@ -7,6 +7,10 @@ import {
   CheckSquare, Loader2, RefreshCw, XCircle, Activity, Lock
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import {
+  composeOverriddenBy,
+  resolveOperatorIdentity,
+} from "@/lib/operator-identity"
 import { ConfidenceExplanationPanel } from "@/components/ConfidenceExplanationPanel"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, type Provenance } from "@/components/trust/trust-envelope-badge"
@@ -740,12 +744,20 @@ export function IAMPermissionAnalysisModal({
         const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
         for (const a of acks) ackSet.add(a)
       }
+      // Identity: pulled from localStorage (set by any prior SG/S3
+      // override modal that captured operator name + email). Falls back
+      // to "anonymous" with identity_source: "anonymous" when no prior
+      // capture exists — backend audit log can flag those for review.
+      // When SSO/auth lands, resolveOperatorIdentity() returns
+      // identity_source: "auth_verified" instead.
+      const _identity = resolveOperatorIdentity()
       overrideLineage = {
         rationale: 'Operator clicked Acknowledge & Apply on the safety hold modal.',
         acknowledged: Array.from(ackSet),
         rollback_plan_acknowledged: createSnapshot,
-        overridden_by: 'operator',
+        overridden_by: _identity.identifier,
         overridden_at: new Date().toISOString(),
+        identity_source: _identity.source,
       }
     }
 
@@ -1463,12 +1475,14 @@ export function IAMPermissionAnalysisModal({
                         const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
                         for (const a of acks) ackSet.add(a)
                       }
+                      const _identity = resolveOperatorIdentity()
                       const lineage = {
                         rationale: trimmed,
                         acknowledged: Array.from(ackSet),
                         rollback_plan_acknowledged: overrideModal.ackRollback,
-                        overridden_by: 'operator',
+                        overridden_by: _identity.identifier,
                         overridden_at: new Date().toISOString(),
+                        identity_source: _identity.source,
                       }
                       setOverrideModal({ ...overrideModal, phase: 'applying', message: '' })
                       try {
@@ -2822,12 +2836,14 @@ export function IAMPermissionAnalysisModal({
                         const acks = g.decision_contract?.operator_context?.override_requirements?.required_acknowledgements || []
                         for (const a of acks) ackSet.add(a)
                       }
+                      const _identity = resolveOperatorIdentity()
                       const lineage = {
                         rationale: trimmed,
                         acknowledged: Array.from(ackSet),
                         rollback_plan_acknowledged: overrideModal.ackRollback,
-                        overridden_by: 'operator',
+                        overridden_by: _identity.identifier,
                         overridden_at: new Date().toISOString(),
+                        identity_source: _identity.source,
                       }
                       // Stay open and switch to the applying phase. The
                       // success / error phase is set by handleApplyFix
