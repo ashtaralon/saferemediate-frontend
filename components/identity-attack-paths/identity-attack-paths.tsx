@@ -462,13 +462,54 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     const edgeSet = new Set<string>()
     const crownJewelIds = new Set<string>()
     let jewelName: string | undefined = undefined
+    // For each path node, fan out into its 1-hop infrastructure
+    // context (VPCs, subnets, security groups, NACLs, IAM roles, IAM
+    // policies, KMS keys, load balancers, target groups, log groups,
+    // bucket policies, instance profiles, monitors). These are the
+    // "services in the flow" Neo4j already knows about — we just
+    // weren't surfacing them in the System Map's filtered view.
+    const INFRA_BUCKETS: Array<keyof NonNullable<PathNodeDetail["infra_context"]>> = [
+      "vpcs",
+      "subnets",
+      "security_groups",
+      "nacls",
+      "iam_roles",
+      "iam_policies",
+      "instance_profiles",
+      "kms_keys",
+      "bucket_policies",
+      "load_balancers",
+      "target_groups",
+      "log_groups",
+      "monitors",
+    ]
+
     sourcePaths.forEach((p) => {
       ;(p.nodes ?? []).forEach((n) => {
         if (n.tier === "crown_jewel") crownJewelIds.add(n.id)
-        if (idSet.has(n.id)) return
-        idSet.add(n.id)
-        nodes.push({ id: n.id, name: n.name, type: n.type, tier: n.tier, lane: n.lane })
+        if (!idSet.has(n.id)) {
+          idSet.add(n.id)
+          nodes.push({ id: n.id, name: n.name, type: n.type, tier: n.tier, lane: n.lane })
+        }
         if (n.tier === "crown_jewel" && !jewelName) jewelName = n.name
+        // Pull in this node's 1-hop infra context so the Flow Map shows
+        // every related service Neo4j knows about, not just the BFS hops.
+        const ic = n.infra_context
+        if (ic) {
+          for (const bucket of INFRA_BUCKETS) {
+            const neighbors = ic[bucket]
+            if (!Array.isArray(neighbors)) continue
+            for (const nb of neighbors) {
+              if (!nb?.id || idSet.has(nb.id)) continue
+              idSet.add(nb.id)
+              nodes.push({
+                id: nb.id,
+                name: nb.name || nb.id,
+                type: nb.type || "",
+              })
+            }
+          }
+        }
       })
       ;(p.edges ?? []).forEach((e) => {
         const k = `${e.source}->${e.target}|${e.type}`
