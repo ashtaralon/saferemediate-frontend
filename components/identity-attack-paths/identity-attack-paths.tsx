@@ -446,9 +446,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       is_observed?: boolean
     }> = []
     const edgeSet = new Set<string>()
+    const crownJewelIds = new Set<string>()
     let jewelName: string | undefined = undefined
     jewelPaths.forEach((p) => {
       ;(p.nodes ?? []).forEach((n) => {
+        if (n.tier === "crown_jewel") crownJewelIds.add(n.id)
         if (idSet.has(n.id)) return
         idSet.add(n.id)
         nodes.push({ id: n.id, name: n.name, type: n.type, tier: n.tier, lane: n.lane })
@@ -475,6 +477,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       nodeIds: [...idSet],
       pathNodes: nodes,
       pathEdges: edges,
+      crownJewelIds: [...crownJewelIds],
       jewelName,
       pathLabel: `${jewelPaths.length} ${jewelPaths.length === 1 ? "path" : "paths"} to ${jewelName ?? "this jewel"}`,
     }

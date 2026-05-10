@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { riskLabel } from '@/lib/utils';
-import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download } from 'lucide-react';
+import { Globe, Server, Database, HardDrive, Zap, Network, Shield, Key, RefreshCw, Maximize2, Minimize2, AlertTriangle, Cloud, Info, ChevronDown, ChevronRight, Lock, Unlock, X, ArrowRight, ArrowLeft, Activity, Layers, Target, GitBranch, Search, ExternalLink, Download, Crown } from 'lucide-react';
 import { AttackPathDetailPanel } from './attack-path-detail-panel';
 import { StackSidebar } from './stack-sidebar';
 import { HeatmapControls } from './heatmap-controls';
@@ -21,6 +21,7 @@ export interface ServiceNode {
   shortName: string;
   type: NodeType;
   instanceId?: string;
+  isCrownJewel?: boolean;
 }
 
 export interface SGRule {
@@ -2258,6 +2259,16 @@ function UnifiedArchitectureDiagram({
               const isTarget = attackPaths.some(p => p.nodes[p.nodes.length - 1]?.id === node.id);
               return (
                 <div key={node.id} data-resource-id={node.id} className="relative">
+                  {/* Crown jewel indicator — set by applyPathFilter when this
+                      resource is the path's target. Renders ABOVE the
+                      legacy attack-path target chip when both apply. */}
+                  {node.isCrownJewel && (
+                    <div className="absolute -top-2 -left-2 z-10" title="Crown jewel — attack-path target">
+                      <div className="w-6 h-6 rounded-full bg-amber-400 flex items-center justify-center shadow-lg ring-2 ring-amber-300/40">
+                        <Crown className="w-3.5 h-3.5 text-amber-900" />
+                      </div>
+                    </div>
+                  )}
                   {/* Attack path target indicator */}
                   {isInAttackPath && isTarget && (
                     <div className="absolute -top-2 -right-2 z-10">
@@ -2486,6 +2497,11 @@ export interface TrafficFlowMapPathFilter {
     hits?: number;
     is_observed?: boolean;
   }>;
+  // IDs of crown-jewel nodes (the path's targets). Resources matching
+  // any of these IDs render with a crown icon overlay in the System Map
+  // RESOURCES bucket so the operator sees which resource is the actual
+  // attack target vs incidental neighbors on the path.
+  crownJewelIds?: string[];
   jewelName?: string;
   pathLabel?: string;
 }
@@ -2661,7 +2677,9 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
 
   return {
     computeServices,
-    resources,
+    resources: resources.map((r) =>
+      filter.crownJewelIds && filter.crownJewelIds.includes(r.id) ? { ...r, isCrownJewel: true } : r,
+    ),
     securityGroups,
     nacls,
     iamRoles,
