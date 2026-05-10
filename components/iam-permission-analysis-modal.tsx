@@ -1265,16 +1265,17 @@ export function IAMPermissionAnalysisModal({
           })}
         </div>
         <div className="mt-3 pt-2 border-t text-xs" style={{ borderColor: 'var(--border, #e5e7eb)', color: 'var(--muted-foreground, #6b7280)' }}>
-          {weakest ? (
-            <span>
-              <span className="font-semibold" style={{ color: STATUS_COLOR[weakest.status] }}>Weakest dimension wins</span>
-              {' → '}
-              <span style={{ color: 'var(--foreground, #111827)' }}>{weakest.name} ({weakest.score})</span>
-              {' drove the verdict above. The engine does not average — one failing dimension blocks the whole role.'}
-            </span>
-          ) : (
-            <span>All computed dimensions pass. Verdict reflects whichever ⊘ dimensions are outstanding.</span>
-          )}
+          {/* Per v4.4 §11E, the composite confidence (shown in the
+              card above) is a weighted formula of these dimensions —
+              NOT min(). HARD evidence sources gate eligibility (their
+              absence forces INSUFFICIENT_DATA regardless of score);
+              SOFT signals scale within bands. The earlier "weakest
+              dimension wins" framing was v5 §14 (p_break_upper_bound
+              = max(bounds)), a different model that doesn't apply
+              here. */}
+          <span>
+            Composite per v4.4 §11E. HARD evidence sources gate eligibility; SOFT signals scale the score within bands. The single confidence number above represents this composite.
+          </span>
         </div>
       </div>
     )

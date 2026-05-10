@@ -78,6 +78,51 @@ function freshnessStyles(s: FreshnessStatus) {
   }
 }
 
+// Map AWS-leaky source names to vendor-neutral Cyntro vocabulary per
+// feedback_demo_safe_source_labels.md. Backend supplies source names
+// like "Neo4j Graph Snapshot" / "IAM Attached Policies" / "IAM Access
+// Advisor" / "CloudTrail (mgmt)" / "VPC Flow Logs" / "AWS Config" —
+// all of which would leak the integration list in demo screen-
+// recordings. Translates to the same labels used in the IAM modal's
+// Evidence Used / Safety Scoring Breakdown panels so the operator
+// sees one consistent vocabulary across the product.
+function genericizeSourceName(raw: string): string {
+  const norm = raw.toLowerCase()
+  if (norm.includes('neo4j') || norm.includes('graph snapshot') || norm.includes('graph_snapshot')) return 'Identity graph'
+  if (norm.includes('iam attached') || norm.includes('iam_attached') || norm.includes('attached polic')) return 'Identity policy graph'
+  if (norm.includes('iam policy graph') || norm.includes('iam_policy_graph')) return 'Identity policy graph'
+  if (norm.includes('access advisor') || norm.includes('access_advisor')) return 'Permission usage'
+  if (norm.includes('access analyzer') || norm.includes('access_analyzer')) return 'Cross-source verification'
+  if (norm.includes('cloudtrail') && (norm.includes('mgmt') || norm.includes('management') || norm.includes('_mgmt'))) return 'Activity history'
+  if (norm.includes('cloudtrail') && (norm.includes('data'))) return 'Data-plane activity'
+  if (norm === 'cloudtrail' || norm.includes('cloudtrail')) return 'Activity history'
+  if (norm.includes('vpc flow') || norm.includes('vpc_flow') || norm.includes('flow log')) return 'Network behavior'
+  if (norm.includes('aws config') || norm.includes('aws_config')) return 'Configuration baseline'
+  if (norm.includes('x-ray') || norm.includes('xray') || norm.includes('x_ray')) return 'Application traces'
+  if (norm.includes('s3 access') || norm.includes('s3_access') || norm.includes('server access log')) return 'Object access logs'
+  if (norm.includes('dependency map') || norm.includes('dependency_map')) return 'Dependency graph'
+  if (norm.includes('cyera') || norm.includes('dspm')) return 'Data classification'
+  if (norm.includes('sts')) return 'Session evidence'
+  if (norm.includes('rds query') || norm.includes('rds_query')) return 'Database query logs'
+  // Pass-through for anything that's already vendor-neutral
+  // (the new labels: Activity history, Permission usage, etc.)
+  return raw
+}
+
+function genericizeSourceList(raws: string[]): string[] {
+  // De-duplicate after mapping (e.g. cloudtrail_mgmt + CloudTrail both
+  // collapse to "Activity history").
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const r of raws) {
+    const g = genericizeSourceName(r)
+    if (seen.has(g)) continue
+    seen.add(g)
+    out.push(g)
+  }
+  return out
+}
+
 interface Props {
   provenance: Provenance
   compact?: boolean
@@ -120,15 +165,18 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
           <span>as of {formatAge(headlineAge)}</span>
         </div>
 
-        {provenance.evidence_sources.length > 0 && (
-          <div className="flex items-center gap-1.5 text-slate-400 min-w-0">
-            <Database className="w-3 h-3 flex-shrink-0" />
-            <span className="truncate">
-              {provenance.evidence_sources.slice(0, 3).join(" + ")}
-              {provenance.evidence_sources.length > 3 ? ` +${provenance.evidence_sources.length - 3}` : ""}
-            </span>
-          </div>
-        )}
+        {provenance.evidence_sources.length > 0 && (() => {
+          const generic = genericizeSourceList(provenance.evidence_sources)
+          return (
+            <div className="flex items-center gap-1.5 text-slate-400 min-w-0">
+              <Database className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">
+                {generic.slice(0, 3).join(" + ")}
+                {generic.length > 3 ? ` +${generic.length - 3}` : ""}
+              </span>
+            </div>
+          )
+        })()}
 
         {(hasMissing || hasStale) && (
           <div className="flex items-center gap-1 text-amber-400">
@@ -155,7 +203,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
               )}
               {freshnessEntries.map(([source, entry]) => (
                 <div key={source} className="flex items-center gap-2">
-                  <span className="text-slate-300 font-mono text-[11px] min-w-[120px]">{source}</span>
+                  <span className="text-slate-300 text-[11px] min-w-[140px]">{genericizeSourceName(source)}</span>
                   <span className={`${freshnessStyles(entry.status)} text-[11px]`}>
                     {entry.status}
                   </span>
@@ -182,7 +230,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
                     <div>
                       <span className="text-emerald-400 font-medium">Observed:</span>{" "}
                       <span className="text-slate-300">
-                        {provenance.observed_vs_configured.observed.join(", ")}
+                        {genericizeSourceList(provenance.observed_vs_configured.observed).join(", ")}
                       </span>
                     </div>
                   </div>
@@ -193,7 +241,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
                     <div>
                       <span className="text-blue-400 font-medium">Configured:</span>{" "}
                       <span className="text-slate-300">
-                        {provenance.observed_vs_configured.configured.join(", ")}
+                        {genericizeSourceList(provenance.observed_vs_configured.configured).join(", ")}
                       </span>
                     </div>
                   </div>
@@ -204,7 +252,7 @@ export function TrustEnvelopeBadge({ provenance, compact = false }: Props) {
                     <div>
                       <span className="text-amber-400 font-medium">Inferred:</span>{" "}
                       <span className="text-slate-300">
-                        {provenance.observed_vs_configured.inferred.join(", ")}
+                        {genericizeSourceList(provenance.observed_vs_configured.inferred).join(", ")}
                       </span>
                     </div>
                   </div>
