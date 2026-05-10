@@ -53,6 +53,16 @@ interface PolicyStatement {
   actions: string[]
   actions_used?: string[]
   effect: "Allow" | "Deny" | string
+  // v4.4 §11E server-emitted fields (backend commit pending).
+  // Frontend prefers these when present; falls back to client-side
+  // derivation for backwards-compat during rollout. Audit log
+  // captures the SERVER numbers.
+  evidence_confidence?: number
+  calibration_factor?: number
+  calibration_reasons?: string[]
+  execution_confidence?: number
+  action_class?: "safe_to_remove" | "verify_first" | "investigate_first" | "protected"
+  action_ceiling?: number
 }
 
 interface S3GapResponse {
@@ -376,10 +386,14 @@ export function S3RemediationCard({
   const stmtViews = useMemo<StatementView[]>(() => {
     if (!data?.policies_analysis) return []
     return data.policies_analysis.map((s) => {
-      const action = classifyStatement(s)
-      const evidence = evidenceFromRiskLevel(s.risk_level)
-      const ceiling = actionCeiling(action)
-      const execution = Math.min(evidence, ceiling)
+      // Prefer backend-emitted v4.4 §11E fields when present; fall
+      // back to client-side classification for backwards-compat.
+      const action: StatementAction =
+        s.action_class ?? classifyStatement(s)
+      const evidence = s.evidence_confidence ?? evidenceFromRiskLevel(s.risk_level)
+      const ceiling = s.action_ceiling ?? actionCeiling(action)
+      const execution =
+        s.execution_confidence ?? Math.min(evidence, ceiling)
       return {
         ...s,
         _action: action,
