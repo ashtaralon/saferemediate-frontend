@@ -184,14 +184,32 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
             <span className={`absolute left-0 top-0 bottom-0 w-1 ${s.ribbon}`} />
 
             <div className="flex items-stretch gap-3.5 pl-4 pr-4 pt-3.5 pb-3">
-              {/* Score chip — opaque, big, unambiguous */}
-              <div
-                className={`flex-shrink-0 w-16 h-16 rounded-lg ${s.scoreBg} ${s.scoreText} flex flex-col items-center justify-center shadow-md ring-2 ring-black/20`}
-              >
-                <span className="text-2xl font-black tabular-nums leading-none">{score}</span>
-                <span className="text-[9px] font-bold uppercase tracking-wider opacity-80 mt-0.5">
-                  {sevText}
-                </span>
+              {/* Score chip — opaque, big, unambiguous. When the damage
+                  floor lifted this path's score, hovering shows the
+                  rationale (which damage signal triggered the lift)
+                  via a native title tooltip + a tiny "↑ lifted" badge. */}
+              <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                <div
+                  className={`relative w-16 h-16 rounded-lg ${s.scoreBg} ${s.scoreText} flex flex-col items-center justify-center shadow-md ring-2 ring-black/20`}
+                  title={
+                    p.severity?.damage_floor_applied && (p.severity?.damage_rationale?.length ?? 0) > 0
+                      ? `Severity lifted by damage capability:\n• ${(p.severity?.damage_rationale ?? []).join("\n• ")}`
+                      : `Severity ${sevText} (${score}/100)`
+                  }
+                >
+                  <span className="text-2xl font-black tabular-nums leading-none">{score}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider opacity-80 mt-0.5">
+                    {sevText}
+                  </span>
+                  {p.severity?.damage_floor_applied && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-white text-slate-900 text-[10px] font-black border border-slate-400 shadow-md"
+                      aria-label="Damage floor applied — hover score for details"
+                    >
+                      ↑
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Top section: chain + meta */}

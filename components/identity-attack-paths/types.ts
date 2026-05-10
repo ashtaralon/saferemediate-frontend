@@ -15,6 +15,12 @@ export interface SeverityBreakdown {
     identity_chain: number
     network_controls: number
   }
+  // Damage-driven floor — set when the path's actual reachability
+  // (admin verbs, destructive scale, service breadth) lifted the score
+  // above the 6-factor result. Surfaces "why" in the operator UI.
+  damage_floor?: number
+  damage_floor_applied?: boolean
+  damage_rationale?: string[]
 }
 
 export interface NodeRemediation {
