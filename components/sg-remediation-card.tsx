@@ -233,11 +233,33 @@ const ACTION_STYLE: Record<
   },
 }
 
-// ── v4.4 §11E SG thresholds (different from IAM role thresholds) ──
+// ── v4.4 §11E SG thresholds (different per operation) ─────────────
+//
+// SG deletion is more destructive than SG narrowing — removing a rule
+// entirely vs tightening its CIDR. v4.4 §11E codifies that with
+// different threshold bands per operation. The card detects the
+// operation from the rule recommendations: if ANY remediable rule's
+// recommendation.action is "delete" we use the stricter deletion
+// thresholds for the whole resource (conservative-by-default for
+// mixed batches).
+type Operation = "narrowing" | "deletion"
 
-const T_AUTO = 90
-const T_STAGED = 70
-const T_SUGGEST = 40
+const THRESHOLDS: Record<
+  Operation,
+  { AUTO: number; STAGED: number; SUGGEST: number }
+> = {
+  narrowing: { AUTO: 90, STAGED: 70, SUGGEST: 40 },
+  deletion: { AUTO: 92, STAGED: 75, SUGGEST: 40 },
+}
+
+function detectOperation(remediableActions: string[]): Operation {
+  // Any deletion in the batch → use the stricter deletion thresholds.
+  const hasDelete = remediableActions.some((a) => {
+    const s = (a || "").toLowerCase()
+    return s === "delete" || s === "remove"
+  })
+  return hasDelete ? "deletion" : "narrowing"
+}
 
 interface RoutingState {
   name: string
@@ -249,11 +271,12 @@ interface RoutingState {
   icon: string
 }
 
-function routingFromScore(score: number): RoutingState {
-  if (score >= T_AUTO)
+function routingFromScore(score: number, operation: Operation): RoutingState {
+  const T = THRESHOLDS[operation]
+  if (score >= T.AUTO)
     return {
       name: "AUTO",
-      label: "Ready for auto-execute",
+      label: `Ready for auto-execute (${operation})`,
       blurb:
         "Eligible for the full pipeline: snapshot → canary → staged → full rollout, no manual approval needed.",
       color: "#15803d",
@@ -261,10 +284,10 @@ function routingFromScore(score: number): RoutingState {
       border: "#bbf7d0",
       icon: "✓",
     }
-  if (score >= T_STAGED)
+  if (score >= T.STAGED)
     return {
       name: "STAGED_AUTO",
-      label: "Canary + staged auto",
+      label: `Canary + staged auto (${operation})`,
       blurb:
         "Eligible for canary and staged rollout. Full rollout requires human approval.",
       color: "#1e40af",
@@ -272,10 +295,10 @@ function routingFromScore(score: number): RoutingState {
       border: "#bfdbfe",
       icon: "◐",
     }
-  if (score >= T_SUGGEST)
+  if (score >= T.SUGGEST)
     return {
       name: "SUGGEST",
-      label: "Suggested — needs approval",
+      label: `Suggested — needs approval (${operation})`,
       blurb:
         "Recommendation queued for human approval. No execution without sign-off.",
       color: "#9a3412",
@@ -397,13 +420,128 @@ export function SGRemediationCard({
     () => ruleViews.some((r) => r._action !== "protected"),
     [ruleViews],
   )
+
+  // Detect operation from remediable rule recommendations. Mixed batch
+  // with any "delete" → use stricter deletion thresholds for the whole
+  // resource (conservative-by-default).
+  const operation = useMemo<Operation>(
+    () =>
+      detectOperation(
+        ruleViews
+          .filter((r) => r._action !== "protected")
+          .map((r) => r.recommendation?.action || ""),
+      ),
+    [ruleViews],
+  )
+
   const routing = useMemo(
     () =>
       hasRemediable
-        ? routingFromScore(overallScore)
-        : routingFromScore(0),
-    [overallScore, hasRemediable],
+        ? routingFromScore(overallScore, operation)
+        : routingFromScore(0, operation),
+    [overallScore, hasRemediable, operation],
   )
+
+  const T = THRESHOLDS[operation]
+
+  // ── Preflight (BLOCK detection before click-Apply) ─────────────
+  //
+  // BLOCK and EVIDENCE_CONFLICT are NOT routing bands — they're hard
+  // execution gates surfaced via the /simulate endpoint. Without
+  // this, an operator can see "STAGED_AUTO 75 · Apply selected" and
+  // click Apply only to be surprised by a snapshot-unreachable / view-
+  // parity / freshness BLOCK at execute time. Routing tells you what
+  // we recommend; preflight tells you whether the recommendation can
+  // execute right now.
+  //
+  // Debounced so rapid selection changes don't spam the backend.
+  type PreflightStatus =
+    | { kind: "idle" }
+    | { kind: "checking" }
+    | { kind: "clear"; warnings: string[] }
+    | { kind: "blocked"; reasons: string[]; warnings: string[] }
+    | { kind: "error"; message: string }
+  const [preflight, setPreflight] = useState<PreflightStatus>({ kind: "idle" })
+
+  useEffect(() => {
+    if (selected.size === 0) {
+      setPreflight({ kind: "idle" })
+      return
+    }
+
+    // Build RuleToRemove payload from the selected rule_views. The
+    // simulate endpoint expects a structured object per rule (protocol/
+    // port/source/direction), not the synthetic rule_id string.
+    const selectedRules = ruleViews.filter((r) => selected.has(r.rule_id))
+    const rules_to_remove = selectedRules.map((r) => {
+      const m = /^(\d+)(?:-(\d+))?$/.exec(r.port_range || "")
+      const fromPort = m ? parseInt(m[1], 10) : null
+      const toPort = m ? (m[2] ? parseInt(m[2], 10) : fromPort) : null
+      const dir =
+        r.direction === "inbound" || r.direction === "ingress"
+          ? "inbound"
+          : "outbound"
+      return {
+        protocol: (r.protocol || "tcp").toLowerCase(),
+        port: fromPort ?? undefined,
+        port_range: toPort && fromPort !== toPort ? r.port_range : undefined,
+        source: r.source,
+        direction: dir,
+      }
+    })
+
+    const ctrl = new AbortController()
+    const tid = setTimeout(() => {
+      setPreflight({ kind: "checking" })
+      fetch(`/api/proxy/security-groups/${sgId}/simulate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules_to_remove, dry_run: true }),
+        signal: ctrl.signal,
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (ctrl.signal.aborted) return
+          const warnings: string[] = Array.isArray(d?.safety_warnings)
+            ? d.safety_warnings
+            : []
+          const impact = Array.isArray(d?.potential_impact)
+            ? d.potential_impact
+            : []
+          if (d?.error || d?.detail) {
+            setPreflight({
+              kind: "error",
+              message: String(d.error || d.detail || "Preflight failed"),
+            })
+            return
+          }
+          if (d?.is_safe === false || impact.length > 0) {
+            const reasons = impact
+              .map((i: any) =>
+                typeof i === "string"
+                  ? i
+                  : i?.reason || i?.message || JSON.stringify(i),
+              )
+              .filter(Boolean)
+            setPreflight({ kind: "blocked", reasons, warnings })
+          } else {
+            setPreflight({ kind: "clear", warnings })
+          }
+        })
+        .catch((e) => {
+          if (ctrl.signal.aborted) return
+          setPreflight({
+            kind: "error",
+            message: e?.message || "Network error",
+          })
+        })
+    }, 500) // 500ms debounce
+
+    return () => {
+      clearTimeout(tid)
+      ctrl.abort()
+    }
+  }, [selected, ruleViews, sgId])
 
   const toggleRule = (ruleId: string) => {
     setSelected((prev) => {
@@ -512,13 +650,13 @@ export function SGRemediationCard({
                 className="text-xs mt-2"
                 style={{ color: routing.color, opacity: 0.85 }}
               >
-                {overallScore >= T_AUTO
+                {overallScore >= T.AUTO
                   ? "cleared all thresholds"
-                  : overallScore >= T_STAGED
-                    ? `${T_AUTO - overallScore} below AUTO`
-                    : overallScore >= T_SUGGEST
-                      ? `${T_STAGED - overallScore} below STAGED_AUTO`
-                      : `${T_SUGGEST - overallScore} below SUGGEST`}
+                  : overallScore >= T.STAGED
+                    ? `${T.AUTO - overallScore} below AUTO`
+                    : overallScore >= T.SUGGEST
+                      ? `${T.STAGED - overallScore} below STAGED_AUTO`
+                      : `${T.SUGGEST - overallScore} below SUGGEST`}
               </div>
             </div>
             <div className="text-right shrink-0">
@@ -564,12 +702,12 @@ export function SGRemediationCard({
                 }}
               />
             </div>
-            {[T_SUGGEST, T_STAGED, T_AUTO].map((t) => (
+            {[T.SUGGEST, T.STAGED, T.AUTO].map((t) => (
               <div
                 key={t}
                 className="absolute top-0 h-2 w-0.5"
                 style={{ left: `calc(${t}% - 1px)`, backgroundColor: "#94a3b8" }}
-                title={`${t === T_SUGGEST ? "SUGGEST" : t === T_STAGED ? "STAGED_AUTO" : "AUTO"} threshold`}
+                title={`${t === T.SUGGEST ? "SUGGEST" : t === T.STAGED ? "STAGED_AUTO" : "AUTO"} threshold`}
               />
             ))}
             <div
@@ -585,23 +723,23 @@ export function SGRemediationCard({
               <span
                 className="absolute"
                 style={{
-                  left: `${T_SUGGEST}%`,
+                  left: `${T.SUGGEST}%`,
                   transform: "translateX(-50%)",
                 }}
               >
-                {T_SUGGEST} <span className="opacity-60">SUGGEST</span>
+                {T.SUGGEST} <span className="opacity-60">SUGGEST</span>
               </span>
               <span
                 className="absolute"
-                style={{ left: `${T_STAGED}%`, transform: "translateX(-50%)" }}
+                style={{ left: `${T.STAGED}%`, transform: "translateX(-50%)" }}
               >
-                {T_STAGED} <span className="opacity-60">STAGED</span>
+                {T.STAGED} <span className="opacity-60">STAGED</span>
               </span>
               <span
                 className="absolute"
-                style={{ left: `${T_AUTO}%`, transform: "translateX(-50%)" }}
+                style={{ left: `${T.AUTO}%`, transform: "translateX(-50%)" }}
               >
-                {T_AUTO} <span className="opacity-60">AUTO</span>
+                {T.AUTO} <span className="opacity-60">AUTO</span>
               </span>
               <span className="absolute" style={{ right: "0%" }}>
                 100
@@ -828,6 +966,63 @@ export function SGRemediationCard({
         )}
       </div>
 
+      {/* Preflight banner — shows BEFORE click-Apply (debounced
+          /simulate dry-run on selection). BLOCK / EVIDENCE_CONFLICT are
+          NOT routing bands; they surface here with reason + remediation
+          steps so the operator isn't surprised at execute time. */}
+      {preflight.kind !== "idle" && (
+        <div
+          className="px-4 py-2 border-t text-xs"
+          style={{ borderColor: "var(--border, #e5e7eb)" }}
+        >
+          {preflight.kind === "checking" && (
+            <div className="text-[var(--muted-foreground,#6b7280)] flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              Preflight checking selected rules…
+            </div>
+          )}
+          {preflight.kind === "clear" && (
+            <div className="text-emerald-700">
+              <span className="font-semibold">✓ Preflight clear</span>
+              {preflight.warnings.length > 0 && (
+                <ul className="mt-1 ml-3 list-disc text-[var(--muted-foreground,#6b7280)] space-y-0.5">
+                  {preflight.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {preflight.kind === "blocked" && (
+            <div className="text-rose-700">
+              <span className="font-semibold">⊘ Preflight blocked</span>
+              <ul className="mt-1 ml-3 list-disc space-y-0.5">
+                {preflight.reasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+                {preflight.warnings.map((w, i) => (
+                  <li
+                    key={`w-${i}`}
+                    className="text-[var(--muted-foreground,#6b7280)]"
+                  >
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {preflight.kind === "error" && (
+            <div className="text-amber-700">
+              <span className="font-semibold">⚠ Preflight unavailable:</span>{" "}
+              {preflight.message}
+              <span className="text-[var(--muted-foreground,#6b7280)] ml-1">
+                (Apply will still run; backend will re-check at execute time.)
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Action bar */}
       <div
         className="px-4 py-3 border-t flex items-center justify-between gap-3"
@@ -848,9 +1043,20 @@ export function SGRemediationCard({
             </button>
           )}
           <button
-            disabled={selected.size === 0}
+            disabled={
+              selected.size === 0 ||
+              preflight.kind === "checking" ||
+              preflight.kind === "blocked"
+            }
             onClick={() => onApply?.(data.sg_id, Array.from(selected))}
             className="px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8b5cf6] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c3aed] transition-colors"
+            title={
+              preflight.kind === "blocked"
+                ? "Preflight blocked — see reasons above"
+                : preflight.kind === "checking"
+                  ? "Preflight in progress…"
+                  : ""
+            }
           >
             Apply selected
           </button>
