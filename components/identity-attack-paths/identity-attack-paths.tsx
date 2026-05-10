@@ -424,33 +424,61 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // loadData useEffect refetches in a tight loop. Must be declared BEFORE
   // any conditional early-return below or the hook order changes between
   // renders.
+  //
+  // Union ALL paths to the currently-selected crown jewel into one map
+  // (instead of just path 1/N), so the operator sees every compute /
+  // role / SG / NACL that can reach this jewel in a single view.
+  // Per-path navigation (1/N arrows) is still used to scope the
+  // remediation plan and the Lanes view below.
   const trafficFlowPathFilter = useMemo(() => {
-    if (!currentPathPreReturn) return undefined
+    if (!jewelPaths || jewelPaths.length === 0) return undefined
+    const idSet = new Set<string>()
+    const nodes: Array<{ id: string; name: string; type: string; tier?: string; lane?: string }> = []
+    const edges: Array<{
+      source: string
+      target: string
+      type?: string
+      label?: string
+      port?: number | null
+      protocol?: string | null
+      bytes?: number
+      hits?: number
+      is_observed?: boolean
+    }> = []
+    const edgeSet = new Set<string>()
+    let jewelName: string | undefined = undefined
+    jewelPaths.forEach((p) => {
+      ;(p.nodes ?? []).forEach((n) => {
+        if (idSet.has(n.id)) return
+        idSet.add(n.id)
+        nodes.push({ id: n.id, name: n.name, type: n.type, tier: n.tier, lane: n.lane })
+        if (n.tier === "crown_jewel" && !jewelName) jewelName = n.name
+      })
+      ;(p.edges ?? []).forEach((e) => {
+        const k = `${e.source}->${e.target}|${e.type}`
+        if (edgeSet.has(k)) return
+        edgeSet.add(k)
+        edges.push({
+          source: e.source,
+          target: e.target,
+          type: e.type,
+          label: e.label,
+          port: e.port,
+          protocol: e.protocol,
+          bytes: e.traffic_bytes,
+          hits: e.hit_count,
+          is_observed: e.is_observed,
+        })
+      })
+    })
     return {
-      nodeIds: currentPathPreReturn.nodes.map((n) => n.id),
-      pathNodes: currentPathPreReturn.nodes.map((n) => ({
-        id: n.id,
-        name: n.name,
-        type: n.type,
-        tier: n.tier,
-        lane: n.lane,
-      })),
-      pathEdges: (currentPathPreReturn.edges ?? []).map((e) => ({
-        source: e.source,
-        target: e.target,
-        type: e.type,
-        label: e.label,
-        port: e.port,
-        protocol: e.protocol,
-        bytes: e.traffic_bytes,
-        hits: e.hit_count,
-        is_observed: e.is_observed,
-      })),
-      jewelName:
-        currentPathPreReturn.nodes.find((n) => n.tier === "crown_jewel")?.name ?? undefined,
-      pathLabel: `path #${selectedPathIndex + 1} of ${jewelPaths.length}`,
+      nodeIds: [...idSet],
+      pathNodes: nodes,
+      pathEdges: edges,
+      jewelName,
+      pathLabel: `${jewelPaths.length} ${jewelPaths.length === 1 ? "path" : "paths"} to ${jewelName ?? "this jewel"}`,
     }
-  }, [currentPathPreReturn, selectedPathIndex, jewelPaths.length])
+  }, [jewelPaths])
 
   // Loading state
   if (isLoading) {
