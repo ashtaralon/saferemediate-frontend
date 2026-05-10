@@ -1073,9 +1073,17 @@ export function IAMPermissionAnalysisModal({
             </div>
             <div className="text-xs mt-2" style={{ color: stateColor, opacity: 0.85 }}>{distance}</div>
           </div>
-          {/* State */}
+          {/* Routing — confidence-derived recommendation, NOT execution
+              state. "STATE" was ambiguous (could read as runtime
+              execution state — drift / preflight / AWS reachable);
+              "ROUTING" matches v4.4 §11E "decision routing" and makes
+              clear this is what the SCORE recommends, not whether the
+              system is actually allowed to execute. Apply-time gates
+              (view_parity, drift, snapshot readiness) live in the
+              unified pipeline and surface as errors at click-Apply
+              time, not as header state. */}
           <div className="text-right shrink-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>State</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: stateColor, opacity: 0.8 }}>Routing</div>
             <div className="flex items-center justify-end gap-2 mt-0.5">
               <span className="text-2xl" style={{ color: stateColor }}>{stateIcon}</span>
               <span className="text-lg font-bold tabular-nums" style={{ color: stateColor, fontFamily: 'ui-monospace, monospace' }}>{stateName}</span>
