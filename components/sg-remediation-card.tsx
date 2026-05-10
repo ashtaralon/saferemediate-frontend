@@ -30,10 +30,12 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 import {
-  composeOverriddenBy,
-  resolveOperatorIdentity,
-  writeOperatorIdentity,
-} from "@/lib/operator-identity"
+  OverrideModalShared,
+  buildOverrideStateForOpen,
+  INITIAL_SHARED_OVERRIDE_STATE,
+  type OverrideLineagePayload,
+  type SharedOverrideState,
+} from "@/components/override-modal-shared"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -108,42 +110,32 @@ interface SGRemediationCardProps {
   onApplied?: (sgId: string, summary: { removed: number; snapshot_id: string | null }) => void
 }
 
-// ── Override modal state machine ──────────────────────────────────
+// ── Override modal — shared component handles UI + identity capture
 //
-// Mirrors the IAM modal pattern. Apply path:
+// Apply lifecycle (parent owns the HTTP calls):
 //   1. User clicks Apply → first attempt without force/lineage.
-//   2. Backend returns success=true → "success" phase, notify parent.
-//   3. Backend returns blocked / decision=BLOCK / 4xx with safety_warnings
-//      → open form phase with the BLOCK reasons listed inline.
-//   4. Operator types rationale + checks rollback ack → "applying" phase.
-//   5. Card re-submits with force=true + override_lineage.
-//   6. Final response → "success" or "error" phase.
-type OverridePhase = "closed" | "form" | "applying" | "success" | "error"
+//   2. Backend success=true → notify parent, refresh.
+//   3. Backend blocked → open SHARED modal with reasons listed.
+//   4. Operator fills form → shared modal builds the lineage and
+//      calls our onSubmit(lineage) callback.
+//   5. We re-submit with force=true + lineage; on response update
+//      the shared modal's phase to "success" or "error".
+//
+// The shared modal (components/override-modal-shared.tsx) is the
+// single source of truth for: form rendering, identity capture,
+// localStorage persistence, lineage assembly, RFC-5322 mailbox
+// composition. SG-specific bits (selected rule IDs to apply on
+// submit) stay in this card.
 
-interface OverrideState {
-  phase: OverridePhase
-  rationale: string
-  ackRollback: boolean
-  blockReasons: string[]      // why this remediation was paused (shown in modal)
-  resultMessage: string       // success/error narrative
-  selectedRuleIds: string[]   // captured at click time so the form survives selection changes
-  // Operator self-attestation (pre-SSO). Pre-populated from localStorage
-  // via resolveOperatorIdentity(). Saved back on submit so subsequent
-  // overrides don't re-prompt. Compliance distinguishes these from
-  // auth-verified records via identity_source on the audit event.
-  operatorName: string
-  operatorEmail: string
+// Extended state — shared modal state PLUS the SG-specific selection
+// captured at click-time so the form survives selection changes.
+interface OverrideState extends SharedOverrideState {
+  selectedRuleIds: string[]
 }
 
 const INITIAL_OVERRIDE: OverrideState = {
-  phase: "closed",
-  rationale: "",
-  ackRollback: true,
-  blockReasons: [],
-  resultMessage: "",
+  ...INITIAL_SHARED_OVERRIDE_STATE,
   selectedRuleIds: [],
-  operatorName: "",
-  operatorEmail: "",
 }
 
 // ── Action partition + action ceilings ────────────────────────────
@@ -759,43 +751,19 @@ export function SGRemediationCard({
           `HTTP ${first.status}. Override anyway?`,
       )
     }
-    // Pre-populate identity from localStorage (self-attested capture).
-    const id = resolveOperatorIdentity()
+    // Open the shared modal in form phase with identity pre-populated
+    // from localStorage.
     setOverrideState({
-      phase: "form",
-      rationale: "",
-      ackRollback: true,
-      blockReasons: reasons,
-      resultMessage: "",
+      ...buildOverrideStateForOpen(reasons),
       selectedRuleIds,
-      operatorName: id.name,
-      operatorEmail: id.email || "",
     })
   }
 
-  const submitOverride = async () => {
-    const trimmed = overrideState.rationale.trim()
-    if (!trimmed) return
-    const nameTrim = overrideState.operatorName.trim()
-    if (!nameTrim) return // identity required — button gating ensures this
-    setOverrideState((s) => ({ ...s, phase: "applying" }))
-
-    // Persist identity for next override. Tag as self_attested so when
-    // SSO/auth lands later, the audit log can distinguish.
-    writeOperatorIdentity(nameTrim, overrideState.operatorEmail.trim() || undefined)
-
-    const lineage = {
-      rationale: trimmed,
-      acknowledged: ["score_based_block", "operator_override"],
-      rollback_plan_acknowledged: overrideState.ackRollback,
-      overridden_by: composeOverriddenBy(
-        nameTrim,
-        overrideState.operatorEmail.trim() || undefined,
-      ),
-      overridden_at: new Date().toISOString(),
-      identity_source: "self_attested",
-    }
-
+  // Shared modal's onSubmit callback — lineage is fully assembled by
+  // the shared modal (rationale + identity composed + ack + timestamps).
+  // Our job: call the API with the captured rule selection, then
+  // transition the shared modal's phase based on the response.
+  const submitOverride = async (lineage: OverrideLineagePayload) => {
     try {
       const r = await callRemediate(overrideState.selectedRuleIds, true, lineage)
       if (r.ok && r.body?.success !== false) {
@@ -1395,210 +1363,23 @@ export function SGRemediationCard({
         </div>
       </div>
 
-      {/* Override modal — opens when the first apply attempt is blocked
-          by score-based or pipeline gates. Same UX shape as IAM's
-          renderOverrideModal: form / applying / success / error phases.
-          Operator types rationale + acks rollback → re-submit with
-          force=true + override_lineage. The backend (sg_gap_analysis
-          .py) enforces Decision Contract §7 — force=true without a
-          valid override_lineage is rejected. */}
-      {overrideState.phase !== "closed" && (
-        <div
-          className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
-          style={{ backgroundColor: "rgba(0,0,0,0.7)" }}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
-            {overrideState.phase === "form" && (
-              <>
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-2xl">⚠</span>
-                  <h3 className="text-lg font-bold text-[#b45309]">
-                    Override required
-                  </h3>
-                </div>
-                <p className="text-sm text-[var(--foreground,#111827)] mb-3">
-                  Cyntro paused this remediation. You can override and proceed
-                  — the change runs immediately with a rollback snapshot. The
-                  override is recorded in the audit log.
-                </p>
-                <div className="mb-3 p-3 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-900">
-                  <div className="font-semibold mb-1">Reasons:</div>
-                  <ul className="list-disc ml-4 space-y-0.5">
-                    {overrideState.blockReasons.slice(0, 6).map((r, i) => (
-                      <li key={i} className="break-words">
-                        {r}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                {/* Operator identity — pre-SSO self-attestation. The
-                    backend stores this as overridden_by + identity_source:
-                    "self_attested" so compliance can distinguish from
-                    auth-verified entries later. */}
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-[#92400e] mb-1">
-                      Your name <span className="text-rose-600">*</span>
-                    </label>
-                    <input
-                      value={overrideState.operatorName}
-                      onChange={(e) =>
-                        setOverrideState((s) => ({
-                          ...s,
-                          operatorName: e.target.value,
-                        }))
-                      }
-                      placeholder="e.g. Alice Operator"
-                      className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[#92400e] mb-1">
-                      Email <span className="text-gray-400">(optional)</span>
-                    </label>
-                    <input
-                      type="email"
-                      value={overrideState.operatorEmail}
-                      onChange={(e) =>
-                        setOverrideState((s) => ({
-                          ...s,
-                          operatorEmail: e.target.value,
-                        }))
-                      }
-                      placeholder="alice@company.com"
-                      className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b]"
-                    />
-                  </div>
-                </div>
-                <label className="block text-xs font-semibold text-[#92400e] mb-1">
-                  Why are you overriding? (Slack thread, ticket #, customer
-                  confirmation — recorded in the audit trail)
-                </label>
-                <textarea
-                  value={overrideState.rationale}
-                  onChange={(e) =>
-                    setOverrideState((s) => ({
-                      ...s,
-                      rationale: e.target.value,
-                    }))
-                  }
-                  placeholder="e.g. Confirmed with @platform-team in #incidents that port 9999 was a leftover from a deprecated service; ticket NET-1842"
-                  rows={3}
-                  className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
-                />
-                <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={overrideState.ackRollback}
-                    onChange={(e) =>
-                      setOverrideState((s) => ({
-                        ...s,
-                        ackRollback: e.target.checked,
-                      }))
-                    }
-                    className="mt-0.5 w-4 h-4 text-[#f59e0b] rounded border-[var(--border,#d1d5db)] focus:ring-[#f59e0b]"
-                  />
-                  <span className="text-[var(--foreground,#374151)]">
-                    I understand a rollback snapshot will be created and I am
-                    responsible for verifying the change does not break
-                    dependent systems.
-                  </span>
-                </label>
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={closeOverride}
-                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={submitOverride}
-                    disabled={
-                      !overrideState.rationale.trim() ||
-                      !overrideState.ackRollback ||
-                      !overrideState.operatorName.trim()
-                    }
-                    className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={
-                      !overrideState.operatorName.trim()
-                        ? "Your name is required for the audit log"
-                        : !overrideState.rationale.trim()
-                          ? "Rationale required for the audit log"
-                          : !overrideState.ackRollback
-                            ? "Acknowledge the rollback responsibility to proceed"
-                            : "Apply the change with override"
-                    }
-                  >
-                    Apply Anyway
-                  </button>
-                </div>
-              </>
-            )}
-            {overrideState.phase === "applying" && (
-              <div className="text-center py-6">
-                <div className="text-3xl mb-3">⏳</div>
-                <h3 className="text-lg font-bold text-[#b45309]">
-                  Applying remediation…
-                </h3>
-                <p className="mt-2 text-sm text-[var(--muted-foreground,#6b7280)]">
-                  Snapshot, AWS mutate, and verify. Usually completes in a few
-                  seconds.
-                </p>
-              </div>
-            )}
-            {overrideState.phase === "success" && (
-              <div className="text-center py-2">
-                <div className="text-3xl mb-3 text-emerald-500">✓</div>
-                <h3 className="text-lg font-bold text-[#15803d]">
-                  Remediation applied
-                </h3>
-                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line break-words">
-                  {overrideState.resultMessage}
-                </p>
-                <button
-                  onClick={closeOverride}
-                  className="mt-4 px-5 py-2 bg-[#22c55e] text-white rounded-lg font-bold hover:bg-[#16a34a]"
-                >
-                  Done
-                </button>
-              </div>
-            )}
-            {overrideState.phase === "error" && (
-              <div className="text-center py-2">
-                <div className="text-3xl mb-3 text-rose-500">✕</div>
-                <h3 className="text-lg font-bold text-[#991b1b]">
-                  Remediation failed
-                </h3>
-                <p className="mt-2 text-sm text-[var(--foreground,#374151)] whitespace-pre-line break-words">
-                  {overrideState.resultMessage}
-                </p>
-                <div className="mt-4 flex justify-center gap-2">
-                  <button
-                    onClick={() =>
-                      setOverrideState((s) => ({
-                        ...s,
-                        phase: "form",
-                        resultMessage: "",
-                      }))
-                    }
-                    className="px-4 py-2 border-2 border-[var(--border,#e5e7eb)] rounded-lg font-semibold text-[var(--foreground,#111827)] hover:bg-[var(--muted,#f3f4f6)]"
-                  >
-                    Try again
-                  </button>
-                  <button
-                    onClick={closeOverride}
-                    className="px-4 py-2 bg-[var(--foreground,#374151)] text-white rounded-lg font-semibold"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Override modal — shared component from override-modal-shared.tsx.
+          Renders form/applying/success/error phases; assembles the
+          OverrideLineagePayload on submit and hands it to our
+          submitOverride callback for the API call. Single source of
+          truth across SG and S3 cards. */}
+      <OverrideModalShared
+        state={overrideState}
+        setState={(next) =>
+          setOverrideState({
+            ...next,
+            selectedRuleIds: overrideState.selectedRuleIds,
+          })
+        }
+        acknowledgedTags={["score_based_block", "operator_override"]}
+        rationalePlaceholder="e.g. Confirmed with @platform-team in #incidents that port 9999 was a leftover from a deprecated service; ticket NET-1842"
+        onSubmit={submitOverride}
+      />
     </div>
   )
 }
