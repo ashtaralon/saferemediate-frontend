@@ -142,12 +142,13 @@ interface GapAnalysisData {
     }>
     overall_confidence: number
     // v4.4 §11E dual-display top-level fields (additive — undefined on
-    // older backend deploys).
+    // older backend deploys). Single source of truth: backend emits
+    // ``evidence_overall_confidence`` and ``calibration_reasons`` only;
+    // the legacy aliases (overall_confidence_raw / calibration_penalties)
+    // were removed alongside backend commit to drop the duplicates.
     evidence_overall_confidence?: number
-    overall_confidence_raw?: number
     calibration_factor?: number
     calibration_reasons?: Record<string, number>
-    calibration_penalties?: Record<string, number>
     total_permissions: number
     summary: {
       safe_to_remove: number
@@ -1142,8 +1143,8 @@ export function IAMPermissionAnalysisModal({
         {(() => {
           const cg = gapData?.confidence_groups
           if (!cg) return null
-          const rawScore = cg.evidence_overall_confidence ?? cg.overall_confidence_raw
-          const reasons = cg.calibration_penalties || cg.calibration_reasons
+          const rawScore = cg.evidence_overall_confidence
+          const reasons = cg.calibration_reasons
           if (typeof rawScore !== 'number' || !reasons || Object.keys(reasons).length === 0) return null
           const reasonNames = Object.keys(reasons)
             .map(r => r.replace(/_/g, ' ').replace('penalty', '').trim())
