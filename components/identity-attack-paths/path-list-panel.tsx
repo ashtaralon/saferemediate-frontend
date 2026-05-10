@@ -61,18 +61,18 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
       {/* Editorial jewel header — sentence-style summary, no candy color */}
       <div
         className="flex items-baseline justify-between gap-4 pb-3 border-b"
-        style={{ borderColor: "var(--border-subtle, rgba(148,163,184,0.15))" }}
+        style={{ borderColor: "rgba(148,163,184,0.15)" }}
       >
         <div className="flex flex-col min-w-0">
           <span
             className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-            style={{ color: "var(--text-secondary, #94a3b8)" }}
+            style={{ color: "#94a3b8" }}
           >
             Crown jewel
           </span>
           <span
             className="text-base font-semibold truncate mt-0.5"
-            style={{ color: "var(--text-primary, #f1f5f9)" }}
+            style={{ color: "#f1f5f9" }}
           >
             {jewelName ?? "—"}
           </span>
@@ -80,13 +80,13 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
         <div className="flex items-baseline gap-1.5 shrink-0">
           <span
             className="text-2xl font-semibold tabular-nums"
-            style={{ color: "var(--text-primary, #f1f5f9)" }}
+            style={{ color: "#f1f5f9" }}
           >
             {paths.length}
           </span>
           <span
             className="text-[11px] uppercase tracking-[0.12em] font-semibold"
-            style={{ color: "var(--text-secondary, #94a3b8)" }}
+            style={{ color: "#94a3b8" }}
           >
             {paths.length === 1 ? "attack path" : "attack paths"}
           </span>
@@ -97,37 +97,37 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
       {sevCounts.critical + sevCounts.high + sevCounts.medium + sevCounts.low > 0 && (
         <div
           className="flex items-baseline gap-5 text-[11px] uppercase tracking-[0.1em] font-semibold"
-          style={{ color: "var(--text-secondary, #94a3b8)" }}
+          style={{ color: "#94a3b8" }}
         >
           {sevCounts.critical > 0 && (
             <span className="inline-flex items-baseline gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#dc2626" }} />
-              <span style={{ color: "var(--text-primary, #f1f5f9)" }}>{sevCounts.critical}</span>
+              <span style={{ color: "#f1f5f9" }}>{sevCounts.critical}</span>
               <span>critical</span>
             </span>
           )}
           {sevCounts.high > 0 && (
             <span className="inline-flex items-baseline gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#ea580c" }} />
-              <span style={{ color: "var(--text-primary, #f1f5f9)" }}>{sevCounts.high}</span>
+              <span style={{ color: "#f1f5f9" }}>{sevCounts.high}</span>
               <span>high</span>
             </span>
           )}
           {sevCounts.medium > 0 && (
             <span className="inline-flex items-baseline gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#d97706" }} />
-              <span style={{ color: "var(--text-primary, #f1f5f9)" }}>{sevCounts.medium}</span>
+              <span style={{ color: "#f1f5f9" }}>{sevCounts.medium}</span>
               <span>medium</span>
             </span>
           )}
           {sevCounts.low > 0 && (
             <span className="inline-flex items-baseline gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#16a34a" }} />
-              <span style={{ color: "var(--text-primary, #f1f5f9)" }}>{sevCounts.low}</span>
+              <span style={{ color: "#f1f5f9" }}>{sevCounts.low}</span>
               <span>low</span>
             </span>
           )}
-          <span className="ml-auto text-[10px] tracking-[0.1em] normal-case font-normal" style={{ color: "var(--text-secondary, #94a3b8)" }}>
+          <span className="ml-auto text-[10px] tracking-[0.1em] normal-case font-normal" style={{ color: "#94a3b8" }}>
             sorted by severity · click a row to drill in
           </span>
         </div>
@@ -156,8 +156,8 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
               onClick={() => onSelectPath(originalIndex)}
               className="group relative flex flex-col gap-2 text-left rounded-lg border transition-all hover:bg-white/[0.02]"
               style={{
-                borderColor: "var(--border-subtle, rgba(148,163,184,0.12))",
-                background: "var(--bg-elevated, rgba(15,23,42,0.4))",
+                borderColor: "rgba(148,163,184,0.12)",
+                background: "rgba(30,41,59,0.6)",
               }}
             >
               {/* Severity ribbon */}
@@ -189,7 +189,7 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                   {p.severity?.damage_floor_applied && (
                     <span
                       className="text-[10px] leading-none"
-                      style={{ color: "var(--text-secondary, #94a3b8)" }}
+                      style={{ color: "#94a3b8" }}
                       title="Severity lifted by damage capability — hover the score for details"
                     >
                       ↑
@@ -199,15 +199,15 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
 
                 <div
                   className="flex items-baseline gap-2 text-[11px] uppercase tracking-[0.1em] font-semibold"
-                  style={{ color: "var(--text-secondary, #94a3b8)" }}
+                  style={{ color: "#94a3b8" }}
                 >
-                  <span style={{ color: "var(--text-primary, #f1f5f9)" }}>
+                  <span style={{ color: "#f1f5f9" }}>
                     Path #{listIdx + 1}
                   </span>
                   <span>·</span>
                   <span>{p.hop_count} hops</span>
                   <span>·</span>
-                  <span style={{ color: p.evidence_type === "observed" ? "#22c55e" : "var(--text-secondary, #94a3b8)" }}>
+                  <span style={{ color: p.evidence_type === "observed" ? "#22c55e" : "#94a3b8" }}>
                     {evidenceTag}
                   </span>
                 </div>
@@ -223,7 +223,7 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                 {!destructive && <span className="ml-auto" />}
                 <ChevronRight
                   className="w-4 h-4 shrink-0 transition-colors"
-                  style={{ color: "var(--text-secondary, #94a3b8)" }}
+                  style={{ color: "#94a3b8" }}
                 />
               </div>
 
@@ -231,21 +231,21 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
               {(summary.compute || summary.role || summary.jewel) ? (
                 <div
                   className="pl-5 pr-4 text-sm font-medium truncate"
-                  style={{ color: "var(--text-primary, #f1f5f9)" }}
+                  style={{ color: "#f1f5f9" }}
                 >
                   {summary.compute && (
                     <span className="truncate">{summary.compute}</span>
                   )}
                   {summary.compute && summary.role && (
-                    <span className="mx-2" style={{ color: "var(--text-secondary, #94a3b8)" }}>›</span>
+                    <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
                   )}
                   {summary.role && (
-                    <span className="truncate" style={{ color: "var(--text-primary, #f1f5f9)" }}>
+                    <span className="truncate" style={{ color: "#f1f5f9" }}>
                       {summary.role}
                     </span>
                   )}
                   {summary.role && summary.jewel && (
-                    <span className="mx-2" style={{ color: "var(--text-secondary, #94a3b8)" }}>›</span>
+                    <span className="mx-2" style={{ color: "#94a3b8" }}>›</span>
                   )}
                   {summary.jewel && (
                     <span className="truncate" style={{ color: sevColor }}>
@@ -256,7 +256,7 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
               ) : (
                 <div
                   className="pl-5 pr-4 text-xs italic"
-                  style={{ color: "var(--text-secondary, #94a3b8)" }}
+                  style={{ color: "#94a3b8" }}
                 >
                   Configured access only — no compute on this chain
                 </div>
@@ -268,17 +268,17 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                   <div className="flex items-baseline gap-2">
                     <span
                       className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-                      style={{ color: "var(--text-secondary, #94a3b8)" }}
+                      style={{ color: "#94a3b8" }}
                     >
                       Damage
                     </span>
-                    <span className="text-xs" style={{ color: "var(--text-primary, #f1f5f9)" }}>
+                    <span className="text-xs" style={{ color: "#f1f5f9" }}>
                       {verbs.delete > 0 && <span><span className="font-semibold tabular-nums">{verbs.delete}</span> delete</span>}
-                      {verbs.delete > 0 && verbs.write > 0 && <span style={{ color: "var(--text-secondary, #94a3b8)" }}> · </span>}
+                      {verbs.delete > 0 && verbs.write > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
                       {verbs.write > 0 && <span><span className="font-semibold tabular-nums">{verbs.write}</span> write</span>}
-                      {(verbs.delete > 0 || verbs.write > 0) && verbs.read > 0 && <span style={{ color: "var(--text-secondary, #94a3b8)" }}> · </span>}
+                      {(verbs.delete > 0 || verbs.write > 0) && verbs.read > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
                       {verbs.read > 0 && <span><span className="font-semibold tabular-nums">{verbs.read}</span> read</span>}
-                      {(verbs.delete > 0 || verbs.write > 0 || verbs.read > 0) && verbs.admin > 0 && <span style={{ color: "var(--text-secondary, #94a3b8)" }}> · </span>}
+                      {(verbs.delete > 0 || verbs.write > 0 || verbs.read > 0) && verbs.admin > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
                       {verbs.admin > 0 && (
                         <span style={{ color: "#a78bfa" }}>
                           <span className="font-semibold tabular-nums">{verbs.admin}</span> admin
@@ -292,11 +292,11 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                   <div className="flex items-baseline gap-2 min-w-0">
                     <span
                       className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-                      style={{ color: "var(--text-secondary, #94a3b8)" }}
+                      style={{ color: "#94a3b8" }}
                     >
                       Touches
                     </span>
-                    <span className="text-xs truncate" style={{ color: "var(--text-primary, #f1f5f9)" }}>
+                    <span className="text-xs truncate" style={{ color: "#f1f5f9" }}>
                       {Object.entries(services)
                         .slice(0, 3)
                         .map(([svc, count]) => (
@@ -305,12 +305,12 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                           </span>
                         ))
                         .reduce<React.ReactNode[]>((acc, el, i) => {
-                          if (i > 0) acc.push(<span key={`d-${i}`} style={{ color: "var(--text-secondary, #94a3b8)" }}> · </span>)
+                          if (i > 0) acc.push(<span key={`d-${i}`} style={{ color: "#94a3b8" }}> · </span>)
                           acc.push(el)
                           return acc
                         }, [])}
                       {Object.keys(services).length > 3 && (
-                        <span style={{ color: "var(--text-secondary, #94a3b8)" }}> +{Object.keys(services).length - 3}</span>
+                        <span style={{ color: "#94a3b8" }}> +{Object.keys(services).length - 3}</span>
                       )}
                     </span>
                   </div>
@@ -320,15 +320,15 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                   <div className="flex items-baseline gap-2">
                     <span
                       className="text-[10px] uppercase tracking-[0.12em] font-semibold"
-                      style={{ color: "var(--text-secondary, #94a3b8)" }}
+                      style={{ color: "#94a3b8" }}
                     >
                       Fix
                     </span>
-                    <span className="text-xs" style={{ color: "var(--text-primary, #f1f5f9)" }}>
+                    <span className="text-xs" style={{ color: "#f1f5f9" }}>
                       {planes.iam.action_count > 0 && <span><span className="font-semibold tabular-nums">{planes.iam.action_count}</span> IAM</span>}
-                      {planes.iam.action_count > 0 && (planes.network.action_count > 0 || planes.data.action_count > 0) && <span style={{ color: "var(--text-secondary, #94a3b8)" }}> · </span>}
+                      {planes.iam.action_count > 0 && (planes.network.action_count > 0 || planes.data.action_count > 0) && <span style={{ color: "#94a3b8" }}> · </span>}
                       {planes.network.action_count > 0 && <span><span className="font-semibold tabular-nums">{planes.network.action_count}</span> network</span>}
-                      {planes.network.action_count > 0 && planes.data.action_count > 0 && <span style={{ color: "var(--text-secondary, #94a3b8)" }}> · </span>}
+                      {planes.network.action_count > 0 && planes.data.action_count > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
                       {planes.data.action_count > 0 && <span><span className="font-semibold tabular-nums">{planes.data.action_count}</span> data</span>}
                     </span>
                   </div>

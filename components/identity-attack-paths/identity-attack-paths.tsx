@@ -547,7 +547,10 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const currentPath = currentPathPreReturn
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div
+      className="flex flex-col h-[calc(100vh-4rem)]"
+      style={{ background: "rgb(15, 23, 42)" }}  // slate-900: unified dark surface for the whole tab
+    >
       {/* Header — compact single-row title + right-aligned tabs, then one summary sentence */}
       <div
         className="px-5 py-3 border-b"
