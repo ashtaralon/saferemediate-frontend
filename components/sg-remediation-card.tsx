@@ -80,17 +80,30 @@ interface SGRemediationCardProps {
   onApply?: (sgId: string, ruleIds: string[]) => void
 }
 
-// ── Action partition (v4.4 §11E-style for SG rules) ───────────────
+// ── Action partition + action ceilings ────────────────────────────
 //
-// SG rule confidence → _action mapping. Mirrors IAM's safe/verify/
-// investigate partition but tuned for SG semantics:
-//   - "protected": rule has active observed traffic, or references
-//     another SG (could be load-balancer / control-plane wiring), or
-//     is the special "default rule" pattern.
-//   - "safe_to_remove": no traffic observed AND confidence ≥ 70.
-//   - "verify_first": confidence 40-69 OR small traffic flicker.
-//   - "investigate_first": confidence < 40 OR public-internet exposure
-//     on a sensitive port (DB ports, SSH, etc.).
+// Locked principle (do not refactor away without re-reading this):
+//
+//   For SGs, confidence measures EVIDENCE QUALITY.
+//   Action class constrains EXECUTION ELIGIBILITY.
+//   A rule can be high-confidence risky and still low-safety to mutate.
+//
+// Why: SG rule action is computed from NON-score signals (sensitive
+// port + public exposure, SG references, observation-window adequacy)
+// that the raw confidence number doesn't see. Without action ceilings
+// a 1-rule SG whose only remediable rule is sensitive+public+idle
+// (raw conf 85) would route to STAGED_AUTO purely by averaging — the
+// exact theatrical-safety failure mode we already closed for IAM at
+// the per-permission level.
+//
+// The fix: every action class declares an execution-confidence ceiling.
+// We compute execution_confidence = min(rule.confidence, ceiling).
+// Routing then derives naturally from execution averages — no separate
+// routing overrides, no contradictions like "investigate_first +
+// STAGED_AUTO."
+//
+// Bypass: protected rules are EXCLUDED from the remediable average, not
+// included with a ceiling of 100. They have no execution semantics.
 type RuleAction =
   | "safe_to_remove"
   | "verify_first"
@@ -98,6 +111,27 @@ type RuleAction =
   | "protected"
 
 const SENSITIVE_PORTS = new Set([22, 3389, 3306, 5432, 27017, 6379, 9200, 11211])
+
+// Per-action execution ceilings (0-100). Aligned with routing thresholds:
+//   AUTO        ≥ 90 (SG narrowing) / 92 (SG deletion)
+//   STAGED_AUTO ≥ 70 / 75
+//   SUGGEST     ≥ 40
+// safe_to_remove can ride raw score up to AUTO. verify_first caps at
+// 74 — clears narrowing-STAGED but not narrowing-AUTO, and falls to
+// SUGGEST for deletion. investigate_first caps at 39 — never reaches
+// any auto band, always SUGGEST or INSUFFICIENT_DATA.
+function actionCeiling(action: RuleAction): number {
+  switch (action) {
+    case "safe_to_remove":
+      return 100
+    case "verify_first":
+      return 74
+    case "investigate_first":
+      return 39
+    case "protected":
+      return 100 // excluded from remediable avg; ceiling is a no-op
+  }
+}
 
 function isSensitiveExposure(rule: RuleAnalysis): boolean {
   if (!rule.is_public) return false
@@ -111,20 +145,59 @@ function isSensitiveExposure(rule: RuleAnalysis): boolean {
   return false
 }
 
-function classifyRule(rule: RuleAnalysis): RuleAction {
-  // Source = other SG → "protected" (could be load-balancer wiring,
-  // control-plane reference; don't auto-remove).
-  if (rule.source?.startsWith("sg-")) return "protected"
+// Observation-window adequacy: 14d is the floor below which "no traffic"
+// is too thin a signal to act on. Mirrors the v4.4 §11M5 freshness gate
+// philosophy — when window is short and a rule is idle, we don't know
+// if the rule is dead or just hasn't fired this week.
+const MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT = 14
 
-  const conf = rule.recommendation?.confidence ?? 0
+function classifyRule(
+  rule: RuleAnalysis,
+  observationDays: number,
+): RuleAction {
   const hasTraffic = (rule.traffic?.connection_count ?? 0) > 0
   const sensitive = isSensitiveExposure(rule)
+  const conf = rule.recommendation?.confidence ?? 0
+  const isSgRef = rule.source?.startsWith("sg-") ?? false
+  const windowAdequate =
+    (observationDays || 0) >= MIN_OBSERVATION_DAYS_FOR_IDLE_VERDICT
 
-  if (sensitive && hasTraffic) return "protected" // sensitive + used → don't touch
-  if (sensitive) return "investigate_first" // sensitive + idle → still hand-review
-  if (hasTraffic) return "verify_first" // some traffic; needs operator sanity check
-  if (conf >= 70) return "safe_to_remove"
-  if (conf >= 40) return "verify_first"
+  // SG reference + active traffic → protected (control-plane / LB wiring
+  // confirmed live). Operator should not auto-remove.
+  if (isSgRef && hasTraffic) return "protected"
+
+  // SG reference + no traffic + thin window → still protected. We
+  // haven't watched long enough to call this rule dead. Avoid burning
+  // operator-review cycles on rules that just haven't fired this week.
+  if (isSgRef && !hasTraffic && !windowAdequate) return "protected"
+
+  // SG reference + no traffic + adequate window → verify_first. Operator
+  // hand-review with the dependency-graph context; could legitimately
+  // be a deprecated app's leftover.
+  if (isSgRef && !hasTraffic && windowAdequate) return "verify_first"
+
+  // Sensitive + active traffic → protected. DB/SSH actively used; don't
+  // touch even if confidence is high.
+  if (sensitive && hasTraffic) return "protected"
+
+  // Sensitive + public → investigate_first regardless of traffic.
+  // Sensitive public exposure is high-confidence risky (we KNOW this
+  // is a misconfig pattern) but low-safety to mutate without operator
+  // approval — exactly the case the action ceiling exists to gate.
+  if (sensitive) return "investigate_first"
+
+  // Idle rule + thin window → investigate_first. Same reasoning as
+  // SG-ref + thin window, but for non-ref rules. The score itself is
+  // probably already low; the ceiling enforces it.
+  if (!hasTraffic && !windowAdequate) return "investigate_first"
+
+  // Has traffic on a non-sensitive, non-public rule → verify_first.
+  if (hasTraffic) return "verify_first"
+
+  // Score-only partition (only reached when window is adequate AND no
+  // traffic AND not sensitive AND not an SG ref).
+  if (conf >= 85) return "safe_to_remove"
+  if (conf >= 60) return "verify_first"
   return "investigate_first"
 }
 
@@ -259,34 +332,78 @@ export function SGRemediationCard({
   }, [sgId])
 
   // ── Bucket rules + aggregate score ─────────────────────────────
+  //
+  // The per-rule execution_confidence model:
+  //   raw_confidence          (from backend, evidence quality)
+  //   → action class           (from classifyRule, includes non-score signals)
+  //   → action ceiling         (from actionCeiling, eligibility cap)
+  //   → execution_confidence   (= min(raw, ceiling))
+  // Resource-level routing then averages execution_confidence over
+  // remediable rules. protected rules are EXCLUDED from the average
+  // (they have no execution semantics). This is what prevents an
+  // investigate_first rule with raw confidence 85 from lifting routing
+  // into STAGED_AUTO.
+  type RuleView = RuleAnalysis & {
+    _action: RuleAction
+    _evidence_confidence: number
+    _execution_confidence: number
+    _ceiling: number
+  }
+
+  const observationDays = data?.observation_days ?? 0
+
+  const ruleViews = useMemo<RuleView[]>(() => {
+    if (!data?.rules_analysis) return []
+    return data.rules_analysis.map((r) => {
+      const action = classifyRule(r, observationDays)
+      const evidence = r.recommendation?.confidence ?? 0
+      const ceiling = actionCeiling(action)
+      const execution = Math.min(evidence, ceiling)
+      return {
+        ...r,
+        _action: action,
+        _evidence_confidence: evidence,
+        _execution_confidence: execution,
+        _ceiling: ceiling,
+      }
+    })
+  }, [data, observationDays])
+
   const buckets = useMemo(() => {
-    const out: Record<RuleAction, RuleAnalysis[]> = {
+    const out: Record<RuleAction, RuleView[]> = {
       safe_to_remove: [],
       verify_first: [],
       investigate_first: [],
       protected: [],
     }
-    if (!data?.rules_analysis) return out
-    for (const r of data.rules_analysis) {
-      out[classifyRule(r)].push(r)
-    }
+    for (const r of ruleViews) out[r._action].push(r)
     return out
-  }, [data])
+  }, [ruleViews])
 
   const overallScore = useMemo(() => {
-    if (!data?.rules_analysis?.length) return 0
-    const remediable = data.rules_analysis.filter(
-      (r) => classifyRule(r) !== "protected",
-    )
+    const remediable = ruleViews.filter((r) => r._action !== "protected")
     if (!remediable.length) return 0
     const sum = remediable.reduce(
-      (acc, r) => acc + (r.recommendation?.confidence ?? 0),
+      (acc, r) => acc + r._execution_confidence,
       0,
     )
     return Math.round(sum / remediable.length)
-  }, [data])
+  }, [ruleViews])
 
-  const routing = useMemo(() => routingFromScore(overallScore), [overallScore])
+  // Empty-remediable special case: every rule is protected → no apply
+  // action is meaningful. Route INSUFFICIENT_DATA explicitly rather
+  // than letting the score=0 fall-through speak for itself.
+  const hasRemediable = useMemo(
+    () => ruleViews.some((r) => r._action !== "protected"),
+    [ruleViews],
+  )
+  const routing = useMemo(
+    () =>
+      hasRemediable
+        ? routingFromScore(overallScore)
+        : routingFromScore(0),
+    [overallScore, hasRemediable],
+  )
 
   const toggleRule = (ruleId: string) => {
     setSelected((prev) => {
@@ -576,7 +693,9 @@ export function SGRemediationCard({
                 {rules.map((rule) => {
                   const isSelected = selected.has(rule.rule_id)
                   const isProtected = a === "protected"
-                  const conf = rule.recommendation?.confidence ?? 0
+                  const evidence = rule._evidence_confidence
+                  const execution = rule._execution_confidence
+                  const capped = execution < evidence
                   const conn = rule.traffic?.connection_count ?? 0
                   return (
                     <div
@@ -635,25 +754,47 @@ export function SGRemediationCard({
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div
-                          className="px-1.5 py-0.5 rounded text-[10px] font-bold"
-                          style={{
-                            backgroundColor:
-                              conf >= 70
-                                ? "#22c55e20"
-                                : conf >= 40
-                                  ? "#f9731620"
-                                  : "#ef444420",
-                            color:
-                              conf >= 70
-                                ? "#16a34a"
-                                : conf >= 40
-                                  ? "#d97706"
-                                  : "#dc2626",
-                          }}
-                          title={`Per-rule confidence: ${conf}/100`}
-                        >
-                          {conf}%
+                        {/* Dual-display: when the action ceiling capped
+                            the evidence score, show BOTH numbers so the
+                            operator sees that evidence said 85 but
+                            action-class limited execution to 39. The
+                            badge color and threshold come from
+                            execution_confidence (the routing-driving
+                            value); raw evidence is the strikethrough
+                            prefix chip. Mirrors the IAM modal pattern. */}
+                        <div className="flex items-center gap-1 justify-end">
+                          {capped && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100 line-through"
+                              title={`Evidence: ${evidence}% (raw, pre-action-ceiling)`}
+                            >
+                              {evidence}%
+                            </span>
+                          )}
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                            style={{
+                              backgroundColor:
+                                execution >= 70
+                                  ? "#22c55e20"
+                                  : execution >= 40
+                                    ? "#f9731620"
+                                    : "#ef444420",
+                              color:
+                                execution >= 70
+                                  ? "#16a34a"
+                                  : execution >= 40
+                                    ? "#d97706"
+                                    : "#dc2626",
+                            }}
+                            title={
+                              capped
+                                ? `Evidence ${evidence}% capped to ${execution}% by action class "${rule._action}" (ceiling ${rule._ceiling}). Routing follows execution_confidence.`
+                                : `Per-rule execution confidence: ${execution}/100`
+                            }
+                          >
+                            {execution}%
+                          </span>
                         </div>
                         {!isProtected && (
                           <button
