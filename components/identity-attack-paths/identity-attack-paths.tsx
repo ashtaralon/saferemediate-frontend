@@ -16,8 +16,10 @@ import { NodeDetailPanel } from "./node-detail-panel"
 import { PathScoreHero } from "./path-score-hero"
 import { PathRemediationPlan } from "./path-remediation-plan"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
-import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
-import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
+// Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
+// keep JSX call sites unchanged.
+import { S3RemediationModal as S3PolicyAnalysisModal } from "@/components/s3-remediation-modal"
+import { SGRemediationModal as SGLeastPrivilegeModal } from "@/components/sg-remediation-modal"
 import {
   TrustEnvelopeBadge,
   isTrustEnvelope,

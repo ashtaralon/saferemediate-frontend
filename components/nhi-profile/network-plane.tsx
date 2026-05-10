@@ -7,7 +7,9 @@ import {
 } from "lucide-react"
 import dynamic from "next/dynamic"
 
-const SGLeastPrivilegeModal = dynamic(() => import("../sg-least-privilege-modal"), { ssr: false })
+// Legacy SGLeastPrivilegeModal replaced by v4.4 §11E-style card.
+// Aliased import keeps the JSX usage below unchanged.
+const SGLeastPrivilegeModal = dynamic(() => import("../sg-remediation-modal"), { ssr: false })
 
 interface NetworkPlaneProps {
   identityName: string

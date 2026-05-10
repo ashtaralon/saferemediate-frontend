@@ -5,7 +5,8 @@ import {
   Database, HardDrive, Key, Lock, Eye, PenTool, Trash2,
   CheckCircle, XCircle, RefreshCw, ChevronDown, ChevronRight, Workflow, AlertTriangle, Wrench,
 } from "lucide-react"
-import { S3PolicyAnalysisModal } from "../s3-policy-analysis-modal"
+// Legacy S3PolicyAnalysisModal replaced by v4.4 §11E-style card.
+import { S3RemediationModal as S3PolicyAnalysisModal } from "../s3-remediation-modal"
 
 interface DataPlaneProps {
   identityName: string

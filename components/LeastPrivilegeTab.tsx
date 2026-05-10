@@ -9,8 +9,10 @@ import type { SimulateFixResponse } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { IAMPermissionAnalysisModal } from '@/components/iam-permission-analysis-modal'
-import { S3PolicyAnalysisModal } from '@/components/s3-policy-analysis-modal'
-import { SGLeastPrivilegeModal } from '@/components/sg-least-privilege-modal'
+// Legacy modals replaced by v4.4 §11E-style cards. Aliased imports
+// preserve existing JSX without further changes at the call sites.
+import { S3RemediationModal as S3PolicyAnalysisModal } from '@/components/s3-remediation-modal'
+import { SGRemediationModal as SGLeastPrivilegeModal } from '@/components/sg-remediation-modal'
 import type { BlastRadiusScore } from '@/lib/types'
 import { CoveragePill } from '@/components/brss/coverage-pill'
 

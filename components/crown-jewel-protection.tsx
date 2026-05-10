@@ -14,8 +14,11 @@ import {
   Users,
 } from "lucide-react"
 import { IAMPermissionAnalysisModal } from "@/components/iam-permission-analysis-modal"
-import { S3PolicyAnalysisModal } from "@/components/s3-policy-analysis-modal"
-import { SGLeastPrivilegeModal } from "@/components/sg-least-privilege-modal"
+// Legacy modals replaced by v4.4 §11E-style cards (override modal,
+// action ceilings, operator identity capture, durable audit trail).
+// Aliased to preserve existing JSX prop names at the call site.
+import { S3RemediationModal as S3PolicyAnalysisModal } from "@/components/s3-remediation-modal"
+import { SGRemediationModal as SGLeastPrivilegeModal } from "@/components/sg-remediation-modal"
 import { fetchWithEnvelope } from "@/components/trust/use-trust-envelope"
 import { TrustEnvelopeBadge, Provenance } from "@/components/trust/trust-envelope-badge"
 
