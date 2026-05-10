@@ -29,6 +29,11 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react"
+import {
+  composeOverriddenBy,
+  resolveOperatorIdentity,
+  writeOperatorIdentity,
+} from "@/lib/operator-identity"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -104,6 +109,12 @@ interface OverrideState {
   blockReasons: string[]      // why this remediation was paused (shown in modal)
   resultMessage: string       // success/error narrative
   selectedRuleIds: string[]   // captured at click time so the form survives selection changes
+  // Operator self-attestation (pre-SSO). Pre-populated from localStorage
+  // via resolveOperatorIdentity(). Saved back on submit so subsequent
+  // overrides don't re-prompt. Compliance distinguishes these from
+  // auth-verified records via identity_source on the audit event.
+  operatorName: string
+  operatorEmail: string
 }
 
 const INITIAL_OVERRIDE: OverrideState = {
@@ -113,6 +124,8 @@ const INITIAL_OVERRIDE: OverrideState = {
   blockReasons: [],
   resultMessage: "",
   selectedRuleIds: [],
+  operatorName: "",
+  operatorEmail: "",
 }
 
 // ── Action partition + action ceilings ────────────────────────────
@@ -723,6 +736,8 @@ export function SGRemediationCard({
           `HTTP ${first.status}. Override anyway?`,
       )
     }
+    // Pre-populate identity from localStorage (self-attested capture).
+    const id = resolveOperatorIdentity()
     setOverrideState({
       phase: "form",
       rationale: "",
@@ -730,20 +745,32 @@ export function SGRemediationCard({
       blockReasons: reasons,
       resultMessage: "",
       selectedRuleIds,
+      operatorName: id.name,
+      operatorEmail: id.email || "",
     })
   }
 
   const submitOverride = async () => {
     const trimmed = overrideState.rationale.trim()
     if (!trimmed) return
+    const nameTrim = overrideState.operatorName.trim()
+    if (!nameTrim) return // identity required — button gating ensures this
     setOverrideState((s) => ({ ...s, phase: "applying" }))
+
+    // Persist identity for next override. Tag as self_attested so when
+    // SSO/auth lands later, the audit log can distinguish.
+    writeOperatorIdentity(nameTrim, overrideState.operatorEmail.trim() || undefined)
 
     const lineage = {
       rationale: trimmed,
       acknowledged: ["score_based_block", "operator_override"],
       rollback_plan_acknowledged: overrideState.ackRollback,
-      overridden_by: "operator",
+      overridden_by: composeOverriddenBy(
+        nameTrim,
+        overrideState.operatorEmail.trim() || undefined,
+      ),
       overridden_at: new Date().toISOString(),
+      identity_source: "self_attested",
     }
 
     try {
@@ -1354,6 +1381,45 @@ export function SGRemediationCard({
                     ))}
                   </ul>
                 </div>
+                {/* Operator identity — pre-SSO self-attestation. The
+                    backend stores this as overridden_by + identity_source:
+                    "self_attested" so compliance can distinguish from
+                    auth-verified entries later. */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                      Your name <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      value={overrideState.operatorName}
+                      onChange={(e) =>
+                        setOverrideState((s) => ({
+                          ...s,
+                          operatorName: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. Alice Operator"
+                      className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                      Email <span className="text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={overrideState.operatorEmail}
+                      onChange={(e) =>
+                        setOverrideState((s) => ({
+                          ...s,
+                          operatorEmail: e.target.value,
+                        }))
+                      }
+                      placeholder="alice@company.com"
+                      className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b]"
+                    />
+                  </div>
+                </div>
                 <label className="block text-xs font-semibold text-[#92400e] mb-1">
                   Why are you overriding? (Slack thread, ticket #, customer
                   confirmation — recorded in the audit trail)
@@ -1369,7 +1435,6 @@ export function SGRemediationCard({
                   placeholder="e.g. Confirmed with @platform-team in #incidents that port 9999 was a leftover from a deprecated service; ticket NET-1842"
                   rows={3}
                   className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
-                  autoFocus
                 />
                 <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
                   <input
@@ -1400,15 +1465,18 @@ export function SGRemediationCard({
                     onClick={submitOverride}
                     disabled={
                       !overrideState.rationale.trim() ||
-                      !overrideState.ackRollback
+                      !overrideState.ackRollback ||
+                      !overrideState.operatorName.trim()
                     }
                     className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     title={
-                      !overrideState.rationale.trim()
-                        ? "Rationale required for the audit log"
-                        : !overrideState.ackRollback
-                          ? "Acknowledge the rollback responsibility to proceed"
-                          : "Apply the change with override"
+                      !overrideState.operatorName.trim()
+                        ? "Your name is required for the audit log"
+                        : !overrideState.rationale.trim()
+                          ? "Rationale required for the audit log"
+                          : !overrideState.ackRollback
+                            ? "Acknowledge the rollback responsibility to proceed"
+                            : "Apply the change with override"
                     }
                   >
                     Apply Anyway

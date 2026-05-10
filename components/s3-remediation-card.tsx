@@ -33,6 +33,11 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react"
+import {
+  composeOverriddenBy,
+  resolveOperatorIdentity,
+  writeOperatorIdentity,
+} from "@/lib/operator-identity"
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -295,6 +300,9 @@ interface OverrideState {
   blockReasons: string[]
   resultMessage: string
   selectedStatements: string[]
+  // Operator self-attestation (pre-SSO). Same pattern as the SG card.
+  operatorName: string
+  operatorEmail: string
 }
 const INITIAL_OVERRIDE: OverrideState = {
   phase: "closed",
@@ -303,6 +311,8 @@ const INITIAL_OVERRIDE: OverrideState = {
   blockReasons: [],
   resultMessage: "",
   selectedStatements: [],
+  operatorName: "",
+  operatorEmail: "",
 }
 
 // ── Component ──────────────────────────────────────────────────────
@@ -506,6 +516,7 @@ export function S3RemediationCard({
         `Backend declined to auto-apply without explicit override. HTTP ${first.status}.`,
       )
     }
+    const id = resolveOperatorIdentity()
     setOverrideState({
       phase: "form",
       rationale: "",
@@ -513,20 +524,34 @@ export function S3RemediationCard({
       blockReasons: reasons,
       resultMessage: "",
       selectedStatements,
+      operatorName: id.name,
+      operatorEmail: id.email || "",
     })
   }
 
   const submitOverride = async () => {
     const trimmed = overrideState.rationale.trim()
     if (!trimmed) return
+    const nameTrim = overrideState.operatorName.trim()
+    if (!nameTrim) return
     setOverrideState((s) => ({ ...s, phase: "applying" }))
+
+    // Persist for next override.
+    writeOperatorIdentity(
+      nameTrim,
+      overrideState.operatorEmail.trim() || undefined,
+    )
 
     const lineage = {
       rationale: trimmed,
       acknowledged: ["score_based_block", "operator_override"],
       rollback_plan_acknowledged: overrideState.ackRollback,
-      overridden_by: "operator",
+      overridden_by: composeOverriddenBy(
+        nameTrim,
+        overrideState.operatorEmail.trim() || undefined,
+      ),
       overridden_at: new Date().toISOString(),
+      identity_source: "self_attested",
     }
     try {
       const r = await callRemediate(
@@ -1045,6 +1070,45 @@ export function S3RemediationCard({
                     ))}
                   </ul>
                 </div>
+                {/* Operator identity — pre-SSO self-attestation. Same
+                    pattern as the SG card; backend writes identity_source:
+                    "self_attested" on the OverrideEvent so compliance
+                    can distinguish from auth-verified entries. */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                      Your name <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      value={overrideState.operatorName}
+                      onChange={(e) =>
+                        setOverrideState((s) => ({
+                          ...s,
+                          operatorName: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. Alice Operator"
+                      className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#92400e] mb-1">
+                      Email <span className="text-gray-400">(optional)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={overrideState.operatorEmail}
+                      onChange={(e) =>
+                        setOverrideState((s) => ({
+                          ...s,
+                          operatorEmail: e.target.value,
+                        }))
+                      }
+                      placeholder="alice@company.com"
+                      className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b]"
+                    />
+                  </div>
+                </div>
                 <label className="block text-xs font-semibold text-[#92400e] mb-1">
                   Why are you overriding? (Slack thread, ticket #, customer
                   confirmation — recorded in the audit trail)
@@ -1060,7 +1124,6 @@ export function S3RemediationCard({
                   placeholder="e.g. Confirmed with @data-team in #incidents that the AllowUnusedBucketTagRead statement is a leftover from a deprecated tagging job; ticket DATA-1842"
                   rows={3}
                   className="w-full border border-[var(--border,#d1d5db)] rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f59e0b] mb-3"
-                  autoFocus
                 />
                 <label className="flex items-start gap-2 mb-4 text-xs cursor-pointer">
                   <input
@@ -1091,15 +1154,18 @@ export function S3RemediationCard({
                     onClick={submitOverride}
                     disabled={
                       !overrideState.rationale.trim() ||
-                      !overrideState.ackRollback
+                      !overrideState.ackRollback ||
+                      !overrideState.operatorName.trim()
                     }
                     className="px-5 py-2 bg-[#f59e0b] text-white rounded-lg font-bold hover:bg-[#d97706] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     title={
-                      !overrideState.rationale.trim()
-                        ? "Rationale required for the audit log"
-                        : !overrideState.ackRollback
-                          ? "Acknowledge the rollback responsibility to proceed"
-                          : "Apply the change with override"
+                      !overrideState.operatorName.trim()
+                        ? "Your name is required for the audit log"
+                        : !overrideState.rationale.trim()
+                          ? "Rationale required for the audit log"
+                          : !overrideState.ackRollback
+                            ? "Acknowledge the rollback responsibility to proceed"
+                            : "Apply the change with override"
                     }
                   >
                     Apply Anyway
