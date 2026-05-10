@@ -111,12 +111,25 @@ interface GapAnalysisData {
         }
       } | null
       permission_count: number
+      // v4.4 §11E dual-display: backend exposes both raw evidence and
+      // calibrated execution score at the group level. confidence_score
+      // remains the routing-driving value (= execution average); newer
+      // ``evidence_confidence_score`` is the raw aggregate, surfaced
+      // alongside for the dual-display.
+      evidence_confidence_score?: number
       permissions: Array<{
         permission: string
         status: string
         risk_level: string
         damage_tier?: string
+        // confidence_score is the backwards-compat alias of evidence
+        // (raw); newer code should prefer evidence_confidence and
+        // execution_confidence (the calibrated, routing-driving value).
         confidence_score: number
+        evidence_confidence?: number
+        execution_confidence?: number
+        calibration_factor?: number
+        calibration_reasons?: string[]
         data_source_type: string
         explanation: string
         logged_by_default: boolean
@@ -128,6 +141,13 @@ interface GapAnalysisData {
       }>
     }>
     overall_confidence: number
+    // v4.4 §11E dual-display top-level fields (additive — undefined on
+    // older backend deploys).
+    evidence_overall_confidence?: number
+    overall_confidence_raw?: number
+    calibration_factor?: number
+    calibration_reasons?: Record<string, number>
+    calibration_penalties?: Record<string, number>
     total_permissions: number
     summary: {
       safe_to_remove: number
@@ -1114,6 +1134,34 @@ export function IAMPermissionAnalysisModal({
           </div>
         </div>
         <div className="mt-6 text-sm" style={{ color: stateColor }}>{stateBlurb}</div>
+        {/* v4.4 §11E dual-display: when role-level calibration penalties
+            fired, surface the raw evidence score alongside the calibrated
+            value so the operator sees BOTH numbers and the reasons.
+            Without this the calibration is invisible and the score looks
+            arbitrary. */}
+        {(() => {
+          const cg = gapData?.confidence_groups
+          if (!cg) return null
+          const rawScore = cg.evidence_overall_confidence ?? cg.overall_confidence_raw
+          const reasons = cg.calibration_penalties || cg.calibration_reasons
+          if (typeof rawScore !== 'number' || !reasons || Object.keys(reasons).length === 0) return null
+          const reasonNames = Object.keys(reasons)
+            .map(r => r.replace(/_/g, ' ').replace('penalty', '').trim())
+            .filter(Boolean)
+          const factor = Object.values(reasons).reduce((acc, m) => acc * (m as number), 1)
+          const reductionPct = Math.round((1 - factor) * 100)
+          return (
+            <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ borderColor: stateBorder, color: stateColor, opacity: 0.85 }}>
+              <span className="font-mono">
+                Evidence <span className="line-through opacity-60">{Math.round(rawScore)}</span>
+                <span className="mx-1">→</span>
+                <span className="font-bold">Calibrated {Math.round(score)}</span>
+                <span className="opacity-70 ml-1">(−{reductionPct}%)</span>
+              </span>
+              <span className="opacity-80">Reasons: {reasonNames.join(', ')}</span>
+            </div>
+          )
+        })()}
       </div>
     )
   }
@@ -1985,7 +2033,16 @@ export function IAMPermissionAnalysisModal({
                   if (g.protected || g.action === 'protected' || g.action === 'reserved') continue
                   for (const p of (g.permissions || [])) {
                     if (p.protected || p.reserved) continue
-                    removablePerms.push({ permission: p.permission, confidence_score: p.confidence_score })
+                    // v4.4 §11E: bucketing follows execution_confidence
+                    // (calibration-aware, routing-driving) so that
+                    // confidence-band selection matches the per-permission
+                    // _action partition the backend computed. Falls back to
+                    // confidence_score for older backend deploys that
+                    // haven't shipped the dual-score split yet.
+                    const score = typeof p.execution_confidence === 'number'
+                      ? p.execution_confidence
+                      : p.confidence_score
+                    removablePerms.push({ permission: p.permission, confidence_score: score })
                   }
                 }
                 const protectedCount = (gapData.confidence_groups.summary.protected ?? 0) + (gapData.confidence_groups.summary.reserved ?? 0)
@@ -2211,22 +2268,59 @@ export function IAMPermissionAnalysisModal({
                                 className="w-4 h-4 rounded border-[var(--border,#d1d5db)] disabled:opacity-40"
                               />
                               <span className="font-mono text-xs text-[var(--foreground,#374151)] flex-1 truncate">{perm.permission}</span>
-                              {/* Per-permission confidence score with 70/40 threshold colors. */}
-                              {!isLocked && typeof perm.confidence_score === 'number' && (
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex-shrink-0 ${
-                                    perm.confidence_score >= 70 ? 'bg-[#22c55e20] text-[#16a34a]' :
-                                    perm.confidence_score >= 40 ? 'bg-[#f9731620] text-[#d97706]' :
-                                    'bg-[#ef444420] text-[#dc2626]'
-                                  }`}
-                                  title={
-                                    perm.confidence_score >= 70 ? 'Safe to remove (≥70 — auto-eligible)' :
-                                    perm.confidence_score >= 40 ? 'Verify first (40-69 — needs override)' :
-                                    'Investigate first (<40 — high risk)'
-                                  }
-                                >
-                                  {perm.confidence_score}%
-                                </span>
+                              {/* v4.4 §11E dual-display: badge color and threshold come from
+                                  execution_confidence (the calibration-aware, routing-driving value);
+                                  raw evidence is shown alongside via "raw → calibrated" prefix when
+                                  the role has a non-trivial calibration factor.
+
+                                  Backwards-compat: when execution_confidence is absent (older
+                                  backend deploy), fall back to confidence_score with no calibration
+                                  prefix — the legacy behaviour. */}
+                              {!isLocked && (typeof perm.execution_confidence === 'number' || typeof perm.confidence_score === 'number') && (
+                                (() => {
+                                  const evidence = typeof perm.evidence_confidence === 'number'
+                                    ? perm.evidence_confidence
+                                    : perm.confidence_score
+                                  const execution = typeof perm.execution_confidence === 'number'
+                                    ? perm.execution_confidence
+                                    : perm.confidence_score
+                                  const hasCalibration = (
+                                    typeof perm.calibration_factor === 'number' &&
+                                    perm.calibration_factor < 0.999 &&
+                                    Array.isArray(perm.calibration_reasons) &&
+                                    perm.calibration_reasons.length > 0
+                                  )
+                                  const reasonsLabel = hasCalibration
+                                    ? (perm.calibration_reasons || [])
+                                        .map(r => r
+                                          .replace(/_/g, ' ')
+                                          .replace('penalty', '')
+                                          .trim()
+                                        )
+                                        .join(', ')
+                                    : ''
+                                  const tooltip = hasCalibration
+                                    ? `Evidence: ${evidence}% × role calibration (${perm.calibration_factor}) = Execution: ${execution}%\nReasons: ${reasonsLabel}\n${execution >= 70 ? 'Safe to remove (≥70 — auto-eligible)' : execution >= 40 ? 'Verify first (40-69 — needs override)' : 'Investigate first (<40 — high risk)'}`
+                                    : (execution >= 70 ? 'Safe to remove (≥70 — auto-eligible)' : execution >= 40 ? 'Verify first (40-69 — needs override)' : 'Investigate first (<40 — high risk)')
+                                  return (
+                                    <span className="flex items-center gap-1 flex-shrink-0" title={tooltip}>
+                                      {hasCalibration && evidence !== execution && (
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono text-gray-500 bg-gray-100 line-through" title="Raw evidence (pre-calibration)">
+                                          {evidence}%
+                                        </span>
+                                      )}
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                          execution >= 70 ? 'bg-[#22c55e20] text-[#16a34a]' :
+                                          execution >= 40 ? 'bg-[#f9731620] text-[#d97706]' :
+                                          'bg-[#ef444420] text-[#dc2626]'
+                                        }`}
+                                      >
+                                        {execution}%
+                                      </span>
+                                    </span>
+                                  )
+                                })()
                               )}
                               {isLocked ? (
                                 <span className="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0" style={{ background: colors.bg, color: colors.text }}>
