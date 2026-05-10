@@ -73,7 +73,7 @@ const CloudGraphTab = dynamic(
     loading: () => (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <span className="ml-3 text-slate-600">טוען גרף ענן...</span>
+        <span className="ml-3 text-slate-600">Loading cloud graph…</span>
       </div>
     ),
   }
@@ -84,7 +84,7 @@ const LeastPrivilegeTab = dynamic(() => import("./LeastPrivilegeTab"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען ניתוח הרשאות...</span>
+      <span className="ml-3 text-slate-600">Loading permission analysis…</span>
     </div>
   ),
 })
@@ -175,7 +175,7 @@ const SystemDependencyMap = dynamic(() => import("./system-dependency-map"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען מפת תלויות...</span>
+      <span className="ml-3 text-slate-600">Loading dependency map…</span>
     </div>
   ),
 })
@@ -219,7 +219,7 @@ const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען ארכיטקטורה...</span>
+      <span className="ml-3 text-slate-600">Loading architecture…</span>
     </div>
   ),
 })
@@ -229,7 +229,7 @@ const RealDataArchitectureMap = dynamic(() => import("./real-data-architecture-m
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען מפת ארכיטקטורה...</span>
+      <span className="ml-3 text-slate-600">Loading architecture map…</span>
     </div>
   ),
 })
@@ -249,7 +249,7 @@ const AWSTopologyMapLive = dynamic(() => import("./aws-topology-map-live"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען טופולוגיית AWS...</span>
+      <span className="ml-3 text-slate-600">Loading topology…</span>
     </div>
   ),
 })
@@ -261,7 +261,7 @@ const AllServicesTab = dynamic(
     loading: () => (
       <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
         <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-        <span className="ml-3 text-slate-600">טוען רשימת שירותים...</span>
+        <span className="ml-3 text-slate-600">Loading service list…</span>
       </div>
     ),
   }
@@ -285,7 +285,7 @@ const SnapshotsRecoveryTab = dynamic(() => import("./snapshots-recovery-tab"), {
   loading: () => (
     <div className="flex items-center justify-center h-[600px] bg-slate-50 rounded-xl">
       <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-      <span className="ml-3 text-slate-600">טוען גיבויים ושחזור...</span>
+      <span className="ml-3 text-slate-600">Loading backups and recovery…</span>
     </div>
   ),
 })
