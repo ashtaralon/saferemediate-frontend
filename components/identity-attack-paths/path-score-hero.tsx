@@ -275,6 +275,12 @@ function pickChainNodes(path: IdentityAttackPath) {
 
 export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: PathScoreHeroProps) {
   const [showAllFactors, setShowAllFactors] = useState(false)
+  // Damage details default collapsed so the hero stays compact — the
+  // attack-graph viz below the hero is the dynamic content operators
+  // need to read. One-line damage summary + click-to-expand for the
+  // full sentence, severity rationale, lateral reach, and specific
+  // permissions.
+  const [showDamageDetails, setShowDamageDetails] = useState(false)
   const sev = path.severity
   const brs = path.target_blast_radius
   const theme = SEVERITY_THEME[sev.severity] ?? SEVERITY_THEME.LOW
@@ -437,15 +443,12 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
           </button>
         </div>
 
-        {/* Row 3.5 — Path-aware damage. Sections (top to bottom):
-            (1) Plain-English damage sentence — deterministic template:
-                "If <entry> is compromised, an attacker can use <role> to
-                read, modify, or delete data in <jewel>."
-            (2) "Why <SEV>" — one-sentence severity rationale.
-            (3) Gate badges + direct verb chips (with impact labels).
-            (4) Lateral reach sentence.
-            (5) Expandable specific actions (s3:GetObject etc.).
-            Renders only when damage_capability is in "live" state. */}
+        {/* Row 3.5 — Path-aware damage. COMPACT BY DEFAULT (single line).
+            Click "details" to expand the full plain-English sentence,
+            severity rationale, lateral reach, and specific permissions.
+            Keeps the hero short so the attack graph below has vertical
+            room — per operator feedback the dynamic graph is the working
+            content, the static damage info should stay summary-only. */}
         {(() => {
           const d = path.damage_capability
           if (!d || d.state !== "live") return null
@@ -465,7 +468,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
           if (!path.damage_narrative && !plainSentence && totalDirect === 0 && lateralCount === 0 && !isBlocked) return null
           return (
             <div
-              className="mt-2 rounded-md border px-3 py-2"
+              className="mt-1.5 rounded-md border px-2.5 py-1.5"
               style={{
                 background: "rgba(15, 23, 42, 0.6)",
                 borderColor: isBlocked
@@ -475,13 +478,17 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                   : "rgba(148, 163, 184, 0.18)",
               }}
             >
-              <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                <Crown className={`w-3 h-3 ${isDestructive ? "text-red-400" : "text-slate-400"}`} />
+              {/* COMPACT ROW (always visible). Single line:
+                  [Crown] DAMAGE ON <jewel>  [Destructive]  [✓Network] [✓Data]
+                  · 1W · 9R · 4D    (lateral 184+)    [▶ details] */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Crown className={`w-3 h-3 ${isDestructive ? "text-red-400" : "text-slate-400"} flex-shrink-0`} />
                 <span
-                  className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-                  style={{ color: isDestructive ? "#fca5a5" : "#94a3b8" }}
+                  className="text-[10px] font-semibold uppercase tracking-[0.12em] truncate"
+                  style={{ color: isDestructive ? "#fca5a5" : "#94a3b8", maxWidth: "260px" }}
+                  title={d.jewel_name || ""}
                 >
-                  Damage on {d.jewel_name || "this jewel"}
+                  Damage on {d.jewel_name || "jewel"}
                 </span>
                 {isDestructive && (
                   <span
@@ -491,7 +498,6 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                     Destructive
                   </span>
                 )}
-                {/* Gate badges — green when reachable, amber/red when blocked */}
                 {gates && (
                   <>
                     <span
@@ -503,7 +509,7 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                       }}
                       title={gates.network_reason || "Network egress to jewel's service port"}
                     >
-                      {gates.network_reachable ? "✓ Network" : "🚫 Network"}
+                      {gates.network_reachable ? "✓ Net" : "🚫 Net"}
                     </span>
                     <span
                       className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"
@@ -518,104 +524,106 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                     </span>
                   </>
                 )}
+
+                {/* Inline verb summary — one-liner instead of stacked rows.
+                    Impact labels move into the expanded details. */}
+                {totalDirect > 0 && directVerbs && (
+                  <span className="text-[11px] text-slate-100 ml-1">
+                    {directVerbs.delete > 0 && <><span className="font-semibold tabular-nums" style={{ color: "#fca5a5" }}>{directVerbs.delete}</span><span className="text-slate-400">D</span></>}
+                    {directVerbs.delete > 0 && (directVerbs.write > 0 || directVerbs.read > 0 || directVerbs.admin > 0) && <span className="text-slate-500"> · </span>}
+                    {directVerbs.write > 0 && <><span className="font-semibold tabular-nums" style={{ color: "#fdba74" }}>{directVerbs.write}</span><span className="text-slate-400">W</span></>}
+                    {directVerbs.write > 0 && (directVerbs.read > 0 || directVerbs.admin > 0) && <span className="text-slate-500"> · </span>}
+                    {directVerbs.read > 0 && <><span className="font-semibold tabular-nums" style={{ color: "#fde68a" }}>{directVerbs.read}</span><span className="text-slate-400">R</span></>}
+                    {directVerbs.read > 0 && directVerbs.admin > 0 && <span className="text-slate-500"> · </span>}
+                    {directVerbs.admin > 0 && <><span className="font-semibold tabular-nums" style={{ color: "#a78bfa" }}>{directVerbs.admin}</span><span className="text-slate-400">A</span></>}
+                  </span>
+                )}
+
+                {/* Inline lateral chip (count only — full sentence in details) */}
+                {lateralCount > 0 && (
+                  <span className="text-[10px] text-slate-400 ml-1" title={`Role can also pivot to ${lateralCount} actions on ${Object.keys(lateral).length} other services`}>
+                    +{lateralCount} lateral
+                  </span>
+                )}
+
+                <button
+                  onClick={() => setShowDamageDetails((v) => !v)}
+                  className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-100"
+                  aria-expanded={showDamageDetails}
+                >
+                  {showDamageDetails ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  {showDamageDetails ? "Hide" : "Details"}
+                </button>
               </div>
 
-              {/* 1. Plain-English damage sentence (template-driven, no LLM) */}
-              {plainSentence && (
-                <p className="text-[12px] leading-relaxed text-slate-100 mb-1.5">
-                  {plainSentence}
-                </p>
-              )}
+              {/* EXPANDED DETAILS — sentence, severity-why, lateral, perms */}
+              {showDamageDetails && (
+                <div className="mt-1.5 pt-1.5 border-t" style={{ borderColor: "rgba(148,163,184,0.12)" }}>
+                  {plainSentence && (
+                    <p className="text-[11px] leading-relaxed text-slate-100 mb-1">
+                      {plainSentence}
+                    </p>
+                  )}
 
-              {/* 2. LLM narrative (if enabled) — supplemental color on top of template */}
-              {path.damage_narrative && (
-                <p className="text-[11px] italic leading-relaxed text-slate-300 mb-1.5">
-                  {path.damage_narrative}
-                </p>
-              )}
+                  {path.damage_narrative && (
+                    <p className="text-[10px] italic leading-relaxed text-slate-300 mb-1">
+                      {path.damage_narrative}
+                    </p>
+                  )}
 
-              {/* 3. "Why MEDIUM/HIGH/..." rationale */}
-              {severityWhy && (
-                <p className="text-[10px] leading-relaxed text-slate-400 mb-2">
-                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 mr-1">Why this severity</span>
-                  {severityWhy}
-                </p>
-              )}
+                  {severityWhy && (
+                    <p className="text-[10px] leading-relaxed text-slate-400 mb-1">
+                      <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 mr-1">Why this severity</span>
+                      {severityWhy}
+                    </p>
+                  )}
 
-              {/* 4. Verb chips with impact labels — "13 read actions — data theft" */}
-              {totalDirect > 0 && directVerbs && (
-                <div className="flex flex-col gap-0.5 mb-2">
-                  {directVerbs.delete > 0 && (
-                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
-                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#fca5a5" }}>{directVerbs.delete}</span>
-                      <span>delete actions</span>
-                      <span className="text-slate-500">—</span>
-                      <span className="text-slate-300">destructive deletion</span>
+                  {/* Verb impact labels in the expanded view */}
+                  {totalDirect > 0 && directVerbs && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-400 mb-1">
+                      {directVerbs.delete > 0 && <span><span className="tabular-nums font-semibold" style={{ color: "#fca5a5" }}>{directVerbs.delete}</span> delete — destructive deletion</span>}
+                      {directVerbs.write > 0 && <span><span className="tabular-nums font-semibold" style={{ color: "#fdba74" }}>{directVerbs.write}</span> write — data tampering</span>}
+                      {directVerbs.read > 0 && <span><span className="tabular-nums font-semibold" style={{ color: "#fde68a" }}>{directVerbs.read}</span> read — data exfiltration</span>}
+                      {directVerbs.admin > 0 && <span><span className="tabular-nums font-semibold" style={{ color: "#a78bfa" }}>{directVerbs.admin}</span> admin — privilege escalation</span>}
                     </div>
                   )}
-                  {directVerbs.write > 0 && (
-                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
-                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#fdba74" }}>{directVerbs.write}</span>
-                      <span>write actions</span>
-                      <span className="text-slate-500">—</span>
-                      <span className="text-slate-300">data tampering</span>
-                    </div>
+
+                  {lateralServiceEntries.length > 0 && (
+                    <p className="text-[10px] leading-relaxed text-slate-400 mb-1">
+                      <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 mr-1">Lateral reach</span>
+                      attacker may also access {lateralServiceEntries
+                        .map(([name]) => name)
+                        .slice(0, 4)
+                        .join(", ")}
+                      {extraLateral > 0 && `, and ${extraLateral} more`}.
+                    </p>
                   )}
-                  {directVerbs.read > 0 && (
-                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
-                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#fde68a" }}>{directVerbs.read}</span>
-                      <span>read actions</span>
-                      <span className="text-slate-500">—</span>
-                      <span className="text-slate-300">data exfiltration</span>
-                    </div>
-                  )}
-                  {directVerbs.admin > 0 && (
-                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
-                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#a78bfa" }}>{directVerbs.admin}</span>
-                      <span>admin actions</span>
-                      <span className="text-slate-500">—</span>
-                      <span className="text-slate-300">privilege escalation</span>
-                    </div>
+
+                  {directActions.length > 0 && (
+                    <details className="mt-1 group">
+                      <summary
+                        className="cursor-pointer text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 hover:text-slate-300 select-none list-none flex items-center gap-1"
+                      >
+                        <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
+                        Specific permissions ({directActions.length}{d.direct_action_count && d.direct_action_count > directActions.length ? ` of ${d.direct_action_count}` : ""})
+                      </summary>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {directActions.slice(0, 24).map((a) => (
+                          <span
+                            key={a}
+                            className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded border"
+                            style={{ background: "rgba(15,23,42,0.6)", borderColor: "rgba(148,163,184,0.18)", color: "#cbd5e1" }}
+                          >
+                            {a}
+                          </span>
+                        ))}
+                        {directActions.length > 24 && (
+                          <span className="text-[10px] text-slate-500">+{directActions.length - 24} more</span>
+                        )}
+                      </div>
+                    </details>
                   )}
                 </div>
-              )}
-
-              {/* 5. Lateral reach sentence (not chips) */}
-              {lateralServiceEntries.length > 0 && (
-                <p className="text-[11px] leading-relaxed text-slate-300 mb-1">
-                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 mr-1">Lateral reach</span>
-                  attacker may also access {lateralServiceEntries
-                    .map(([name]) => name)
-                    .slice(0, 4)
-                    .join(", ")}
-                  {extraLateral > 0 && `, and ${extraLateral} more`}.
-                </p>
-              )}
-
-              {/* 6. Specific actions — expandable; surfaces s3:GetObject etc. */}
-              {directActions.length > 0 && (
-                <details className="mt-1.5 group">
-                  <summary
-                    className="cursor-pointer text-[10px] uppercase tracking-[0.12em] font-semibold text-slate-500 hover:text-slate-300 select-none list-none flex items-center gap-1"
-                  >
-                    <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
-                    Specific permissions ({directActions.length}{d.direct_action_count && d.direct_action_count > directActions.length ? ` of ${d.direct_action_count}` : ""})
-                  </summary>
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {directActions.slice(0, 24).map((a) => (
-                      <span
-                        key={a}
-                        className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded border"
-                        style={{ background: "rgba(15,23,42,0.6)", borderColor: "rgba(148,163,184,0.18)", color: "#cbd5e1" }}
-                      >
-                        {a}
-                      </span>
-                    ))}
-                    {directActions.length > 24 && (
-                      <span className="text-[10px] text-slate-500">+{directActions.length - 24} more</span>
-                    )}
-                  </div>
-                </details>
               )}
             </div>
           )

@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo } from "react"
-import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow } from "lucide-react"
+import { Loader2, AlertTriangle, Shield, ShieldCheck, RefreshCw, ShieldAlert, ChevronDown, ChevronRight, ChevronLeft, Workflow, Maximize2, Minimize2 } from "lucide-react"
 import { CrownJewelListPanel } from "./crown-jewel-list-panel"
 import { CrownJewelSurfaceCard } from "./crown-jewel-surface-card"
 import { PathListPanel } from "./path-list-panel"
@@ -76,6 +76,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // "clean" = new reactflow DAG (default, the polished CISO view).
   // "lanes" = legacy 5-column lane view (kept for back-compat).
   const [graphMode, setGraphMode] = useState<"clean" | "lanes">("clean")
+  // Maximize the attack graph: hides the hero + Damage Reduction Plan
+  // so the graph gets the full viewport. Per operator feedback the
+  // static analysis takes too much screen — the dynamic graph is the
+  // working content.
+  const [isGraphMaximized, setIsGraphMaximized] = useState(false)
 
   // Remediation state
   const [remediationStatus, setRemediationStatus] = useState<RemediationStatus>("idle")
@@ -773,8 +778,10 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             </div>
           )}
 
-          {/* Hero banner — only in detail mode (per-path score is meaningless in list view) */}
-          {pathView === "detail" && currentPath && (
+          {/* Hero banner — only in detail mode (per-path score is meaningless in list view).
+              Hidden when the operator maximizes the attack graph so the
+              graph gets full vertical room. */}
+          {pathView === "detail" && currentPath && !isGraphMaximized && (
             <PathScoreHero
               path={currentPath}
               pathIndex={selectedPathIndex}
@@ -831,6 +838,18 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     </button>
                   </div>
                   <button
+                    onClick={() => {
+                      setIsGraphMaximized((v) => !v)
+                      // Make sure the graph is visible if we're maximizing
+                      if (!isGraphMaximized) setShowFlowViz(true)
+                    }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
+                    title={isGraphMaximized ? "Restore (show analysis + plan)" : "Maximize — hide analysis to give the graph full screen"}
+                  >
+                    {isGraphMaximized ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                    {isGraphMaximized ? "Restore" : "Maximize"}
+                  </button>
+                  <button
                     onClick={() => setShowFlowViz((v) => !v)}
                     className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white hover:bg-slate-700/50 transition-colors"
                     title={showFlowViz ? "Hide the attack graph" : "Show the attack graph"}
@@ -848,7 +867,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                   // crown jewel renders its own real data flow — not the
                   // whole system map. Switching the selected path
                   // re-renders with that path's filtered architecture.
-                  <div style={{ height: 720 }}>
+                  <div style={{ height: isGraphMaximized ? "calc(100vh - 180px)" : 720 }}>
                     <TrafficFlowMap
                       systemName={systemName}
                       pathFilter={trafficFlowPathFilter}
@@ -898,23 +917,27 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                 )
               )}
 
-              {/* Remediation plan — full width, below the graph */}
-              <PathRemediationPlan
-                path={currentPath}
-                activeNodeId={activeRemediationNodeId}
-                remediationStatus={remediationStatus}
-                remediationPreview={remediationPreview}
-                remediationResult={remediationResult}
-                onRemediate={handleNodeRemediate}
-                onRollback={handleRollback}
-                onCancel={handleCancelNodeRemediation}
-                isSafe={listMode === "safe"}
-                remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
-                remediateAllResultsCount={remediateAllResults.length}
-                remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
-                onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
-                onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
-              />
+              {/* Remediation plan — full width, below the graph. Hidden
+                  when graph is maximized so the operator has the full
+                  viewport for the dynamic diagram. */}
+              {!isGraphMaximized && (
+                <PathRemediationPlan
+                  path={currentPath}
+                  activeNodeId={activeRemediationNodeId}
+                  remediationStatus={remediationStatus}
+                  remediationPreview={remediationPreview}
+                  remediationResult={remediationResult}
+                  onRemediate={handleNodeRemediate}
+                  onRollback={handleRollback}
+                  onCancel={handleCancelNodeRemediation}
+                  isSafe={listMode === "safe"}
+                  remediateAllStatus={listMode === "at-risk" ? remediateAllStatus : undefined}
+                  remediateAllResultsCount={remediateAllResults.length}
+                  remediateAllSuccessCount={remediateAllResults.filter((r) => r.success).length}
+                  onRemediateAll={listMode === "at-risk" ? handleRemediateAll : undefined}
+                  onResetRemediateAll={() => { setRemediateAllStatus("idle"); setRemediateAllResults([]); }}
+                />
+              )}
             </div>
           ) : filteredJewels.length === 0 ? (
             <div className="flex-1 flex items-center justify-center">
