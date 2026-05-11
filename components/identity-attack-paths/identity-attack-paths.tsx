@@ -462,18 +462,13 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
     const edgeSet = new Set<string>()
     const crownJewelIds = new Set<string>()
     let jewelName: string | undefined = undefined
-    // For each path node, fan out into its 1-hop infrastructure
-    // context (VPCs, subnets, security groups, NACLs, IAM roles, IAM
-    // policies, KMS keys, load balancers, target groups, log groups,
-    // bucket policies, instance profiles, monitors). These are the
-    // "services in the flow" Neo4j already knows about — we just
-    // weren't surfacing them in the System Map's filtered view.
-    const INFRA_BUCKETS: Array<keyof NonNullable<PathNodeDetail["infra_context"]>> = [
-      "vpcs",
-      "subnets",
-      "security_groups",
-      "nacls",
-      "iam_roles",
+    // For each path node, fan out a NARROW slice of its 1-hop infra
+    // context — only buckets that are gating/access-relevant for the
+    // path. Excludes wide reverse-lookup buckets (vpcs, subnets,
+    // iam_roles, security_groups when the node itself IS an SG) that
+    // would otherwise pull in every co-located peer and bloat the
+    // diagram.
+    const FORWARD_BUCKETS: Array<keyof NonNullable<PathNodeDetail["infra_context"]>> = [
       "iam_policies",
       "instance_profiles",
       "kms_keys",
@@ -483,31 +478,60 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       "log_groups",
       "monitors",
     ]
+    // Only fan out compute → SG (forward attachment), skip SG → other compute.
+    const COMPUTE_TYPES = /ec2|lambda|fargate|ecs|instance/i
+    // Dedupe by lowercased name+type — catches the role-vs-instance-profile
+    // case where both share a name but have different IDs.
+    const seenNameType = new Set<string>()
+    const nameTypeKey = (n: { name?: string; type?: string }) =>
+      `${(n.name || "").toLowerCase()}|${(n.type || "").toLowerCase()}`
 
     sourcePaths.forEach((p) => {
       ;(p.nodes ?? []).forEach((n) => {
         if (n.tier === "crown_jewel") crownJewelIds.add(n.id)
-        if (!idSet.has(n.id)) {
+        const ntKey = nameTypeKey({ name: n.name, type: n.type })
+        if (!idSet.has(n.id) && !seenNameType.has(ntKey)) {
           idSet.add(n.id)
+          seenNameType.add(ntKey)
           nodes.push({ id: n.id, name: n.name, type: n.type, tier: n.tier, lane: n.lane })
         }
         if (n.tier === "crown_jewel" && !jewelName) jewelName = n.name
-        // Pull in this node's 1-hop infra context so the Flow Map shows
-        // every related service Neo4j knows about, not just the BFS hops.
+
+        // Forward-only fan-out — don't expand from container nodes
+        // (VPC/Subnet/SG/NACL) whose buckets are reverse-lookups.
+        const isContainer = /vpc|subnet|securitygroup|nacl|networkacl/i.test(n.type || "")
+        if (isContainer) return
         const ic = n.infra_context
-        if (ic) {
-          for (const bucket of INFRA_BUCKETS) {
-            const neighbors = ic[bucket]
-            if (!Array.isArray(neighbors)) continue
-            for (const nb of neighbors) {
-              if (!nb?.id || idSet.has(nb.id)) continue
-              idSet.add(nb.id)
-              nodes.push({
-                id: nb.id,
-                name: nb.name || nb.id,
-                type: nb.type || "",
-              })
-            }
+        if (!ic) return
+
+        // Compute nodes also get their attached SG / NACL (one each
+        // typically — this is the "the SG this EC2 is in", not the
+        // reverse-lookup of "every EC2 in this SG").
+        const buckets: Array<keyof NonNullable<PathNodeDetail["infra_context"]>> = [
+          ...FORWARD_BUCKETS,
+        ]
+        if (COMPUTE_TYPES.test(n.type || "")) {
+          buckets.push("security_groups", "nacls")
+        }
+
+        for (const bucket of buckets) {
+          const neighbors = ic[bucket]
+          if (!Array.isArray(neighbors)) continue
+          // Cap per-bucket fan-out to 3 to keep the diagram readable.
+          // A path with 30 attached policies isn't more informative than
+          // a path with 3 attached policies — the operator drills in
+          // via the role detail panel if they need the full list.
+          for (const nb of neighbors.slice(0, 3)) {
+            if (!nb?.id) continue
+            const nbKey = nameTypeKey(nb)
+            if (idSet.has(nb.id) || seenNameType.has(nbKey)) continue
+            idSet.add(nb.id)
+            seenNameType.add(nbKey)
+            nodes.push({
+              id: nb.id,
+              name: nb.name || nb.id,
+              type: nb.type || "",
+            })
           }
         }
       })
