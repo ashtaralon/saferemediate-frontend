@@ -95,6 +95,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   const [s3ModalOpen, setS3ModalOpen] = useState(false)
   const [sgModalOpen, setSgModalOpen] = useState(false)
   const [modalResource, setModalResource] = useState<{ name: string; sgId?: string } | null>(null)
+  // Historical-evidence toggle (2026-05-11). When on, the proxy passes
+  // include_stale=true so the backend returns ACTUAL_S3_ACCESS edges
+  // that fell outside the current collector window (annual DR drills,
+  // quarterly compliance scans, etc.). Default off — live view only.
+  const [includeStale, setIncludeStale] = useState(false)
 
   // AbortController-aware fetch. The user reported feeling "stuck" on
   // the Attack Paths tab and unable to switch sections — most likely
@@ -117,8 +122,9 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       setIsLoading(true)
       setError(null)
       try {
+        const staleParam = includeStale ? "&include_stale=true" : ""
         const res = await fetch(
-          `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true`,
+          `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${staleParam}`,
           { signal }
         )
         if (signal?.aborted) return
@@ -140,7 +146,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         if (!signal?.aborted) setIsLoading(false)
       }
     },
-    [systemName]
+    [systemName, includeStale]
   )
 
   useEffect(() => {
@@ -715,6 +721,37 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                 </span>
               </button>
             </div>
+            {/* Historical-evidence toggle: when ON, the API returns
+                observed-behavior edges that fell outside the current
+                collector window (annual DR drills, quarterly compliance
+                scans, monthly batches that just missed this window).
+                Default OFF so the live attack surface stays clean. */}
+            <button
+              onClick={() => setIncludeStale((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-semibold transition-colors"
+              style={
+                includeStale
+                  ? {
+                      background: "rgba(168, 85, 247, 0.15)",
+                      color: "#d8b4fe",
+                      border: "1px solid rgba(168, 85, 247, 0.35)",
+                    }
+                  : {
+                      background: "rgba(15, 23, 42, 0.8)",
+                      color: "#94a3b8",
+                      border: "1px solid rgba(148, 163, 184, 0.15)",
+                    }
+              }
+              title={
+                includeStale
+                  ? "Historical evidence ON — showing edges last seen outside the current collector window (annual DR drills, quarterly batches). Click to switch to live-only view."
+                  : "Live-only view. Click to also show historical evidence (yearly / quarterly access patterns preserved as stale but available)."
+              }
+            >
+              <span className="text-[10px]">
+                {includeStale ? "● Historical" : "○ Live only"}
+              </span>
+            </button>
             <button
               onClick={() => fetchData()}
               className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"

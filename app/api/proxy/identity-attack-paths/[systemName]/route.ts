@@ -17,10 +17,15 @@ export async function GET(
   // per crown jewel (was 12 jewels × 3 paths = 36 max; now up to 96).
   const maxPathsPerJewel = searchParams.get("max_paths_per_jewel") || "8"
   const envelope = searchParams.get("envelope") === "true" ? "true" : ""
+  // Stale toggle: when true, the backend includes historical (is_stale=true)
+  // observed-behavior edges in the attack-path response. Default false so
+  // the live view stays focused on recent activity.
+  const includeStale = searchParams.get("include_stale") === "true" ? "true" : ""
 
   try {
     const envelopeParam = envelope ? `&envelope=${envelope}` : ""
-    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}`
+    const staleParam = includeStale ? `&include_stale=${includeStale}` : ""
+    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}${staleParam}`
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}`
     console.log("[identity-attack-paths] Fetching:", url)
     const res = await fetch(
