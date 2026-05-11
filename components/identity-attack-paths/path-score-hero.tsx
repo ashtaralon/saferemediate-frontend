@@ -165,20 +165,36 @@ function buildPlainEnglishDamage(path: IdentityAttackPath): string | null {
   if (eff === "no_jewel_perms") {
     return `${entryName} reaches ${roleName} on this path, but the role has no ${jewelServiceLabel} permissions — ${jewelName} is not actually accessible via this chain.`
   }
-  // Live path — list verbs as readable phrases
+  // Live path — list verbs as readable phrases.
+  // Strategy: bare verbs get joined ("delete, modify, or read") and then a
+  // shared trailing object ("data in <jewel>") so the sentence reads as a
+  // single coordinated VP rather than three competing prepositions.
+  // "Admin" is special — it isn't really a data verb, so it gets appended
+  // as a separate clause.
   if (totalDirect === 0) return null
-  const verbPhrases: string[] = []
-  if ((dv?.admin ?? 0) > 0) verbPhrases.push("take admin actions on")
-  if ((dv?.delete ?? 0) > 0) verbPhrases.push("delete data in")
-  if ((dv?.write ?? 0) > 0) verbPhrases.push("modify")
-  if ((dv?.read ?? 0) > 0) verbPhrases.push("read")
-  const joined =
-    verbPhrases.length === 1
-      ? verbPhrases[0]
-      : verbPhrases.length === 2
-      ? `${verbPhrases[0]} or ${verbPhrases[1]}`
-      : verbPhrases.slice(0, -1).join(", ") + ", or " + verbPhrases[verbPhrases.length - 1]
-  let sentence = `If ${entryName} is compromised, an attacker can use ${roleName} to ${joined} ${jewelName}.`
+  const dataVerbs: string[] = []
+  if ((dv?.delete ?? 0) > 0) dataVerbs.push("delete")
+  if ((dv?.write ?? 0) > 0) dataVerbs.push("modify")
+  if ((dv?.read ?? 0) > 0) dataVerbs.push("read")
+  const adminPresent = (dv?.admin ?? 0) > 0
+  const dataJoined =
+    dataVerbs.length === 0
+      ? ""
+      : dataVerbs.length === 1
+      ? dataVerbs[0]
+      : dataVerbs.length === 2
+      ? `${dataVerbs[0]} or ${dataVerbs[1]}`
+      : dataVerbs.slice(0, -1).join(", ") + ", or " + dataVerbs[dataVerbs.length - 1]
+  let sentence = ""
+  if (dataJoined && adminPresent) {
+    sentence = `If ${entryName} is compromised, an attacker can use ${roleName} to ${dataJoined} data in ${jewelName} and take admin-level actions on it.`
+  } else if (dataJoined) {
+    sentence = `If ${entryName} is compromised, an attacker can use ${roleName} to ${dataJoined} data in ${jewelName}.`
+  } else if (adminPresent) {
+    sentence = `If ${entryName} is compromised, an attacker can use ${roleName} to take admin-level actions on ${jewelName}.`
+  } else {
+    return null
+  }
   const lateral = d.lateral_services ?? {}
   const lateralLabels = Object.keys(lateral).slice(0, 3)
   if (lateralLabels.length > 0) {
