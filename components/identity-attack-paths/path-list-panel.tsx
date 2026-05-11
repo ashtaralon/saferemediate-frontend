@@ -380,10 +380,10 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                       className="text-[10px] uppercase tracking-[0.12em] font-semibold"
                       style={{ color: "#94a3b8" }}
                     >
-                      Fix
+                      Reduce
                     </span>
                     <span className="text-xs" style={{ color: "#f1f5f9" }}>
-                      {planes.iam.action_count > 0 && <span><span className="font-semibold tabular-nums">{planes.iam.action_count}</span> IAM</span>}
+                      {planes.iam.action_count > 0 && <span><span className="font-semibold tabular-nums">{planes.iam.action_count}</span> perms</span>}
                       {planes.iam.action_count > 0 && (planes.network.action_count > 0 || planes.data.action_count > 0) && <span style={{ color: "#94a3b8" }}> · </span>}
                       {planes.network.action_count > 0 && <span><span className="font-semibold tabular-nums">{planes.network.action_count}</span> network</span>}
                       {planes.network.action_count > 0 && planes.data.action_count > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
