@@ -662,12 +662,17 @@ export function PathRemediationPlan({
                   data:    { ring: "ring-emerald-500/30",text: "text-emerald-300",bg: "bg-emerald-500/10",label: "Data" },
                 }[plane]
                 const hasAny = bucket.action_count > 0
+                const actionable = bucket.actionable_count ?? bucket.action_count
+                const locked = bucket.locked_count ?? 0
+                const lockedOnly = hasAny && actionable === 0 && locked > 0
                 return (
                   <div
                     key={plane}
                     className={`px-3 py-2 rounded-md ring-1 ${colors.ring} ${colors.bg}`}
                     title={
-                      hasAny
+                      lockedOnly
+                        ? `${locked} ${colors.label} item${locked === 1 ? "" : "s"} need manual review — no one-click fix on this path`
+                        : hasAny
                         ? `Apply only ${colors.label} fixes: ${currentScore} → ${bucket.achievable_score} (${bucket.delta >= 0 ? "+" : ""}${bucket.delta})`
                         : `No ${colors.label}-plane remediation found on this path`
                     }
@@ -680,7 +685,12 @@ export function PathRemediationPlan({
                         <span className="text-[10px] text-slate-600">no actions</span>
                       )}
                     </div>
-                    {hasAny ? (
+                    {lockedOnly ? (
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-base font-bold text-amber-300 tabular-nums">{locked}</span>
+                        <span className="text-[10px] text-slate-400">review needed</span>
+                      </div>
+                    ) : hasAny ? (
                       <div className="flex items-baseline gap-1">
                         <span className="text-base font-bold text-white tabular-nums">{bucket.achievable_score}</span>
                         <span className="text-[10px] text-slate-400">if {colors.label} only</span>

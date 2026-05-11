@@ -152,9 +152,13 @@ export interface RiskReductionAction {
 
 // Phase 2: per-plane remediation rollup. Backend at risk_reduction.by_plane.
 // Each plane bucket carries its own action list + simulated joint delta.
+// action_count = actionable_count + locked_count, so locked-only planes
+// still show as "1 action" in the rollup (matches the visible list below).
 export interface PlaneRemediationBucket {
   actions: RiskReductionAction[]
   action_count: number
+  actionable_count?: number
+  locked_count?: number
   achievable_score: number
   delta: number
 }
