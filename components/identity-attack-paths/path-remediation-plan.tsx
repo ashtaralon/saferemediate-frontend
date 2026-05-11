@@ -645,11 +645,13 @@ export function PathRemediationPlan({
             )}
           </div>
 
-          {/* Before / After damage summary. Pulls current direct-verb counts
-              from path.damage_capability (path-aware damage) and pairs them
-              with the qualitative "after Cyntro applies this plan" sentence.
-              Renders only when we have direct verb data — keeps the panel
-              from showing fabricated numbers per feedback_no_mock_numbers_in_ui. */}
+          {/* Before / After damage summary. BEFORE = real direct-verb counts
+              from path.damage_capability + lateral reach. AFTER = the real
+              reduction summary built from the actual candidate list and
+              simulator projection (path.reduction_narrative from the LLM
+              when available, else risk_reduction.reduction_summary which
+              is deterministic). No hardcoded marketing copy — if there
+              are no candidates, the AFTER row is omitted entirely. */}
           {(() => {
             const dc = path.damage_capability
             const dv = dc?.direct_verbs ?? dc?.verbs
@@ -662,6 +664,7 @@ export function PathRemediationPlan({
             if ((dv?.read ?? 0) > 0) beforeParts.push(`${dv?.read} read`)
             if ((dv?.admin ?? 0) > 0) beforeParts.push(`${dv?.admin} admin`)
             const topLateral = Object.keys(lateralSvcs).slice(0, 3).join(", ")
+            const afterText = path.reduction_narrative || rr?.reduction_summary || ""
             return (
               <div className="mb-2 rounded-md border px-3 py-2"
                 style={{ background: "rgba(15,23,42,0.6)", borderColor: "rgba(148,163,184,0.18)" }}>
@@ -673,29 +676,41 @@ export function PathRemediationPlan({
                       <span className="text-slate-400"> · lateral reach to {topLateral}</span>
                     )}
                   </span>
-                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-emerald-300/90 pt-0.5">After</span>
-                  <span className="text-slate-200">
-                    unused permissions, unused resource access, and unused network paths removed — only observed production access remains.
-                  </span>
+                  {afterText && (
+                    <>
+                      <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-emerald-300/90 pt-0.5">After</span>
+                      <span className="text-slate-200">{afterText}</span>
+                    </>
+                  )}
                 </div>
               </div>
             )
           })()}
 
-          {/* Phase 2: 3-column rollup. Relabeled Permissions / Network /
-              Data controls per the product spec — same plane buckets, clearer
-              language. Each column shows action count + simulated achievable
-              score if you applied ONLY that plane's fixes. */}
+          {/* Phase 2: 3-column rollup. Each card shows real action count +
+              simulated score + a blurb derived from the actual top action
+              in that plane (not a hardcoded label). When the plane has no
+              actions, blurb is empty. */}
           {rr?.by_plane && (
             <div className="grid grid-cols-3 gap-2 mb-2">
               {(["iam", "network", "data"] as const).map((plane) => {
                 const bucket = rr.by_plane?.[plane]
                 if (!bucket) return null
+                // Real-data blurb: pull from the first action in this
+                // plane's list, trimmed to <55 chars. Falls through to
+                // empty when no actions — never invents placeholder text.
+                const topAction = (bucket.actions || [])[0]
+                const dataBlurb = topAction?.action
+                  ? topAction.action.length > 55
+                    ? topAction.action.slice(0, 52) + "…"
+                    : topAction.action
+                  : ""
                 const colors = {
-                  iam:     { ring: "ring-purple-500/30",  text: "text-purple-300",  bg: "bg-purple-500/10",  label: "Permissions",    blurb: "Remove unused IAM actions" },
-                  network: { ring: "ring-cyan-500/30",    text: "text-cyan-300",    bg: "bg-cyan-500/10",    label: "Network",        blurb: "Close unused SG/NACL paths" },
-                  data:    { ring: "ring-emerald-500/30", text: "text-emerald-300", bg: "bg-emerald-500/10", label: "Data controls",  blurb: "Encryption + access controls" },
+                  iam:     { ring: "ring-purple-500/30",  text: "text-purple-300",  bg: "bg-purple-500/10",  label: "Permissions" },
+                  network: { ring: "ring-cyan-500/30",    text: "text-cyan-300",    bg: "bg-cyan-500/10",    label: "Network" },
+                  data:    { ring: "ring-emerald-500/30", text: "text-emerald-300", bg: "bg-emerald-500/10", label: "Data controls" },
                 }[plane]
+                const colorsWithBlurb = { ...colors, blurb: dataBlurb }
                 const hasAny = bucket.action_count > 0
                 const actionable = bucket.actionable_count ?? bucket.action_count
                 const locked = bucket.locked_count ?? 0
@@ -736,10 +751,14 @@ export function PathRemediationPlan({
                     ) : (
                       <div className="text-[11px] text-slate-500">—</div>
                     )}
-                    {/* Per-card blurb explaining what this plane removes */}
-                    <div className="text-[9px] text-slate-500 mt-0.5 leading-tight">
-                      {colors.blurb}
-                    </div>
+                    {/* Per-card blurb — derived from the actual top action
+                        on this plane (real action string), not a hardcoded
+                        label. Hidden when there are no actions. */}
+                    {colorsWithBlurb.blurb && (
+                      <div className="text-[9px] text-slate-500 mt-0.5 leading-tight truncate" title={topAction?.action || ""}>
+                        {colorsWithBlurb.blurb}
+                      </div>
+                    )}
                   </div>
                 )
               })}

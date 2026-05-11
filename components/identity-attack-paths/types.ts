@@ -174,6 +174,12 @@ export interface RiskReduction {
     network: PlaneRemediationBucket
     data: PlaneRemediationBucket
   }
+  // Deterministic, data-derived "what Cyntro will actually do for this
+  // path" sentence. Built from the real top_actions list — names and
+  // counts only, no marketing copy. Always present when there are
+  // candidate actions. Replaces the prior hardcoded "After Cyntro"
+  // sentence in the UI.
+  reduction_summary?: string
 }
 
 // "More services in the flow" — for each IAM role on the path, the list
@@ -364,6 +370,11 @@ export interface IdentityAttackPath {
   // Bedrock call failed. Frontend should fall back to verb chips when
   // null.
   damage_narrative?: string | null
+  // LLM-generated 1-2 sentence "what Cyntro will actually do for this
+  // path" — grounded in the real top_actions + projection. Same env
+  // gate as damage_narrative. Null when LLM is off; frontend falls back
+  // to risk_reduction.reduction_summary which is deterministic.
+  reduction_narrative?: string | null
   // "All services in the flow" — sibling resources reachable from each
   // IAM role on the path. Renders as the "Reachable Services" expansion.
   reachable_neighbors?: ReachableNeighborsByRole[]
