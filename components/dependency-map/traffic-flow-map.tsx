@@ -1871,6 +1871,7 @@ function UnifiedArchitectureDiagram({
   ghostedNodeIds = new Set<string>(),
   highlightedNodeId,
   showVPCBoundaries = false,
+  pathMode = false,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -1882,6 +1883,12 @@ function UnifiedArchitectureDiagram({
   ghostedNodeIds?: Set<string>;
   highlightedNodeId?: string | null;
   showVPCBoundaries?: boolean;
+  // When true (Attack Paths page), single-click on a node should open
+  // the parent's remediation modal instead of the internal "service
+  // details" popup. Compute/resource/iam/nacl already fire onSelectService
+  // on click — only the SG card was using onToggle (expand rules) on click;
+  // in path mode we promote `onDetails` to single-click on the SG card too.
+  pathMode?: boolean;
 }) {
   const [hoveredId, setHoveredIdLocal] = useState<string | null>(null);
   const setHoveredId = useCallback((id: string | null) => setHoveredIdLocal(id), []);
@@ -2084,7 +2091,11 @@ function UnifiedArchitectureDiagram({
                 <SecurityGroupPanel
                   sg={sg}
                   isExpanded={expandedSG === sg.id}
-                  onToggle={() => setExpandedSG(expandedSG === sg.id ? null : sg.id)}
+                  onToggle={() =>
+                    pathMode
+                      ? onSelectService(sg, 'security_group')
+                      : setExpandedSG(expandedSG === sg.id ? null : sg.id)
+                  }
                   isHighlighted={isNodeHighlighted(sg.id)}
                   onHover={setHoveredId}
                   onDetails={() => onSelectService(sg, 'security_group')}
@@ -2594,11 +2605,37 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
       const subtype: NodeType = t.includes('s3') || t.includes('bucket') ? 'storage' : t.includes('dynamo') ? 'dynamodb' : t.includes('rds') || t.includes('aurora') || t.includes('database') ? 'database' : 'storage';
       resources.push({ id: pn.id, name: pn.name, shortName: sname, type: subtype });
     } else if (bucket === 'security_group') {
-      securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      // Hydrate from arch.securityGroups when possible — the path node
+      // might use a slightly different id (synthesized stub, cross-system
+      // reference) so name match is the reliable bridge. Without this,
+      // seeded SGs render with "0 rules" even when the real SG has
+      // ingress/egress rules in Neo4j.
+      const archMatch = arch.securityGroups.find(
+        (sg) => sg.id === pn.id || sg.name === pn.name,
+      );
+      if (archMatch) {
+        securityGroups.push(archMatch);
+      } else {
+        securityGroups.push({ id: pn.id, type: 'security_group', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      }
     } else if (bucket === 'nacl') {
-      nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      const archMatch = arch.nacls.find(
+        (n) => n.id === pn.id || n.name === pn.name,
+      );
+      if (archMatch) {
+        nacls.push(archMatch);
+      } else {
+        nacls.push({ id: pn.id, type: 'nacl', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      }
     } else if (bucket === 'iam_role') {
-      iamRoles.push({ id: pn.id, type: 'iam_role', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      const archMatch = arch.iamRoles.find(
+        (r) => r.id === pn.id || r.name === pn.name,
+      );
+      if (archMatch) {
+        iamRoles.push(archMatch);
+      } else {
+        iamRoles.push({ id: pn.id, type: 'iam_role', name: pn.name, shortName: sname, usedCount: 0, totalCount: 0, gapCount: 0, connectedSources: [], connectedTargets: [] });
+      }
     }
     // 'network' / 'unknown' — skip (no System Map bucket)
     seenIds.add(pn.id);
@@ -2691,7 +2728,18 @@ function applyPathFilter(arch: SystemArchitecture, filter: TrafficFlowMapPathFil
   };
 }
 
-export default function TrafficFlowMap({ systemName, pathFilter }: { systemName: string; pathFilter?: TrafficFlowMapPathFilter }) {
+// Per-node action callback. When set, clicking a node in path-filter
+// mode short-circuits the internal "service details" popup and routes
+// to the caller — e.g. the Attack Paths page wants SG clicks to open
+// the SG remediation modal, IAM-role clicks to open the IAM modal,
+// resource clicks (S3 jewel) to open the S3 modal.
+//
+// Falls back to the internal popup when this callback is not provided
+// (used by the standalone Topology → System Map view).
+export type PathNodeKind = "compute" | "resource" | "security_group" | "nacl" | "iam_role" | "api_call";
+export type OnPathNodeAction = (kind: PathNodeKind, node: { id: string; name: string; type?: string }) => void;
+
+export default function TrafficFlowMap({ systemName, pathFilter, onPathNodeAction }: { systemName: string; pathFilter?: TrafficFlowMapPathFilter; onPathNodeAction?: OnPathNodeAction }) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
   // pathFilter applied if set) via useMemo, so switching attack paths
@@ -3843,7 +3891,19 @@ export default function TrafficFlowMap({ systemName, pathFilter }: { systemName:
           <UnifiedArchitectureDiagram
             architecture={architecture}
             animate={animate}
+            pathMode={!!onPathNodeAction}
             onSelectService={(service, type) => {
+              // If the parent registered a path-node action callback
+              // (Attack Paths page), route there — they'll open the
+              // right remediation modal per node type.
+              if (onPathNodeAction) {
+                onPathNodeAction(type as PathNodeKind, {
+                  id: service.id,
+                  name: (service as any).name ?? service.id,
+                  type: (service as any).type,
+                });
+                return;
+              }
               setSelectedService({ service, type });
               setSelectedNodeForHops(service.id);
             }}

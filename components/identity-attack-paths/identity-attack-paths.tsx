@@ -852,6 +852,40 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     <TrafficFlowMap
                       systemName={systemName}
                       pathFilter={trafficFlowPathFilter}
+                      onPathNodeAction={(kind, node) => {
+                        // Route per-node clicks on the Path Flow Map to
+                        // the right remediation modal instead of the
+                        // internal "service details" popup. The user
+                        // expects clicking an SG to open the SG LP
+                        // modal, an IAM role to open the IAM modal,
+                        // the jewel resource to open the S3 modal.
+                        if (kind === "security_group") {
+                          const sgId = node.id.startsWith("sg-")
+                            ? node.id
+                            : node.name.startsWith("sg-")
+                              ? node.name
+                              : node.id.match(/sg-[a-z0-9]+/)?.[0] ?? node.id
+                          setModalResource({ name: node.name, sgId })
+                          setSgModalOpen(true)
+                          return
+                        }
+                        if (kind === "iam_role") {
+                          setModalResource({ name: node.name })
+                          setIamModalOpen(true)
+                          return
+                        }
+                        if (kind === "resource") {
+                          const t = (node.type ?? "").toLowerCase()
+                          if (t.includes("s3") || t.includes("bucket")) {
+                            setModalResource({ name: node.name })
+                            setS3ModalOpen(true)
+                            return
+                          }
+                        }
+                        // compute / nacl / api_call — no LP modal yet,
+                        // fall through silently so the click is a no-op
+                        // rather than opening the legacy generic popup.
+                      }}
                     />
                   </div>
                 ) : (
