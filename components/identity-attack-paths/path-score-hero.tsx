@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { AlertTriangle, Target, ChevronDown, ChevronRight, ArrowRight } from "lucide-react"
+import { AlertTriangle, Target, ChevronDown, ChevronRight, ArrowRight, Crown } from "lucide-react"
 import type { IdentityAttackPath, SeverityFactor } from "./types"
 import { FACTOR_LABELS } from "./types"
 
@@ -314,6 +314,90 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
             {showAllFactors ? "Hide all factors" : "View all factors"}
           </button>
         </div>
+
+        {/* Row 3.5 — Potential damage. Surfaces the LLM narrative + verb
+            counts + reachable services so the operator can see WHAT an
+            attacker reaching the end of this path could actually do.
+            Renders only when damage_capability is in "live" state with
+            at least one allowed action; falls through silently when the
+            backend reports not_applicable / not_wired (per
+            feedback_no_mock_numbers_in_ui). */}
+        {(() => {
+          const d = path.damage_capability
+          const verbs = d?.verbs
+          const totalVerbs = (verbs?.read ?? 0) + (verbs?.write ?? 0) + (verbs?.delete ?? 0) + (verbs?.admin ?? 0)
+          const services = d?.reachable_services ?? {}
+          const hasVerbs = d?.state === "live" && verbs && totalVerbs > 0
+          const hasServices = d?.state === "live" && Object.keys(services).length > 0
+          if (!path.damage_narrative && !hasVerbs && !hasServices) return null
+          const serviceEntries = Object.entries(services).sort((a, b) => b[1] - a[1]).slice(0, 4)
+          const extraServices = Math.max(0, Object.keys(services).length - serviceEntries.length)
+          return (
+            <div
+              className="mt-2 rounded-md border px-3 py-2"
+              style={{
+                background: "rgba(15, 23, 42, 0.6)",
+                borderColor: d?.destructive_capable ? "rgba(239, 68, 68, 0.3)" : "rgba(148, 163, 184, 0.18)",
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <Crown className={`w-3 h-3 ${d?.destructive_capable ? "text-red-400" : "text-slate-400"}`} />
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+                  style={{ color: d?.destructive_capable ? "#fca5a5" : "#94a3b8" }}
+                >
+                  Potential damage
+                </span>
+                {d?.destructive_capable && (
+                  <span
+                    className="text-[9px] uppercase tracking-[0.12em] font-bold px-1.5 py-0.5 rounded border"
+                    style={{ color: "#fca5a5", borderColor: "rgba(220,38,38,0.4)", background: "rgba(220,38,38,0.08)" }}
+                  >
+                    Destructive
+                  </span>
+                )}
+              </div>
+
+              {path.damage_narrative && (
+                <p className="text-[12px] leading-relaxed text-slate-200 mb-1.5">
+                  {path.damage_narrative}
+                </p>
+              )}
+
+              <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
+                {hasVerbs && verbs && (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">Verbs</span>
+                    <span className="text-slate-100">
+                      {verbs.delete > 0 && <span><span className="font-semibold tabular-nums">{verbs.delete}</span> delete</span>}
+                      {verbs.delete > 0 && verbs.write > 0 && <span className="text-slate-500"> · </span>}
+                      {verbs.write > 0 && <span><span className="font-semibold tabular-nums">{verbs.write}</span> write</span>}
+                      {(verbs.delete > 0 || verbs.write > 0) && verbs.read > 0 && <span className="text-slate-500"> · </span>}
+                      {verbs.read > 0 && <span><span className="font-semibold tabular-nums">{verbs.read}</span> read</span>}
+                      {(verbs.delete > 0 || verbs.write > 0 || verbs.read > 0) && verbs.admin > 0 && <span className="text-slate-500"> · </span>}
+                      {verbs.admin > 0 && <span className="text-red-300"><span className="font-semibold tabular-nums">{verbs.admin}</span> admin</span>}
+                    </span>
+                  </div>
+                )}
+
+                {hasServices && (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">Touches</span>
+                    <span className="text-slate-100">
+                      {serviceEntries.map(([name, count], i) => (
+                        <span key={name}>
+                          {i > 0 && <span className="text-slate-500"> · </span>}
+                          <span className="font-semibold tabular-nums">{count}</span> {name}
+                        </span>
+                      ))}
+                      {extraServices > 0 && <span className="text-slate-400"> +{extraServices}</span>}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Row 4 — full factor grid, progressive disclosure */}
         {showAllFactors && (
