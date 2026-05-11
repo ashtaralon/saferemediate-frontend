@@ -560,7 +560,7 @@ export function PathRemediationPlan({
             <div className="flex items-center gap-2 min-w-0">
               <ShieldAlert className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
               <span className="text-[11px] font-semibold text-slate-100 uppercase tracking-wider">
-                Remediation Plan
+                Damage Reduction Plan
               </span>
               {reductionPct > 0 ? (
                 <span className="text-[10px] text-slate-400">
@@ -645,21 +645,56 @@ export function PathRemediationPlan({
             )}
           </div>
 
-          {/* Phase 2: 3-column "fix this path at IAM | Network | Data" rollup.
-              Renders only when backend supplies risk_reduction.by_plane.
-              Each column shows action count + simulated achievable score if
-              you applied ONLY that plane's fixes. CISO can see at a glance
-              "fixing IAM only gets us from 44 → 30; fixing Network only gets
-              us from 44 → 38; fixing all three gets us to 25." */}
+          {/* Before / After damage summary. Pulls current direct-verb counts
+              from path.damage_capability (path-aware damage) and pairs them
+              with the qualitative "after Cyntro applies this plan" sentence.
+              Renders only when we have direct verb data — keeps the panel
+              from showing fabricated numbers per feedback_no_mock_numbers_in_ui. */}
+          {(() => {
+            const dc = path.damage_capability
+            const dv = dc?.direct_verbs ?? dc?.verbs
+            const lateralSvcs = dc?.lateral_services ?? {}
+            const totalDirect = (dv?.read ?? 0) + (dv?.write ?? 0) + (dv?.delete ?? 0) + (dv?.admin ?? 0)
+            if (!dc || dc.state !== "live" || totalDirect === 0) return null
+            const beforeParts: string[] = []
+            if ((dv?.delete ?? 0) > 0) beforeParts.push(`${dv?.delete} delete`)
+            if ((dv?.write ?? 0) > 0) beforeParts.push(`${dv?.write} write`)
+            if ((dv?.read ?? 0) > 0) beforeParts.push(`${dv?.read} read`)
+            if ((dv?.admin ?? 0) > 0) beforeParts.push(`${dv?.admin} admin`)
+            const topLateral = Object.keys(lateralSvcs).slice(0, 3).join(", ")
+            return (
+              <div className="mb-2 rounded-md border px-3 py-2"
+                style={{ background: "rgba(15,23,42,0.6)", borderColor: "rgba(148,163,184,0.18)" }}>
+                <div className="grid grid-cols-[60px_1fr] gap-x-2 gap-y-1 text-[11px]">
+                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-amber-300/90 pt-0.5">Before</span>
+                  <span className="text-slate-100">
+                    {beforeParts.join(" · ")}
+                    {topLateral && (
+                      <span className="text-slate-400"> · lateral reach to {topLateral}</span>
+                    )}
+                  </span>
+                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-emerald-300/90 pt-0.5">After</span>
+                  <span className="text-slate-200">
+                    unused permissions, unused resource access, and unused network paths removed — only observed production access remains.
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Phase 2: 3-column rollup. Relabeled Permissions / Network /
+              Data controls per the product spec — same plane buckets, clearer
+              language. Each column shows action count + simulated achievable
+              score if you applied ONLY that plane's fixes. */}
           {rr?.by_plane && (
             <div className="grid grid-cols-3 gap-2 mb-2">
               {(["iam", "network", "data"] as const).map((plane) => {
                 const bucket = rr.by_plane?.[plane]
                 if (!bucket) return null
                 const colors = {
-                  iam:     { ring: "ring-purple-500/30", text: "text-purple-300", bg: "bg-purple-500/10", label: "IAM" },
-                  network: { ring: "ring-cyan-500/30",   text: "text-cyan-300",   bg: "bg-cyan-500/10",   label: "Network" },
-                  data:    { ring: "ring-emerald-500/30",text: "text-emerald-300",bg: "bg-emerald-500/10",label: "Data" },
+                  iam:     { ring: "ring-purple-500/30",  text: "text-purple-300",  bg: "bg-purple-500/10",  label: "Permissions",    blurb: "Remove unused IAM actions" },
+                  network: { ring: "ring-cyan-500/30",    text: "text-cyan-300",    bg: "bg-cyan-500/10",    label: "Network",        blurb: "Close unused SG/NACL paths" },
+                  data:    { ring: "ring-emerald-500/30", text: "text-emerald-300", bg: "bg-emerald-500/10", label: "Data controls",  blurb: "Encryption + access controls" },
                 }[plane]
                 const hasAny = bucket.action_count > 0
                 const actionable = bucket.actionable_count ?? bucket.action_count
@@ -693,7 +728,7 @@ export function PathRemediationPlan({
                     ) : hasAny ? (
                       <div className="flex items-baseline gap-1">
                         <span className="text-base font-bold text-white tabular-nums">{bucket.achievable_score}</span>
-                        <span className="text-[10px] text-slate-400">if {colors.label} only</span>
+                        <span className="text-[10px] text-slate-400">if {colors.label.toLowerCase()} only</span>
                         <span className={`ml-auto text-[11px] font-semibold tabular-nums ${bucket.delta < 0 ? "text-emerald-300" : "text-slate-500"}`}>
                           {bucket.delta < 0 ? bucket.delta : "—"}
                         </span>
@@ -701,6 +736,10 @@ export function PathRemediationPlan({
                     ) : (
                       <div className="text-[11px] text-slate-500">—</div>
                     )}
+                    {/* Per-card blurb explaining what this plane removes */}
+                    <div className="text-[9px] text-slate-500 mt-0.5 leading-tight">
+                      {colors.blurb}
+                    </div>
                   </div>
                 )
               })}

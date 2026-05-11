@@ -257,6 +257,7 @@ export interface DamageCapability {
   // Path-aware split (new 2026-05-11)
   direct_verbs?: DamageVerbs
   direct_action_count?: number
+  direct_actions?: string[]  // e.g. ["s3:GetObject", "s3:PutObject"] — capped at 50
   lateral_verbs?: DamageVerbs
   lateral_action_count?: number
   lateral_services?: Record<string, number>

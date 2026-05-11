@@ -140,6 +140,112 @@ function humanizeType(type: string | undefined, tier?: string): string {
   return type ?? "Resource"
 }
 
+// ── Plain-English damage sentence (deterministic, no LLM) ──────────
+// Templates the "potential damage" sentence from the structured fields
+// so the operator gets a readable risk statement even when
+// ENABLE_DAMAGE_NARRATIVE is off / Bedrock fails / cache cold.
+function buildPlainEnglishDamage(path: IdentityAttackPath): string | null {
+  const d = path.damage_capability
+  if (!d || d.state !== "live") return null
+  const dv = d.direct_verbs ?? d.verbs
+  const totalDirect = (dv?.read ?? 0) + (dv?.write ?? 0) + (dv?.delete ?? 0) + (dv?.admin ?? 0)
+  const eff = d.effective_damage ?? "live"
+  const entryNode = (path.nodes ?? []).find((n) => n.tier === "entry") ?? (path.nodes ?? [])[0]
+  const entryName = entryNode?.name || "the entry workload"
+  const roleName = d.role_name || (path.nodes ?? []).find((n) => n.tier === "identity")?.name || "the role on this path"
+  const jewelName = d.jewel_name || (path.nodes ?? []).find((n) => n.tier === "crown_jewel")?.name || "this resource"
+  const jewelServiceLabel = serviceFriendlyShort(d.jewel_service)
+  // Blocked paths get their own sentence
+  if (eff === "network_blocked") {
+    return `If ${entryName} is compromised, the attacker would reach ${roleName} but the SG/NACL on this path blocks egress to ${jewelServiceLabel} — the role's permissions on ${jewelName} are unreachable through this chain.`
+  }
+  if (eff === "data_plane_blocked") {
+    return `If ${entryName} is compromised, the attacker would reach ${roleName} but cannot decrypt ${jewelName} (KMS access denied) — IAM permits the operation but the data plane blocks it.`
+  }
+  if (eff === "no_jewel_perms") {
+    return `${entryName} reaches ${roleName} on this path, but the role has no ${jewelServiceLabel} permissions — ${jewelName} is not actually accessible via this chain.`
+  }
+  // Live path — list verbs as readable phrases
+  if (totalDirect === 0) return null
+  const verbPhrases: string[] = []
+  if ((dv?.admin ?? 0) > 0) verbPhrases.push("take admin actions on")
+  if ((dv?.delete ?? 0) > 0) verbPhrases.push("delete data in")
+  if ((dv?.write ?? 0) > 0) verbPhrases.push("modify")
+  if ((dv?.read ?? 0) > 0) verbPhrases.push("read")
+  const joined =
+    verbPhrases.length === 1
+      ? verbPhrases[0]
+      : verbPhrases.length === 2
+      ? `${verbPhrases[0]} or ${verbPhrases[1]}`
+      : verbPhrases.slice(0, -1).join(", ") + ", or " + verbPhrases[verbPhrases.length - 1]
+  let sentence = `If ${entryName} is compromised, an attacker can use ${roleName} to ${joined} ${jewelName}.`
+  const lateral = d.lateral_services ?? {}
+  const lateralLabels = Object.keys(lateral).slice(0, 3)
+  if (lateralLabels.length > 0) {
+    const lateralNouns = lateralLabels.join(", ")
+    const more = Object.keys(lateral).length > 3 ? ", and other services" : ""
+    sentence += ` The same path may also expose ${lateralNouns}${more} via lateral movement.`
+  }
+  return sentence
+}
+
+// Short, sentence-friendly version of the friendly service name.
+// "S3 buckets" → "this S3 bucket". "DynamoDB tables" → "DynamoDB tables".
+function serviceFriendlyShort(svc?: string): string {
+  if (!svc) return "this resource"
+  const friendly: Record<string, string> = {
+    s3: "S3 buckets",
+    dynamodb: "DynamoDB tables",
+    rds: "RDS databases",
+    lambda: "Lambda functions",
+    kms: "KMS keys",
+    secretsmanager: "secrets",
+    ssm: "SSM parameters",
+    sqs: "SQS queues",
+    sns: "SNS topics",
+    ec2: "EC2 instances",
+  }
+  return friendly[svc] || svc
+}
+
+// "Why MEDIUM": derive a one-sentence rationale from path properties.
+function buildSeverityRationale(path: IdentityAttackPath): string | null {
+  const sev = path.severity
+  const label = (sev?.severity || "").toUpperCase()
+  if (!label) return null
+  // Backend's structured rationale wins when present
+  if (sev?.damage_floor_applied && Array.isArray(sev.damage_rationale) && sev.damage_rationale.length > 0) {
+    return `${sev.damage_rationale.slice(0, 2).join("; ")} — severity lifted to ${label} on that basis.`
+  }
+  const d = path.damage_capability
+  const eff = d?.effective_damage ?? "live"
+  const internetExposed = !!(path.nodes ?? []).find((n) => n.is_internet_exposed)
+  const destructive = !!d?.destructive_capable
+  // Templates per severity tier
+  if (label === "MEDIUM" || label === "LOW") {
+    if (destructive && !internetExposed) {
+      return `${label}: destructive access exists on this path, but entry requires compromise of an internal principal — not directly internet-exposed.`
+    }
+    if (eff === "network_blocked" || eff === "data_plane_blocked") {
+      return `${label}: path is gate-blocked at the ${eff === "network_blocked" ? "network" : "data"} plane — the attacker would reach the role but cannot actually mutate the jewel.`
+    }
+    if (eff === "no_jewel_perms") {
+      return `${label}: role lacks direct permissions on this jewel's service — path is technically routable but doesn't grant real access.`
+    }
+    return `${label}: read/write reach exists but no destructive permissions on this path; jewel is not internet-exposed.`
+  }
+  if (label === "HIGH" || label === "CRITICAL") {
+    if (internetExposed) {
+      return `${label}: ${destructive ? "destructive" : "data"} access reachable and the entry path is internet-exposed — direct attack surface.`
+    }
+    if (destructive) {
+      return `${label}: destructive access (delete or admin) is reachable on this path after compromising an internal principal.`
+    }
+    return `${label}: broad mutate-or-read access reachable on this path.`
+  }
+  return null
+}
+
 // ── Pick the three anchor nodes for the chain visual ───────────────
 function pickChainNodes(path: IdentityAttackPath) {
   const nodes = path.nodes ?? []
@@ -315,15 +421,14 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
           </button>
         </div>
 
-        {/* Row 3.5 — Path-aware damage. Three sections:
-            (1) Effective damage on THIS jewel (verbs filtered to actions
-                whose service matches the crown jewel).
-            (2) Path gates — network (SG/NACL egress) + data plane (KMS
-                decrypt). Red badge if either is blocked, meaning the IAM
-                ceiling is unreachable through this path.
-            (3) Lateral reach — same role can also touch X actions on Y
-                other services NOT on this path. Useful for "and if they
-                pivot…" but not part of the direct damage.
+        {/* Row 3.5 — Path-aware damage. Sections (top to bottom):
+            (1) Plain-English damage sentence — deterministic template:
+                "If <entry> is compromised, an attacker can use <role> to
+                read, modify, or delete data in <jewel>."
+            (2) "Why <SEV>" — one-sentence severity rationale.
+            (3) Gate badges + direct verb chips (with impact labels).
+            (4) Lateral reach sentence.
+            (5) Expandable specific actions (s3:GetObject etc.).
             Renders only when damage_capability is in "live" state. */}
         {(() => {
           const d = path.damage_capability
@@ -338,7 +443,10 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
           const gates = d.gates
           const isBlocked = effective === "network_blocked" || effective === "data_plane_blocked" || effective === "no_jewel_perms"
           const isDestructive = !!d.destructive_capable && effective === "live"
-          if (!path.damage_narrative && totalDirect === 0 && lateralCount === 0 && !isBlocked) return null
+          const directActions = d.direct_actions ?? []
+          const plainSentence = buildPlainEnglishDamage(path)
+          const severityWhy = buildSeverityRationale(path)
+          if (!path.damage_narrative && !plainSentence && totalDirect === 0 && lateralCount === 0 && !isBlocked) return null
           return (
             <div
               className="mt-2 rounded-md border px-3 py-2"
@@ -396,62 +504,103 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                 )}
               </div>
 
+              {/* 1. Plain-English damage sentence (template-driven, no LLM) */}
+              {plainSentence && (
+                <p className="text-[12px] leading-relaxed text-slate-100 mb-1.5">
+                  {plainSentence}
+                </p>
+              )}
+
+              {/* 2. LLM narrative (if enabled) — supplemental color on top of template */}
               {path.damage_narrative && (
-                <p className="text-[12px] leading-relaxed text-slate-200 mb-1.5">
+                <p className="text-[11px] italic leading-relaxed text-slate-300 mb-1.5">
                   {path.damage_narrative}
                 </p>
               )}
 
-              {/* Blocked-path explanation supersedes verb counts */}
-              {effective === "network_blocked" && gates?.network_reason && (
-                <p className="text-[11px] leading-relaxed text-amber-200 mb-1.5">
-                  Path is <span className="font-semibold">network-blocked</span> — {gates.network_reason}. The role's IAM permissions are unreachable through this chain.
-                </p>
-              )}
-              {effective === "data_plane_blocked" && gates?.data_plane_reason && (
-                <p className="text-[11px] leading-relaxed text-amber-200 mb-1.5">
-                  Path is <span className="font-semibold">data-plane-blocked</span> — {gates.data_plane_reason}.
-                </p>
-              )}
-              {effective === "no_jewel_perms" && (
-                <p className="text-[11px] leading-relaxed text-amber-200 mb-1.5">
-                  Role has no permissions on {d.jewel_service || "this jewel's service"} — the path leads here, but the role can't actually mutate or read this jewel.
+              {/* 3. "Why MEDIUM/HIGH/..." rationale */}
+              {severityWhy && (
+                <p className="text-[10px] leading-relaxed text-slate-400 mb-2">
+                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 mr-1">Why this severity</span>
+                  {severityWhy}
                 </p>
               )}
 
-              {/* Direct damage chip — verbs filtered to jewel's service */}
-              <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
-                {totalDirect > 0 && directVerbs && (
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">On jewel</span>
-                    <span className="text-slate-100">
-                      {directVerbs.delete > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.delete}</span> delete</span>}
-                      {directVerbs.delete > 0 && directVerbs.write > 0 && <span className="text-slate-500"> · </span>}
-                      {directVerbs.write > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.write}</span> write</span>}
-                      {(directVerbs.delete > 0 || directVerbs.write > 0) && directVerbs.read > 0 && <span className="text-slate-500"> · </span>}
-                      {directVerbs.read > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.read}</span> read</span>}
-                      {(directVerbs.delete > 0 || directVerbs.write > 0 || directVerbs.read > 0) && directVerbs.admin > 0 && <span className="text-slate-500"> · </span>}
-                      {directVerbs.admin > 0 && <span className="text-red-300"><span className="font-semibold tabular-nums">{directVerbs.admin}</span> admin</span>}
-                    </span>
-                  </div>
-                )}
+              {/* 4. Verb chips with impact labels — "13 read actions — data theft" */}
+              {totalDirect > 0 && directVerbs && (
+                <div className="flex flex-col gap-0.5 mb-2">
+                  {directVerbs.delete > 0 && (
+                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
+                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#fca5a5" }}>{directVerbs.delete}</span>
+                      <span>delete actions</span>
+                      <span className="text-slate-500">—</span>
+                      <span className="text-slate-300">destructive deletion</span>
+                    </div>
+                  )}
+                  {directVerbs.write > 0 && (
+                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
+                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#fdba74" }}>{directVerbs.write}</span>
+                      <span>write actions</span>
+                      <span className="text-slate-500">—</span>
+                      <span className="text-slate-300">data tampering</span>
+                    </div>
+                  )}
+                  {directVerbs.read > 0 && (
+                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
+                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#fde68a" }}>{directVerbs.read}</span>
+                      <span>read actions</span>
+                      <span className="text-slate-500">—</span>
+                      <span className="text-slate-300">data exfiltration</span>
+                    </div>
+                  )}
+                  {directVerbs.admin > 0 && (
+                    <div className="text-[11px] text-slate-100 flex items-baseline gap-2">
+                      <span className="tabular-nums font-semibold w-7 text-right" style={{ color: "#a78bfa" }}>{directVerbs.admin}</span>
+                      <span>admin actions</span>
+                      <span className="text-slate-500">—</span>
+                      <span className="text-slate-300">privilege escalation</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                {/* Lateral reach — same role touches X other services off-path */}
-                {lateralServiceEntries.length > 0 && (
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">Lateral</span>
-                    <span className="text-slate-400">
-                      {lateralServiceEntries.map(([name, count], i) => (
-                        <span key={name}>
-                          {i > 0 && <span> · </span>}
-                          <span className="font-semibold tabular-nums text-slate-300">{count}</span> {name}
-                        </span>
-                      ))}
-                      {extraLateral > 0 && <span> +{extraLateral}</span>}
-                    </span>
+              {/* 5. Lateral reach sentence (not chips) */}
+              {lateralServiceEntries.length > 0 && (
+                <p className="text-[11px] leading-relaxed text-slate-300 mb-1">
+                  <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-slate-500 mr-1">Lateral reach</span>
+                  attacker may also access {lateralServiceEntries
+                    .map(([name]) => name)
+                    .slice(0, 4)
+                    .join(", ")}
+                  {extraLateral > 0 && `, and ${extraLateral} more`}.
+                </p>
+              )}
+
+              {/* 6. Specific actions — expandable; surfaces s3:GetObject etc. */}
+              {directActions.length > 0 && (
+                <details className="mt-1.5 group">
+                  <summary
+                    className="cursor-pointer text-[10px] uppercase tracking-[0.12em] font-semibold text-slate-500 hover:text-slate-300 select-none list-none flex items-center gap-1"
+                  >
+                    <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
+                    Specific permissions ({directActions.length}{d.direct_action_count && d.direct_action_count > directActions.length ? ` of ${d.direct_action_count}` : ""})
+                  </summary>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {directActions.slice(0, 24).map((a) => (
+                      <span
+                        key={a}
+                        className="text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded border"
+                        style={{ background: "rgba(15,23,42,0.6)", borderColor: "rgba(148,163,184,0.18)", color: "#cbd5e1" }}
+                      >
+                        {a}
+                      </span>
+                    ))}
+                    {directActions.length > 24 && (
+                      <span className="text-[10px] text-slate-500">+{directActions.length - 24} more</span>
+                    )}
                   </div>
-                )}
-              </div>
+                </details>
+              )}
             </div>
           )
         })()}
