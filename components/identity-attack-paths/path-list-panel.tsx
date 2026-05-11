@@ -262,6 +262,26 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                 </div>
               )}
 
+              {/* Damage narrative — LLM-generated concrete "what an
+                  attacker could do" sentence. Renders BEFORE the
+                  count-based chips so the operator sees the human
+                  summary first. Falls through silently when null
+                  (feature disabled or LLM call failed). */}
+              {p.damage_narrative && (
+                <div
+                  className="pl-5 pr-4 text-xs leading-relaxed"
+                  style={{ color: "#cbd5e1" }}
+                >
+                  <span
+                    className="text-[10px] uppercase tracking-[0.12em] font-semibold mr-2"
+                    style={{ color: "#94a3b8" }}
+                  >
+                    Potential damage
+                  </span>
+                  {p.damage_narrative}
+                </div>
+              )}
+
               {/* Stats — outlined chips, low saturation, clear labels */}
               <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap pl-5 pr-4 pb-3 mt-0.5">
                 {damage?.state === "live" && verbs && totalVerbs > 0 && (

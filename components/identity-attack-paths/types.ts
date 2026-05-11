@@ -328,6 +328,12 @@ export interface IdentityAttackPath {
   path_kind_tag?: "identity" | "network" | "hybrid" | "configured"
   // Phase 1: per-path damage capability — concrete impact at end of path.
   damage_capability?: DamageCapability | null
+  // LLM-generated 1-2 sentence concrete narrative of what an attacker
+  // reaching the end of this path could actually do. Opt-in on backend
+  // via ENABLE_DAMAGE_NARRATIVE. Null when disabled / no signal /
+  // Bedrock call failed. Frontend should fall back to verb chips when
+  // null.
+  damage_narrative?: string | null
   // "All services in the flow" — sibling resources reachable from each
   // IAM role on the path. Renders as the "Reachable Services" expansion.
   reachable_neighbors?: ReachableNeighborsByRole[]
