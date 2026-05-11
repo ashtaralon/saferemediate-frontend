@@ -2523,7 +2523,10 @@ function bucketForType(rawType: string): 'compute' | 'resource' | 'security_grou
   if (t.includes('s3') || t.includes('bucket') || t.includes('dynamo') || t.includes('rds') || t.includes('aurora') || t.includes('database')) return 'resource';
   if (t.includes('securitygroup')) return 'security_group';
   if (t.includes('nacl') || t.includes('networkacl')) return 'nacl';
-  if (t.includes('iamrole') || t === 'role') return 'iam_role';
+  // InstanceProfile is the AWS attachment container that binds an EC2 to an
+  // IAMRole — bucketed alongside iam_role so the sidebar shows the real
+  // 3-node chain (EC2 → InstanceProfile → IAMRole) instead of collapsing it.
+  if (t.includes('iamrole') || t === 'role' || t.includes('instanceprofile') || t === 'instance_profile') return 'iam_role';
   if (t.includes('principal')) return 'principal';
   if (t.includes('vpc') || t.includes('subnet') || t.includes('routetable') || t.includes('igw') || t.includes('gateway')) return 'network';
   return 'unknown';
