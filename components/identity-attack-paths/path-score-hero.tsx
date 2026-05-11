@@ -315,46 +315,84 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
           </button>
         </div>
 
-        {/* Row 3.5 — Potential damage. Surfaces the LLM narrative + verb
-            counts + reachable services so the operator can see WHAT an
-            attacker reaching the end of this path could actually do.
-            Renders only when damage_capability is in "live" state with
-            at least one allowed action; falls through silently when the
-            backend reports not_applicable / not_wired (per
-            feedback_no_mock_numbers_in_ui). */}
+        {/* Row 3.5 — Path-aware damage. Three sections:
+            (1) Effective damage on THIS jewel (verbs filtered to actions
+                whose service matches the crown jewel).
+            (2) Path gates — network (SG/NACL egress) + data plane (KMS
+                decrypt). Red badge if either is blocked, meaning the IAM
+                ceiling is unreachable through this path.
+            (3) Lateral reach — same role can also touch X actions on Y
+                other services NOT on this path. Useful for "and if they
+                pivot…" but not part of the direct damage.
+            Renders only when damage_capability is in "live" state. */}
         {(() => {
           const d = path.damage_capability
-          const verbs = d?.verbs
-          const totalVerbs = (verbs?.read ?? 0) + (verbs?.write ?? 0) + (verbs?.delete ?? 0) + (verbs?.admin ?? 0)
-          const services = d?.reachable_services ?? {}
-          const hasVerbs = d?.state === "live" && verbs && totalVerbs > 0
-          const hasServices = d?.state === "live" && Object.keys(services).length > 0
-          if (!path.damage_narrative && !hasVerbs && !hasServices) return null
-          const serviceEntries = Object.entries(services).sort((a, b) => b[1] - a[1]).slice(0, 4)
-          const extraServices = Math.max(0, Object.keys(services).length - serviceEntries.length)
+          if (!d || d.state !== "live") return null
+          const directVerbs = d.direct_verbs ?? d.verbs
+          const totalDirect = (directVerbs?.read ?? 0) + (directVerbs?.write ?? 0) + (directVerbs?.delete ?? 0) + (directVerbs?.admin ?? 0)
+          const lateral = d.lateral_services ?? {}
+          const lateralServiceEntries = Object.entries(lateral).sort((a, b) => b[1] - a[1]).slice(0, 4)
+          const extraLateral = Math.max(0, Object.keys(lateral).length - lateralServiceEntries.length)
+          const lateralCount = d.lateral_action_count ?? 0
+          const effective = d.effective_damage ?? "live"
+          const gates = d.gates
+          const isBlocked = effective === "network_blocked" || effective === "data_plane_blocked" || effective === "no_jewel_perms"
+          const isDestructive = !!d.destructive_capable && effective === "live"
+          if (!path.damage_narrative && totalDirect === 0 && lateralCount === 0 && !isBlocked) return null
           return (
             <div
               className="mt-2 rounded-md border px-3 py-2"
               style={{
                 background: "rgba(15, 23, 42, 0.6)",
-                borderColor: d?.destructive_capable ? "rgba(239, 68, 68, 0.3)" : "rgba(148, 163, 184, 0.18)",
+                borderColor: isBlocked
+                  ? "rgba(245, 158, 11, 0.35)"
+                  : isDestructive
+                  ? "rgba(239, 68, 68, 0.3)"
+                  : "rgba(148, 163, 184, 0.18)",
               }}
             >
-              <div className="flex items-center gap-1.5 mb-1">
-                <Crown className={`w-3 h-3 ${d?.destructive_capable ? "text-red-400" : "text-slate-400"}`} />
+              <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                <Crown className={`w-3 h-3 ${isDestructive ? "text-red-400" : "text-slate-400"}`} />
                 <span
                   className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-                  style={{ color: d?.destructive_capable ? "#fca5a5" : "#94a3b8" }}
+                  style={{ color: isDestructive ? "#fca5a5" : "#94a3b8" }}
                 >
-                  Potential damage
+                  Damage on {d.jewel_name || "this jewel"}
                 </span>
-                {d?.destructive_capable && (
+                {isDestructive && (
                   <span
                     className="text-[9px] uppercase tracking-[0.12em] font-bold px-1.5 py-0.5 rounded border"
                     style={{ color: "#fca5a5", borderColor: "rgba(220,38,38,0.4)", background: "rgba(220,38,38,0.08)" }}
                   >
                     Destructive
                   </span>
+                )}
+                {/* Gate badges — green when reachable, amber/red when blocked */}
+                {gates && (
+                  <>
+                    <span
+                      className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"
+                      style={{
+                        color: gates.network_reachable ? "#86efac" : "#fcd34d",
+                        borderColor: gates.network_reachable ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.45)",
+                        background: gates.network_reachable ? "rgba(34,197,94,0.08)" : "rgba(245,158,11,0.10)",
+                      }}
+                      title={gates.network_reason || "Network egress to jewel's service port"}
+                    >
+                      {gates.network_reachable ? "✓ Network" : "🚫 Network"}
+                    </span>
+                    <span
+                      className="text-[9px] uppercase tracking-[0.12em] font-semibold px-1.5 py-0.5 rounded border"
+                      style={{
+                        color: gates.data_plane_reachable ? "#86efac" : "#fcd34d",
+                        borderColor: gates.data_plane_reachable ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.45)",
+                        background: gates.data_plane_reachable ? "rgba(34,197,94,0.08)" : "rgba(245,158,11,0.10)",
+                      }}
+                      title={gates.data_plane_reason || "Data-plane access (KMS / bucket policy)"}
+                    >
+                      {gates.data_plane_reachable ? "✓ Data" : "🚫 Data"}
+                    </span>
+                  </>
                 )}
               </div>
 
@@ -364,33 +402,52 @@ export function PathScoreHero({ path, pathIndex, totalPaths, onPrev, onNext }: P
                 </p>
               )}
 
+              {/* Blocked-path explanation supersedes verb counts */}
+              {effective === "network_blocked" && gates?.network_reason && (
+                <p className="text-[11px] leading-relaxed text-amber-200 mb-1.5">
+                  Path is <span className="font-semibold">network-blocked</span> — {gates.network_reason}. The role's IAM permissions are unreachable through this chain.
+                </p>
+              )}
+              {effective === "data_plane_blocked" && gates?.data_plane_reason && (
+                <p className="text-[11px] leading-relaxed text-amber-200 mb-1.5">
+                  Path is <span className="font-semibold">data-plane-blocked</span> — {gates.data_plane_reason}.
+                </p>
+              )}
+              {effective === "no_jewel_perms" && (
+                <p className="text-[11px] leading-relaxed text-amber-200 mb-1.5">
+                  Role has no permissions on {d.jewel_service || "this jewel's service"} — the path leads here, but the role can't actually mutate or read this jewel.
+                </p>
+              )}
+
+              {/* Direct damage chip — verbs filtered to jewel's service */}
               <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[11px]">
-                {hasVerbs && verbs && (
+                {totalDirect > 0 && directVerbs && (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">Verbs</span>
+                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">On jewel</span>
                     <span className="text-slate-100">
-                      {verbs.delete > 0 && <span><span className="font-semibold tabular-nums">{verbs.delete}</span> delete</span>}
-                      {verbs.delete > 0 && verbs.write > 0 && <span className="text-slate-500"> · </span>}
-                      {verbs.write > 0 && <span><span className="font-semibold tabular-nums">{verbs.write}</span> write</span>}
-                      {(verbs.delete > 0 || verbs.write > 0) && verbs.read > 0 && <span className="text-slate-500"> · </span>}
-                      {verbs.read > 0 && <span><span className="font-semibold tabular-nums">{verbs.read}</span> read</span>}
-                      {(verbs.delete > 0 || verbs.write > 0 || verbs.read > 0) && verbs.admin > 0 && <span className="text-slate-500"> · </span>}
-                      {verbs.admin > 0 && <span className="text-red-300"><span className="font-semibold tabular-nums">{verbs.admin}</span> admin</span>}
+                      {directVerbs.delete > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.delete}</span> delete</span>}
+                      {directVerbs.delete > 0 && directVerbs.write > 0 && <span className="text-slate-500"> · </span>}
+                      {directVerbs.write > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.write}</span> write</span>}
+                      {(directVerbs.delete > 0 || directVerbs.write > 0) && directVerbs.read > 0 && <span className="text-slate-500"> · </span>}
+                      {directVerbs.read > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.read}</span> read</span>}
+                      {(directVerbs.delete > 0 || directVerbs.write > 0 || directVerbs.read > 0) && directVerbs.admin > 0 && <span className="text-slate-500"> · </span>}
+                      {directVerbs.admin > 0 && <span className="text-red-300"><span className="font-semibold tabular-nums">{directVerbs.admin}</span> admin</span>}
                     </span>
                   </div>
                 )}
 
-                {hasServices && (
+                {/* Lateral reach — same role touches X other services off-path */}
+                {lateralServiceEntries.length > 0 && (
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">Touches</span>
-                    <span className="text-slate-100">
-                      {serviceEntries.map(([name, count], i) => (
+                    <span className="text-[9px] uppercase tracking-[0.12em] text-slate-500">Lateral</span>
+                    <span className="text-slate-400">
+                      {lateralServiceEntries.map(([name, count], i) => (
                         <span key={name}>
-                          {i > 0 && <span className="text-slate-500"> · </span>}
-                          <span className="font-semibold tabular-nums">{count}</span> {name}
+                          {i > 0 && <span> · </span>}
+                          <span className="font-semibold tabular-nums text-slate-300">{count}</span> {name}
                         </span>
                       ))}
-                      {extraServices > 0 && <span className="text-slate-400"> +{extraServices}</span>}
+                      {extraLateral > 0 && <span> +{extraLateral}</span>}
                     </span>
                   </div>
                 )}

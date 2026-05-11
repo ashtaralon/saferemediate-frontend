@@ -226,17 +226,42 @@ export interface InfraContext {
 // Phase 1: damage capability — what an attacker reaching the end of the
 // path can actually DO (read N tables, delete K objects, etc.). Three-state
 // per feedback_no_mock_numbers_in_ui — never fabricated numbers.
+//
+// 2026-05-11 rewrite: damage is now PATH-AWARE. Legacy `verbs` /
+// `reachable_services` keys still populated for back-compat but now mean
+// DIRECT damage on the crown jewel (not the role's global ceiling). New
+// `direct_*` / `lateral_*` / `gates` fields make the split explicit and
+// `effective_damage` surfaces network/data-plane blocks.
+export interface DamageVerbs { read: number; write: number; delete: number; admin: number }
+export interface DamageGates {
+  network_reachable: boolean
+  network_reason?: string | null
+  data_plane_reachable: boolean
+  data_plane_reason?: string | null
+}
+export type EffectiveDamage = "live" | "network_blocked" | "data_plane_blocked" | "no_jewel_perms"
 export interface DamageCapability {
   state: "live" | "not_applicable" | "not_wired" | "error"
   reason?: string
   role_name?: string
   role_arn?: string
+  jewel_name?: string
+  jewel_service?: string  // s3, dynamodb, kms, …
   total_allowed_actions?: number
-  verbs?: { read: number; write: number; delete: number; admin: number }
-  reachable_services?: Record<string, number>  // friendly noun -> action count
+  // Legacy keys — now reflect DIRECT damage on the jewel (back-compat).
+  verbs?: DamageVerbs
+  reachable_services?: Record<string, number>
   observed_resources_accessed?: number
   destructive_capable?: boolean
   summary?: string
+  // Path-aware split (new 2026-05-11)
+  direct_verbs?: DamageVerbs
+  direct_action_count?: number
+  lateral_verbs?: DamageVerbs
+  lateral_action_count?: number
+  lateral_services?: Record<string, number>
+  gates?: DamageGates
+  effective_damage?: EffectiveDamage
 }
 
 // BRS v1.1 — per-jewel Blast Radius Score (attached to each path)

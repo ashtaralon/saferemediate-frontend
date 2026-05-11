@@ -142,12 +142,18 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
           const sevText = (p.severity?.severity || severityLabel(score)).toUpperCase()
           const summary = pathSummary(p)
           const damage = p.damage_capability
-          const verbs = damage?.verbs
-          const services = damage?.reachable_services ?? {}
-          const destructive = damage?.destructive_capable
+          // Path-aware split (2026-05-11). Falls back to legacy `verbs`
+          // when the backend hasn't been deployed yet — legacy field now
+          // also means direct, so this is safe back-compat.
+          const directVerbs = damage?.direct_verbs ?? damage?.verbs
+          const lateralServices = damage?.lateral_services ?? {}
+          const lateralCount = damage?.lateral_action_count ?? 0
+          const effective = damage?.effective_damage ?? "live"
+          const destructive = damage?.destructive_capable && effective === "live"
+          const isBlocked = effective === "network_blocked" || effective === "data_plane_blocked" || effective === "no_jewel_perms"
           const planes = p.risk_reduction?.by_plane
           const evidenceTag = p.evidence_type === "observed" ? "OBSERVED" : "CONFIGURED"
-          const totalVerbs = (verbs?.read ?? 0) + (verbs?.write ?? 0) + (verbs?.delete ?? 0) + (verbs?.admin ?? 0)
+          const totalVerbs = (directVerbs?.read ?? 0) + (directVerbs?.write ?? 0) + (directVerbs?.delete ?? 0) + (directVerbs?.admin ?? 0)
 
           return (
             <button
@@ -220,7 +226,22 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                     Destructive
                   </span>
                 )}
-                {!destructive && <span className="ml-auto" />}
+                {!destructive && isBlocked && (
+                  <span
+                    className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-[9px] uppercase tracking-[0.12em] font-bold border"
+                    style={{ color: "#fcd34d", borderColor: "rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}
+                    title={
+                      effective === "network_blocked"
+                        ? damage?.gates?.network_reason || "Network egress blocked"
+                        : effective === "data_plane_blocked"
+                        ? damage?.gates?.data_plane_reason || "Data plane blocked"
+                        : "Role has no permissions on this jewel's service"
+                    }
+                  >
+                    {effective === "network_blocked" ? "Network-blocked" : effective === "data_plane_blocked" ? "Data-blocked" : "No jewel perms"}
+                  </span>
+                )}
+                {!destructive && !isBlocked && <span className="ml-auto" />}
                 <ChevronRight
                   className="w-4 h-4 shrink-0 transition-colors"
                   style={{ color: "#94a3b8" }}
@@ -282,42 +303,59 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                 </div>
               )}
 
-              {/* Stats — outlined chips, low saturation, clear labels */}
+              {/* Stats — outlined chips, low saturation, clear labels.
+                  "On jewel" = direct damage filtered to actions targeting
+                  the crown jewel's service. "Lateral" = same role can also
+                  touch X other services off-path. */}
               <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap pl-5 pr-4 pb-3 mt-0.5">
-                {damage?.state === "live" && verbs && totalVerbs > 0 && (
+                {damage?.state === "live" && directVerbs && totalVerbs > 0 && !isBlocked && (
                   <div className="flex items-baseline gap-2">
                     <span
                       className="text-[10px] uppercase tracking-[0.12em] font-semibold"
                       style={{ color: "#94a3b8" }}
                     >
-                      Damage
+                      On jewel
                     </span>
                     <span className="text-xs" style={{ color: "#f1f5f9" }}>
-                      {verbs.delete > 0 && <span><span className="font-semibold tabular-nums">{verbs.delete}</span> delete</span>}
-                      {verbs.delete > 0 && verbs.write > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
-                      {verbs.write > 0 && <span><span className="font-semibold tabular-nums">{verbs.write}</span> write</span>}
-                      {(verbs.delete > 0 || verbs.write > 0) && verbs.read > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
-                      {verbs.read > 0 && <span><span className="font-semibold tabular-nums">{verbs.read}</span> read</span>}
-                      {(verbs.delete > 0 || verbs.write > 0 || verbs.read > 0) && verbs.admin > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
-                      {verbs.admin > 0 && (
+                      {directVerbs.delete > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.delete}</span> delete</span>}
+                      {directVerbs.delete > 0 && directVerbs.write > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
+                      {directVerbs.write > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.write}</span> write</span>}
+                      {(directVerbs.delete > 0 || directVerbs.write > 0) && directVerbs.read > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
+                      {directVerbs.read > 0 && <span><span className="font-semibold tabular-nums">{directVerbs.read}</span> read</span>}
+                      {(directVerbs.delete > 0 || directVerbs.write > 0 || directVerbs.read > 0) && directVerbs.admin > 0 && <span style={{ color: "#94a3b8" }}> · </span>}
+                      {directVerbs.admin > 0 && (
                         <span style={{ color: "#a78bfa" }}>
-                          <span className="font-semibold tabular-nums">{verbs.admin}</span> admin
+                          <span className="font-semibold tabular-nums">{directVerbs.admin}</span> admin
                         </span>
                       )}
                     </span>
                   </div>
                 )}
 
-                {Object.keys(services).length > 0 && (
+                {isBlocked && (
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="text-[10px] uppercase tracking-[0.12em] font-semibold"
+                      style={{ color: "#94a3b8" }}
+                    >
+                      On jewel
+                    </span>
+                    <span className="text-xs" style={{ color: "#fcd34d" }}>
+                      Path leads here but is gate-blocked
+                    </span>
+                  </div>
+                )}
+
+                {Object.keys(lateralServices).length > 0 && (
                   <div className="flex items-baseline gap-2 min-w-0">
                     <span
                       className="text-[10px] uppercase tracking-[0.12em] font-semibold"
                       style={{ color: "#94a3b8" }}
                     >
-                      Touches
+                      Lateral
                     </span>
-                    <span className="text-xs truncate" style={{ color: "#f1f5f9" }}>
-                      {Object.entries(services)
+                    <span className="text-xs truncate" style={{ color: "#cbd5e1" }}>
+                      {Object.entries(lateralServices)
                         .slice(0, 3)
                         .map(([svc, count]) => (
                           <span key={svc}>
@@ -329,8 +367,8 @@ export function PathListPanel({ paths, onSelectPath, jewelName }: PathListPanelP
                           acc.push(el)
                           return acc
                         }, [])}
-                      {Object.keys(services).length > 3 && (
-                        <span style={{ color: "#94a3b8" }}> +{Object.keys(services).length - 3}</span>
+                      {Object.keys(lateralServices).length > 3 && (
+                        <span style={{ color: "#94a3b8" }}> +{Object.keys(lateralServices).length - 3}</span>
                       )}
                     </span>
                   </div>
