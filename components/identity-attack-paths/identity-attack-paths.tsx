@@ -100,6 +100,11 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
   // that fell outside the current collector window (annual DR drills,
   // quarterly compliance scans, etc.). Default off — live view only.
   const [includeStale, setIncludeStale] = useState(false)
+  // Deleted-resources toggle (2026-05-11). When on, surfaces nodes
+  // soft-deleted by the collector reconciliation pass (is_active=false:
+  // resources confirmed absent from AWS during the last successful scan).
+  // Default off — live view hides zombies.
+  const [includeDeleted, setIncludeDeleted] = useState(false)
 
   // AbortController-aware fetch. The user reported feeling "stuck" on
   // the Attack Paths tab and unable to switch sections — most likely
@@ -123,8 +128,9 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
       setError(null)
       try {
         const staleParam = includeStale ? "&include_stale=true" : ""
+        const deletedParam = includeDeleted ? "&include_deleted=true" : ""
         const res = await fetch(
-          `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${staleParam}`,
+          `/api/proxy/identity-attack-paths/${encodeURIComponent(systemName)}?envelope=true${staleParam}${deletedParam}`,
           { signal }
         )
         if (signal?.aborted) return
@@ -146,7 +152,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
         if (!signal?.aborted) setIsLoading(false)
       }
     },
-    [systemName, includeStale]
+    [systemName, includeStale, includeDeleted]
   )
 
   useEffect(() => {
@@ -750,6 +756,37 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             >
               <span className="text-[10px]">
                 {includeStale ? "● Historical" : "○ Live only"}
+              </span>
+            </button>
+            {/* Deleted-resources toggle: when ON, surfaces nodes flagged
+                is_active=false by the soft-delete reconciliation. The
+                node still exists in Neo4j with a 'was deleted' badge,
+                preserving forensic context. Default OFF so the live
+                attack-path view doesn't show zombies. */}
+            <button
+              onClick={() => setIncludeDeleted((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-semibold transition-colors"
+              style={
+                includeDeleted
+                  ? {
+                      background: "rgba(244, 114, 182, 0.15)",
+                      color: "#fbcfe8",
+                      border: "1px solid rgba(244, 114, 182, 0.35)",
+                    }
+                  : {
+                      background: "rgba(15, 23, 42, 0.8)",
+                      color: "#94a3b8",
+                      border: "1px solid rgba(148, 163, 184, 0.15)",
+                    }
+              }
+              title={
+                includeDeleted
+                  ? "Showing soft-deleted resources (is_active=false). Useful for forensic 'what was the path before this EC2 was terminated?' analysis."
+                  : "Hiding soft-deleted resources. Click to surface zombies with 'was deleted' context."
+              }
+            >
+              <span className="text-[10px]">
+                {includeDeleted ? "● Show deleted" : "○ Hide deleted"}
               </span>
             </button>
             <button

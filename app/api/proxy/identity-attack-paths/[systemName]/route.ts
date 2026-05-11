@@ -21,11 +21,16 @@ export async function GET(
   // observed-behavior edges in the attack-path response. Default false so
   // the live view stays focused on recent activity.
   const includeStale = searchParams.get("include_stale") === "true" ? "true" : ""
+  // Deleted toggle: when true, the backend includes soft-deleted nodes
+  // (is_active=false — resources the last successful collector run
+  // confirmed absent from AWS). Default false so zombies stay hidden.
+  const includeDeleted = searchParams.get("include_deleted") === "true" ? "true" : ""
 
   try {
     const envelopeParam = envelope ? `&envelope=${envelope}` : ""
     const staleParam = includeStale ? `&include_stale=${includeStale}` : ""
-    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}${staleParam}`
+    const deletedParam = includeDeleted ? `&include_deleted=${includeDeleted}` : ""
+    const query = `?max_jewels=${maxJewels}&max_paths_per_jewel=${maxPathsPerJewel}${envelopeParam}${staleParam}${deletedParam}`
     const url = `${BACKEND_URL}/api/identity-attack-paths/${encodeURIComponent(systemName)}${query}`
     console.log("[identity-attack-paths] Fetching:", url)
     const res = await fetch(
