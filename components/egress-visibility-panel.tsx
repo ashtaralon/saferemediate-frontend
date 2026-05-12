@@ -14,11 +14,12 @@
  *   - domain column reads "requires R53 Resolver Query Logs" until the
  *     Phase 2 collector lands (no domain fabrication, ever).
  *
- * Suspicious-signal chips:
+ * Egress signal chips (review signals, not accusations — Cyntro surfaces
+ * these as "worth a look", not "definitely malicious"):
  *   - cross_region_aws: dest AWS region ≠ workload region
  *   - cross_cloud: workload on AWS, destination on Azure/GCP/etc
  *   - non_aws_public_from_private_subnet: private-subnet workload reaching
- *     a non-AWS public IP (legit for SaaS; suspicious for service workers)
+ *     a non-AWS public IP (legit for SaaS vendors; worth review otherwise)
  */
 
 import React, { useEffect, useMemo, useState } from "react"
@@ -64,7 +65,7 @@ interface WorkloadEgress {
     internal_destinations: number
     total_bytes: number
     total_hits: number
-    suspicious_destinations: number
+    signaled_destinations: number
     signals_breakdown: Record<string, number>
   }
   top_destinations: Destination[]
@@ -74,7 +75,7 @@ interface EgressResponse {
   system_name: string
   workload_count: number
   total_destinations: number
-  total_suspicious_destinations: number
+  total_signaled_destinations: number
   lookback_days: number
   workloads: WorkloadEgress[]
   domain_visibility: {
@@ -149,7 +150,7 @@ function SignalChip({ code }: { code: string }) {
   const tooltip = meta?.tooltip ?? code
   const cls =
     meta?.tone === "warning"
-      ? "bg-red-100 text-red-800 border-red-300"
+      ? "bg-amber-100 text-amber-800 border-amber-300"
       : "bg-amber-50 text-amber-800 border-amber-200"
   return (
     <span
@@ -205,11 +206,11 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
   }
 
   const grandTotals = useMemo(() => {
-    if (!data) return { workloads: 0, destinations: 0, suspicious: 0, bytes: 0 }
+    if (!data) return { workloads: 0, destinations: 0, signaled: 0, bytes: 0 }
     return {
       workloads: data.workload_count,
       destinations: data.total_destinations,
-      suspicious: data.total_suspicious_destinations,
+      signaled: data.total_signaled_destinations,
       bytes: data.workloads.reduce((s, w) => s + w.totals.total_bytes, 0),
     }
   }, [data])
@@ -268,21 +269,21 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
           </div>
           <div
             className={`rounded border p-3 ${
-              grandTotals.suspicious > 0
-                ? "border-red-300 bg-red-50"
+              grandTotals.signaled > 0
+                ? "border-amber-300 bg-amber-50"
                 : "border-emerald-300 bg-emerald-50"
             }`}
           >
             <div className="text-[10px] uppercase tracking-wider text-slate-500 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
-              Suspicious
+              Egress signals
             </div>
             <div
               className={`text-2xl font-bold ${
-                grandTotals.suspicious > 0 ? "text-red-700" : "text-emerald-700"
+                grandTotals.signaled > 0 ? "text-amber-700" : "text-emerald-700"
               }`}
             >
-              {grandTotals.suspicious}
+              {grandTotals.signaled}
             </div>
           </div>
           <div className="rounded border border-slate-200 bg-white p-3">
@@ -348,10 +349,10 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
                     <span>· {formatBytes(w.totals.total_bytes)}</span>
                     <span>· {w.totals.aws_destinations} AWS</span>
                     <span>· {w.totals.external_destinations} external</span>
-                    {w.totals.suspicious_destinations > 0 && (
-                      <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-semibold">
+                    {w.totals.signaled_destinations > 0 && (
+                      <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-semibold">
                         <AlertTriangle className="w-3 h-3" />
-                        {w.totals.suspicious_destinations} suspicious
+                        {w.totals.signaled_destinations} signals
                       </span>
                     )}
                   </div>
@@ -385,7 +386,7 @@ export function EgressVisibilityPanel({ systemName }: { systemName: string }) {
                             <tr
                               key={`${d.ip}-${i}`}
                               className={`border-t border-slate-100 ${
-                                d.signals.length > 0 ? "bg-red-50/40" : ""
+                                d.signals.length > 0 ? "bg-amber-50/40" : ""
                               }`}
                             >
                               <td className="px-4 py-2">
