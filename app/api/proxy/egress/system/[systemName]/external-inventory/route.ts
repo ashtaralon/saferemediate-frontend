@@ -22,11 +22,22 @@ export async function GET(
   const destinationClass = searchParams.get("destination_class")
   const recommendation = searchParams.get("recommendation")
   const strength = searchParams.get("strength")
+  // chunk #1.5 + #2a forwarding: workload_id, summary, direction,
+  // include_internal. Without these the backend falls back to chunk #1
+  // defaults and the new UI features silently no-op.
+  const workloadId = searchParams.get("workload_id")
+  const summary = searchParams.get("summary")
+  const direction = searchParams.get("direction")
+  const includeInternal = searchParams.get("include_internal")
 
   const qs = new URLSearchParams({ days, limit, offset })
   if (destinationClass) qs.set("destination_class", destinationClass)
   if (recommendation) qs.set("recommendation", recommendation)
   if (strength) qs.set("strength", strength)
+  if (workloadId) qs.set("workload_id", workloadId)
+  if (summary) qs.set("summary", summary)
+  if (direction) qs.set("direction", direction)
+  if (includeInternal) qs.set("include_internal", includeInternal)
 
   try {
     const url = `${BACKEND_URL}/api/egress/system/${encodeURIComponent(
