@@ -58,11 +58,11 @@ export function SafeRemediationsQueueCard() {
     }
   )
 
-  if (loading && !data) return <LoadingCard label="Safe remediations queue" />
+  if (loading && !data) return <LoadingCard label="Ready-to-execute queue" />
   // Endpoint may return 200 with body.error to signal upstream failure.
   const bodyError = data?.error ? data.error : null
   if ((error || bodyError) && !data) {
-    return <ErrorCard label="Safe remediations queue" error={error || bodyError || ""} onRetry={retry} />
+    return <ErrorCard label="Ready-to-execute queue" error={error || bodyError || ""} onRetry={retry} />
   }
   if (!data) return null
 
@@ -71,15 +71,15 @@ export function SafeRemediationsQueueCard() {
 
   return (
     <Section
-      label="Safe remediations queue"
-      descriptor={`${ready.length} ready · ${blocked.length} blocked by safety gate`}
+      label="Ready-to-execute queue"
+      descriptor={`Evidence-backed actions, simulated against AWS, with rollback snapshot stored · ${ready.length} ready · ${blocked.length} awaiting more evidence`}
       className={accentByCategory.queue}
       right={<StaleIndicator cachedAt={cachedAt} isStale={isStale} />}
     >
       {ready.length === 0 ? (
         <div className={descriptorClass}>
-          No candidates currently pass the unified safety gate. This is the honest "nothing
-          ready to auto-apply" state, not an empty render.
+          No actions ready yet. Candidates are awaiting more evidence or manual approval —
+          this is the honest fail-closed state, not an empty render.
         </div>
       ) : (
         <ul className="space-y-2">

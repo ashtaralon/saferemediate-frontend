@@ -38,8 +38,8 @@ export function SeverityDonutCard() {
     { cacheKey: "issues-summary", fetchInit: { cache: "no-store" } }
   )
 
-  if (loading && !data) return <LoadingCard label="Issues by severity" />
-  if (error && !data) return <ErrorCard label="Issues by severity" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Exposure by crown-jewel reach" />
+  if (error && !data) return <ErrorCard label="Exposure by crown-jewel reach" error={error} onRetry={retry} />
   if (!data) return null
 
   const total = data.total ?? 0
@@ -60,7 +60,7 @@ export function SeverityDonutCard() {
   if (total === 0 || chartData.length === 0) {
     return (
       <Section
-        label="Issues by severity"
+        label="Exposure by crown-jewel reach"
         descriptor="No active findings — all clear."
         className="border-l-[3px] border-l-emerald-500 h-full flex flex-col"
       >
@@ -74,7 +74,7 @@ export function SeverityDonutCard() {
 
   return (
     <Section
-      label="Issues by severity"
+      label="Exposure by crown-jewel reach"
       descriptor="Active findings across all systems"
       className="border-l-[3px] border-l-rose-500 h-full flex flex-col"
     >

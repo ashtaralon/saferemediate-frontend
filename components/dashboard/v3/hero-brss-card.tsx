@@ -56,20 +56,11 @@ type GlobalOrgScore = {
 
 type PostureScore = {
   overall_score: number
-  grade: "A" | "B" | "C" | "D" | "F"
   resources_analyzed: number
   system_count: number
   source: string
   error?: string
   message?: string
-}
-
-function gradeFromScore(score: number): "A" | "B" | "C" | "D" | "F" {
-  if (score >= 90) return "A"
-  if (score >= 80) return "B"
-  if (score >= 70) return "C"
-  if (score >= 60) return "D"
-  return "F"
 }
 
 type TrendPoint = { date: string; score: number; system_count: number }
@@ -82,14 +73,6 @@ type PostureTrend = {
   series: TrendPoint[]
   snapshot_count: number
   error?: string
-}
-
-const GRADE_COLORS: Record<string, string> = {
-  A: "text-emerald-700 bg-emerald-50",
-  B: "text-emerald-700 bg-emerald-50",
-  C: "text-amber-700 bg-amber-50",
-  D: "text-rose-600 bg-rose-50",
-  F: "text-rose-700 bg-rose-100",
 }
 
 /**
@@ -187,7 +170,6 @@ export function HeroBrssCard() {
   const resourcesAnalyzed = usingOrg
     ? orgData!.resources_analyzed
     : (legacyData?.resources_analyzed ?? 0)
-  const grade = score === null ? "F" : gradeFromScore(score)
   const worstSystems = usingOrg ? (orgData!.worst_systems ?? []) : []
   // Distinct list of weak planes across the worst-3 systems — used
   // for the inline "weak planes" attribution under the score.
@@ -226,9 +208,8 @@ export function HeroBrssCard() {
     )
   }
   // Compatibility shim — preserves the rest of the render below.
-  const data: { overall_score: number; grade: string; resources_analyzed: number; system_count: number } = {
+  const data: { overall_score: number; resources_analyzed: number; system_count: number } = {
     overall_score: score,
-    grade,
     resources_analyzed: resourcesAnalyzed,
     system_count: systemCount,
   }
@@ -239,18 +220,11 @@ export function HeroBrssCard() {
       descriptor={`Weighted by production criticality, exposed systems, and cross-plane convergence · ${data.system_count} systems · ${data.resources_analyzed.toLocaleString()} resources`}
       className={`${accentByCategory.brss} bg-gradient-to-br from-indigo-50/70 via-white to-white`}
     >
-      <div className="flex items-end justify-between gap-6">
-        <div className="flex items-baseline gap-3">
-          <span className={`${heroNumberClass} ${scoreToneClass(data.overall_score)}`}>
-            {data.overall_score.toFixed(0)}
-          </span>
-          <span className={unitClass}>/100</span>
-        </div>
-        <div
-          className={`rounded-lg px-3 py-1.5 text-2xl font-bold ${GRADE_COLORS[data.grade] ?? "text-slate-700 bg-slate-100"}`}
-        >
-          {data.grade}
-        </div>
+      <div className="flex items-baseline gap-3">
+        <span className={`${heroNumberClass} ${scoreToneClass(data.overall_score)}`}>
+          {data.overall_score.toFixed(0)}
+        </span>
+        <span className={unitClass}>/100</span>
       </div>
 
       {/* Trend block. Renders only when at least 2 days of snapshot
@@ -310,7 +284,7 @@ export function HeroBrssCard() {
         <div className={`${descriptorClass} mt-4 space-y-1`}>
           {weakPlanesAcrossWorst.length > 0 ? (
             <p>
-              Weak planes:{" "}
+              Largest exposure:{" "}
               <span className="font-medium text-rose-700">
                 {weakPlanesAcrossWorst.join(" + ")}
               </span>

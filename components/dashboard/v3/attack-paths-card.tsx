@@ -88,8 +88,8 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
     }
   )
 
-  if (loading && !data) return <LoadingCard label="Top attack paths to crown jewels" />
-  if (error && !data) return <ErrorCard label="Top attack paths" error={error} onRetry={retry} />
+  if (loading && !data) return <LoadingCard label="Top damage paths" />
+  if (error && !data) return <ErrorCard label="Top damage paths" error={error} onRetry={retry} />
   if (!data) return null
 
   const jewels = (data.crown_jewels ?? []).slice(0, 8)
@@ -113,7 +113,7 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
     const scanned = data.systems_scanned ?? 0
     return (
       <Section
-        label="Top attack paths to crown jewels"
+        label="Top damage paths"
         descriptor={
           hasErrors
             ? "Per-system fan-out failed — see details below"
@@ -159,7 +159,7 @@ export function AttackPathsCard({ onNavigateToSection }: AttackPathsCardProps = 
 
   return (
     <Section
-      label="Top attack paths to crown jewels"
+      label="Top damage paths"
       descriptor="Sorted by priority_score · click to drill into the path graph"
       className="border-l-[3px] border-l-rose-500"
       icon={<Crown className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />}

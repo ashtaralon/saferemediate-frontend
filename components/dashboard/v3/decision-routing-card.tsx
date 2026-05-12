@@ -220,10 +220,10 @@ export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}
       fetchInit: { cache: "no-store" },
     })
 
-  if (loading && !data) return <LoadingCard label="Decision routing per family" />
+  if (loading && !data) return <LoadingCard label="Execution readiness" />
   if (error && !data)
     return (
-      <ErrorCard label="Decision routing per family" error={error} onRetry={retry} />
+      <ErrorCard label="Execution readiness" error={error} onRetry={retry} />
     )
   if (!data) return null
 
@@ -240,7 +240,7 @@ export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}
 
   return (
     <Section
-      label={scopedTo ? `Decision routing · ${scopedTo}` : "Decision routing"}
+      label={scopedTo ? `Execution readiness · ${scopedTo}` : "Execution readiness"}
       descriptor={
         scored === 0
           ? `No findings scored yet${scopeSuffix}`
@@ -277,7 +277,7 @@ export function DecisionRoutingCard({ systemName }: { systemName?: string } = {}
         Object.keys(data.blocking_reasons).length > 0 && (
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50/50 p-3">
             <div className="mb-2 inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
-              Why Cyntro is not acting yet
+              Awaiting more evidence
               <span className="font-mono text-[10px] tabular-nums text-amber-600">
                 · {data.blocked_total ?? 0} blocked
               </span>

@@ -57,7 +57,7 @@ export function HomeDashboardV3({ onNavigateToSection }: HomeDashboardV3Props) {
       {/* ── A. Header ─────────────────────────────────────────────── */}
       <PageHeader
         eyebrow="Cyntro · home"
-        title="Security posture"
+        title="Blast radius overview"
         actions={
           <button
             onClick={refresh}
