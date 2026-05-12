@@ -107,9 +107,10 @@ interface InventoryResponse {
     by_strength: Record<string, number>
   }
   invariant: {
-    A_raw_external_groups: number
-    B_classified_groups: number
+    A_raw_external_tuples: number
+    B_classified_tuples: number
     C_inventory_pre_pagination_total: number
+    raw_external_ip_groups: number
   }
   domain_visibility: { available: boolean; reason: string }
   first_seen_visibility: { available: boolean; reason: string }
@@ -390,11 +391,11 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
 
   const invariantHealthy = useMemo(() => {
     if (!data?.invariant) return null
-    const { A_raw_external_groups, B_classified_groups, C_inventory_pre_pagination_total } =
+    const { A_raw_external_tuples, B_classified_tuples, C_inventory_pre_pagination_total } =
       data.invariant
     return (
-      A_raw_external_groups === B_classified_groups &&
-      B_classified_groups === C_inventory_pre_pagination_total
+      A_raw_external_tuples === B_classified_tuples &&
+      B_classified_tuples === C_inventory_pre_pagination_total
     )
   }, [data])
 
@@ -588,8 +589,12 @@ export function EgressExternalInventory({ systemName, onSelectWorkload }: Invent
             <span className="text-red-700 font-semibold">● invariant broken</span>
           )}
           <span>
-            A={data.invariant.A_raw_external_groups} → B={data.invariant.B_classified_groups} → C=
+            A(raw tuples)={data.invariant.A_raw_external_tuples} → B(classified)=
+            {data.invariant.B_classified_tuples} → C(pre-pagination)=
             {data.invariant.C_inventory_pre_pagination_total}
+            <span className="ml-2 text-slate-400">
+              · {data.invariant.raw_external_ip_groups} unique (workload, IP) groups
+            </span>
           </span>
         </div>
       )}
