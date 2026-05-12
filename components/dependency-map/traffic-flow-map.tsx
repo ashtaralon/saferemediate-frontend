@@ -1998,6 +1998,7 @@ function UnifiedArchitectureDiagram({
   highlightedNodeId,
   showVPCBoundaries = false,
   pathMode = false,
+  exfilByWorkloadId,
 }: {
   architecture: SystemArchitecture;
   animate: boolean;
@@ -2009,6 +2010,9 @@ function UnifiedArchitectureDiagram({
   ghostedNodeIds?: Set<string>;
   highlightedNodeId?: string | null;
   showVPCBoundaries?: boolean;
+  // chunk #1.5: forwarded from TrafficFlowMap so compute ServiceNodeBox
+  // can render the exfil chip. Optional — Topology tab supplies nothing.
+  exfilByWorkloadId?: Record<string, NodeExfilSummary>;
   // When true (Attack Paths page), single-click on a node should open
   // the parent's remediation modal instead of the internal "service
   // details" popup. Compute/resource/iam/nacl already fire onSelectService
@@ -4076,6 +4080,7 @@ export default function TrafficFlowMap({
             ghostedNodeIds={ghostedNodeIds}
             highlightedNodeId={highlightedNodeId}
             showVPCBoundaries={showVPCBoundaries}
+            exfilByWorkloadId={exfilByWorkloadId}
           />
         ) : (
           <div className="text-center py-16">
