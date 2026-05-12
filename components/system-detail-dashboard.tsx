@@ -214,6 +214,21 @@ const SystemAttackPaths = dynamic(
   },
 )
 
+// Egress Visibility panel — per-workload outbound traffic + signals.
+// Dynamic import keeps the dashboard's initial bundle lean; this tab
+// is opt-in and operators won't pay for it until they click it.
+const EgressVisibilityPanel = dynamic(
+  () => import("./egress-visibility-panel").then((m) => ({ default: m.EgressVisibilityPanel })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[650px] rounded-xl bg-white border border-[var(--border,#e5e7eb)]">
+        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    ),
+  },
+)
+
 const DynamicAWSArchitecture = dynamic(() => import("./dynamic-aws-architecture"), {
   ssr: false,
   loading: () => (
@@ -1281,6 +1296,7 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
         { id: "vulnerabilities", label: "Vulnerabilities" },
         { id: "attack-paths", label: "Attack Paths" },
         { id: "crown-jewels", label: "Crown Jewels" },
+        { id: "egress", label: "Egress" },
       ],
     },
     { id: "topology", label: "Topology", icon: Map, leaf: "dependency-map" },
@@ -2276,6 +2292,12 @@ export function SystemDetailDashboard({ systemName, onBack }: SystemDetailDashbo
       {activeTab === "attack-paths" && (
         <div className="max-w-[1800px] mx-auto px-8 py-6">
           <SystemAttackPaths key={`${systemName}-${refreshKey}`} systemName={systemName} />
+        </div>
+      )}
+
+      {activeTab === "egress" && (
+        <div className="max-w-[1800px] mx-auto px-8 py-6">
+          <EgressVisibilityPanel key={`${systemName}-${refreshKey}`} systemName={systemName} />
         </div>
       )}
 
