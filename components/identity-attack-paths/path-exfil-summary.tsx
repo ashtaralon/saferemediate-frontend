@@ -110,9 +110,13 @@ interface PathExfilSummaryProps {
   systemName: string
   path: IdentityAttackPath
   onNodeClick?: (nodeId: string) => void
+  // Provided summaries lifted from the parent so the strip and the
+  // Path Flow Map share one fetch. Keyed by workload_id (which
+  // matches PathNodeDetail.id for compute nodes).
+  externalSummaries?: Record<string, ExfilSummary["exfil_risk"]>
 }
 
-export function PathExfilSummary({ systemName, path, onNodeClick }: PathExfilSummaryProps) {
+export function PathExfilSummary({ systemName, path, onNodeClick, externalSummaries }: PathExfilSummaryProps) {
   const computeNodes = useMemo(() => {
     const seen = new Set<string>()
     const out: PathNodeDetail[] = []
@@ -127,14 +131,31 @@ export function PathExfilSummary({ systemName, path, onNodeClick }: PathExfilSum
 
   const [summaries, setSummaries] = useState<Record<string, ExfilSummary>>({})
 
+  // When the parent supplies summaries, mirror them into the component
+  // state shape so the rendering branch below stays unchanged. Avoids
+  // re-fetching the same data the parent already pulled for the map.
   useEffect(() => {
+    if (!externalSummaries) return
+    const mirrored: Record<string, ExfilSummary> = {}
+    for (const n of computeNodes) {
+      const e = externalSummaries[n.id]
+      mirrored[n.id] = {
+        workload_id: n.id,
+        workload_name: n.name || n.id,
+        exfil_risk: e ?? null,
+        loading: !e,
+      }
+    }
+    setSummaries(mirrored)
+  }, [externalSummaries, computeNodes])
+
+  useEffect(() => {
+    // If the parent is supplying summaries, skip the self-fetch.
+    if (externalSummaries) return
     if (!systemName || computeNodes.length === 0) {
       setSummaries({})
       return
     }
-    // Reset and fire one summary fetch per compute workload in
-    // parallel. ?summary=true keeps each response tiny (counts +
-    // exfil_risk only, no rows), so N parallel calls don't drown.
     const initial: Record<string, ExfilSummary> = {}
     for (const n of computeNodes) {
       initial[n.id] = {
@@ -193,7 +214,7 @@ export function PathExfilSummary({ systemName, path, onNodeClick }: PathExfilSum
     return () => {
       cancelled = true
     }
-  }, [systemName, computeNodes])
+  }, [systemName, computeNodes, externalSummaries])
 
   // Compose the narrative line. Wording stays defensible: "potential
   // exfil channel requiring review" — we observe outbound paths, we

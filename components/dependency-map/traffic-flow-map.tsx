@@ -184,6 +184,64 @@ function mapNodeType(type: string): NodeType {
 // ============================================
 // SERVICE NODE COMPONENT
 // ============================================
+// chunk #1.5: optional exfil-risk summary that compute nodes render
+// as a tier-coded chip in the bottom-right corner. Provided by the
+// attack-paths parent via TrafficFlowMap's exfilByWorkloadId prop.
+// Topology tab passes nothing → no behavior change there.
+export interface NodeExfilSummary {
+  tier: 'high' | 'medium' | 'low' | 'none';
+  unknown_ip: number;
+  internet: number;
+  cloud_service: number;
+  saas: number;
+  cross_system: number;
+  total_bytes_out: number;
+  strong_observations: number;
+}
+
+const EXFIL_CHIP_THEME: Record<NodeExfilSummary['tier'], { label: string; bg: string; border: string; text: string; ring: string; tooltip: string }> = {
+  high: {
+    label: 'HIGH',
+    bg: 'rgba(239,68,68,0.25)',
+    border: 'rgba(239,68,68,0.6)',
+    text: '#fecaca',
+    ring: 'shadow-[0_0_0_2px_rgba(239,68,68,0.35)]',
+    tooltip: 'High exfil risk — heavy unknown-IP traffic and/or strong observation. Click the node to see the External Egress Inventory for this workload.',
+  },
+  medium: {
+    label: 'MED',
+    bg: 'rgba(245,158,11,0.22)',
+    border: 'rgba(245,158,11,0.55)',
+    text: '#fde68a',
+    ring: '',
+    tooltip: 'Moderate exfil risk — internet/SaaS activity needs review.',
+  },
+  low: {
+    label: 'LOW',
+    bg: 'rgba(148,163,184,0.22)',
+    border: 'rgba(148,163,184,0.45)',
+    text: '#e2e8f0',
+    ring: '',
+    tooltip: 'Low exfil risk — mostly cloud-service traffic (expected AWS endpoints).',
+  },
+  none: {
+    label: 'NONE',
+    bg: 'rgba(71,85,105,0.18)',
+    border: 'rgba(71,85,105,0.4)',
+    text: '#94a3b8',
+    ring: '',
+    tooltip: 'No external egress observed.',
+  },
+};
+
+function formatBytesShort(n: number): string {
+  if (!n) return '0 B';
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}MB`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}KB`;
+  return `${n}B`;
+}
+
 export function ServiceNodeBox({
   node,
   position,
@@ -191,6 +249,7 @@ export function ServiceNodeBox({
   isHighlighted,
   onHover,
   onClick,
+  exfilSummary,
 }: {
   node: ServiceNode;
   position: 'left' | 'right';
@@ -198,6 +257,7 @@ export function ServiceNodeBox({
   isHighlighted: boolean;
   onHover: (id: string | null) => void;
   onClick?: () => void;
+  exfilSummary?: NodeExfilSummary | null;
 }) {
   const config = NODE_CONFIG[node.type] || NODE_CONFIG.compute;
   const Icon = config.icon;
@@ -230,6 +290,43 @@ export function ServiceNodeBox({
           <span className="text-[10px] font-bold text-white">{formatBytes(flowInfo.bytes)}</span>
         </div>
       )}
+
+      {/* Exfil chip — chunk #1.5. Renders on compute nodes when the
+          attack-paths parent has supplied a per-workload summary.
+          Topology tab passes nothing, so this chip is suppressed
+          there. The chip is the operator's at-a-glance signal for
+          "this workload talks to the outside world". */}
+      {exfilSummary && exfilSummary.tier !== 'none' && (() => {
+        const theme = EXFIL_CHIP_THEME[exfilSummary.tier];
+        const totalExt =
+          exfilSummary.unknown_ip +
+          exfilSummary.internet +
+          exfilSummary.saas +
+          exfilSummary.cross_system +
+          exfilSummary.cloud_service;
+        return (
+          <div
+            className={`absolute -bottom-2 -right-2 flex items-center gap-1 px-2 py-0.5 rounded-full border shadow-lg ${theme.ring}`}
+            style={{ background: theme.bg, borderColor: theme.border }}
+            title={`${theme.tooltip}\n\nExternal destinations: ${totalExt.toLocaleString()}\nUnknown IPs: ${exfilSummary.unknown_ip.toLocaleString()}\nBytes out (30d): ${formatBytesShort(exfilSummary.total_bytes_out)}`}
+          >
+            <span
+              className="text-[8px] font-bold tracking-wider uppercase"
+              style={{ color: theme.text }}
+            >
+              ↗ {theme.label}
+            </span>
+            <span className="text-[9px] font-semibold text-white">
+              {totalExt.toLocaleString()}
+            </span>
+            {exfilSummary.unknown_ip > 0 && (
+              <span className="text-[9px] font-semibold text-red-200">
+                · {exfilSummary.unknown_ip.toLocaleString()}?
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Connection point */}
       <div className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-colors
@@ -2103,6 +2200,7 @@ function UnifiedArchitectureDiagram({
                     isHighlighted={isNodeHighlighted(node.id)}
                     onHover={setHoveredId}
                     onClick={() => onSelectService(node, 'compute')}
+                    exfilSummary={exfilByWorkloadId?.[node.id] ?? (node.instanceId ? exfilByWorkloadId?.[node.instanceId] : undefined)}
                   />
                 </div>
               );
@@ -2790,7 +2888,20 @@ export type OnPathNodeAction = (
   },
 ) => void;
 
-export default function TrafficFlowMap({ systemName, pathFilter, onPathNodeAction }: { systemName: string; pathFilter?: TrafficFlowMapPathFilter; onPathNodeAction?: OnPathNodeAction }) {
+export default function TrafficFlowMap({
+  systemName,
+  pathFilter,
+  onPathNodeAction,
+  exfilByWorkloadId,
+}: {
+  systemName: string;
+  pathFilter?: TrafficFlowMapPathFilter;
+  onPathNodeAction?: OnPathNodeAction;
+  // chunk #1.5: optional per-workload exfil-risk map keyed by node.id.
+  // Provided by the attack-paths parent; the Topology tab does not
+  // pass this, so the chip is suppressed there.
+  exfilByWorkloadId?: Record<string, NodeExfilSummary>;
+}) {
   // rawArchitecture holds the unfiltered architecture from the most
   // recent fetch. We derive the displayed `architecture` from it (with
   // pathFilter applied if set) via useMemo, so switching attack paths

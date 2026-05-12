@@ -467,6 +467,86 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
 
   const currentPathPreReturn = jewelPaths?.[selectedPathIndex] ?? null
 
+  // chunk #1.5: per-workload exfil-risk summaries for the current
+  // path's compute nodes. Lifted into the parent so both the strip
+  // (PathExfilSummary, rendered above the graph) and the Path Flow
+  // Map (TrafficFlowMap, decorating each compute node with a chip)
+  // consume the same data without double-fetching. Refetches when
+  // the selected path changes.
+  const [pathExfilSummaries, setPathExfilSummaries] = useState<
+    Record<
+      string,
+      {
+        tier: "high" | "medium" | "low" | "none"
+        score: number
+        total_bytes_out: number
+        unknown_ip: number
+        internet: number
+        cloud_service: number
+        saas: number
+        cross_system: number
+        strong_observations: number
+      }
+    >
+  >({})
+
+  useEffect(() => {
+    if (!systemName || !currentPathPreReturn) {
+      setPathExfilSummaries({})
+      return
+    }
+    const nodes = currentPathPreReturn.nodes ?? []
+    const isCompute = (n: any) => {
+      if (n?.tier === "compute") return true
+      const t = (n?.type ?? "").toLowerCase()
+      return (
+        t.includes("ec2") ||
+        t.includes("lambda") ||
+        t.includes("ecs") ||
+        t.includes("eks") ||
+        t.includes("fargate") ||
+        t === "compute"
+      )
+    }
+    const seen = new Set<string>()
+    const targets: Array<{ id: string }> = []
+    for (const n of nodes) {
+      if (!isCompute(n) || !n.id || seen.has(n.id)) continue
+      seen.add(n.id)
+      targets.push({ id: n.id })
+    }
+    if (targets.length === 0) {
+      setPathExfilSummaries({})
+      return
+    }
+    let cancelled = false
+    Promise.all(
+      targets.map(async (t) => {
+        try {
+          const url = `/api/proxy/egress/system/${encodeURIComponent(
+            systemName,
+          )}/external-inventory?workload_id=${encodeURIComponent(t.id)}&summary=true`
+          const res = await fetch(url, { cache: "no-store" })
+          if (!res.ok) return null
+          const j = await res.json()
+          return { id: t.id, risk: j.exfil_risk }
+        } catch {
+          return null
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return
+      const next: Record<string, any> = {}
+      for (const r of results) {
+        if (r?.risk) next[r.id] = r.risk
+      }
+      setPathExfilSummaries(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [systemName, currentPathPreReturn])
+
   // Stable filter object for TrafficFlowMap — without this the inline
   // pathFilter prop changes identity on every render and TrafficFlowMap's
   // loadData useEffect refetches in a tight loop. Must be declared BEFORE
@@ -897,6 +977,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
             <PathExfilSummary
               systemName={systemName}
               path={currentPath}
+              externalSummaries={pathExfilSummaries}
               onNodeClick={(workloadId) => {
                 // Reuse the existing node-click flow so the operator
                 // lands in the node detail panel for the workload,
@@ -987,6 +1068,7 @@ export function IdentityAttackPaths({ systemName }: IdentityAttackPathsProps) {
                     <TrafficFlowMap
                       systemName={systemName}
                       pathFilter={trafficFlowPathFilter}
+                      exfilByWorkloadId={pathExfilSummaries}
                       onPathNodeAction={(kind, node) => {
                         // Route per-node clicks on the Path Flow Map to
                         // the right remediation modal instead of the
